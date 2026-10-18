@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "project-fixture-empty",
+  "name": "Empty sample project",
+  "createdAt": "2026-10-18T12:00:00.000Z",
+  "updatedAt": "2026-10-18T12:00:00.000Z",
+  "settings": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "backgroundColor": "#101319"
+  },
+  "assets": [],
+  "tracks": [
+    {
+      "id": "track-video-main",
+      "type": "video",
+      "name": "Video 1",
+      "order": 0
+    }
+  ],
+  "clips": [],
+  "scenes": []
+}
