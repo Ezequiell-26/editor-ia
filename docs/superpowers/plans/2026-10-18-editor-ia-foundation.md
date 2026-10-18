@@ -61,21 +61,23 @@
 - [ ] **Step 1: Add package metadata and minimal workspace manifests.** Set Node engine to `>=22`, npm workspaces to the three packages above, Rust toolchain to stable, and all package names to the exact scope above. Add scripts so each command has one clear owner; `verify` invokes typecheck, tests and build without recursive workspace calls.
 - [ ] **Step 2: Configure ignore rules and licensing.** Ignore `node_modules`, Rust `target`, Vite build output, generated render cache, logs, local environment files and credentials. Add an MIT license for the new application source, plus `SECURITY.md` stating how to report vulnerabilities and prohibiting credentials in issues. Do not imply that third-party dependencies, stock media or Remotion are automatically covered by this license.
 - [ ] **Step 3: Add the initial README.** Link to the product spec, list currently supported commands, mark rendering/AI integration as not yet implemented, and document Node.js 22+, Rust stable and Windows prerequisites.
-- [ ] **Step 4: Generate the lockfile and validate workspace wiring.**
+- [ ] **Step 4: Generate and validate the npm lockfile.**
 
 Run: `npm install --package-lock-only --ignore-scripts`
 
-Expected: a root `package-lock.json` is generated consistently from all three workspace manifests.
-
-Run: `npm run verify`
-
-Expected: PASS after the scripts have been implemented by Tasks 2–5; at this task boundary, run the applicable metadata checks and ensure every script is defined.
+Expected: a root `package-lock.json` is generated consistently from all workspace manifests.
 
 - [ ] **Step 5: Validate Rust workspace metadata.**
 
 Run: `cargo metadata --no-deps --format-version 1`
 
 Expected: valid JSON with exactly the declared workspace member and no missing manifest errors.
+
+- [ ] **Step 6: Commit the bootstrap.**
+
+Run: `git add .gitignore .editorconfig .nvmrc LICENSE SECURITY.md README.md package.json package-lock.json tsconfig.base.json apps/desktop/package.json packages/project-schema/package.json apps/render-worker/package.json Cargo.toml rust-toolchain.toml apps/desktop/src-tauri/Cargo.toml && git commit -m "build: bootstrap Editor IA workspaces"`
+
+Expected: one commit containing only the bootstrap configuration and workspace manifests.
 
 ## Task 2: Define and test the canonical editable project format
 
@@ -111,6 +113,12 @@ Expected: all project-schema tests PASS.
 Run: `npm --workspace @editor-ia/project-schema run typecheck`
 
 Expected: PASS with strict TypeScript checks.
+
+- [ ] **Step 6: Commit the project contract.**
+
+Run: `git add packages/project-schema/tsconfig.json packages/project-schema/src/index.ts packages/project-schema/src/project.ts packages/project-schema/src/project.test.ts packages/project-schema/fixtures/empty-project.editoria.json && git commit -m "feat: define versioned editable project schema"`
+
+Expected: one commit containing the tested v1 project format.
 
 ## Task 3: Build the Windows desktop shell and initial product UI
 
@@ -156,6 +164,12 @@ Run: `npm --workspace @editor-ia/desktop run build`
 
 Expected: Vite emits production assets into `apps/desktop/dist`.
 
+- [ ] **Step 6: Commit the UI shell.**
+
+Run: `git add apps/desktop/index.html apps/desktop/vite.config.ts apps/desktop/tsconfig.json apps/desktop/src/main.tsx apps/desktop/src/App.tsx apps/desktop/src/app/navigation.ts apps/desktop/src/components/AppShell.tsx apps/desktop/src/components/Sidebar.tsx apps/desktop/src/features/projects/ProjectHome.tsx apps/desktop/src/features/editor/EditorWorkspace.tsx apps/desktop/src/features/assets/AssetsPanel.tsx apps/desktop/src/features/settings/SettingsHome.tsx apps/desktop/src/styles/tokens.css apps/desktop/src/styles/app.css apps/desktop/src/App.test.tsx && git commit -m "feat: add Editor IA desktop workspace shell"`
+
+Expected: one commit containing the smoke-tested UI.
+
 ## Task 4: Implement safe Rust project create/open/save commands
 
 **Files:**
@@ -165,6 +179,7 @@ Expected: Vite emits production assets into `apps/desktop/dist`.
 - Create: `apps/desktop/src-tauri/src/main.rs`
 - Create: `apps/desktop/src-tauri/src/lib.rs`
 - Create: `apps/desktop/src-tauri/src/commands/mod.rs`
+- Create: `apps/desktop/src-tauri/src/commands/projects.rs`
 - Create: `apps/desktop/src-tauri/src/projects/mod.rs`
 - Create: `apps/desktop/src-tauri/src/projects/service.rs`
 - Create: `apps/desktop/src-tauri/src/projects/storage.rs`
@@ -193,6 +208,12 @@ Expected: all project-storage tests PASS.
 Run: `cargo fmt --all -- --check`
 
 Expected: PASS.
+
+- [ ] **Step 6: Commit the project-file boundary.**
+
+Run: `git add apps/desktop/src-tauri/build.rs apps/desktop/src-tauri/tauri.conf.json apps/desktop/src-tauri/capabilities/default.json apps/desktop/src-tauri/src/main.rs apps/desktop/src-tauri/src/lib.rs apps/desktop/src-tauri/src/commands/mod.rs apps/desktop/src-tauri/src/commands/projects.rs apps/desktop/src-tauri/src/projects/mod.rs apps/desktop/src-tauri/src/projects/service.rs apps/desktop/src-tauri/src/projects/storage.rs apps/desktop/src-tauri/src/projects/tests.rs && git commit -m "feat: add safe Rust project persistence"`
+
+Expected: one commit containing the tested persistence commands.
 
 ## Task 5: Define the render-worker protocol and truthful capability discovery
 
@@ -227,12 +248,17 @@ Run: `npm --workspace @editor-ia/render-worker run build`
 
 Expected: worker CLI compiles.
 
+- [ ] **Step 5: Commit the renderer boundary.**
+
+Run: `git add apps/render-worker/tsconfig.json apps/render-worker/src/protocol.ts apps/render-worker/src/capabilities.ts apps/render-worker/src/index.ts apps/render-worker/src/protocol.test.ts && git commit -m "feat: define safe render worker protocol"`
+
+Expected: one commit containing the worker contract and truthful capability discovery.
+
 ## Task 6: Connect project UI to the Rust boundary
 
 **Files:**
 - Create: `apps/desktop/src/services/project-service.ts`
 - Create: `apps/desktop/src/features/projects/ProjectHome.test.tsx`
-- Create: `apps/desktop/src-tauri/src/commands/projects.rs` (only if commands are separated from the module in Task 4)
 
 **Interfaces:**
 - UI calls typed methods `createProject`, `openProject` and `saveProject`.
@@ -257,6 +283,12 @@ Expected: all UI and project-flow tests PASS.
 Run: `npm run typecheck`
 
 Expected: PASS across all workspace TypeScript packages.
+
+- [ ] **Step 5: Commit the initial project flow.**
+
+Run: `git add apps/desktop/src/services/project-service.ts apps/desktop/src/features/projects/ProjectHome.test.tsx && git commit -m "feat: connect project home to native storage"`
+
+Expected: one commit containing the tested create/open/save UI flow.
 
 ## Task 7: Add CI and Windows packaging gates
 
@@ -288,6 +320,12 @@ Expected: PASS.
 Run: GitHub Actions `verify.yml` and `windows-package.yml`.
 
 Expected: successful checks and a non-expired Windows installer artifact tied to the exact commit.
+
+- [ ] **Step 5: Commit CI and release automation.**
+
+Run: `git add .github/workflows/verify.yml .github/workflows/windows-package.yml scripts/verify.ps1 scripts/package-windows.ps1 README.md && git commit -m "ci: verify and package Editor IA on Windows"`
+
+Expected: one commit with reproducible CI and an installer artifact workflow.
 
 ## Handoff boundary
 
