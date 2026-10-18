@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Editor IA",
+  "version": "0.1.0",
+  "identifier": "com.editoria.desktop",
+  "build": {
+    "beforeDevCommand": {
+      "script": "npm run dev --workspace @editor-ia/desktop",
+      "cwd": "../../..",
+      "wait": true
+    },
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": {
+      "script": "npm run build --workspace @editor-ia/desktop",
+      "cwd": "../../..",
+      "wait": false
+    },
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Editor IA",
+        "width": 1360,
+        "height": 850,
+        "minWidth": 1000,
+        "minHeight": 650
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:*"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "category": "Video",
+    "shortDescription": "Editor de contenido asistido por IA",
+    "longDescription": "Editor IA prepara proyectos de contenido, guiones, recursos, subtítulos y gráficos con asistencia de inteligencia artificial."
+  }
+}
