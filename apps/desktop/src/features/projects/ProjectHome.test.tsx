@@ -41,6 +41,7 @@ describe("ProjectHome project flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Abrir existente/i }));
     const nameInput = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
     fireEvent.change(nameInput, { target: { value: "Changed title" } });
+    expect(screen.getByDisplayValue("Changed title")).toBeTruthy();
     const saveButton = screen.getByRole("button", { name: "Guardar" });
     expect(saveButton).toBeEnabled();
     fireEvent.click(saveButton);
