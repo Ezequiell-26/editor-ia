@@ -27,6 +27,12 @@ export const RenderRequestSchema = z.object({
   if (path.normalize(request.projectPath).toLowerCase() === path.normalize(request.outputPath).toLowerCase()) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["outputPath"], message: "Output path must not overwrite the project file" });
   }
+  if (!request.projectPath.toLowerCase().endsWith(".editoria.json")) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["projectPath"], message: "Project path must end with .editoria.json" });
+  }
+  if (!request.outputPath.toLowerCase().endsWith(".mp4")) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["outputPath"], message: "Output path must end with .mp4" });
+  }
   if (request.projectPath.toLowerCase().endsWith(".mp4")) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["projectPath"], message: "Project path must not be an MP4 output" });
   }

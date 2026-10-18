@@ -22,6 +22,17 @@ function validProject() {
   };
 }
 
+const invalidMutations: Array<[string, (project: Record<string, any>) => void]> = [
+  ["unsupported schema version", (p) => { p.schemaVersion = 2; }],
+  ["empty project name", (p) => { p.name = "   "; }],
+  ["zero width", (p) => { p.settings.width = 0; }],
+  ["negative height", (p) => { p.settings.height = -10; }],
+  ["invalid frame rate", (p) => { p.settings.fps = 0; }],
+  ["negative start frame", (p) => { p.clips[0].startFrame = -1; }],
+  ["zero clip duration", (p) => { p.clips[0].durationFrames = 0; }],
+  ["credential-like field", (p) => { p.apiKey = "do-not-accept"; }],
+];
+
 describe("ProjectDocumentSchema", () => {
   it("accepts a valid versioned editable project", () => {
     const parsed = ProjectDocumentSchema.parse(validProject());
@@ -35,16 +46,7 @@ describe("ProjectDocumentSchema", () => {
     expect(project.assets).toEqual([]);
   });
 
-  it.each([
-    ["unsupported schema version", (p: Record<string, any>) => { p.schemaVersion = 2; }],
-    ["empty project name", (p: Record<string, any>) => { p.name = "   "; }],
-    ["zero width", (p: Record<string, any>) => { p.settings.width = 0; }],
-    ["negative height", (p: Record<string, any>) => { p.settings.height = -10; }],
-    ["invalid frame rate", (p: Record<string, any>) => { p.settings.fps = 0; }],
-    ["negative start frame", (p: Record<string, any>) => { p.clips[0].startFrame = -1; }],
-    ["zero clip duration", (p: Record<string, any>) => { p.clips[0].durationFrames = 0; }],
-    ["credential-like field", (p: Record<string, any>) => { p.apiKey = "do-not-accept"; }],
-  ])("rejects %s", (_label, mutate) => {
+  it.each(invalidMutations)("rejects %s", (_label, mutate) => {
     const project = structuredClone(validProject()) as Record<string, any>;
     mutate(project);
     expect(ProjectDocumentSchema.safeParse(project).success).toBe(false);

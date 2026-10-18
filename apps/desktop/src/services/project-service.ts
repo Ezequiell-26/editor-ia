@@ -17,7 +17,9 @@ function requireNativeRuntime(): void {
 }
 
 function safeFileStem(name: string): string {
-  const stem = name.normalize("NFKC").replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/[. ]+$/g, "").trim();
+  const stem = name.normalize("NFKC").split("").map((character) =>
+    '<>:"/\\|?*'.includes(character) || character.charCodeAt(0) < 32 ? "-" : character
+  ).join("").replace(/[. ]+$/g, "").trim();
   return stem.slice(0, 120) || "Nuevo proyecto";
 }
 

@@ -28,7 +28,7 @@ npm run tauri:dev
 npm run tauri:build
 ```
 
-Use `npm install` to resolve and install the workspace dependencies. The project will pin the generated package lockfile once it can be generated and checked in a network-enabled, reproducible environment; do not hand-author a fake lockfile.
+Use `npm install` to resolve and install the workspace dependencies. A lockfile is intentionally not hand-authored; a resolved, reviewed `package-lock.json` remains required before a reproducible public release.
 
 ## Architecture
 
