@@ -141,7 +141,9 @@ pub fn validate_project(project: &ProjectDocument) -> Result<(), String> {
 
     let mut ids = HashSet::new();
     for id in project
-        .assets.iter().map(|item| item.id.as_str())
+        .assets
+        .iter()
+        .map(|item| item.id.as_str())
         .chain(project.tracks.iter().map(|item| item.id.as_str()))
         .chain(project.clips.iter().map(|item| item.id.as_str()))
         .chain(project.scenes.iter().map(|item| item.id.as_str()))
@@ -151,13 +153,24 @@ pub fn validate_project(project: &ProjectDocument) -> Result<(), String> {
         }
     }
 
-    let asset_ids: HashSet<&str> = project.assets.iter().map(|asset| asset.id.as_str()).collect();
-    let track_ids: HashSet<&str> = project.tracks.iter().map(|track| track.id.as_str()).collect();
+    let asset_ids: HashSet<&str> = project
+        .assets
+        .iter()
+        .map(|asset| asset.id.as_str())
+        .collect();
+    let track_ids: HashSet<&str> = project
+        .tracks
+        .iter()
+        .map(|track| track.id.as_str())
+        .collect();
     let clip_ids: HashSet<&str> = project.clips.iter().map(|clip| clip.id.as_str()).collect();
 
     for asset in &project.assets {
         if !is_safe_relative_uri(&asset.uri) {
-            return Err(format!("Asset URI must stay inside the project root: {}", asset.uri));
+            return Err(format!(
+                "Asset URI must stay inside the project root: {}",
+                asset.uri
+            ));
         }
         if let Some(hash) = &asset.sha256 {
             if hash.len() != 64 || !hash.chars().all(|ch| ch.is_ascii_hexdigit()) {
@@ -167,10 +180,16 @@ pub fn validate_project(project: &ProjectDocument) -> Result<(), String> {
     }
     for clip in &project.clips {
         if !asset_ids.contains(clip.asset_id.as_str()) {
-            return Err(format!("Clip {} references missing asset {}.", clip.id, clip.asset_id));
+            return Err(format!(
+                "Clip {} references missing asset {}.",
+                clip.id, clip.asset_id
+            ));
         }
         if !track_ids.contains(clip.track_id.as_str()) {
-            return Err(format!("Clip {} references missing track {}.", clip.id, clip.track_id));
+            return Err(format!(
+                "Clip {} references missing track {}.",
+                clip.id, clip.track_id
+            ));
         }
         if clip.duration_frames == 0 {
             return Err(format!("Clip {} must have a positive duration.", clip.id));
@@ -183,9 +202,16 @@ pub fn validate_project(project: &ProjectDocument) -> Result<(), String> {
     }
     for scene in &project.scenes {
         if scene.title.trim().is_empty() || scene.duration_frames == 0 {
-            return Err(format!("Scene {} must have a title and positive duration.", scene.id));
+            return Err(format!(
+                "Scene {} must have a title and positive duration.",
+                scene.id
+            ));
         }
-        if scene.clip_ids.iter().any(|id| !clip_ids.contains(id.as_str())) {
+        if scene
+            .clip_ids
+            .iter()
+            .any(|id| !clip_ids.contains(id.as_str()))
+        {
             return Err(format!("Scene {} references a missing clip.", scene.id));
         }
     }
@@ -199,6 +225,11 @@ pub fn is_safe_relative_uri(uri: &str) -> bool {
     let path = Path::new(uri);
     !path.is_absolute()
         && path.components().all(|part| {
-            !matches!(part, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_))
+            !matches!(
+                part,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
         })
 }
