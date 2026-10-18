@@ -1,7 +1,8 @@
 # Editor IA
 
 Editor de video local-first con asistencia de IA, para Windows. **Todavía está en
-fase de fundación**: existe el contrato de datos y el esqueleto de build, no la app.
+fase de fundación**: existe el contrato de datos, el esqueleto de build y una UI que
+navega cuatro vistas vacías; no existe la edición, el guardado ni el render.
 
 ## Qué existe hoy (verificado)
 
@@ -15,13 +16,17 @@ fase de fundación**: existe el contrato de datos y el esqueleto de build, no la
 - **Loop de construcción automatizado** ([docs/automation/BUILD-LOOP.md](docs/automation/BUILD-LOOP.md)),
   con ledger en `.editoria-loop/LEDGER.json`, preflight con guardas de RAM/lock y
   cierre obligatorio contra `npm run verify`.
+- **Shell de escritorio React** en [`apps/desktop`](apps/desktop): barra lateral con
+  Projects, Editor, Assets y Settings; timeline, preview e inspector **visiblemente
+  vacíos**. La UI navega y está probada (smoke test Vitest + jsdom); no edita, no guarda
+  y no renderiza.
 - **Documentos de producto y arquitectura**:
   [PRODUCT-SPEC.md](docs/product/PRODUCT-SPEC.md), PROJECT-FORMAT.md, BUILD-LOOP.md.
 
 ## Qué todavía no existe
 
-- **UI**: no hay shell React, ni Projects/Editor/Assets/Settings visibles (tarea 3).
-- **Edición ni guardado nativo**: `create`/`open`/`save` en Rust no están (tarea 4).
+- **Edición ni guardado nativo**: `create`/`open`/`save` en Rust no están (tarea 4). El shell
+  no tiene botones porque no hay nada que esos botones puedan hacer todavía.
 - **Render**: no hay worker, ni FFmpeg, ni Remotion integrados. Ningún resultado de
   render se produce ni se reporta (tarea 5).
 - **IA**: no hay proveedores, ni generación, ni integración de modelos.
@@ -29,8 +34,10 @@ fase de fundación**: existe el contrato de datos y el esqueleto de build, no la
 - **Almacén de credenciales**: no implementado; hoy solo se garantiza que el formato
   de proyecto **no** las acepta (ver [SECURITY.md](SECURITY.md)).
 
-No hay comandos `dev`, `build`, `tauri:dev` ni `tauri:build`: se agregan con la UI y
-el empaquetado, no antes.
+`dev` y `build` existen solo dentro del workspace de escritorio
+(`npm --workspace @editor-ia/desktop run dev` levanta Vite en `:5173`; `run build` emite
+`apps/desktop/dist`). No hay `tauri:dev` ni `tauri:build`: el crate todavía no tiene comandos
+ni ventana nativa (tarea 4).
 
 ## Requisitos medidos
 
@@ -50,8 +57,8 @@ el empaquetado, no antes.
 | Comando | Qué hace |
 | --- | --- |
 | `npm run verify` | typecheck + todos los tests. Es la puerta de cierre del loop. |
-| `npm run typecheck` | `tsc --noEmit` sobre `packages/project-schema`. |
-| `npm run test` | suite Vitest (esquema de proyecto + contrato del workspace Rust + docs). |
+| `npm run typecheck` | `tsc --noEmit` sobre `packages/project-schema` y `apps/desktop`, ambos en estricto. |
+| `npm run test` | suite Vitest (esquema de proyecto + shell de escritorio + contrato del workspace Rust + docs). |
 | `npm run schema:generate` | regenera `packages/project-schema/schema/project-document.v1.schema.json`. |
 | `npm run fixtures:write` | regenera los fixtures `.editoria.json` de prueba. |
 | `npm run loop:preflight` | decide la próxima tarea del ledger o por qué la pasada se saltea. |

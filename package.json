@@ -1,0 +1,29 @@
+{
+  "name": "editor-ia",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-first AI-assisted video editor for Windows. Foundation phase: project format only.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/desktop"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p packages/project-schema/tsconfig.json && tsc --noEmit -p apps/desktop/tsconfig.json",
+    "fixtures:write": "node --experimental-strip-types packages/project-schema/scripts/write-fixtures.ts",
+    "schema:generate": "node --experimental-strip-types packages/project-schema/scripts/generate-json-schema.ts",
+    "loop:preflight": "node scripts/loop-preflight.mjs",
+    "loop:record": "node scripts/loop-record.mjs",
+    "verify": "npm run typecheck && npm run test"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8",
+    "zod-to-json-schema": "^3.24.1"
+  }
+}

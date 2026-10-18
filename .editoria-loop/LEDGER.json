@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T22:41:26.032Z"
+    "lastPassAt": "2026-10-18T23:00:22.388Z"
   },
   "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -77,10 +77,33 @@
       "id": "3",
       "plan": "Task 3",
       "title": "Shell de escritorio React con Projects/Editor/Assets/Settings visibles y vacios",
-      "status": "pending",
+      "status": "done",
       "acceptance": "Test de humo en Vitest+jsdom; nada sugiere que editar o renderizar funciona; legible en 1280x720.",
       "dependsOn": [
         "doc"
+      ],
+      "doneAt": "2026-10-18T23:00:22.388Z",
+      "evidence": "verify en verde sobre: apps/desktop/package.json, apps/desktop/index.html, apps/desktop/vite.config.ts, apps/desktop/tsconfig.json, apps/desktop/src/main.tsx, apps/desktop/src/App.tsx, apps/desktop/src/App.test.tsx, apps/desktop/src/app/navigation.ts, apps/desktop/src/components/AppShell.tsx, apps/desktop/src/components/Sidebar.tsx, apps/desktop/src/features/projects/ProjectHome.tsx, apps/desktop/src/features/editor/EditorWorkspace.tsx, apps/desktop/src/features/assets/AssetsPanel.tsx, apps/desktop/src/features/settings/SettingsHome.tsx, apps/desktop/src/styles/tokens.css, apps/desktop/src/styles/app.css, package.json, package-lock.json, README.md",
+      "files": [
+        "apps/desktop/package.json",
+        "apps/desktop/index.html",
+        "apps/desktop/vite.config.ts",
+        "apps/desktop/tsconfig.json",
+        "apps/desktop/src/main.tsx",
+        "apps/desktop/src/App.tsx",
+        "apps/desktop/src/App.test.tsx",
+        "apps/desktop/src/app/navigation.ts",
+        "apps/desktop/src/components/AppShell.tsx",
+        "apps/desktop/src/components/Sidebar.tsx",
+        "apps/desktop/src/features/projects/ProjectHome.tsx",
+        "apps/desktop/src/features/editor/EditorWorkspace.tsx",
+        "apps/desktop/src/features/assets/AssetsPanel.tsx",
+        "apps/desktop/src/features/settings/SettingsHome.tsx",
+        "apps/desktop/src/styles/tokens.css",
+        "apps/desktop/src/styles/app.css",
+        "package.json",
+        "package-lock.json",
+        "README.md"
       ]
     },
     {
@@ -128,6 +151,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-10-18T23:00:22.388Z",
+      "taskId": "3",
+      "status": "done",
+      "note": "Shell React 19 del workspace @editor-ia/desktop con 4 vistas navegables y estados vacios honestos. Test primero: App.test.tsx (7) dio RED por 'Failed to resolve import ./App' y GREEN tras implementar. Se mutaron tokens.css (--color-text-muted a #333a44) y app.css (min-width 1440px) para comprobar que los 2 tests de contrato CSS muerden: fallaron los 2 y se revirtio. Evidencia real: npm run typecheck (tsc estricto sobre project-schema + desktop) limpio; npm --workspace @editor-ia/desktop run build -> vite 5.4.21, 42 modulos, dist con index.html + css 3.73 kB + js 226.89 kB; npm run verify -> 253 tests (228 esquema + 12 docs + 6 rust + 7 shell). Verificacion en navegador real (chrome-devtools, build de produccion servido por vite preview en :4173): viewport 1280x637 (mas estricto que 720 por el chrome de ventana), scrollWidth 1280 == clientWidth 1280 sin overflow horizontal en las 4 vistas, sidebar 200px por el media query <=1280, paneles Editor medidos (Preview 600x168, Inspector 428x168, Timeline 1040x140, todos dentro del viewport), 0 botones y 0 campos de formulario dentro de main en las 4 vistas, fuente 14px/1.55 Segoe UI. Doble espacio sospechado en 'archivo .editoria.json' se midio en el DOM: no existe, es el advance de la fuente mono. README actualizado porque el cambio dejaba falsa su linea 'no hay shell React'; se mantienen verdes los 12 tests de docs. Queda: nada de esto edita, guarda ni renderiza (tareas 4, 5, 6).",
+      "remedy": null,
+      "verifyRan": true
+    },
     {
       "at": "2026-10-18T22:41:26.032Z",
       "taskId": "doc",

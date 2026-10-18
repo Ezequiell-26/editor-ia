@@ -1,0 +1,232 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: 100%;
+  min-height: 100dvh;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.brand {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.brand-note {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+.app-body {
+  display: grid;
+  grid-template-columns: minmax(var(--sidebar-min), var(--sidebar-max)) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.sidebar {
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+.sidebar ul {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sidebar button {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar button:hover {
+  color: var(--color-text);
+  background: var(--color-panel);
+}
+
+.sidebar button[aria-current='page'] {
+  color: var(--color-text);
+  background: var(--color-panel);
+  border-color: var(--color-border);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.content {
+  min-width: 0;
+  padding: var(--space-5);
+  overflow: auto;
+}
+
+.view {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 1040px;
+}
+
+.view h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.view h3 {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.view-summary {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.empty-state {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+}
+
+.pending-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--color-text-muted);
+}
+
+.pending-list li {
+  margin-block: var(--space-1);
+}
+
+code {
+  font-family: 'Cascadia Mono', ui-monospace, monospace;
+  font-size: var(--text-sm);
+}
+
+.editor-panels {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  grid-auto-rows: minmax(0, auto);
+}
+
+.panel {
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-surface);
+}
+
+.panel.preview {
+  min-height: 216px;
+}
+
+.panel.timeline {
+  grid-column: 1 / -1;
+  min-height: 140px;
+}
+
+@media (max-width: 1280px) {
+  :root {
+    --sidebar-min: 152px;
+    --sidebar-max: 200px;
+    --text-base: 14px;
+    --space-5: 20px;
+  }
+
+  .editor-panels {
+    grid-template-columns: minmax(0, 1.4fr) minmax(200px, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  .app-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .sidebar ul {
+    grid-auto-flow: column;
+    overflow-x: auto;
+  }
+
+  .editor-panels {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 760px) {
+  .topbar {
+    padding: var(--space-2) var(--space-4);
+  }
+
+  .content {
+    padding: var(--space-4);
+  }
+
+  .panel.preview {
+    min-height: 168px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar button {
+    transition: none;
+  }
+}
