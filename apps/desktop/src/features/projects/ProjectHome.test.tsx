@@ -39,7 +39,9 @@ describe("ProjectHome project flow", () => {
     const service = createService({ save: vi.fn(async () => { throw new Error("Disk full"); }) });
     render(<App projectService={service} />);
     fireEvent.click(screen.getByRole("button", { name: /Abrir existente/i }));
-    const nameInput = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
+    // Wait for the async navigation to finish; ProjectHome also has a textbox with this label.
+    expect(await screen.findByDisplayValue("Demo")).toBeTruthy();
+    const nameInput = screen.getByRole("textbox", { name: "Nombre del proyecto" });
     fireEvent.change(nameInput, { target: { value: "Changed title" } });
     expect(screen.getByDisplayValue("Changed title")).toBeTruthy();
     const saveButton = screen.getByRole("button", { name: "Guardar" });
