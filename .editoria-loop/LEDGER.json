@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 1,
+  "loop": {
+    "name": "editor-ia-build-loop",
+    "cadenceMinutes": 20,
+    "oneItemPerPass": true,
+    "expiresAt": null,
+    "consecutiveFailures": 0,
+    "maxConsecutiveFailures": 2,
+    "lastPassAt": "2026-10-18T22:33:56.032Z"
+  },
+  "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
+  "environment": {
+    "repo": "D:\\Users\\ofici\\QODER-WORK\\editor-ia",
+    "node": "24.14.0",
+    "rustHost": "x86_64-pc-windows-msvc",
+    "linkerMsvc": "presente: C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools MSVC 14.44.35207 (link.exe y lib/x64/msvcrt.lib verificados)",
+    "linkerProbe": "rustc --edition 2021 probe.rs -> probe.exe ejecuto y printeo 'link ok' el 2026-10-18",
+    "rustCommandPrefix": "node scripts/rust-env.mjs --",
+    "linkerGnu": "presente (C:\\ProgramData\\mingw64), sin usar",
+    "ramGb": 13.9,
+    "note": "cargo y rustc solo funcionan con LIB/INCLUDE/PATH exportados; sin eso el link falla con LNK1104 sobre msvcrt.lib. scripts/rust-env.mjs lo resuelve y debe ser el unico camino para invocar Rust."
+  },
+  "tasks": [
+    {
+      "id": "1a",
+      "plan": "Task 1 (parcial)",
+      "title": "Workspaces npm, tsconfig base, ignore y lockfile",
+      "status": "done",
+      "doneAt": "2026-10-18T19:05:00-03:00",
+      "evidence": "npm run verify -> 228 tests, tsc --noEmit limpio"
+    },
+    {
+      "id": "2",
+      "plan": "Task 2",
+      "title": "Formato canónico de proyecto versionado (Zod + fixtures + JSON Schema)",
+      "status": "done",
+      "doneAt": "2026-10-18T19:16:00-03:00",
+      "evidence": "packages/project-schema: 12 modulos, 11 archivos de test, schema/project-document.v1.schema.json regenerado, 4 fixtures"
+    },
+    {
+      "id": "1b",
+      "plan": "Task 1 (parcial)",
+      "title": "Workspace Cargo, rust-toolchain.toml y src-tauri/main.rs validado",
+      "status": "done",
+      "unblockedAt": "2026-10-18T22:35:00-03:00",
+      "correction": "Se habia marcado blocked por una medicion mala (find con maxdepth corto y ls truncado). El linker existe y rustc linkea con el entorno de rust-env.mjs.",
+      "acceptance": "cargo metadata resuelve el workspace; cargo check pasa via node scripts/rust-env.mjs --; rust-toolchain.toml fija canal estable.",
+      "commandPrefix": "node scripts/rust-env.mjs --",
+      "doneAt": "2026-10-18T22:33:56.032Z",
+      "evidence": "verify en verde sobre: Cargo.toml, rust-toolchain.toml, apps/desktop/src-tauri/Cargo.toml, apps/desktop/src-tauri/src/main.rs, scripts/rust-workspace.test.mjs",
+      "files": [
+        "Cargo.toml",
+        "rust-toolchain.toml",
+        "apps/desktop/src-tauri/Cargo.toml",
+        "apps/desktop/src-tauri/src/main.rs",
+        "scripts/rust-workspace.test.mjs"
+      ]
+    },
+    {
+      "id": "doc",
+      "plan": "Task 1 (restante)",
+      "title": "README, LICENSE, SECURITY.md y .gitattributes",
+      "status": "pending",
+      "acceptance": "README dice que existe hoy y que no; LICENSE elegida y declarada; SECURITY.md cubre el almacen de credenciales y el gate de licencias."
+    },
+    {
+      "id": "3",
+      "plan": "Task 3",
+      "title": "Shell de escritorio React con Projects/Editor/Assets/Settings visibles y vacios",
+      "status": "pending",
+      "acceptance": "Test de humo en Vitest+jsdom; nada sugiere que editar o renderizar funciona; legible en 1280x720.",
+      "dependsOn": [
+        "doc"
+      ]
+    },
+    {
+      "id": "5",
+      "plan": "Task 5",
+      "title": "Protocolo del render-worker y descubrimiento honesto de capacidades",
+      "status": "pending",
+      "acceptance": "RenderResult solo entrega outputPath con status completed verificado; ffmpeg ausente reporta unsupported, nunca completado.",
+      "dependsOn": [
+        "3"
+      ]
+    },
+    {
+      "id": "6",
+      "plan": "Task 6",
+      "title": "UI conectada al borde de proyecto (create/open/save tipado)",
+      "status": "pending",
+      "acceptance": "Estados idle|loading|dirty|saving|saved|failed visibles; adapter de test en navegador; sin rutas absolutas filtradas al usuario.",
+      "dependsOn": [
+        "3"
+      ]
+    },
+    {
+      "id": "4",
+      "plan": "Task 4",
+      "title": "Comandos Rust create/open/save con escritura atomica y validacion",
+      "status": "pending",
+      "unblockedAt": "2026-10-18T22:35:00-03:00",
+      "acceptance": "Tests del crate en verde via node scripts/rust-env.mjs -- cargo test; rechaza version desconocida, JSON roto y rutas que escapan la raiz; escribe por temporal + rename; espeja las 11 reglas de integridad de docs/architecture/PROJECT-FORMAT.md seccion 6.",
+      "dependsOn": [
+        "1b"
+      ]
+    },
+    {
+      "id": "7",
+      "plan": "Task 7",
+      "title": "CI de verificacion y empaquetado Windows",
+      "status": "pending",
+      "acceptance": "verify.yml corre typecheck+tests+build; windows-package.yml sube solo artefactos reales. Se escribe cuando exista app que empaquetar.",
+      "dependsOn": [
+        "3",
+        "5",
+        "6"
+      ]
+    }
+  ],
+  "passes": [
+    {
+      "at": "2026-10-18T22:33:56.032Z",
+      "taskId": "1b",
+      "status": "done",
+      "note": "Workspace Cargo virtual (resolver 2, miembro unico apps/desktop/src-tauri), rust-toolchain.toml con channel stable, crate editor-ia-desktop sin dependencias (ninguna descarga de red) y main.rs stub vacio. Test primero en scripts/rust-workspace.test.mjs: 6/6. Evidencia real: node scripts/rust-env.mjs -- cargo metadata --no-deps --format-version 1 (1 miembro, resuelve el manifiesto), cargo check 1.54s exit 0, cargo build 2.66s exit 0 (linkea de verdad). npm run verify: 234 tests (228 esquema + 6 nuevos) y tsc limpio. Cargo.lock y target/ quedan generados; target/ ignorado por git (verificado con git check-ignore).",
+      "remedy": null,
+      "verifyRan": true
+    },
+    {
+      "at": "2026-10-18T22:29:29.692Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "arranque del loop",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
+      "at": "2026-10-18T22:29:29.615Z",
+      "taskId": "doc",
+      "status": "rejected",
+      "reason": "Se declaró done con archivos que no existen: inexistente.md"
+    }
+  ]
+}

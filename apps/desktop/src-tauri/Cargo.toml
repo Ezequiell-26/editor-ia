@@ -1,0 +1,12 @@
+[package]
+name = "editor-ia-desktop"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Shell de escritorio de Editor IA. Todavia sin Tauri: los comandos nativos llegan en la tarea 4."
+
+[[bin]]
+name = "editor-ia-desktop"
+path = "src/main.rs"
+
+[dependencies]
