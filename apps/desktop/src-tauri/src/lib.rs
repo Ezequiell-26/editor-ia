@@ -1,7 +1,7 @@
 mod commands;
 mod projects;
 
-use commands::{get_app_info, projects::{create_project, open_project, save_project}};
+use commands::projects::{create_project, open_project, save_project};
 
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
