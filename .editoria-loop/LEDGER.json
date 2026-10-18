@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T22:33:56.032Z"
+    "lastPassAt": "2026-10-18T22:41:26.032Z"
   },
   "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -61,8 +61,17 @@
       "id": "doc",
       "plan": "Task 1 (restante)",
       "title": "README, LICENSE, SECURITY.md y .gitattributes",
-      "status": "pending",
-      "acceptance": "README dice que existe hoy y que no; LICENSE elegida y declarada; SECURITY.md cubre el almacen de credenciales y el gate de licencias."
+      "status": "done",
+      "acceptance": "README dice que existe hoy y que no; LICENSE elegida y declarada; SECURITY.md cubre el almacen de credenciales y el gate de licencias.",
+      "doneAt": "2026-10-18T22:41:26.032Z",
+      "evidence": "verify en verde sobre: README.md, LICENSE, SECURITY.md, .gitattributes, scripts/repo-docs.test.mjs",
+      "files": [
+        "README.md",
+        "LICENSE",
+        "SECURITY.md",
+        ".gitattributes",
+        "scripts/repo-docs.test.mjs"
+      ]
     },
     {
       "id": "3",
@@ -119,6 +128,22 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-10-18T22:41:26.032Z",
+      "taskId": "doc",
+      "status": "done",
+      "note": "README dice que existe hoy (esquema v1 con 12 entidades y 11 reglas, workspace Cargo con un miembro sin dependencias, loop con ledger) y que no (UI, comandos nativos, render, IA, CI, almacen de credenciales). Solo se documentan los 7 comandos que existen en package.json; el test lo comprueba recorriendo el README y esa asercion falla si alguien promete npm run dev/build/tauri:*. LICENSE MIT declarada con titular 'the Editor IA authors' (el nombre legal del maintainer queda por confirmar antes de publicar) y con descargo explicito de que no alcanza a terceros, stock ni Remotion. SECURITY.md cubre el almacen de credenciales (SO store, nunca localStorage ni archivo de proyecto; lista de 12 campos que el validador rechaza, medida en project.ts:55) y el gate de licencias (enum commercialUse, invariante 1 que impide status ready con unknown, provenance); dice como reportar, prohibe adjuntar credenciales y declara que el canal del maintainer aun no esta publicado. Test primero: scripts/repo-docs.test.mjs fallo por ENOENT de README.md y despues 11/11; durante el camino dos aserciones atraparon fallos reales (helper de TOML que pasaba en falso en la 1b y 'Credential Manager' partido por un salto de linea). npm run verify: 245 tests (228 esquema + 6 rust + 11 docs) y tsc limpio. .gitattributes fija text=auto eol=lf y binarios de video/imagen/audio/fuente; verificado con git check-attr (README.md -> eol: lf) y sin modificaciones fantasma en git status.",
+      "remedy": null,
+      "verifyRan": true
+    },
+    {
+      "at": "2026-10-18T22:34:30.740Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "verificacion del guardia activePass",
+      "remedy": null,
+      "verifyRan": false
+    },
     {
       "at": "2026-10-18T22:33:56.032Z",
       "taskId": "1b",

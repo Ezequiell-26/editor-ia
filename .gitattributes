@@ -1,0 +1,38 @@
+# Normalizacion deterministica de fines de linea: el repo guarda LF y se chequea
+# en LF, asi node, tsc y cargo ven el mismo contenido en cualquier maquina Windows.
+* text=auto eol=lf
+
+# Los medios que admite el formato de proyecto no son texto: sin regla de eol, git
+# intentaria normalizarlos y puede corromperlos.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.bmp binary
+*.ico binary
+*.tif binary
+*.tiff binary
+*.mp4 binary
+*.mov binary
+*.m4v binary
+*.mkv binary
+*.webm binary
+*.avi binary
+*.wav binary
+*.mp3 binary
+*.aac binary
+*.flac binary
+*.ogg binary
+*.aiff binary
+*.ttf binary
+*.otf binary
+*.woff binary*.woff2 binary
+*.pdf binary
+
+# Json del contrato y fixtures: siempre LF, para que el diff byte a byte sea real.
+*.json text eol=lf
+*.editoria.json text eol=lf
+*.md text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
