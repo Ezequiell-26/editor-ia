@@ -41,10 +41,13 @@ describe("ProjectHome project flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Abrir existente/i }));
     const nameInput = await screen.findByRole("textbox", { name: "Nombre del proyecto" });
     fireEvent.change(nameInput, { target: { value: "Changed title" } });
-    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Guardar" })).toBeEnabled());
+    const saveButton = screen.getByRole("button", { name: "Guardar" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+    await waitFor(() => expect(service.save).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Disk full|No se pudo guardar/i);
     expect(screen.getByDisplayValue("Changed title")).toBeTruthy();
     expect(screen.getByText("Cambios sin guardar")).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toMatch(/Disk full|No se pudo guardar/i);
+    expect(screen.getByRole("button", { name: "Guardar" })).toBeEnabled();
   });
 });

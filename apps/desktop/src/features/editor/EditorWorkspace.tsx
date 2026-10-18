@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { AudioLines, Captions, Film, FolderOpen, Layers3, MousePointer2, Play, Save, Settings2, Sparkles, WandSparkles } from "lucide-react";
 import type { ProjectDocument } from "@editor-ia/project-schema";
 
@@ -8,22 +8,6 @@ export function EditorWorkspace({ project, onSave, saveError }: { project: Proje
   const [draft, setDraft] = useState<ProjectDocument | null>(project);
   const [isDirty, setIsDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
-
-  const lastProjectVersion = useRef({ id: project?.id, updatedAt: project?.updatedAt });
-
-  useEffect(() => {
-    const nextVersion = { id: project?.id, updatedAt: project?.updatedAt };
-    // Initial state already came from props. Do not let the first passive effect
-    // overwrite a draft edit that started immediately after the editor appeared.
-    if (lastProjectVersion.current.id === nextVersion.id &&
-        lastProjectVersion.current.updatedAt === nextVersion.updatedAt) {
-      return;
-    }
-    lastProjectVersion.current = nextVersion;
-    setDraft(project);
-    setIsDirty(false);
-    setSaveStatus(project ? "saved" : "idle");
-  }, [project, project?.id, project?.updatedAt]);
 
   async function saveDraft() {
     if (!draft || !onSave) return;
