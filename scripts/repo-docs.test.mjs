@@ -128,13 +128,34 @@ describe('.gitattributes', () => {
 
   it('normaliza eol y declara binarios', () => {
     expect(attributes).toMatch(/^\*\stext=auto\s+eol=lf\s*$/m);
-    expect(attributes).toMatch(/^\*\.png\s+binary/m);
-    expect(attributes).toMatch(/^\*\.mp4\s+binary/m);
+    expect(attributes).toMatch(/^\*\.png\s+binary\s*$/m);
+    expect(attributes).toMatch(/^\*\.mp4\s+binary\s*$/m);
+    const rules = attributes
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith('#'));
+    for (const rule of rules) {
+      expect(rule.split(/\s+/).length, `regla sin atributo: ${rule}`).toBeGreaterThan(1);
+      expect(rule, `atributo pegado a otro token: ${rule}`).not.toMatch(/\bbinary[^\s:]/);
+    }
     const probe = spawnSync('git', ['check-attr', 'eol', '--', 'README.md'], {
       cwd: repoRoot,
       encoding: 'utf8',
       shell: true,
     });
     expect(probe.stdout, probe.stderr).toContain('eol: lf');
+  });
+
+  it('git puede leer todas las reglas sin errores', () => {
+    const probes = ['src/a.rs', 'docs/b.md', 'assets/clip.mp4', 'publica/font.woff2'];
+    const run = spawnSync('git', ['check-attr', '-a', '--', ...probes], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      shell: true,
+    });
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stderr.trim(), 'git rechazo una regla de .gitattributes').toBe('');
+    expect(run.stdout).toMatch(/clip\.mp4.*binary:\s*set/s);
+    expect(run.stdout).toMatch(/font\.woff2.*text:\s*unset/s);
   });
 });

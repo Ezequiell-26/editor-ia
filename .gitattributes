@@ -27,7 +27,8 @@
 *.aiff binary
 *.ttf binary
 *.otf binary
-*.woff binary*.woff2 binary
+*.woff binary
+*.woff2 binary
 *.pdf binary
 
 # Json del contrato y fixtures: siempre LF, para que el diff byte a byte sea real.
