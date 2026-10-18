@@ -12,7 +12,7 @@ pub struct AppInfo {
 }
 
 #[tauri::command]
-fn get_app_info() -> AppInfo {
+pub fn get_app_info() -> AppInfo {
     AppInfo {
         name: "Editor IA",
         version: env!("CARGO_PKG_VERSION"),

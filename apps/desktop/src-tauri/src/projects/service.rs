@@ -1,8 +1,8 @@
 use super::storage::{validate_project, ProjectDocument, ProjectSettings, PROJECT_SCHEMA_VERSION, MAX_PROJECT_BYTES};
 use chrono::{SecondsFormat, Utc};
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
@@ -51,8 +51,8 @@ pub fn create_project(path: &Path, name: &str) -> Result<ProjectDocument, String
     };
     validate_project(&project)?;
 
-    // Persist without clobbering a file the user already has.
-    let mut temporary = NamedTempFile::new_in(path.parent().expect("validated parent"))?;
+    let mut temporary = NamedTempFile::new_in(path.parent().expect("validated parent"))
+        .map_err(|error| format!("Could not create a temporary project file: {error}"))?;
     serde_json::to_writer_pretty(temporary.as_file_mut(), &project)
         .map_err(|error| format!("Could not serialize the project: {error}"))?;
     temporary.write_all(b"\n").map_err(|error| format!("Could not write project data: {error}"))?;
@@ -88,17 +88,12 @@ pub fn save_project(path: &Path, project: &ProjectDocument) -> Result<(), String
     if !path.is_file() {
         return Err("Project file does not exist. Use Create project before saving.".to_owned());
     }
-    let mut temporary = NamedTempFile::new_in(path.parent().expect("validated parent"))?;
+    let mut temporary = NamedTempFile::new_in(path.parent().expect("validated parent"))
+        .map_err(|error| format!("Could not create a temporary project file: {error}"))?;
     serde_json::to_writer_pretty(temporary.as_file_mut(), project)
         .map_err(|error| format!("Could not serialize the project: {error}"))?;
     temporary.write_all(b"\n").map_err(|error| format!("Could not write project data: {error}"))?;
     temporary.as_file().sync_all().map_err(|error| format!("Could not flush project data: {error}"))?;
     temporary.persist(path).map_err(|error| format!("Could not atomically save the project: {}", error.error))?;
     Ok(())
-}
-
-#[allow(dead_code)]
-fn _file_open_options_reference() -> OpenOptions {
-    // Keep file-creation semantics explicit in this module for platform-specific extensions.
-    OpenOptions::new()
 }
