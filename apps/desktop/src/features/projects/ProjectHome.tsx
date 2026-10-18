@@ -1,0 +1,25 @@
+import { useState } from "react";
+import { ArrowUpRight, FolderPlus, Plus, Sparkles, Video } from "lucide-react";
+
+type ProjectHomeProps = {
+  onOpenEditor: () => void;
+  onCreateProject: (name: string) => Promise<void>;
+  onOpenProject: () => Promise<void>;
+  projectName?: string;
+  busy?: boolean;
+  error?: string;
+};
+
+export function ProjectHome({ onOpenEditor, onCreateProject, onOpenProject, projectName, busy = false, error }: ProjectHomeProps) {
+  const [name, setName] = useState("Mi primer video");
+  return (
+    <section className="page-stack" aria-labelledby="projects-heading">
+      <div className="welcome-row"><div><div className="eyebrow"><i /> TU ESTUDIO CREATIVO</div><h1 id="projects-heading">De una idea a un <em>video listo.</em></h1><p className="page-description">Planeá, editá y prepará contenido para todas tus redes desde un solo lugar.</p></div><div className="hero-art" aria-hidden="true"><span className="orbit orbit-1"/><span className="orbit orbit-2"/><div><Sparkles size={28}/></div><i/><b/></div></div>
+      <div className="quick-grid"><button className="quick-card primary-card" type="button" onClick={onOpenEditor}><span className="quick-icon"><Plus size={21}/></span><span><strong>Explorar el editor</strong><small>Abrí el espacio de edición y explorá la interfaz.</small></span><ArrowUpRight size={18}/></button><div className="quick-card muted-card"><span className="quick-icon"><FolderPlus size={20}/></span><span><strong>Crear desde una idea</strong><small>Guion y storyboard automáticos · próximamente</small></span><label>EN PREPARACIÓN</label></div></div>
+      <div className="project-create panel"><div><h2>Crear o abrir un proyecto</h2><p>Los proyectos se guardan en archivos locales .editoria.json.</p></div><form onSubmit={(event) => { event.preventDefault(); void onCreateProject(name.trim()); }}><label htmlFor="project-name">Nombre del proyecto</label><input id="project-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={160} placeholder="Ej. Tutorial sobre IA" required/><button type="submit" disabled={busy || !name.trim()}><Plus size={15}/>{busy ? "Procesando..." : "Crear proyecto"}</button><button type="button" className="button-outline" onClick={() => void onOpenProject()} disabled={busy}><FolderPlus size={15}/> Abrir existente</button></form>{error&&<p role="alert" className="inline-error">{error}</p>}</div>
+      <div className="section-heading"><div><h2>Tus proyectos</h2><p>Todo tu contenido organizado en un espacio.</p></div><span className="count-pill">{projectName ? "1 proyecto activo" : "0 proyectos"}</span></div>
+      <div className="empty-projects">{projectName ? <><div className="stacked-files"><span/><span/><div><Video size={30}/></div></div><h3>{projectName}</h3><p>Proyecto local seleccionado. Podés volver al editor y seguir trabajando.</p><button className="button-secondary" onClick={onOpenEditor}><Video size={15}/> Abrir en editor</button></> : <><div className="stacked-files"><span/><span/><div><Video size={30}/></div></div><h3>Tu próxima historia empieza acá</h3><p>Todavía no hay proyectos. Creá uno o abrí un proyecto existente para empezar.</p></>}</div>
+      <div className="feature-strip"><div><i>01</i><span><b>Guion y escenas</b><small>Del brief a un plan de edición</small></span></div><hr/><div><i>02</i><span><b>Motion y subtítulos</b><small>Una estética consistente</small></span></div><hr/><div><i>03</i><span><b>Exportación social</b><small>Un proyecto, varios formatos</small></span></div></div>
+    </section>
+  );
+}

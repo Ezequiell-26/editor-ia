@@ -1,0 +1,2 @@
+export type PageKey="projects"|"editor"|"assets"|"settings";
+export const navigationItems:ReadonlyArray<{id:PageKey;label:string;group:string}>=[{id:"projects",label:"Proyectos",group:"CREAR"},{id:"editor",label:"Editor",group:"CREAR"},{id:"assets",label:"Biblioteca",group:"RECURSOS"},{id:"settings",label:"Configuración",group:"SISTEMA"}];
