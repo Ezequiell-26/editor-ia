@@ -6,14 +6,15 @@
   "type": "module",
   "workspaces": [
     "packages/*",
-    "apps/desktop"
+    "apps/desktop",
+    "apps/render-worker"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit -p packages/project-schema/tsconfig.json && tsc --noEmit -p apps/desktop/tsconfig.json",
+    "typecheck": "tsc --noEmit -p packages/project-schema/tsconfig.json && tsc --noEmit -p apps/desktop/tsconfig.json && tsc --noEmit -p apps/render-worker/tsconfig.json",
     "fixtures:write": "node --experimental-strip-types packages/project-schema/scripts/write-fixtures.ts",
     "schema:generate": "node --experimental-strip-types packages/project-schema/scripts/generate-json-schema.ts",
     "loop:preflight": "node scripts/loop-preflight.mjs",

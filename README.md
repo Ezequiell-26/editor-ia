@@ -20,6 +20,12 @@ navega cuatro vistas vacías; no existe la edición, el guardado ni el render.
   Projects, Editor, Assets y Settings; timeline, preview e inspector **visiblemente
   vacíos**. La UI navega y está probada (smoke test Vitest + jsdom); no edita, no guarda
   y no renderiza.
+- **Protocolo del render-worker** en [`apps/render-worker`](apps/render-worker): pedido
+  y resultado validados, y descubrimiento de capacidades por ejecutable inyectado. Un
+  resultado `completed` es **inexpresable** sin una verificación post-render del archivo
+  (bytes reales en la ruta verificada), y sin pipeline montado el worker responde
+  `unsupported`. Medido en esta máquina: `ffmpeg` disponible en
+  `C:\ProgramData\chocolatey\bin\ffmpeg.exe`, `remotion` no, y `canRender: false` igual.
 - **Documentos de producto y arquitectura**:
   [PRODUCT-SPEC.md](docs/product/PRODUCT-SPEC.md), PROJECT-FORMAT.md, BUILD-LOOP.md.
 
@@ -27,8 +33,9 @@ navega cuatro vistas vacías; no existe la edición, el guardado ni el render.
 
 - **Edición ni guardado nativo**: `create`/`open`/`save` en Rust no están (tarea 4). El shell
   no tiene botones porque no hay nada que esos botones puedan hacer todavía.
-- **Render**: no hay worker, ni FFmpeg, ni Remotion integrados. Ningún resultado de
-  render se produce ni se reporta (tarea 5).
+- **Render real**: el worker tiene contrato y capacidades, pero no decodifica ni codifica.
+  Hoy responde `unsupported` con `RENDERER_UNIMPLEMENTED` incluso con FFmpeg instalado, y
+  ningún resultado se produce ni se reporta como terminado (tarea 5 dejó la frontera, no el motor).
 - **IA**: no hay proveedores, ni generación, ni integración de modelos.
 - **CI y empaquetado Windows**: todavía no (tarea 7).
 - **Almacén de credenciales**: no implementado; hoy solo se garantiza que el formato
@@ -63,6 +70,7 @@ ni ventana nativa (tarea 4).
 | `npm run fixtures:write` | regenera los fixtures `.editoria.json` de prueba. |
 | `npm run loop:preflight` | decide la próxima tarea del ledger o por qué la pasada se saltea. |
 | `npm run loop:record` | cierra la pasada; exige archivos reales y `verify` en verde. |
+| `node apps/render-worker/src/index.ts --capabilities` | qué renderizadores ve esta máquina y si se puede renderizar (`canRender`). Sin el flag, lee un pedido JSON por stdin. |
 
 ## Licencia
 

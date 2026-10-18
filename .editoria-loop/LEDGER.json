@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T23:00:22.388Z"
+    "lastPassAt": "2026-10-18T23:12:36.342Z"
   },
   "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -110,10 +110,23 @@
       "id": "5",
       "plan": "Task 5",
       "title": "Protocolo del render-worker y descubrimiento honesto de capacidades",
-      "status": "pending",
+      "status": "done",
       "acceptance": "RenderResult solo entrega outputPath con status completed verificado; ffmpeg ausente reporta unsupported, nunca completado.",
       "dependsOn": [
         "3"
+      ],
+      "doneAt": "2026-10-18T23:12:36.342Z",
+      "evidence": "verify en verde sobre: apps/render-worker/package.json, apps/render-worker/tsconfig.json, apps/render-worker/src/protocol.ts, apps/render-worker/src/capabilities.ts, apps/render-worker/src/index.ts, apps/render-worker/src/protocol.test.ts, package.json, package-lock.json, README.md",
+      "files": [
+        "apps/render-worker/package.json",
+        "apps/render-worker/tsconfig.json",
+        "apps/render-worker/src/protocol.ts",
+        "apps/render-worker/src/capabilities.ts",
+        "apps/render-worker/src/index.ts",
+        "apps/render-worker/src/protocol.test.ts",
+        "package.json",
+        "package-lock.json",
+        "README.md"
       ]
     },
     {
@@ -151,6 +164,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-10-18T23:12:36.342Z",
+      "taskId": "5",
+      "status": "done",
+      "note": "Workspace npm @editor-ia/render-worker con el contrato del worker y descubrimiento honesto, sin implementar render. protocol.ts: RenderRequest (uuid v4, protocolVersion literal editor-ia.render/1 con codigo propio UNSUPPORTED_PROTOCOL_VERSION como hace parseProject, perfil de una allowlist de 3, y projectPath/outputPath validados con ProjectRelativePathSchema del paquete de esquema: absolutas, con '..', backslash, drive o ~ se rechazan; .strict() deja afuera cualquier clave extra, incluida una credencial, sin reproducir el valor). RenderResult con invariante estructural: completed exige verification (passed literal true, outputPath coincidente, outputBytes positivo) y no puede llevar code; failed|cancelled|unsupported no pueden llevar outputPath ni verification y exigen un codigo seguro de una enum cerrada. La unica puerta a completed es verifyRenderedOutput(exists,size,minOutputBytes) inyectado, y buildRenderResult devuelve VERIFICATION_REQUIRED si intentan fabricarlo. capabilities.ts: getRendererCapabilities(resolveExecutable inyectado) sin importar FFmpeg ni Remotion; remotion queda RENDERER_LICENSE_UNVERIFIED aunque el binario exista (REMOTION_LICENSE_VERIFIED=false) y requestRender responde RENDERER_UNIMPLEMENTED con renderizador disponible: canRender es false siempre por RENDERING_IMPLEMENTED=false. index.ts: CLI con --capabilities y pedido por stdin, resolucion de ejecutables pisando PATH con existsSync (no se spawnea nada ni se arma un comando con texto del pedido), codigos de salida 0 completed / 2 malformado / 3 unsupported / 4 failed / 5 cancelled. Test primero: protocol.test.ts dio RED por 'Failed to load url ./protocol.ts' y despues 21/21. Mutation check de las dos invariantes del acceptance: RENDERING_IMPLEMENTED=true y quitar el addIssue de verification en completed -> fallaron exactamente 'con ffmpeg disponible sigue sin claimar...' y 'no permite completed sin verificacion' (19/21), revertido. Ese mutation destapo un hueco real del test: canRender no estaba assertionado con renderizador presente y se agrego. Un test propio tambien estaba mal y se corrigio: el CLI contra proyecto inexistente responde PROJECT_FILE_MISSING/exit 4, no unsupported; se separo en dos casos y el segundo crea un proyecto real en dist/cli-probe (gitignored, rmSync en finally) para ver unsupported/exit 3. Evidencia ejecutada: npm --workspace @editor-ia/render-worker run build (tsc --noEmit) limpio; node --experimental-strip-types apps/render-worker/src/index.ts --capabilities en esta maquina -> ffmpeg available true en C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe, remotion RENDERER_UNAVAILABLE, usableRenderer ffmpeg y canRender FALSE; npm run verify -> 274 tests (228 esquema + 12 docs + 6 rust + 7 shell + 21 worker) y typecheck estricto de los tres proyectos. README actualizado: decia 'no hay worker' y ahora el contrato existe; se mantiene la linea de que el render real no esta.",
+      "remedy": null,
+      "verifyRan": true
+    },
     {
       "at": "2026-10-18T23:00:22.388Z",
       "taskId": "3",
