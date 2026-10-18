@@ -35,7 +35,7 @@
 
 ---
 
-## Task 1: Bootstrap the repository workspaces and developer commands
+### Task 1: Bootstrap the repository workspaces and developer commands
 
 **Files:**
 - Create: `.gitignore`
@@ -79,7 +79,7 @@ Run: `git add .gitignore .editorconfig .nvmrc LICENSE SECURITY.md README.md pack
 
 Expected: one commit containing only the bootstrap configuration and workspace manifests.
 
-## Task 2: Define and test the canonical editable project format
+### Task 2: Define and test the canonical editable project format
 
 **Files:**
 - Create: `packages/project-schema/tsconfig.json`
@@ -120,7 +120,7 @@ Run: `git add packages/project-schema/tsconfig.json packages/project-schema/src/
 
 Expected: one commit containing the tested v1 project format.
 
-## Task 3: Build the Windows desktop shell and initial product UI
+### Task 3: Build the Windows desktop shell and initial product UI
 
 **Files:**
 - Create: `apps/desktop/index.html`
@@ -170,7 +170,7 @@ Run: `git add apps/desktop/index.html apps/desktop/vite.config.ts apps/desktop/t
 
 Expected: one commit containing the smoke-tested UI.
 
-## Task 4: Implement safe Rust project create/open/save commands
+### Task 4: Implement safe Rust project create/open/save commands
 
 **Files:**
 - Create: `apps/desktop/src-tauri/build.rs`
@@ -215,7 +215,7 @@ Run: `git add apps/desktop/src-tauri/build.rs apps/desktop/src-tauri/tauri.conf.
 
 Expected: one commit containing the tested persistence commands.
 
-## Task 5: Define the render-worker protocol and truthful capability discovery
+### Task 5: Define the render-worker protocol and truthful capability discovery
 
 **Files:**
 - Create: `apps/render-worker/tsconfig.json`
@@ -254,7 +254,7 @@ Run: `git add apps/render-worker/tsconfig.json apps/render-worker/src/protocol.t
 
 Expected: one commit containing the worker contract and truthful capability discovery.
 
-## Task 6: Connect project UI to the Rust boundary
+### Task 6: Connect project UI to the Rust boundary
 
 **Files:**
 - Create: `apps/desktop/src/services/project-service.ts`
@@ -290,7 +290,7 @@ Run: `git add apps/desktop/src/services/project-service.ts apps/desktop/src/feat
 
 Expected: one commit containing the tested create/open/save UI flow.
 
-## Task 7: Add CI and Windows packaging gates
+### Task 7: Add CI and Windows packaging gates
 
 **Files:**
 - Create: `.github/workflows/verify.yml`
