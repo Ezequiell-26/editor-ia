@@ -52,6 +52,7 @@
 - Create: `Cargo.toml`
 - Create: `rust-toolchain.toml`
 - Create: `apps/desktop/src-tauri/Cargo.toml`
+- Create: `apps/desktop/src-tauri/src/main.rs` (minimal compilable entry-point stub, later wired to `lib.rs` in Task 4)
 
 **Interfaces:**
 - Root npm workspace packages: `@editor-ia/desktop`, `@editor-ia/project-schema`, `@editor-ia/render-worker`.
@@ -75,7 +76,7 @@ Expected: valid JSON with exactly the declared workspace member and no missing m
 
 - [ ] **Step 6: Commit the bootstrap.**
 
-Run: `git add .gitignore .editorconfig .nvmrc LICENSE SECURITY.md README.md package.json package-lock.json tsconfig.base.json apps/desktop/package.json packages/project-schema/package.json apps/render-worker/package.json Cargo.toml rust-toolchain.toml apps/desktop/src-tauri/Cargo.toml && git commit -m "build: bootstrap Editor IA workspaces"`
+Run: `git add .gitignore .editorconfig .nvmrc LICENSE SECURITY.md README.md package.json package-lock.json tsconfig.base.json apps/desktop/package.json packages/project-schema/package.json apps/render-worker/package.json Cargo.toml rust-toolchain.toml apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/src/main.rs && git commit -m "build: bootstrap Editor IA workspaces"`
 
 Expected: one commit containing only the bootstrap configuration and workspace manifests.
 
@@ -176,7 +177,7 @@ Expected: one commit containing the smoke-tested UI.
 - Create: `apps/desktop/src-tauri/build.rs`
 - Create: `apps/desktop/src-tauri/tauri.conf.json`
 - Create: `apps/desktop/src-tauri/capabilities/default.json`
-- Create: `apps/desktop/src-tauri/src/main.rs`
+- Modify: `apps/desktop/src-tauri/src/main.rs` (call the Tauri library entry point)
 - Create: `apps/desktop/src-tauri/src/lib.rs`
 - Create: `apps/desktop/src-tauri/src/commands/mod.rs`
 - Create: `apps/desktop/src-tauri/src/commands/projects.rs`
