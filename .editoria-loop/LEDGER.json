@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T23:47:50.561Z"
+    "lastPassAt": "2026-10-18T23:55:58.413Z"
   },
   "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -196,16 +196,27 @@
       "id": "7",
       "plan": "Task 7",
       "title": "CI de verificacion y empaquetado Windows",
-      "status": "pending",
+      "status": "blocked",
       "acceptance": "verify.yml corre typecheck+tests+build; windows-package.yml sube solo artefactos reales. Se escribe cuando exista app que empaquetar.",
       "dependsOn": [
         "3",
         "5",
         "6"
-      ]
+      ],
+      "blockedSince": "2026-10-18T23:55:58.413Z",
+      "blockedReason": "Hecho y verificado en local: .github/workflows/verify.yml (npm ci, npm run verify, build del escritorio, cargo fmt --all -- --check y cargo test -p editor-ia-desktop, Rust siempre tras el prefijo scripts/rust-env.mjs), scripts/verify.ps1 con la misma lista de puertas, scripts/ci-workflows.test.mjs (9 tests) y el README actualizado. Evidencia real: powershell -File scripts/verify.ps1 corrio las cuatro puertas de punta a punta y devolvio 0 con 'Todo verde' (302 tests Vitest en 17 archivos + 18 tests del crate + build); npm run verify aparte dio 302; npm ci --dry-run y npm ls --package-lock-only dieron 0, asi que el lockfile cierra. Dos mutation checks: una linea mal formateada en storage.rs hizo que verify.ps1 cortara en la puerta de formato con codigo 1 sin llegar a cargo test (archivo restaurado con git checkout y fmt otra vez limpio), y cambiar actions/checkout@v4 a @master tumbo exactamente la guarda de versiones fijadas (restaurado). NO hecho, y por eso la tarea queda blocked y no done: windows-package.yml y package-windows.ps1. Motivo medido: no hay app que empaquetar. El crate no trae tauri y el puente es la tarea 4b, que sigue blocked porque rc.exe no esta en los tres toolchains (where rc.exe no devuelve nada) y porque sumar tauri es una descarga grande que decide el usuario. Escribir hoy un workflow de empaquetado subira un artefacto que no existe o uno falso, que es justo lo que la regla de producto prohibe. Segundo motivo medido: el loop no puede ejecutar Actions. git remote existe (origin https://github.com/Ezequiell-26/editor-ia.git) pero pushear esta prohibido, y gh no esta instalado (gh: command not found), asi que nadie puede confirmar que verify.yml corra verde en un runner: el paso 4 del plan pide un artefacto de instalador no expirado atado al commit exacto y eso es inalcanzable desde aca.",
+      "remedy": "Decide el usuario, en este orden: 1) desbloquear 4b (autorizar el crate tauri y resolver rc.exe, o configurar tauri-build para no embeber manifiesto); 2) con una app real que produzca bundle, escribir windows-package.yml que intente el bundle, conserve los logs si falla y suba solo los instaladores que existen en disco con if-no-files-found en error, nunca .env, caches ni medios; 3) para dar por verde la CI hace falta un push a origin y ver correr verify.yml, o instalar gh y lanzarlo con workflow_dispatch. Hasta entonces verify.yml esta escrito y sus comandos probados en local, pero el workflow sin ejecutar: no contarlo como cheque verde."
     }
   ],
   "passes": [
+    {
+      "at": "2026-10-18T23:55:58.413Z",
+      "taskId": "7",
+      "status": "blocked",
+      "note": "Hecho y verificado en local: .github/workflows/verify.yml (npm ci, npm run verify, build del escritorio, cargo fmt --all -- --check y cargo test -p editor-ia-desktop, Rust siempre tras el prefijo scripts/rust-env.mjs), scripts/verify.ps1 con la misma lista de puertas, scripts/ci-workflows.test.mjs (9 tests) y el README actualizado. Evidencia real: powershell -File scripts/verify.ps1 corrio las cuatro puertas de punta a punta y devolvio 0 con 'Todo verde' (302 tests Vitest en 17 archivos + 18 tests del crate + build); npm run verify aparte dio 302; npm ci --dry-run y npm ls --package-lock-only dieron 0, asi que el lockfile cierra. Dos mutation checks: una linea mal formateada en storage.rs hizo que verify.ps1 cortara en la puerta de formato con codigo 1 sin llegar a cargo test (archivo restaurado con git checkout y fmt otra vez limpio), y cambiar actions/checkout@v4 a @master tumbo exactamente la guarda de versiones fijadas (restaurado). NO hecho, y por eso la tarea queda blocked y no done: windows-package.yml y package-windows.ps1. Motivo medido: no hay app que empaquetar. El crate no trae tauri y el puente es la tarea 4b, que sigue blocked porque rc.exe no esta en los tres toolchains (where rc.exe no devuelve nada) y porque sumar tauri es una descarga grande que decide el usuario. Escribir hoy un workflow de empaquetado subira un artefacto que no existe o uno falso, que es justo lo que la regla de producto prohibe. Segundo motivo medido: el loop no puede ejecutar Actions. git remote existe (origin https://github.com/Ezequiell-26/editor-ia.git) pero pushear esta prohibido, y gh no esta instalado (gh: command not found), asi que nadie puede confirmar que verify.yml corra verde en un runner: el paso 4 del plan pide un artefacto de instalador no expirado atado al commit exacto y eso es inalcanzable desde aca.",
+      "remedy": "Decide el usuario, en este orden: 1) desbloquear 4b (autorizar el crate tauri y resolver rc.exe, o configurar tauri-build para no embeber manifiesto); 2) con una app real que produzca bundle, escribir windows-package.yml que intente el bundle, conserve los logs si falla y suba solo los instaladores que existen en disco con if-no-files-found en error, nunca .env, caches ni medios; 3) para dar por verde la CI hace falta un push a origin y ver correr verify.yml, o instalar gh y lanzarlo con workflow_dispatch. Hasta entonces verify.yml esta escrito y sus comandos probados en local, pero el workflow sin ejecutar: no contarlo como cheque verde.",
+      "verifyRan": false
+    },
     {
       "at": "2026-10-18T23:47:50.561Z",
       "taskId": "4",

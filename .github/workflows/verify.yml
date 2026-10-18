@@ -1,0 +1,60 @@
+name: verify
+
+# Las mismas puertas que corre el loop de construcción, en el orden de siempre.
+# No empaqueta: todavia no hay una app de Windows que empaquetar (tarea 4b).
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: typecheck, tests y build
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Toma el commit exacto
+        uses: actions/checkout@v4
+
+      - name: Node fijado por package.json
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Restaura el registro de crates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: crates-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: crates-${{ runner.os }}-
+
+      - name: Instala las dependencias del lockfile
+        run: npm ci
+
+      - name: Aplica el toolchain que fija rust-toolchain.toml
+        run: rustup show
+
+      - name: Typecheck estricto y toda la suite
+        run: npm run verify
+
+      - name: Build de produccion del escritorio
+        run: npm --workspace @editor-ia/desktop run build
+
+      - name: Formato de Rust
+        run: node scripts/rust-env.mjs -- cargo fmt --all -- --check
+
+      - name: Tests del crate de proyecto
+        run: node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop

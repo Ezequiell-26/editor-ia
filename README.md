@@ -53,7 +53,11 @@ edición ni el render, y el guardado todavía no llega a la pantalla porque falt
   Hoy responde `unsupported` con `RENDERER_UNIMPLEMENTED` incluso con FFmpeg instalado, y
   ningún resultado se produce ni se reporta como terminado (tarea 5 dejó la frontera, no el motor).
 - **IA**: no hay proveedores, ni generación, ni integración de modelos.
-- **CI y empaquetado Windows**: todavía no (tarea 7).
+- **CI ejecutada y empaquetado Windows**: `.github/workflows/verify.yml` y
+  `scripts/verify.ps1` están escritos y cada comando que invoca fue probado en esta
+  máquina, pero el workflow **nunca corrió en GitHub Actions** porque el loop no pushea:
+  no lo tome por verde. No existe `windows-package.yml` ni `package-windows.ps1` porque
+  todavía no hay una app de Windows que empaquetar; eso depende del puente Tauri (4b).
 - **Almacén de credenciales**: no implementado; hoy solo se garantiza que el formato
   de proyecto **no** las acepta (ver [SECURITY.md](SECURITY.md)).
 
