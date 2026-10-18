@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T23:27:33.276Z"
+    "lastPassAt": "2026-10-18T23:47:50.561Z"
   },
   "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -158,12 +158,39 @@
       "id": "4",
       "plan": "Task 4",
       "title": "Comandos Rust create/open/save con escritura atomica y validacion",
-      "status": "pending",
+      "status": "done",
       "unblockedAt": "2026-10-18T22:35:00-03:00",
       "acceptance": "Tests del crate en verde via node scripts/rust-env.mjs -- cargo test; rechaza version desconocida, JSON roto y rutas que escapan la raiz; escribe por temporal + rename; espeja las 11 reglas de integridad de docs/architecture/PROJECT-FORMAT.md seccion 6.",
       "dependsOn": [
         "1b"
+      ],
+      "doneAt": "2026-10-18T23:47:50.561Z",
+      "evidence": "verify en verde sobre: apps/desktop/src-tauri/Cargo.toml, Cargo.lock, apps/desktop/src-tauri/src/lib.rs, apps/desktop/src-tauri/src/projects/mod.rs, apps/desktop/src-tauri/src/projects/service.rs, apps/desktop/src-tauri/src/projects/storage.rs, apps/desktop/src-tauri/src/projects/tests.rs, scripts/rust-workspace.test.mjs, README.md",
+      "files": [
+        "apps/desktop/src-tauri/Cargo.toml",
+        "Cargo.lock",
+        "apps/desktop/src-tauri/src/lib.rs",
+        "apps/desktop/src-tauri/src/projects/mod.rs",
+        "apps/desktop/src-tauri/src/projects/service.rs",
+        "apps/desktop/src-tauri/src/projects/storage.rs",
+        "apps/desktop/src-tauri/src/projects/tests.rs",
+        "scripts/rust-workspace.test.mjs",
+        "README.md"
       ]
+    },
+    {
+      "id": "4b",
+      "plan": "Task 4 (puente nativo)",
+      "title": "Puente Tauri de los comandos de proyecto",
+      "status": "blocked",
+      "blockedSince": "2026-10-18T23:48:18.919Z",
+      "acceptance": "build.rs, tauri.conf.json y capabilities/default.json existen; main.rs llama la libreria; create_project, open_project y save_project quedan marcados #[tauri::command] con los nombres que ya fija apps/desktop/src/services/project-service.ts; los controles de Projects se habilitan y el flujo create/open/save funciona en la ventana real.",
+      "dependsOn": [
+        "4",
+        "6"
+      ],
+      "note": "No se intento: requiere el crate tauri (descarga grande que el loop no decide) y ademas rc.exe no esta en ninguno de los tres toolchains medidos. Verificado en esta pasada con where rc.exe, que no devuelve nada, y con la nota del entorno de docs/automation/BUILD-LOOP.md sobre el compilador de recursos que usa tauri-build para embeber manifiesto e icono al empaquetar en Windows.",
+      "remedy": "Decide el usuario: autorizar la descarga del crate tauri y resolver rc.exe (agregar la herramienta de recursos al toolchain MSVC ya presente, o configurar tauri-build para no embeber manifiesto). Hasta entonces la UI muestra los controles inhabilitados con el motivo, que es el estado honesto."
     },
     {
       "id": "7",
@@ -179,6 +206,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-10-18T23:47:50.561Z",
+      "taskId": "4",
+      "status": "done",
+      "note": "Borde de proyecto en Rust con create_project / open_project / save_project y validacion antes de tocar el disco. storage.rs: lectura con tope de 8 MiB (FileTooLarge), UTF-8 y NotFound; escritura por temporal .<nombre>.tmp-<pid>-<n> en el MISMO directorio + sync_all + rename, y si algo falla se borra el temporal y el archivo anterior queda intacto. service.rs espeja PROJECT-FORMAT.md: seccion 6 las ONCE reglas de integridad (assetId, motionId, motion.targetTrackId, cues.trackId con kind caption, cues.styleId, scenes.clipIds, exportVariants.renderProfileId, audio.music.assetId, audio.ducking.source/targetTrackIds, provenance.claims.sourceIds y sceneId), seccion 2 credenciales en cualquier nivel incluso dentro de x-, claves raiz solo bajo prefijo x-, ids uuid v4 y unicidad dentro de cada coleccion (repetido entre colecciones distintas es valido), seccion 4 rutas (absoluta, home, letra de unidad, backslash, control, reservados, segmento vacio o .., terminada en /, >512) y la identidad de timing durationFrames x num = (outFrame - inFrame) x den con speed默认 {1,1}. Version de esquema distinta corta con UNSUPPORTED_SCHEMA_VERSION y UNA sola incidencia, mencionando el numero real, igual que parseProject. Ningun mensaje lleva el directorio: solo el nombre del archivo. Los tipos de retorno OpenedProject{project,path} y SaveProjectResult{path,revision,bytes} coinciden con lo que exige requireOpened del servicio de la UI (tarea 6). Test primero: los 18 tests dieron RED compilando y cayendo en todo!() con 'tarea 4: ...', y quedaron 18/18. cargo fmt --all -- --check limpio. Mutation check: desactivar la regla 7 y escribir antes de validar -> cayeron exactamente espejo_de_las_once_reglas, un_guardado_que_falla y rechaza_una_version_desconocida (esta ultima por la asercion de que no queda archivo), revertido. Dos fallos propios que la corrida destapo y no eran del codigo: un helper de rutas del test no podia expresar arrays de nivel superior (motion, exportVariants, scenes) y se reescribio a indexado directo; y mi caso de speed esperaba 150=(150-0)/2 cuando la identidad del formato dice 150x2=(300-0)x1, corregido el test, no el validador. Cambios necesarios fuera del crate: la guarda de la 1b en scripts/rust-workspace.test.mjs prohibia cualquier dependencia descargable, asi que ahora fija una allowlist exacta de una entrada (serde_json) y sigue rechazando build-dependencies; el indice de crates.io de esta maquina llega a 1.0.154, no a la 1.0.229 que informa cargo search, y esa es la version fijada. Evidencia ejecutada: node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop (18/18) y npm run verify (293 tests, con la guarda movida incluida). Alcance NO hecho: el puente Tauri (build.rs, tauri.conf.json, capabilities, #[tauri::command] y main.rs llamando a la libreria). No se agrego el crate tauri porque es una descarga grande que el loop no puede decidir y porque rc.exe sigue sin estar en los tres toolchains (medido de nuevo en esta pasada: where rc.exe no devuelve nada), que es lo que necesita tauri-build para embeber manifiesto e icono. Queda registrado como tarea 4b blocked. Mientras eso no exista, los controles de Projects siguen inhabilitados, que es el estado honesto.",
+      "remedy": null,
+      "verifyRan": true
+    },
     {
       "at": "2026-10-18T23:27:33.276Z",
       "taskId": "6",

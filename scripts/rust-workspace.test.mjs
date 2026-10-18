@@ -71,14 +71,21 @@ describe('rust-toolchain.toml', () => {
 });
 
 describe('crate editor-ia-desktop', () => {
-  it('declara el paquete binario sin dependencias descargables', () => {
+  it('declara solo el crate de persistencia que fija el plan, sin Tauri todavia', () => {
     expect(existsSync(desktopManifest)).toBe(true);
     const source = readFileSync(desktopManifest, 'utf8');
     expect(source.match(/^name\s*=\s*"([^"]+)"/m)[1]).toBe('editor-ia-desktop');
     expect(source).toMatch(/^edition\s*=\s*"2\d{3}"/m);
     expect(source.match(/^version\s*=\s*"([^"]+)"/m)[1]).toBe('0.0.0');
     const dependencies = tableBody(source, 'dependencies') ?? [];
-    expect(dependencies, 'el bootstrap no debe traer crates de red').toEqual([]);
+    // El bootstrap (1b) arranco sin ninguna crate de red. La tarea 4 agrega
+    // unicosamente la lectura/escritura de JSON que el plan nombra (Serde).
+    // Cualquier crate nueva tiene que justificarse aca, y Tauri no entra hasta
+    // que exista el compilador de recursos que mide BUILD-LOOP.md (rc.exe).
+    expect(
+      dependencies.map((line) => line.split('=')[0].trim()).sort(),
+      'el crate solo puede traer serde_json',
+    ).toEqual(['serde_json']);
     expect(source).not.toMatch(/^\[dependencies\./m);
     expect(source).not.toMatch(/^\[build-dependencies\]/m);
   });

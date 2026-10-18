@@ -2,7 +2,8 @@
 
 Editor de video local-first con asistencia de IA, para Windows. **Todavía está en
 fase de fundación**: existe el contrato de datos, el esqueleto de build, el contrato del
-render y una UI que navega cuatro vistas; no existe la edición, el guardado ni el render.
+render, los comandos de proyecto en Rust y una UI que navega cuatro vistas; no existe la
+edición ni el render, y el guardado todavía no llega a la pantalla porque falta el puente.
 
 ## Qué existe hoy (verificado)
 
@@ -20,6 +21,14 @@ render y una UI que navega cuatro vistas; no existe la edición, el guardado ni 
   Projects, Editor, Assets y Settings; timeline, preview e inspector **visiblemente
   vacíos**. La UI navega y está probada (smoke test Vitest + jsdom); no edita, no guarda
   y no renderiza.
+- **Comandos de proyecto en Rust** en
+  [`apps/desktop/src-tauri/src/projects`](apps/desktop/src-tauri/src/projects):
+  `create_project` / `open_project` / `save_project` con validación antes de tocar el
+  disco, escritura por temporal + `rename`, tope de tamaño y errores tipados que no
+  filtran la ruta del usuario. Espeja las once reglas de integridad de
+  [PROJECT-FORMAT.md](docs/architecture/PROJECT-FORMAT.md) sección 6, más el `x-`,
+  las credenciales y la identidad de timing. 18 tests del crate en verde con
+  `node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop`.
 - **Borde de proyecto tipado** en [`apps/desktop/src/services`](apps/desktop/src/services):
   `createProject` / `openProject` / `saveProject` con la UI arriba de un estado explícito
   (`idle`, `loading`, `dirty`, `saving`, `saved`, `failed`), adapter de test inyectable y
@@ -35,10 +44,11 @@ render y una UI que navega cuatro vistas; no existe la edición, el guardado ni 
 
 ## Qué todavía no existe
 
-- **Edición ni guardado nativo**: los comandos `create`/`open`/`save` en Rust no están
-  (tarea 4). La pantalla de Projects ya tiene el formulario y sus estados, pero los controles
-  aparecen **inhabilitados y con el motivo a la vista**: sin comando nativo no hay nada que
-  hacer al clic, y un botón que no hace nada es peor que un botón visiblemente cerrado.
+- **Puente Tauri**: los comandos de proyecto existen y están probados en Rust, pero la
+  interfaz todavía no puede invocarlos. Los controles de Projects siguen **inhabilitados y
+  con el motivo a la vista**: un botón que no hace nada es peor que un botón visiblemente
+  cerrado. Levantar el puente requiere traer el crate Tauri (tarea 4b del ledger).
+- **Edición de timeline**: abrir un proyecto no habilita todavía el montaje de pistas.
 - **Render real**: el worker tiene contrato y capacidades, pero no decodifica ni codifica.
   Hoy responde `unsupported` con `RENDERER_UNIMPLEMENTED` incluso con FFmpeg instalado, y
   ningún resultado se produce ni se reporta como terminado (tarea 5 dejó la frontera, no el motor).
