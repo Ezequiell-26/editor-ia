@@ -1,0 +1,40 @@
+# Node / frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+*.tsbuildinfo
+.vite/
+.cache/
+.render-cache/
+renders/
+*.mp4
+*.mov
+*.mkv
+*.wav
+*.mp3
+
+# Rust / Tauri
+target/
+**/target/
+src-tauri/gen/
+*.rs.bk
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+secrets/
+.local/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
