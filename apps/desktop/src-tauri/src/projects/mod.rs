@@ -4,6 +4,5 @@ mod storage;
 #[cfg(test)]
 mod tests;
 
-pub use storage::{
-    Asset, AssetKind, Clip, ProjectDocument, ProjectSettings, Scene, Track, TrackType,
-};
+pub use service::{create_project, open_project, save_project};
+pub use storage::ProjectDocument;
