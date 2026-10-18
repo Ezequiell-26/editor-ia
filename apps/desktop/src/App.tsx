@@ -1,20 +1,36 @@
-import { useState, type ComponentType } from 'react';
+import { useState } from 'react';
 import { AppShell } from './components/AppShell';
 import type { ViewId } from './app/navigation';
 import { ProjectHome } from './features/projects/ProjectHome';
 import { EditorWorkspace } from './features/editor/EditorWorkspace';
 import { AssetsPanel } from './features/assets/AssetsPanel';
 import { SettingsHome } from './features/settings/SettingsHome';
+import { createProjectService, type ProjectService } from './services/project-service';
 
-const VIEWS: Record<ViewId, ComponentType> = {
-  projects: ProjectHome,
-  editor: EditorWorkspace,
-  assets: AssetsPanel,
-  settings: SettingsHome,
-};
+interface AppProps {
+  readonly service?: ProjectService;
+}
 
-export function App() {
+function renderView(activeId: ViewId, service: ProjectService) {
+  switch (activeId) {
+    case 'projects':
+      return <ProjectHome service={service} />;
+    case 'editor':
+      return <EditorWorkspace />;
+    case 'assets':
+      return <AssetsPanel />;
+    case 'settings':
+      return <SettingsHome />;
+  }
+}
+
+export function App({ service = createProjectService() }: AppProps) {
   const [activeId, setActiveId] = useState<ViewId>('projects');
-  const ActiveView = VIEWS[activeId];
-  return <AppShell activeId={activeId} onSelect={setActiveId} content={<ActiveView />} />;
+  return (
+    <AppShell
+      activeId={activeId}
+      onSelect={setActiveId}
+      content={renderView(activeId, service)}
+    />
+  );
 }

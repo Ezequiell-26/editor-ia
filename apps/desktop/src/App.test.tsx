@@ -88,9 +88,9 @@ describe('shell de escritorio', () => {
     expect(goTo('Settings').textContent).toMatch(/ninguna.*(configuraci|preferencia)/i);
   });
 
-  it('ningun control del contenido promete editar, guardar, renderizar o reproducir', () => {
+  it('Editor, Assets y Settings siguen sin ofrecer controles que no hacen nada', () => {
     render(<App />);
-    for (const label of NAV_VIEWS.map((view) => view.label)) {
+    for (const label of ['Editor', 'Assets', 'Settings']) {
       const content = goTo(label);
       expect(
         within(content).queryAllByRole('button'),
@@ -103,6 +103,33 @@ describe('shell de escritorio', () => {
         `la vista ${label} anuncia un render listo`,
       ).not.toMatch(/render\w*[^.]*\blisto\b/i);
     }
+  });
+
+  it('Projects no habilita ningun control mientras el borde nativo no exista', () => {
+    render(<App />);
+    const content = screen.getByRole('main');
+    const buttons = within(content).queryAllByRole('button');
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(
+        (button as HTMLButtonElement).disabled,
+        `${button.textContent ?? ''} estaria habilitado sin hacer nada`,
+      ).toBe(true);
+    }
+    expect(content.textContent ?? '').toMatch(/tarea 4/i);
+  });
+
+  it('el color de texto tenue solo se usa en controles inhabilitados', () => {
+    const app = readStyle('app.css');
+    const rules = app.split('}');
+    const offenders = rules
+      .filter((rule) => rule.includes('var(--color-empty)'))
+      .filter((rule) => !rule.includes(':disabled'))
+      .map((rule) => (rule.split('{')[0] ?? '').trim());
+    expect(
+      offenders,
+      `--color-empty esta por debajo de AA como texto real: ${offenders.join(', ')}`,
+    ).toEqual([]);
   });
 
   it('los tokens de color pasan el contraste WCAG AA sobre el fondo', () => {

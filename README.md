@@ -1,8 +1,8 @@
 # Editor IA
 
 Editor de video local-first con asistencia de IA, para Windows. **Todavía está en
-fase de fundación**: existe el contrato de datos, el esqueleto de build y una UI que
-navega cuatro vistas vacías; no existe la edición, el guardado ni el render.
+fase de fundación**: existe el contrato de datos, el esqueleto de build, el contrato del
+render y una UI que navega cuatro vistas; no existe la edición, el guardado ni el render.
 
 ## Qué existe hoy (verificado)
 
@@ -20,6 +20,10 @@ navega cuatro vistas vacías; no existe la edición, el guardado ni el render.
   Projects, Editor, Assets y Settings; timeline, preview e inspector **visiblemente
   vacíos**. La UI navega y está probada (smoke test Vitest + jsdom); no edita, no guarda
   y no renderiza.
+- **Borde de proyecto tipado** en [`apps/desktop/src/services`](apps/desktop/src/services):
+  `createProject` / `openProject` / `saveProject` con la UI arriba de un estado explícito
+  (`idle`, `loading`, `dirty`, `saving`, `saved`, `failed`), adapter de test inyectable y
+  sanitizado de mensajes: ningún estado muestra una ruta absoluta ni la carpeta del usuario.
 - **Protocolo del render-worker** en [`apps/render-worker`](apps/render-worker): pedido
   y resultado validados, y descubrimiento de capacidades por ejecutable inyectado. Un
   resultado `completed` es **inexpresable** sin una verificación post-render del archivo
@@ -31,8 +35,10 @@ navega cuatro vistas vacías; no existe la edición, el guardado ni el render.
 
 ## Qué todavía no existe
 
-- **Edición ni guardado nativo**: `create`/`open`/`save` en Rust no están (tarea 4). El shell
-  no tiene botones porque no hay nada que esos botones puedan hacer todavía.
+- **Edición ni guardado nativo**: los comandos `create`/`open`/`save` en Rust no están
+  (tarea 4). La pantalla de Projects ya tiene el formulario y sus estados, pero los controles
+  aparecen **inhabilitados y con el motivo a la vista**: sin comando nativo no hay nada que
+  hacer al clic, y un botón que no hace nada es peor que un botón visiblemente cerrado.
 - **Render real**: el worker tiene contrato y capacidades, pero no decodifica ni codifica.
   Hoy responde `unsupported` con `RENDERER_UNIMPLEMENTED` incluso con FFmpeg instalado, y
   ningún resultado se produce ni se reporta como terminado (tarea 5 dejó la frontera, no el motor).

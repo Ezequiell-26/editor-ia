@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T23:12:36.342Z"
+    "lastPassAt": "2026-10-18T23:27:33.276Z"
   },
   "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -133,10 +133,25 @@
       "id": "6",
       "plan": "Task 6",
       "title": "UI conectada al borde de proyecto (create/open/save tipado)",
-      "status": "pending",
+      "status": "done",
       "acceptance": "Estados idle|loading|dirty|saving|saved|failed visibles; adapter de test en navegador; sin rutas absolutas filtradas al usuario.",
       "dependsOn": [
         "3"
+      ],
+      "doneAt": "2026-10-18T23:27:33.276Z",
+      "evidence": "verify en verde sobre: apps/desktop/src/services/project-service.ts, apps/desktop/src/features/projects/ProjectHome.test.tsx, apps/desktop/src/features/projects/ProjectHome.tsx, apps/desktop/src/App.tsx, apps/desktop/src/App.test.tsx, apps/desktop/src/styles/app.css, apps/desktop/package.json, apps/desktop/tsconfig.json, package.json, package-lock.json, README.md",
+      "files": [
+        "apps/desktop/src/services/project-service.ts",
+        "apps/desktop/src/features/projects/ProjectHome.test.tsx",
+        "apps/desktop/src/features/projects/ProjectHome.tsx",
+        "apps/desktop/src/App.tsx",
+        "apps/desktop/src/App.test.tsx",
+        "apps/desktop/src/styles/app.css",
+        "apps/desktop/package.json",
+        "apps/desktop/tsconfig.json",
+        "package.json",
+        "package-lock.json",
+        "README.md"
       ]
     },
     {
@@ -164,6 +179,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-10-18T23:27:33.276Z",
+      "taskId": "6",
+      "status": "done",
+      "note": "Borde de proyecto tipado entre la UI y el almacenamiento. project-service.ts: interfaz ProjectService (available, unavailableReason, createProject, openProject, saveProject), maquina de estados ProjectFlowState con transition() pura (idle|loading|dirty|saving|saved|failed) y describeFlow() que da UNA frase por estado. Reglas duras: un failed de save conserva hasUnsavedChanges=true y jamas dice Guardado; un failed de open no inventa cambios; openProject devuelve null para cancelacion y eso vuelve a idle sin mostrar error. safeDisplayLabel y sanitizeForUi recortan cualquier ruta absoluta (prefijo de unidad Windows o path POSIX con dos o mas segmentos) al nombre del archivo y cortan a 200 chars, asi Rust puede citar la ruta que fallo sin que la pantalla imprima el home del usuario. createNativeProjectService(invoke) valida lo que devuelve el comando con parseProject del paquete de esquema y fija los nombres create_project, open_project y save_project como contrato para la tarea 4; createProjectService() detecta window.__TAURI_INTERNALS__ y, si no hay runtime nativo, devuelve un servicio unavailable. Prueba primero: ProjectHome.test.tsx dio RED por 'Failed to resolve import ../../services/project-service' y quedo 17/17. Mutation check de las dos reglas del acceptance: forzar hasUnsavedChanges=false en failed y vaciar sanitizeForUi -> fallaron exactamente 4 tests (2 por estado sucio, 2 por filtracion de ruta), revertido. Un fake del propio test estaba mal y se corrigio: los overrides pisaban el contador de llamadas, por eso dos aserciones de calls daban 0 mientras el flujo funcionaba. Verificacion en navegador real (build de produccion en vite preview, chrome-devtools, viewport 1280x637): sin desborde horizontal, status 'Sin proyecto abierto.', los 3 botones con disabled=true, input deshabilitado con label 'Nombre del proyecto', aviso visible 'Crear y abrir no estan disponibles en esta ventana: los comandos nativos llegan con la tarea 4', y clickear los botones inhabilitados deja el status sin cambios (cero errores en consola). Ese mismo recorrido destapo un defecto mio: .notice usaba --color-empty (#6b7684) sobre el fondo, medido 4,04:1, debajo de AA para texto real. Se agrego primero la comprobacion en App.test.tsx (fallo contra el CSS actual, nombrando .notice), se paso .notice a --color-text-muted y se remidio en el navegador: 8,86:1; el unico uso restante de --color-empty es en reglas :disabled (3,47:1), que es texto incidental exento. tsc strict agarro ademas un 'Object is possibly undefined' en el test nuevo que Vitest no ve, corregido. App.test.tsx de la tarea 3 tenia '0 botones en main' para las 4 vistas: se dividio en dos guardas, Editor/Assets/Settings siguen exigiendo 0 controles, y Projects ahora exige que TODO boton este inhabilitado mientras el borde nativo no exista (un boton habilitado que no hace nada rompe el test). README actualizado porque su linea 'el shell no tiene botones' quedo falsa. npm run verify: 293 tests (228 esquema + 12 docs + 6 rust + 9 shell + 17 flujo) y typecheck estricto de los tres proyectos. Queda: los comandos nativos reales (tarea 4) y que el editor se inicialice con el proyecto abierto.",
+      "remedy": null,
+      "verifyRan": true
+    },
     {
       "at": "2026-10-18T23:12:36.342Z",
       "taskId": "5",

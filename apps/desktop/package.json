@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@editor-ia/project-schema": "*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
