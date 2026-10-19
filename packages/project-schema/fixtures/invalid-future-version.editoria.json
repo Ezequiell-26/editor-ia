@@ -1,0 +1,378 @@
+{
+  "id": "60606060-6060-4606-8606-606060606060",
+  "name": "Vertical slice de prueba",
+  "schemaVersion": 2,
+  "createdAt": "2026-10-18T10:00:00Z",
+  "updatedAt": "2026-10-18T11:00:00Z",
+  "revision": 4,
+  "language": "es",
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "frameRate": {
+      "num": 30,
+      "den": 1
+    },
+    "backgroundColor": "#101014",
+    "safeArea": {
+      "top": 120,
+      "right": 60,
+      "bottom": 220,
+      "left": 60
+    }
+  },
+  "assets": [
+    {
+      "id": "41414141-4141-4414-8414-414141414141",
+      "label": "Grabación de pantalla",
+      "source": {
+        "type": "downloaded",
+        "url": "https://example.com/demo.mp4",
+        "path": "media/demo.mp4",
+        "fetchedAt": "2026-10-18T09:40:00Z"
+      },
+      "status": "ready",
+      "integrity": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "bytes": 2000000
+      },
+      "rights": {
+        "license": {
+          "id": "CC0-1.0",
+          "commercialUse": "allowed",
+          "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+        },
+        "provenance": {
+          "origin": "downloaded",
+          "acquiredAt": "2026-10-18T09:40:00Z",
+          "sourceUrl": "https://example.com/demo.mp4",
+          "termsSnapshot": "CC0 1.0 Universal, no attribution required"
+        }
+      },
+      "kind": "video",
+      "media": {
+        "width": 1920,
+        "height": 1080,
+        "durationFrames": 900,
+        "frameRate": {
+          "num": 30,
+          "den": 1
+        }
+      }
+    },
+    {
+      "id": "42424242-4242-4424-8424-424242424242",
+      "label": "Narración escena 1",
+      "source": {
+        "type": "local",
+        "path": "media/narracion-escena-1.wav"
+      },
+      "status": "ready",
+      "integrity": {
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "bytes": 1000000
+      },
+      "rights": {
+        "license": {
+          "id": "owned-by-user",
+          "commercialUse": "allowed"
+        },
+        "provenance": {
+          "origin": "user-imported",
+          "acquiredAt": "2026-10-18T10:00:00Z"
+        }
+      },
+      "kind": "audio",
+      "media": {
+        "sampleRate": 48000,
+        "channels": 1,
+        "durationFrames": 600
+      }
+    }
+  ],
+  "timeline": {
+    "tracks": [
+      {
+        "id": "43434343-4343-4434-8434-434343434343",
+        "kind": "video",
+        "label": "V1",
+        "order": 0,
+        "muted": false,
+        "hidden": false,
+        "locked": false
+      },
+      {
+        "id": "44444444-4444-4444-8444-444444444444",
+        "kind": "narration",
+        "label": "N1",
+        "order": 1,
+        "muted": false,
+        "hidden": false,
+        "locked": false
+      },
+      {
+        "id": "45454545-4545-4454-8454-454545454544",
+        "kind": "caption",
+        "label": "C1",
+        "order": 2,
+        "muted": false,
+        "hidden": false,
+        "locked": false
+      },
+      {
+        "id": "52525252-5252-4525-8525-525252525252",
+        "kind": "graphic",
+        "label": "G1",
+        "order": 3,
+        "muted": false,
+        "hidden": false,
+        "locked": false
+      }
+    ],
+    "clips": [
+      {
+        "id": "46464646-4646-4464-8464-464646464644",
+        "trackId": "43434343-4343-4434-8434-434343434343",
+        "label": "Toma 1",
+        "startFrame": 0,
+        "durationFrames": 300,
+        "kind": "video",
+        "source": {
+          "type": "asset",
+          "assetId": "41414141-4141-4414-8414-414141414141",
+          "inFrame": 0,
+          "outFrame": 300
+        }
+      },
+      {
+        "id": "47474747-4747-4474-8474-474747474744",
+        "trackId": "44444444-4444-4444-8444-444444444444",
+        "startFrame": 120,
+        "durationFrames": 330,
+        "audio": {
+          "gainDb": -2,
+          "fadeInFrames": 5,
+          "fadeOutFrames": 10
+        },
+        "kind": "audio",
+        "source": {
+          "type": "asset",
+          "assetId": "42424242-4242-4424-8424-424242424242",
+          "inFrame": 0,
+          "outFrame": 330
+        }
+      },
+      {
+        "id": "53535353-5353-4535-8535-535353535353",
+        "trackId": "52525252-5252-4525-8525-525252525252",
+        "startFrame": 30,
+        "durationFrames": 90,
+        "kind": "graphic",
+        "source": {
+          "type": "graphic",
+          "motionId": "49494949-4949-4494-8494-494949494944"
+        }
+      }
+    ]
+  },
+  "captions": {
+    "styles": [
+      {
+        "id": "4a4a4a4a-4a4a-44aa-8aaa-aaaaaaaaaaa4",
+        "name": "Principal",
+        "fontFamily": "Inter",
+        "fontSizePx": 54,
+        "color": "#ffffff",
+        "outlineColor": "#000000",
+        "position": "bottom"
+      }
+    ],
+    "cues": [
+      {
+        "id": "4b4b4b4b-4b4b-44bb-8bbb-bbbbbbbbbbb4",
+        "trackId": "45454545-4545-4454-8454-454545454544",
+        "styleId": "4a4a4a4a-4a4a-44aa-8aaa-aaaaaaaaaaa4",
+        "text": "Probá esto primero",
+        "language": "es",
+        "startFrame": 120,
+        "endFrame": 165
+      }
+    ]
+  },
+  "scenes": [
+    {
+      "id": "48484848-4848-4484-8484-484848484844",
+      "order": 0,
+      "title": "Apertura",
+      "intent": "hook",
+      "status": "reviewed",
+      "narration": {
+        "text": "Probá esto primero",
+        "estimatedDurationFrames": 120
+      },
+      "clipIds": [
+        "46464646-4646-4464-8464-464646464644",
+        "47474747-4747-4474-8474-474747474744",
+        "53535353-5353-4535-8535-535353535353"
+      ]
+    }
+  ],
+  "motion": [
+    {
+      "id": "49494949-4949-4494-8494-494949494944",
+      "template": {
+        "id": "lower-third",
+        "version": "1.2.0",
+        "source": "bundled"
+      },
+      "props": {
+        "label": "Editor IA",
+        "accentColor": "#3ddc97"
+      },
+      "targetTrackId": "52525252-5252-4525-8525-525252525252"
+    }
+  ],
+  "audio": {
+    "master": {
+      "gainDb": 0,
+      "limiter": true
+    },
+    "ducking": {
+      "enabled": false,
+      "amountDb": -12,
+      "sourceTrackIds": [
+        "44444444-4444-4444-8444-444444444444"
+      ],
+      "targetTrackIds": [
+        "43434343-4343-4434-8434-434343434343"
+      ]
+    },
+    "loudnessTarget": {
+      "platform": "youtube",
+      "integratedLufs": -13.8,
+      "truePeakDb": -1.5,
+      "toleranceDb": 1
+    }
+  },
+  "renderProfiles": [
+    {
+      "id": "4c4c4c4c-4c4c-44cc-8ccc-ccccccccccca",
+      "name": "YouTube 1080p",
+      "container": "mp4",
+      "videoCodec": "h264",
+      "audioCodec": "aac",
+      "resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "frameRate": {
+        "num": 30,
+        "den": 1
+      },
+      "bitrate": {
+        "mode": "crf",
+        "crf": 20
+      },
+      "pixelFormat": "yuv420p",
+      "audioSampleRate": 48000,
+      "audioChannels": 2,
+      "aspectRatio": "16:9",
+      "qualityGate": {
+        "minOutputBytes": 1000000,
+        "durationToleranceFrames": 3,
+        "requireAllAssetsReady": true
+      }
+    },
+    {
+      "id": "4c4c4c4c-4c4c-44cc-8ccc-cccccccccccb",
+      "name": "Shorts 1080x1920",
+      "container": "mp4",
+      "videoCodec": "h264",
+      "audioCodec": "aac",
+      "resolution": {
+        "width": 1080,
+        "height": 1920
+      },
+      "frameRate": {
+        "num": 30,
+        "den": 1
+      },
+      "bitrate": {
+        "mode": "target",
+        "videoBitsPerSecond": 8000000
+      },
+      "pixelFormat": "yuv420p",
+      "audioSampleRate": 48000,
+      "audioChannels": 2,
+      "aspectRatio": "9:16",
+      "qualityGate": {
+        "minOutputBytes": 500000,
+        "durationToleranceFrames": 3,
+        "requireAllAssetsReady": true
+      }
+    }
+  ],
+  "exportVariants": [
+    {
+      "id": "4d4d4d4d-4d4d-44dd-8ddd-ddddddddddd4",
+      "name": "YouTube",
+      "renderProfileId": "4c4c4c4c-4c4c-44cc-8ccc-ccccccccccca",
+      "platform": "youtube"
+    },
+    {
+      "id": "51515151-5151-4515-8515-515151515151",
+      "name": "Shorts",
+      "renderProfileId": "4c4c4c4c-4c4c-44cc-8ccc-cccccccccccb",
+      "platform": "shorts"
+    }
+  ],
+  "provenance": {
+    "sources": [
+      {
+        "id": "4e4e4e4e-4e4e-44ee-8eee-eeeeeeeeeee4",
+        "kind": "product-docs",
+        "title": "Matriz de contenedores y códecs",
+        "accessedAt": "2026-10-18T09:00:00Z",
+        "reliability": "primary"
+      }
+    ],
+    "claims": [
+      {
+        "id": "4f4f4f4f-4f4f-44ff-8fff-fffffffffffc",
+        "text": "h264 en mp4 con yuv420p se reproduce en los cuatro destinos",
+        "status": "verified",
+        "sourceIds": [
+          "4e4e4e4e-4e4e-44ee-8eee-eeeeeeeeeee4"
+        ],
+        "sceneId": "48484848-4848-4484-8484-484848484844"
+      }
+    ],
+    "operations": [
+      {
+        "id": "50505050-5050-4500-8500-505050505050",
+        "role": "editor",
+        "summary": "Alinea la narración con la toma 1",
+        "createdAt": "2026-10-18T10:30:00Z",
+        "provider": {
+          "id": "local",
+          "model": "none"
+        },
+        "cost": {
+          "items": [],
+          "disclosed": true,
+          "approved": false
+        },
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/timeline/clips/1/startFrame",
+            "value": 120
+          }
+        ],
+        "expectedRevision": 3,
+        "appliedStatus": "applied"
+      }
+    ]
+  },
+  "migrationHistory": []
+}

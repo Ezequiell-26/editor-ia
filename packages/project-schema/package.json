@@ -1,0 +1,20 @@
+{
+  "name": "@editor-ia/project-schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical versioned project format for Editor IA. The only source of truth for what an .editoria.json file may contain.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema-json": "./schema/project-document.v1.schema.json"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "3.24.1"
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "id": "b7b64a0c-4f5f-4cd5-8aa2-ba20fb67ca6a",
+  "name": "Proyecto vacío de prueba",
+  "schemaVersion": 1,
+  "createdAt": "2026-10-18T10:00:00Z",
+  "updatedAt": "2026-10-18T10:00:00Z",
+  "revision": 0,
+  "language": "es",
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "frameRate": {
+      "num": 30,
+      "den": 1
+    }
+  },
+  "assets": [],
+  "timeline": {
+    "tracks": [],
+    "clips": []
+  },
+  "captions": {
+    "styles": [],
+    "cues": []
+  },
+  "scenes": [],
+  "motion": [],
+  "audio": {
+    "master": {
+      "gainDb": 0,
+      "limiter": false
+    },
+    "ducking": {
+      "enabled": false,
+      "amountDb": -12,
+      "sourceTrackIds": [],
+      "targetTrackIds": []
+    }
+  },
+  "renderProfiles": [],
+  "exportVariants": [],
+  "provenance": {
+    "sources": [],
+    "claims": [],
+    "operations": []
+  },
+  "migrationHistory": []
+}
