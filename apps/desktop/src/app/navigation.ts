@@ -1,30 +1,15 @@
-export type ViewId = 'projects' | 'editor' | 'assets' | 'settings';
+export type ViewId = 'projects' | 'editor' | 'script' | 'assets' | 'settings';
 
 export interface NavView {
   readonly id: ViewId;
   readonly label: string;
-  readonly summary: string;
+  readonly hint: string;
 }
 
 export const NAV_VIEWS: readonly NavView[] = [
-  {
-    id: 'projects',
-    label: 'Projects',
-    summary: 'Proyectos guardados en este dispositivo.',
-  },
-  {
-    id: 'editor',
-    label: 'Editor',
-    summary: 'Timeline, preview e inspector del proyecto abierto.',
-  },
-  {
-    id: 'assets',
-    label: 'Assets',
-    summary: 'Medios declarados por el proyecto y sus derechos.',
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    summary: 'Preferencias de la app, proveedores y herramientas externas.',
-  },
+  { id: 'projects', label: 'Proyectos', hint: 'Crear, abrir y retomar proyectos' },
+  { id: 'editor', label: 'Editor', hint: 'Timeline, vista previa e inspector' },
+  { id: 'script', label: 'Guion', hint: 'Asistente IA, escenas y narración' },
+  { id: 'assets', label: 'Medios', hint: 'Importar, licencias y biblioteca' },
+  { id: 'settings', label: 'Ajustes', hint: 'Proveedor, herramientas y voces' },
 ];

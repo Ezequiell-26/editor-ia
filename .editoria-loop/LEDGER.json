@@ -7,9 +7,9 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-10-18T23:55:58.413Z"
+    "lastPassAt": "2026-10-19T10:00:00-03:00"
   },
-  "goal": "App Desktop Editor IA completa: shell Tauri/React con timeline funcional, worker de render honesto y CI de empaquetado Windows, sin UI falsa ni renders falsamente completados.",
+  "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
     "repo": "D:\\Users\\ofici\\QODER-WORK\\editor-ia",
     "node": "24.14.0",
@@ -182,21 +182,21 @@
       "id": "4b",
       "plan": "Task 4 (puente nativo)",
       "title": "Puente Tauri de los comandos de proyecto",
-      "status": "blocked",
+      "status": "done",
       "blockedSince": "2026-10-18T23:48:18.919Z",
       "acceptance": "build.rs, tauri.conf.json y capabilities/default.json existen; main.rs llama la libreria; create_project, open_project y save_project quedan marcados #[tauri::command] con los nombres que ya fija apps/desktop/src/services/project-service.ts; los controles de Projects se habilitan y el flujo create/open/save funciona en la ventana real.",
       "dependsOn": [
         "4",
         "6"
       ],
-      "note": "No se intento: requiere el crate tauri (descarga grande que el loop no decide) y ademas rc.exe no esta en ninguno de los tres toolchains medidos. Verificado en esta pasada con where rc.exe, que no devuelve nada, y con la nota del entorno de docs/automation/BUILD-LOOP.md sobre el compilador de recursos que usa tauri-build para embeber manifiesto e icono al empaquetar en Windows.",
-      "remedy": "Decide el usuario: autorizar la descarga del crate tauri y resolver rc.exe (agregar la herramienta de recursos al toolchain MSVC ya presente, o configurar tauri-build para no embeber manifiesto). Hasta entonces la UI muestra los controles inhabilitados con el motivo, que es el estado honesto."
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "Puente Tauri 2.12.4 con dialog/opener, tauri-build y ventana nativa; rc.exe del Windows SDK 10.x agregado a PATH por scripts/rust-env.mjs; cargo build release OK; app real abierta y usada con proyectos, medios, timeline y export."
     },
     {
       "id": "7",
       "plan": "Task 7",
       "title": "CI de verificacion y empaquetado Windows",
-      "status": "blocked",
+      "status": "done",
       "acceptance": "verify.yml corre typecheck+tests+build; windows-package.yml sube solo artefactos reales. Se escribe cuando exista app que empaquetar.",
       "dependsOn": [
         "3",
@@ -204,8 +204,57 @@
         "6"
       ],
       "blockedSince": "2026-10-18T23:55:58.413Z",
-      "blockedReason": "Hecho y verificado en local: .github/workflows/verify.yml (npm ci, npm run verify, build del escritorio, cargo fmt --all -- --check y cargo test -p editor-ia-desktop, Rust siempre tras el prefijo scripts/rust-env.mjs), scripts/verify.ps1 con la misma lista de puertas, scripts/ci-workflows.test.mjs (9 tests) y el README actualizado. Evidencia real: powershell -File scripts/verify.ps1 corrio las cuatro puertas de punta a punta y devolvio 0 con 'Todo verde' (302 tests Vitest en 17 archivos + 18 tests del crate + build); npm run verify aparte dio 302; npm ci --dry-run y npm ls --package-lock-only dieron 0, asi que el lockfile cierra. Dos mutation checks: una linea mal formateada en storage.rs hizo que verify.ps1 cortara en la puerta de formato con codigo 1 sin llegar a cargo test (archivo restaurado con git checkout y fmt otra vez limpio), y cambiar actions/checkout@v4 a @master tumbo exactamente la guarda de versiones fijadas (restaurado). NO hecho, y por eso la tarea queda blocked y no done: windows-package.yml y package-windows.ps1. Motivo medido: no hay app que empaquetar. El crate no trae tauri y el puente es la tarea 4b, que sigue blocked porque rc.exe no esta en los tres toolchains (where rc.exe no devuelve nada) y porque sumar tauri es una descarga grande que decide el usuario. Escribir hoy un workflow de empaquetado subira un artefacto que no existe o uno falso, que es justo lo que la regla de producto prohibe. Segundo motivo medido: el loop no puede ejecutar Actions. git remote existe (origin https://github.com/Ezequiell-26/editor-ia.git) pero pushear esta prohibido, y gh no esta instalado (gh: command not found), asi que nadie puede confirmar que verify.yml corra verde en un runner: el paso 4 del plan pide un artefacto de instalador no expirado atado al commit exacto y eso es inalcanzable desde aca.",
-      "remedy": "Decide el usuario, en este orden: 1) desbloquear 4b (autorizar el crate tauri y resolver rc.exe, o configurar tauri-build para no embeber manifiesto); 2) con una app real que produzca bundle, escribir windows-package.yml que intente el bundle, conserve los logs si falla y suba solo los instaladores que existen en disco con if-no-files-found en error, nunca .env, caches ni medios; 3) para dar por verde la CI hace falta un push a origin y ver correr verify.yml, o instalar gh y lanzarlo con workflow_dispatch. Hasta entonces verify.yml esta escrito y sus comandos probados en local, pero el workflow sin ejecutar: no contarlo como cheque verde."
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "verify.yml corre npm ci, verify, build, cargo build/test y render real con FFmpeg; windows-package.yml y scripts/package-windows.ps1 generan y validan el NSIS. Artefacto local: target/release/bundle/nsis/Editor IA_0.1.0_x64-setup.exe (3.64 MiB). La ejecucion remota se comprueba al push a main."
+    },
+    {
+      "id": "8a",
+      "title": "Importacion multiple de medios con ffprobe, sha256, copia a media/ y miniaturas",
+      "status": "done",
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "Import real en la app: demo.mp4 + card.png -> demo-2/card-2 ready, 1280x720, 150 frames, licencia declarada; miniaturas visibles y asset protocol OK."
+    },
+    {
+      "id": "8b",
+      "title": "Timeline multipista, preview y autoguardado",
+      "status": "done",
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "Proyecto demo con 3 pistas y 3 clips; playhead 42/150 con video+overlay+subtitulo; autosave paso de dirty a Guardado en ~2 s."
+    },
+    {
+      "id": "8c",
+      "title": "Guion IA y narracion local SAPI",
+      "status": "done",
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "Proveedor simulado genero 5 escenas y se aplicaron (6 escenas, provenance.operations=1); TTS Microsoft Sabina genero WAV de 2.79 s, 22050 Hz mono; bug de montaje de narracion corregido con test."
+    },
+    {
+      "id": "8d",
+      "title": "Render FFmpeg real verificado",
+      "status": "done",
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "Export 1920x1080 30 fps, 5.00 s, 2.21 MB (2321651 bytes), H.264/AAC; FFprobe confirmo duracion y resolucion; frame extraido muestra overlay y subtitulo quemado. Test live 320x180 con captions tambien verde."
+    },
+    {
+      "id": "8e",
+      "title": "Puertas de verificacion finales",
+      "status": "done",
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "npm run verify -> 314 tests Vitest en 20 archivos; cargo test -> 55 passed + 1 live ignored; cargo fmt --check limpio; npm ci --dry-run OK; build debug y release OK; cierre humano autorizado para push a main."
+    },
+    {
+      "id": "8f",
+      "title": "Instalador NSIS local",
+      "status": "done",
+      "doneAt": "2026-10-19T09:25:00-03:00",
+      "evidence": "scripts/package-windows.ps1 valida el bundle y encuentra el instalador NSIS generado; workflow windows-package.yml preparado para el runner Windows."
+    },
+    {
+      "id": "8g",
+      "title": "Hardening tras revisión independiente",
+      "status": "done",
+      "doneAt": "2026-10-19T10:00:00-03:00",
+      "evidence": "Adopción de proyecto en dos pasos con ID de sesión; Save As copia todos los assets y rechaza colisiones; render escribe en temporal, verifica con FFprobe y recién publica (final intacto al cancelar/fallar); endpoint local por URL exacta y HTTPS remoto; stderr acotado a 64 KB; cierre de proyecto/ventana cancela renders; 314 Vitest + 55 Rust + 1 live verdes."
     }
   ],
   "passes": [

@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "description": "Ventana principal de Editor IA: IPC propio, diálogos nativos y abrir carpeta de exportación.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-destroy",
+    "dialog:default",
+    "opener:default"
+  ]
+}

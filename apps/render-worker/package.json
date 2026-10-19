@@ -1,6 +1,6 @@
 {
   "name": "@editor-ia/render-worker",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Render worker contract: request and result protocol plus truthful capability discovery. No rendering is implemented here, and the protocol cannot represent a completed render that was not verified on disk.",
@@ -20,5 +20,6 @@
   },
   "devDependencies": {
     "vitest": "^2.1.8"
-  }
+  },
+  "license": "MIT"
 }

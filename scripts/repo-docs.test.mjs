@@ -46,9 +46,9 @@ describe('README.md', () => {
         `README documenta "npm run ${name}", que no existe`,
       ).toBe(true);
     }
-    for (const absent of ['dev', 'build', 'tauri:dev', 'tauri:build']) {
-      expect(readme, `README promete npm run ${absent}`).not.toMatch(
-        new RegExp(`npm run ${absent.replace(':', ':')}\\b`),
+    for (const present of ['dev', 'build', 'tauri:dev', 'tauri:build']) {
+      expect(readme, `README debe documentar npm run ${present}`).toMatch(
+        new RegExp(`npm run ${present.replace(':', ':')}\\b`),
       );
     }
   });

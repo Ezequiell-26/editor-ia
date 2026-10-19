@@ -1,141 +1,316 @@
-import { useState } from 'react';
-import type { ProjectDocument } from '@editor-ia/project-schema';
+import { useEffect, useState } from 'react';
+import type { ViewId } from '../../app/navigation';
 import {
-  INITIAL_FLOW,
-  describeFlow,
-  sanitizeForUi,
-  transition,
-  type OpenedProject,
-  type ProjectFlowState,
-  type ProjectOp,
-  type ProjectService,
-} from '../../services/project-service';
+  framesToSeconds,
+  fpsOf,
+  formatTimecode,
+  totalFrames,
+} from '../../state/project-actions';
+import { useProjectStore } from '../../state/project-store';
+import { forgetRecent, loadRecents, rememberRecent, type RecentProject } from '../../lib/recents';
 
 interface ProjectHomeProps {
-  readonly service: ProjectService;
+  readonly onNavigate: (id: ViewId) => void;
 }
 
-function reasonOf(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return sanitizeForUi(message);
-}
+type Preset = '16:9' | '9:16';
 
-export function ProjectHome({ service }: ProjectHomeProps) {
-  const [flow, setFlow] = useState<ProjectFlowState>(INITIAL_FLOW);
-  const [project, setProject] = useState<ProjectDocument | null>(null);
-  const [fileLabel, setFileLabel] = useState<string | null>(null);
+const PRESETS: Record<Preset, { width: number; height: number; label: string; note: string }> = {
+  '16:9': { width: 1920, height: 1080, label: 'Horizontal 16:9', note: 'YouTube, tutoriales, escritorio' },
+  '9:16': { width: 1080, height: 1920, label: 'Vertical 9:16', note: 'Shorts, Reels, TikTok' },
+};
+
+export function ProjectHome({ onNavigate }: ProjectHomeProps) {
+  const store = useProjectStore();
+  const project = store.state.project;
+  const opened = store.state.opened;
   const [name, setName] = useState('');
+  const [preset, setPreset] = useState<Preset>('16:9');
+  const [recents, setRecents] = useState<RecentProject[]>(() => loadRecents());
+  const [busy, setBusy] = useState(false);
 
-  const fail = (op: ProjectOp, reason: string): void => {
-    setFlow((current) => transition(current, { type: 'failed', op, reason }));
-  };
+  useEffect(() => {
+    if (store.state.opened) {
+      setRecents(rememberRecent(store.state.opened));
+      setName('');
+    }
+  }, [store.state.opened]);
 
-  const adopt = (op: ProjectOp, opened: OpenedProject): void => {
-    setProject(opened.project);
-    setFileLabel(opened.label);
-    setName(opened.project.name);
-    setFlow((current) =>
-      transition(current, { type: 'loaded', op, name: opened.project.name }),
-    );
-  };
+  const locked = !store.service.available || busy;
+  const duration = project ? totalFrames(project) : 0;
+  const fps = project ? fpsOf(project) : 30;
 
-  async function createProject(): Promise<void> {
+  function confirmLeave(action: string): boolean {
+    const phase = store.state.phase;
+    if (phase === 'saving') {
+      store.setNotice('El proyecto se está guardando; esperá un instante y reintentá.');
+      return false;
+    }
+    if (phase === 'dirty' || phase === 'failed') {
+      const detail =
+        phase === 'failed'
+          ? 'El último guardado falló y hay cambios sin guardar.'
+          : 'Hay cambios sin guardar.';
+      return window.confirm(`${detail} ¿${action} igual?`);
+    }
+    return true;
+  }
+
+  async function create(): Promise<void> {
     const trimmed = name.trim();
-    if (trimmed.length === 0) {
-      fail('create', 'el proyecto necesita un nombre');
+    if (!trimmed) {
+      store.setNotice('Poné un nombre para el proyecto.');
       return;
     }
-    setFlow((current) => transition(current, { type: 'start', op: 'create' }));
-    try {
-      adopt('create', await service.createProject(trimmed));
-    } catch (error) {
-      fail('create', reasonOf(error));
+    if (!confirmLeave('Crear un proyecto nuevo')) return;
+    setBusy(true);
+    const chosen = PRESETS[preset];
+    const ok = await store.createProject({
+      name: trimmed,
+      width: chosen.width,
+      height: chosen.height,
+      fpsNum: 30,
+      fpsDen: 1,
+    });
+    setBusy(false);
+    if (ok) {
+      onNavigate('editor');
     }
   }
 
-  async function openProject(): Promise<void> {
-    setFlow((current) => transition(current, { type: 'start', op: 'open' }));
-    try {
-      const opened = await service.openProject();
-      if (opened === null) {
-        setFlow(() => INITIAL_FLOW);
-        return;
-      }
-      adopt('open', opened);
-    } catch (error) {
-      fail('open', reasonOf(error));
+  async function open(): Promise<void> {
+    if (!confirmLeave('Abrir otro proyecto')) return;
+    setBusy(true);
+    const ok = await store.openProject();
+    setBusy(false);
+    if (ok) {
+      onNavigate('editor');
     }
   }
 
-  async function saveProject(): Promise<void> {
-    if (project === null) {
-      return;
-    }
-    const trimmed = name.trim();
-    if (trimmed.length === 0) {
-      fail('save', 'el proyecto necesita un nombre');
-      return;
-    }
-    setFlow((current) => transition(current, { type: 'start', op: 'save' }));
-    try {
-      adopt('save', await service.saveProject({ ...project, name: trimmed }));
-    } catch (error) {
-      fail('save', reasonOf(error));
+  async function openRecent(recent: RecentProject): Promise<void> {
+    if (!confirmLeave('Abrir otro proyecto')) return;
+    setBusy(true);
+    const ok = await store.openProjectAt(recent.path);
+    setBusy(false);
+    if (ok) {
+      onNavigate('editor');
     }
   }
 
-  function onNameChange(value: string): void {
-    setName(value);
-    if (project !== null) {
-      setFlow((current) => transition(current, { type: 'edited' }));
+  function close(): void {
+    if (!confirmLeave('Cerrar el proyecto')) return;
+    store.closeProject();
+    if (store.service.available) {
+      void store.service.closeProject().catch(() => {
+        // Closing the native session is best-effort; the screen is already empty.
+      });
     }
   }
-
-  const locked = !service.available;
 
   return (
-    <section className="view">
-      <h2>Projects</h2>
-      <p className="view-summary">Proyectos guardados en este dispositivo.</p>
-      <p className="empty-state">
-        Todavía no hay proyectos guardados en este dispositivo. La lista se llena apenas un
-        archivo <code>.editoria.json</code> existe en el disco.
-      </p>
-      <p className="status" role="status" aria-live="polite">
-        {describeFlow(flow)}
-      </p>
-      <div className="project-form">
-        <label htmlFor="project-name">Nombre del proyecto</label>
-        <input
-          id="project-name"
-          type="text"
-          value={name}
-          disabled={locked}
-          onChange={(event) => {
-            onNameChange(event.target.value);
-          }}
-        />
-        <div className="actions">
-          <button type="button" onClick={createProject} disabled={locked || project !== null}>
-            Crear proyecto
-          </button>
-          <button type="button" onClick={openProject} disabled={locked}>
-            Abrir proyecto
-          </button>
-          <button type="button" onClick={saveProject} disabled={locked || project === null}>
-            Guardar
+    <section className="view projects-view">
+      <div className="view-head">
+        <div>
+          <p className="eyebrow">Local-first</p>
+          <h2>Proyectos</h2>
+          <p className="view-summary">
+            Tus archivos y tu timeline quedan en este equipo. El proyecto es un{' '}
+            <code>.editoria.json</code> portable; los medios se copian a su carpeta.
+          </p>
+        </div>
+        <div className="head-actions">
+          <button type="button" className="ghost" onClick={open} disabled={locked}>
+            Abrir proyecto…
           </button>
         </div>
       </div>
-      {locked ? (
-        <p className="notice">{service.unavailableReason}</p>
+
+      {!store.service.available ? (
+        <p className="notice notice-warning">{store.service.unavailableReason}</p>
+      ) : null}
+
+      {project ? (
+        <article className="project-current">
+          <div className="project-current-head">
+            <div>
+              <p className="eyebrow">Proyecto abierto</p>
+              <h3>{project.name}</h3>
+              <p className="muted">
+                {project.video.width}×{project.video.height} · {fps} fps ·{' '}
+                {formatTimecode(duration, fps)} · {project.timeline.clips.length} clips ·{' '}
+                {project.assets.length} medios · {project.scenes.length} escenas
+              </p>
+            </div>
+            <span className={`status-pill ${store.state.phase}`}>{store.statusText}</span>
+          </div>
+          <div className="project-metrics">
+            <div>
+              <span>Archivo</span>
+              <strong>{opened?.label ?? 'sin archivo'}</strong>
+            </div>
+            <div>
+              <span>Duración</span>
+              <strong>{framesToSeconds(duration, fps).toFixed(1)} s</strong>
+            </div>
+            <div>
+              <span>Perfiles</span>
+              <strong>{project.renderProfiles.length}</strong>
+            </div>
+            <div>
+              <span>Guion</span>
+              <strong>{project.scenes.length} escenas</strong>
+            </div>
+          </div>
+          <div className="actions">
+            <button type="button" className="primary" onClick={() => onNavigate('editor')}>
+              Abrir editor
+            </button>
+            <button type="button" onClick={() => onNavigate('script')}>
+              Guion y escenas
+            </button>
+            <button type="button" onClick={() => onNavigate('assets')}>
+              Medios
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void store.saveNow();
+              }}
+            >
+              Guardar
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void store.saveAs();
+              }}
+            >
+              Guardar como…
+            </button>
+            <button type="button" className="danger-ghost" onClick={close}>
+              Cerrar proyecto
+            </button>
+          </div>
+        </article>
       ) : (
-        <p className="notice">
-          {fileLabel === null
-            ? 'Todavía no hay ningún archivo de proyecto abierto.'
-            : `Archivo abierto: ${fileLabel}`}
+        <p className="empty-state">
+          No hay proyectos abiertos. Creá uno nuevo o abrí un archivo{' '}
+          <code>.editoria.json</code> existente. La lista de recientes se llena a medida que
+          abrís proyectos en este equipo.
         </p>
       )}
+
+      <div className="home-grid">
+        <article className="card">
+          <p className="eyebrow">Nuevo</p>
+          <h3>Crear un proyecto</h3>
+          <div className="form-grid">
+            <label className="field">
+              <span>Nombre</span>
+              <input
+                type="text"
+                value={name}
+                placeholder="Mi próximo video"
+                maxLength={120}
+                disabled={locked}
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void create();
+                  }
+                }}
+              />
+            </label>
+            <fieldset className="preset-group" disabled={locked}>
+              <legend>Formato</legend>
+              {(Object.keys(PRESETS) as Preset[]).map((key) => (
+                <label key={key} className={preset === key ? 'preset selected' : 'preset'}>
+                  <input
+                    type="radio"
+                    name="preset"
+                    value={key}
+                    checked={preset === key}
+                    onChange={() => setPreset(key)}
+                  />
+                  <strong>{PRESETS[key].label}</strong>
+                  <span>{PRESETS[key].note}</span>
+                  <span className="preset-size">
+                    {PRESETS[key].width}×{PRESETS[key].height} · 30 fps
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          </div>
+          <div className="actions">
+            <button type="button" className="primary" onClick={() => void create()} disabled={locked}>
+              {busy ? 'Creando…' : 'Crear y elegir ubicación…'}
+            </button>
+          </div>
+          <p className="fine-print">
+            Se abre el diálogo de Windows para guardar el archivo. Nada se escribe hasta que
+            elegís la carpeta.
+          </p>
+        </article>
+
+        <article className="card">
+          <p className="eyebrow">Recientes</p>
+          <h3>Retomar</h3>
+          {recents.length === 0 ? (
+            <p className="empty-inline">Todavía no hay proyectos recientes en este equipo.</p>
+          ) : (
+            <ul className="recent-list">
+              {recents.map((recent) => (
+                <li key={recent.path}>
+                  <button
+                    type="button"
+                    className="recent-open"
+                    disabled={locked}
+                    onClick={() => void openRecent(recent)}
+                    title={recent.label}
+                  >
+                    <span className="recent-name">{recent.name}</span>
+                    <span className="recent-file">{recent.label}</span>
+                    <span className="recent-date">
+                      {new Date(recent.openedAt).toLocaleString('es-AR')}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Quitar ${recent.name} de recientes`}
+                    onClick={() => setRecents(forgetRecent(recent.path))}
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </article>
+      </div>
+
+      <article className="card minimal">
+        <p className="eyebrow">Qué guarda el proyecto</p>
+        <div className="feature-grid">
+          <p>
+            <strong>Medios con derechos.</strong> Cada archivo importado guarda hash, bytes,
+            duración y licencia. Sin derechos confirmados no se exporta.
+          </p>
+          <p>
+            <strong>Timeline en frames.</strong> Los cortes y trims son enteros: no hay deriva al
+            renderizar a otra tasa.
+          </p>
+          <p>
+            <strong>Guion y escenas.</strong> La IA propone un plan estructurado; vos lo aplicás y
+            queda registrado en el proyecto.
+          </p>
+          <p>
+            <strong>Render verificado.</strong> El estado “completado” sólo aparece si FFprobe
+            confirma archivo, tamaño, duración y resolución.
+          </p>
+        </div>
+      </article>
     </section>
   );
 }

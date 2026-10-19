@@ -94,6 +94,8 @@ export function discoverRustEnv() {
   }
 
   const chosen = msvc[0];
+  const sdkBin = join(SDK_ROOT, 'bin', sdk, 'x64');
+  const sdkRc = existsSync(join(sdkBin, 'rc.exe'));
   const lib = [
     join(chosen.base, 'lib', 'x64'),
     join(SDK_ROOT, 'Lib', sdk, 'ucrt', 'x64'),
@@ -106,15 +108,25 @@ export function discoverRustEnv() {
     join(SDK_ROOT, 'Include', sdk, 'shared'),
   ].join(';');
 
+  // `tauri-build` compiles the Windows resource script (icon + manifest) with
+  // rc.exe. The MSVC toolchains on this machine do not ship it, but the
+  // Windows SDK does, so the SDK bin directory must be on PATH for every
+  // Tauri build. The probe is measured, not assumed.
+  const pathPrepends = [join(chosen.base, 'bin', 'Hostx64', 'x64')];
+  if (sdkRc) {
+    pathPrepends.push(sdkBin);
+  }
+
   return {
     ready: true,
     msvcVersion: chosen.version,
     sdkVersion: sdk,
-    rcAvailable: chosen.rc === true,
+    rcAvailable: chosen.rc === true || sdkRc,
+    rcPath: sdkRc ? join(sdkBin, 'rc.exe') : null,
     env: {
       LIB: lib,
       INCLUDE: include,
-      PATH_PREPEND: join(chosen.base, 'bin', 'Hostx64', 'x64'),
+      PATH_PREPEND: pathPrepends.join(';'),
     },
     alternatives: msvc.map((item) => item.version),
   };

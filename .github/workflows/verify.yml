@@ -1,7 +1,8 @@
 name: verify
 
-# Las mismas puertas que corre el loop de construcción, en el orden de siempre.
-# No empaqueta: todavia no hay una app de Windows que empaquetar (tarea 4b).
+# Puertas de verificacion: esquema, UI, contrato del worker, formato y build
+# del binario Tauri (con recursos de Windows), tests del crate y un render real
+# de humo con FFmpeg cuando el runner lo permite.
 
 on:
   push:
@@ -15,9 +16,9 @@ permissions:
 
 jobs:
   verify:
-    name: typecheck, tests y build
+    name: typecheck, tests, build y render real
     runs-on: windows-2022
-    timeout-minutes: 45
+    timeout-minutes: 60
     defaults:
       run:
         shell: bash
@@ -56,5 +57,16 @@ jobs:
       - name: Formato de Rust
         run: node scripts/rust-env.mjs -- cargo fmt --all -- --check
 
-      - name: Tests del crate de proyecto
+      - name: Build del binario Tauri con recursos de Windows
+        run: node scripts/rust-env.mjs -- cargo build -p editor-ia-desktop
+
+      - name: Tests del crate
         run: node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop
+
+      - name: Instala FFmpeg para el render de humo
+        run: choco install ffmpeg -y --no-progress
+
+      - name: Render real verificado con FFmpeg y FFprobe
+        env:
+          EDITOR_IA_RUN_RENDER_TESTS: '1'
+        run: node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop render_live -- --ignored --nocapture

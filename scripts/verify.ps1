@@ -1,7 +1,8 @@
 # Corre las mismas puertas que el workflow de verificacion, en la misma
-# direccion: typecheck y tests, build del escritorio y las pruebas del crate
-# Rust. Corta al primer fallo y sale con el codigo de esa operacion, para que
-# un verde signifique lo mismo en la maquina del desarrollador que en CI.
+# direccion: typecheck y tests, build del escritorio, formato, build del
+# binario Tauri (incluye los recursos de Windows) y tests del crate Rust.
+# Corta al primer fallo y sale con el codigo de esa operacion, para que un
+# verde signifique lo mismo en la maquina del desarrollador que en CI.
 
 $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)
@@ -21,6 +22,11 @@ $steps = @(
     display = 'node scripts/rust-env.mjs -- cargo fmt --all -- --check'
     exe     = 'node'
     argv    = @('scripts/rust-env.mjs', '--', 'cargo', 'fmt', '--all', '--', '--check')
+  },
+  [pscustomobject]@{
+    display = 'node scripts/rust-env.mjs -- cargo build -p editor-ia-desktop'
+    exe     = 'node'
+    argv    = @('scripts/rust-env.mjs', '--', 'cargo', 'build', '-p', 'editor-ia-desktop')
   },
   [pscustomobject]@{
     display = 'node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop'

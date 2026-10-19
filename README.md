@@ -1,100 +1,176 @@
 # Editor IA
 
-Editor de video local-first con asistencia de IA, para Windows. **Todavía está en
-fase de fundación**: existe el contrato de datos, el esqueleto de build, el contrato del
-render, los comandos de proyecto en Rust y una UI que navega cuatro vistas; no existe la
-edición ni el render, y el guardado todavía no llega a la pantalla porque falta el puente.
+Editor de video local-first para Windows, con timeline multipista, asistencia de
+IA opcional y exportación MP4 verificada. El proyecto, los medios y las claves se
+quedan en tu equipo; la nube no es obligatoria.
 
 ## Qué existe hoy (verificado)
 
-- **Formato canónico de proyecto v1** en [`packages/project-schema`](packages/project-schema):
-  validación Zod de 12 entidades y 11 reglas de integridad referencial, fixtures y
-  JSON Schema generado. Contrato descrito en
-  [docs/architecture/PROJECT-FORMAT.md](docs/architecture/PROJECT-FORMAT.md).
-- **Workspace de Cargo** en la raíz, con un único miembro `editor-ia-desktop`
-  (`apps/desktop/src-tauri`). El crate compila y linkea, pero **no trae Tauri ni
-  dependencias**: es un punto de entrada vacío hasta la tarea 4.
-- **Loop de construcción automatizado** ([docs/automation/BUILD-LOOP.md](docs/automation/BUILD-LOOP.md)),
-  con ledger en `.editoria-loop/LEDGER.json`, preflight con guardas de RAM/lock y
-  cierre obligatorio contra `npm run verify`.
-- **Shell de escritorio React** en [`apps/desktop`](apps/desktop): barra lateral con
-  Projects, Editor, Assets y Settings; timeline, preview e inspector **visiblemente
-  vacíos**. La UI navega y está probada (smoke test Vitest + jsdom); no edita, no guarda
-  y no renderiza.
-- **Comandos de proyecto en Rust** en
-  [`apps/desktop/src-tauri/src/projects`](apps/desktop/src-tauri/src/projects):
-  `create_project` / `open_project` / `save_project` con validación antes de tocar el
-  disco, escritura por temporal + `rename`, tope de tamaño y errores tipados que no
-  filtran la ruta del usuario. Espeja las once reglas de integridad de
-  [PROJECT-FORMAT.md](docs/architecture/PROJECT-FORMAT.md) sección 6, más el `x-`,
-  las credenciales y la identidad de timing. 18 tests del crate en verde con
-  `node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop`.
-- **Borde de proyecto tipado** en [`apps/desktop/src/services`](apps/desktop/src/services):
-  `createProject` / `openProject` / `saveProject` con la UI arriba de un estado explícito
-  (`idle`, `loading`, `dirty`, `saving`, `saved`, `failed`), adapter de test inyectable y
-  sanitizado de mensajes: ningún estado muestra una ruta absoluta ni la carpeta del usuario.
-- **Protocolo del render-worker** en [`apps/render-worker`](apps/render-worker): pedido
-  y resultado validados, y descubrimiento de capacidades por ejecutable inyectado. Un
-  resultado `completed` es **inexpresable** sin una verificación post-render del archivo
-  (bytes reales en la ruta verificada), y sin pipeline montado el worker responde
-  `unsupported`. Medido en esta máquina: `ffmpeg` disponible en
-  `C:\ProgramData\chocolatey\bin\ffmpeg.exe`, `remotion` no, y `canRender: false` igual.
-- **Documentos de producto y arquitectura**:
-  [PRODUCT-SPEC.md](docs/product/PRODUCT-SPEC.md), PROJECT-FORMAT.md, BUILD-LOOP.md.
+- **Aplicación de escritorio Tauri 2 + React + TypeScript estricto** con ventana
+  nativa, comandos IPC allowlisted y diálogos de Windows. La UI tiene cinco
+  vistas: Proyectos, Editor, Guion, Medios y Ajustes.
+- **Proyectos portables** `.editoria.json` con esquema v1 versionado (Zod + JSON
+  Schema + validación espejo en Rust), creación, apertura, guardado atómico,
+  autoguardado y lista de recientes. **Guardar como** copia los medios
+  referenciados a la nueva carpeta y rechaza sobrescribirlos. Un guardado fallido
+  nunca se muestra como exitoso.
+- **Importación de medios no destructiva**: el archivo se copia a `media/`, se
+  mide con FFprobe, se hashea con SHA-256 y queda con licencia y procedencia
+  declaradas por la persona. La biblioteca muestra miniaturas generadas con
+  FFmpeg y permite montar clips o narrración.
+- **Timeline multipista en frames**: pistas de video, imagen, audio, narración,
+  subtítulos y gráficos; arrastrar, recortar, dividir, mover entre pistas
+  compatibles, zoom, playhead y eliminación. Los solapamientos y las ventanas de
+  origen se validan antes de aceptar cada edición.
+- **Vista previa sincronizada** con video, imágenes, audio, transformaciones,
+  opacidad y subtítulos; el render final se hace con FFmpeg y la vista previa se
+  declara aproximada.
+- **Subtítulos** con estilos, edición de tiempos y texto, generación desde el
+  guion con tiempos estimados y quemado en el MP4 mediante libass.
+- **Guion asistido por IA** con proveedores compatibles con la API de chat de
+  OpenAI (OpenAI, Ollama, LM Studio, vLLM u otro endpoint equivalente) o un
+  **proveedor simulado** que no hace red. El plan se valida antes de aplicarse,
+  se puede editar escena por escena y queda registrado como operación en
+  `provenance`. Las llamadas a proveedores pagos requieren confirmación de costo.
+- **Narración local gratuita** con Windows SAPI: enumera voces instaladas,
+  sintetiza a WAV y lo agrega al proyecto, sin enviar el texto a un servicio.
+- **Render MP4 H.264/AAC real** desde Rust: composita video/imagen, mezcla audio,
+  aplica fades y ganancia, quema subtítulos, reporta progreso y permite cancelar.
+  Un render solo se marca `completado` después de que FFprobe verifica archivo,
+  tamaño mínimo, duración y resolución.
+- **Almacén de credenciales de Windows** (`keyring`/Credential Manager): la clave
+  del proveedor no vive en el proyecto, en `localStorage` ni en los logs.- **Suite de pruebas**: esquema de proyecto, acciones de timeline, UI con jsdom,
+  contrato del render-worker, crate Rust y un render real de humo con FFmpeg.
+- **CI de verificación y empaquetado Windows** en `.github/workflows/`:
+  instalador NSIS generado desde el commit exacto y subido solo si existe.
 
-## Qué todavía no existe
+## Qué no existe todavía
 
-- **Puente Tauri**: los comandos de proyecto existen y están probados en Rust, pero la
-  interfaz todavía no puede invocarlos. Los controles de Projects siguen **inhabilitados y
-  con el motivo a la vista**: un botón que no hace nada es peor que un botón visiblemente
-  cerrado. Levantar el puente requiere traer el crate Tauri (tarea 4b del ledger).
-- **Edición de timeline**: abrir un proyecto no habilita todavía el montaje de pistas.
-- **Render real**: el worker tiene contrato y capacidades, pero no decodifica ni codifica.
-  Hoy responde `unsupported` con `RENDERER_UNIMPLEMENTED` incluso con FFmpeg instalado, y
-  ningún resultado se produce ni se reporta como terminado (tarea 5 dejó la frontera, no el motor).
-- **IA**: no hay proveedores, ni generación, ni integración de modelos.
-- **CI ejecutada y empaquetado Windows**: `.github/workflows/verify.yml` y
-  `scripts/verify.ps1` están escritos y cada comando que invoca fue probado en esta
-  máquina, pero el workflow **nunca corrió en GitHub Actions** porque el loop no pushea:
-  no lo tome por verde. No existe `windows-package.yml` ni `package-windows.ps1` porque
-  todavía no hay una app de Windows que empaquetar; eso depende del puente Tauri (4b).
-- **Almacén de credenciales**: no implementado; hoy solo se garantiza que el formato
-  de proyecto **no** las acepta (ver [SECURITY.md](SECURITY.md)).
+- **Remotion** como renderizador: se deja fuera hasta validar su licencia para
+  uso comercial automatizado.
+- **Motor de clips gráficos**: el formato los admite, pero el renderer nativo
+  rechaza un clip gráfico visible en vez de omitirlo en silencio.
+- **Descarga de stock, investigación con fuentes, publicación en redes, clonación
+  de voz y sincronización en la nube**. Nada de eso se simula.
+- **Multiplataforma**: el objetivo verificado es Windows x64.
+- **Render en paralelo**: hay un render por vez para no saturar la máquina.
 
-`dev` y `build` existen solo dentro del workspace de escritorio
-(`npm --workspace @editor-ia/desktop run dev` levanta Vite en `:5173`; `run build` emite
-`apps/desktop/dist`). No hay `tauri:dev` ni `tauri:build`: el crate todavía no tiene comandos
-ni ventana nativa (tarea 4).
+## Evidencia de la última verificación (2026-10-19)
+
+- `npm run verify`: **314 tests** Vitest en 20 archivos, typecheck estricto limpio.
+- `cargo test -p editor-ia-desktop`: **55 passed + 1 ignored** (el render real se
+  corre aparte) y `cargo fmt --all -- --check` limpio.
+- Render real de humo (`EDITOR_IA_RUN_RENDER_TESTS=1`): 320×180 con video, audio y
+  subtítulos quemados; salida verificada por FFprobe.
+- Prueba manual en la app real (build de debug): proyecto abierto y autoguardado,
+  importación múltiple de medios, timeline de 3 pistas, playback, guion simulado
+  de 5 escenas aplicado con `provenance`, y export **1920×1080, 30 fps, 5.00 s,
+  2.21 MB** (H.264/AAC) verificado por FFprobe; un frame extraído muestra el
+  overlay y el subtítulo quemado.
+- TTS local con Microsoft Sabina: WAV de 2.79 s, 22050 Hz, mono.
+- **Guardar como** en otra carpeta: 4 medios copiados, proyecto reabierto
+  y preview cargada desde la nueva raíz.
+- Segundo export de 10 s con el flujo temporal → verificación → publicación:
+  **4.45 MB**, H.264/AAC 1920×1080; el MP4 anterior quedó intacto.
+- Instalador NSIS local: `Editor IA_0.1.0_x64-setup.exe`, 3.64 MiB.
+- El estado de la primera ejecución de GitHub Actions se comprueba en el remoto;
+  ningún workflow se declara verde por haber sido escrito.
 
 ## Requisitos medidos
 
-- Node.js `>= 22` (lo fija `package.json`; `.nvmrc` usa 24).
-- Rust toolchain `stable`, fijado en [`rust-toolchain.toml`](rust-toolchain.toml).
-- Windows con un toolchain MSVC que tenga `link.exe` **y** `lib/x64/msvcrt.lib`.
-  Sin esas variables el link falla con `LNK1104`. `scripts/rust-env.mjs` descubre
-  ese toolchain y exporta `LIB`/`INCLUDE`/`PATH`; **todo** `cargo` o `rustc` se corre
-  por ese prefijo:
+- **Node.js `>= 22`** (`.nvmrc` fija 24; CI usa 22).
+- **Rust stable** fijado por `rust-toolchain.toml`.
+- **Windows con MSVC** que tenga `link.exe` **y** `lib/x64/msvcrt.lib`. Además,
+  el build de Tauri necesita `rc.exe` del **Windows SDK** (no viene dentro de
+  todos los toolchains MSVC). `scripts/rust-env.mjs` descubre ambos y exporta
+  `LIB`, `INCLUDE` y `PATH`; corré `cargo` siempre con ese prefijo:
 
-  ```
+  ```bash
   node scripts/rust-env.mjs -- cargo check --workspace
   ```
 
-## Comandos soportados
+- **FFmpeg y FFprobe** en `PATH` o elegidos desde Ajustes → Herramientas. Sin
+  FFprobe no se importa material medido ni se verifica un render.
+- **Windows PowerShell 5.1** con `System.Speech` para la narración local.
+- WebView2, que Windows 10/11 ya incluye.
+
+## Comandos
 
 | Comando | Qué hace |
 | --- | --- |
-| `npm run verify` | typecheck + todos los tests. Es la puerta de cierre del loop. |
-| `npm run typecheck` | `tsc --noEmit` sobre `packages/project-schema` y `apps/desktop`, ambos en estricto. |
-| `npm run test` | suite Vitest (esquema de proyecto + shell de escritorio + contrato del workspace Rust + docs). |
-| `npm run schema:generate` | regenera `packages/project-schema/schema/project-document.v1.schema.json`. |
-| `npm run fixtures:write` | regenera los fixtures `.editoria.json` de prueba. |
-| `npm run loop:preflight` | decide la próxima tarea del ledger o por qué la pasada se saltea. |
-| `npm run loop:record` | cierra la pasada; exige archivos reales y `verify` en verde. |
-| `node apps/render-worker/src/index.ts --capabilities` | qué renderizadores ve esta máquina y si se puede renderizar (`canRender`). Sin el flag, lee un pedido JSON por stdin. |
+| `npm run verify` | typecheck estricto + suite Vitest completa. Puerta de cierre. |
+| `npm run typecheck` | `tsc --noEmit` sobre los tres workspaces TypeScript. |
+| `npm test` | suite Vitest: esquema, acciones, UI, worker y scripts. |
+| `npm run build` | build de producción del frontend en `apps/desktop/dist`. |
+| `npm run dev` | Vite en `:5173` (sin IPC nativo; para revisar la UI). |
+| `npm run tauri:dev` | ventana Tauri real en modo desarrollo. |
+| `npm run tauri:build` | binario y bundle NSIS de producción. |
+| `npm run tauri:build:debug` | binario debug sin bundle, para probar la app. |
+| `npm run schema:generate` | regenera el JSON Schema v1 desde Zod. |
+| `npm run fixtures:write` | regenera los fixtures de prueba. |
+| `powershell -File scripts/verify.ps1` | las mismas puertas que CI, incluido el build del binario. |
+| `powershell -File scripts/package-windows.ps1` | verifica y construye el instalador NSIS local. |
+
+El render real de humo (necesita FFmpeg/FFprobe):
+
+```bash
+EDITOR_IA_RUN_RENDER_TESTS=1 node scripts/rust-env.mjs -- \
+  cargo test -p editor-ia-desktop render_live -- --ignored --nocapture
+```
+
+## Arquitectura
+
+```text
+apps/desktop/              React + Vite + Tauri 2
+  src/                     UI, estado del proyecto, timeline, preview, IA
+  src-tauri/               Rust: proyecto, medios, render, proveedores, TTS
+apps/render-worker/        contrato JSON del worker y descubrimiento de capacidades
+packages/project-schema/   formato canónico v1 (Zod, fixtures, JSON Schema)
+docs/product/              especificación de producto
+docs/architecture/         formato del proyecto
+docs/automation/           loop de construcción y su ledger
+scripts/                   verificación, empaquetado y entorno Rust/Windows
+```
+
+Decisiones centrales:
+
+- **Rust es el único dueño del disco y de los procesos.** La UI invoca comandos
+  tipados; nunca arma un comando de shell con texto de usuario o del modelo.
+- **El proyecto es la fuente de verdad.** Los medios se referencian por ruta
+  relativa al proyecto y se validan contra traversal, rutas absolutas y claves
+  con forma de credencial.
+- **La IA propone, el validador dispone.** El plan del modelo se parsea, se acota
+  y se aplica como operación estructurada con revisión humana.
+- **Nada se reporta como terminado sin verificación.** Un render `completed` exige
+  un archivo real que pase el quality gate del perfil.
+
+## Seguridad, licencias y datos
+
+- Las claves del proveedor se guardan con el **Administrador de credenciales de
+  Windows** y se leen sólo en el proceso Rust al hacer una llamada.
+- El formato de proyecto rechaza campos con forma de credencial y no las acepta
+  ni siquiera bajo el namespace `x-`.
+- Cada asset declara `rights.license.commercialUse` y `rights.provenance`. Un
+  material con licencia `unknown` no puede estar `ready` y el render se detiene
+  si un clip lo usa.
+- El TTS usa un script fijo de PowerShell; el texto viaja por `stdin`, nunca como
+  parte de la línea de comandos.
+- Los logs de render se sanean antes de mostrarse y no incluyen la carpeta del
+  usuario.
+- La licencia MIT cubre solo el código propio: no otorga derechos sobre medios de
+  stock, fuentes, voces ni dependencias de terceros. Remotion no es una
+  dependencia de esta versión.
+
+Ver [SECURITY.md](SECURITY.md) para el detalle de la superficie y el reporte de
+vulnerabilidades.
+
+## Documentación
+
+- [Especificación de producto](docs/product/PRODUCT-SPEC.md)
+- [Formato de proyecto v1](docs/architecture/PROJECT-FORMAT.md)
+- [Loop de construcción y ledger](docs/automation/BUILD-LOOP.md)
+- [Seguridad](SECURITY.md)
 
 ## Licencia
 
-[MIT](LICENSE), solo sobre el código fuente propio de Editor IA. La licencia MIT **no**
-implica derechos sobre dependencias de terceros, medios de stock, ni sobre Remotion.
-Los derechos de cada material se declaran por proyecto en `assets[].rights.license`
-y `assets[].rights.provenance`, y se verifican antes de exportar.
+[MIT](LICENSE), sólo sobre el código fuente propio de Editor IA.

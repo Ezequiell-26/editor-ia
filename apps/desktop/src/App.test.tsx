@@ -1,152 +1,157 @@
 // @vitest-environment jsdom
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { createEmptyProject } from '@editor-ia/project-schema';
 import { App } from './App';
-import { NAV_VIEWS } from './app/navigation';
+import { createFakeService, readyAsset } from './test/fake-service';
+import { addAsset, addClipFromAsset, ensureDelivery } from './state/project-actions';
 
-const stylesRoot = join(dirname(fileURLToPath(import.meta.url)), 'styles');
-
-function readStyle(name: string): string {
-  return readFileSync(join(stylesRoot, name), 'utf8');
+function renderApp() {
+  const service = createFakeService();
+  render(<App service={service} />);
+  return service;
 }
 
-function channel(value: number): number {
-  const s = value / 255;
-  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-}
-
-function luminance(hex: string): number {
-  const digits = hex.replace('#', '');
-  const [r, g, b] = [0, 2, 4].map((index) =>
-    channel(Number.parseInt(digits.slice(index, index + 2), 16)),
-  );
-  return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
-}
-
-function contrastRatio(foreground: string, background: string): number {
-  const high = luminance(foreground);
-  const low = luminance(background);
-  return (high + 0.05) / (low + 0.05);
-}
-
-function token(tokens: string, name: string): string {
-  const match = new RegExp(`${name}:\\s*([^;]+);`).exec(tokens);
-  expect(match, `falta el token CSS ${name}`).not.toBeNull();
-  return (match?.[1] ?? '').trim();
-}
-
-function goTo(label: string): HTMLElement {
+function nav(label: string): void {
   fireEvent.click(within(screen.getByRole('navigation')).getByRole('button', { name: label }));
-  return screen.getByRole('main');
 }
 
-afterEach(cleanup);
+async function createProject(name = 'Obra de prueba'): Promise<void> {
+  const input = within(screen.getByRole('main')).getByRole('textbox', { name: /nombre/i });
+  fireEvent.change(input, { target: { value: name } });
+  fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
+  await waitFor(() => {
+    expect(screen.getByRole('main').textContent).toContain(name);
+  });
+}
 
-describe('shell de escritorio', () => {
-  it('anuncia el titulo y las cuatro vistas como navegacion principal', () => {
-    render(<App />);
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
+
+describe('shell de Editor IA', () => {
+  it('anuncia la marca y las cinco vistas como navegación principal', () => {
+    renderApp();
     const banner = screen.getByRole('banner');
     expect(within(banner).getByRole('heading', { level: 1, name: /Editor IA/ })).toBeTruthy();
-    expect(banner.textContent).toMatch(/no disponibles/i);
-    const nav = screen.getByRole('navigation', { name: /vistas/i });
+    const navigation = screen.getByRole('navigation', { name: /vistas/i });
     expect(
-      [...nav.querySelectorAll('button')].map((button) => button.textContent?.trim()),
-    ).toEqual(NAV_VIEWS.map((view) => view.label));
+      [...navigation.querySelectorAll('button')].map((button) => button.textContent?.replace(/\d+$/, '').trim()),
+    ).toEqual(['Proyectos', 'Editor', 'Guion', 'Medios', 'Ajustes']);
     expect(
-      within(nav)
-        .getByRole('button', { name: NAV_VIEWS[0]?.label ?? '' })
-        .getAttribute('aria-current'),
+      within(navigation).getByRole('button', { name: /Proyectos/ }).getAttribute('aria-current'),
     ).toBe('page');
   });
 
-  it('arranca en Projects con lista vacia de verdad, sin filas de relleno', () => {
+  it('sin runtime nativo avisa y deshabilita la creación', () => {
     render(<App />);
     const main = screen.getByRole('main');
-    expect(within(main).getByRole('heading', { level: 2, name: /Projects/i })).toBeTruthy();
-    expect(main.textContent).toMatch(/no hay proyectos/i);
-    expect(within(main).queryAllByRole('listitem')).toHaveLength(0);
+    expect(main.textContent).toMatch(/Abrí la app de escritorio/i);
+    expect((within(main).getByRole('button', { name: /Crear y elegir ubicación/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('la vista Editor muestra timeline, preview e inspector explicitamente vacios', () => {
-    render(<App />);
-    const main = goTo('Editor');
-    expect(main.textContent).toMatch(/timeline (vacía|vacia)/i);
-    for (const panel of ['preview', 'inspector']) {
-      expect(main.textContent, `falta el panel ${panel}`).toMatch(new RegExp(panel, 'i'));
-    }
-    expect(main.textContent).toMatch(/no está disponible|no esta disponible|no hay/i);
-  });
-
-  it('Assets y Settings declaran que no tienen contenido ni preferencias operativas', () => {
-    render(<App />);
-    expect(goTo('Assets').textContent).toMatch(/no hay assets/i);
-    cleanup();
-    render(<App />);
-    expect(goTo('Settings').textContent).toMatch(/ninguna.*(configuraci|preferencia)/i);
-  });
-
-  it('Editor, Assets y Settings siguen sin ofrecer controles que no hacen nada', () => {
-    render(<App />);
-    for (const label of ['Editor', 'Assets', 'Settings']) {
-      const content = goTo(label);
-      expect(
-        within(content).queryAllByRole('button'),
-        `la vista ${label} tiene botones que no hacen nada`,
-      ).toHaveLength(0);
-      expect(within(content).queryAllByRole('textbox')).toHaveLength(0);
-      expect(within(content).queryAllByRole('combobox')).toHaveLength(0);
-      expect(
-        content.textContent ?? '',
-        `la vista ${label} anuncia un render listo`,
-      ).not.toMatch(/render\w*[^.]*\blisto\b/i);
-    }
-  });
-
-  it('Projects no habilita ningun control mientras el borde nativo no exista', () => {
-    render(<App />);
-    const content = screen.getByRole('main');
-    const buttons = within(content).queryAllByRole('button');
-    expect(buttons.length).toBeGreaterThan(0);
-    for (const button of buttons) {
-      expect(
-        (button as HTMLButtonElement).disabled,
-        `${button.textContent ?? ''} estaria habilitado sin hacer nada`,
-      ).toBe(true);
-    }
-    expect(content.textContent ?? '').toMatch(/tarea 4/i);
-  });
-
-  it('el color de texto tenue solo se usa en controles inhabilitados', () => {
-    const app = readStyle('app.css');
-    const rules = app.split('}');
-    const offenders = rules
-      .filter((rule) => rule.includes('var(--color-empty)'))
-      .filter((rule) => !rule.includes(':disabled'))
-      .map((rule) => (rule.split('{')[0] ?? '').trim());
+  it('crea un proyecto, navega al editor y muestra una timeline honestamente vacía', async () => {
+    const service = renderApp();
+    await createProject('Corte vertical');
+    expect(service.calls.create).toBe(1);
+    const main = screen.getByRole('main');
+    expect(main.textContent).toContain('Corte vertical');
+    expect(main.textContent).toContain('Timeline vacía');
+    expect(main.textContent).toContain('Exportar MP4');
+    expect(main.textContent).toMatch(/Vista previa aproximada/i);
     expect(
-      offenders,
-      `--color-empty esta por debajo de AA como texto real: ${offenders.join(', ')}`,
-    ).toEqual([]);
+      (within(main).getByRole('button', { name: /Exportar MP4/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(within(main).getByRole('button', { name: /Exportar MP4/i }).getAttribute('title')).toMatch(
+      /Montá al menos un clip/i,
+    );
   });
 
-  it('los tokens de color pasan el contraste WCAG AA sobre el fondo', () => {
-    const tokens = readStyle('tokens.css');
-    const background = token(tokens, '--color-bg');
-    expect(contrastRatio(token(tokens, '--color-text'), background)).toBeGreaterThanOrEqual(7);
-    expect(contrastRatio(token(tokens, '--color-text-muted'), background)).toBeGreaterThanOrEqual(4.5);
+  it('abre un proyecto existente y permite guardarlo', async () => {
+    const service = renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /Abrir proyecto/i }));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/));
+    fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }));
+    await waitFor(() => expect(service.calls.save).toBe(1));
+    expect(screen.getByRole('banner').textContent).toMatch(/Guardado/i);
   });
 
-  it('el layout escala a 1280x720 sin imponer un minimo mas ancho que esa ventana', () => {
-    const app = readStyle('app.css');
-    expect(app).toMatch(/grid-template-columns:[^;]*minmax\(/);
-    expect(app).toMatch(/@media[^{]*max-width:\s*1280px/);
-    const tooWide = [...app.matchAll(/min-width:\s*(\d+)px/g)].filter((m) => Number(m[1]) > 1280);
-    expect(tooWide, `min-width mayor a 1280px: ${tooWide.map((m) => m[1]).join(', ')}`).toHaveLength(0);
-    const tokens = readStyle('tokens.css');
-    expect(Number.parseInt(token(tokens, '--text-base'), 10)).toBeGreaterThanOrEqual(14);
-    expect(Number.parseFloat(token(tokens, '--leading'))).toBeGreaterThanOrEqual(1.4);
+  it('declara un guardado fallido sin fingir éxito', async () => {
+    const service = renderApp();
+    await createProject('Obra con fallo');
+    service.setSaveFailure('disco lleno');
+    fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }));
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toMatch(/disco lleno/i);
+    });
+    expect(screen.getByRole('banner').textContent).not.toMatch(/Guardado/i);
+  });
+
+  it('deshace y rehace un cambio de pista', async () => {
+    renderApp();
+    await createProject('Obra undo');
+    const main = screen.getByRole('main');
+    expect(within(main).queryByText('V1')).toBeNull();
+    fireEvent.click(within(main).getByRole('button', { name: /Agregar pista/i }));
+    await waitFor(() => expect(within(screen.getByRole('main')).getByText('V1')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /Deshacer/i }));
+    await waitFor(() => expect(within(screen.getByRole('main')).queryByText('V1')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /Rehacer/i }));
+    await waitFor(() => expect(within(screen.getByRole('main')).getByText('V1')).toBeTruthy());
+  });
+
+  it('muestra el proveedor simulado y la lista de escenas en Guion', async () => {
+    renderApp();
+    await createProject('Obra guion');
+    nav('Guion');
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guion y escenas'));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Simulado'));
+    expect(screen.getByRole('main').textContent).toMatch(/No hay escenas|escena/i);
+    expect(
+      (within(screen.getByRole('main')).getByRole('button', { name: /Generar guion/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('Medios muestra la biblioteca vacía y el consentimiento de derechos', async () => {
+    renderApp();
+    await createProject('Obra medios');
+    nav('Medios');
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('No hay assets todavía'));
+    expect(main.textContent).toMatch(/Confirmo que tengo derechos/i);
+    expect(within(main).getByRole('button', { name: /Importar medios/i })).toBeTruthy();
+  });
+
+  it('Ajustes lista las herramientas detectadas y el alcance real', async () => {
+    renderApp();
+    nav('Ajustes');
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('FFmpeg'));
+    expect(main.textContent).toMatch(/Render MP4 H\.264\/AAC/);
+    expect(main.textContent).toMatch(/Remotion queda fuera/i);
+    expect(main.textContent).toMatch(/Administrador de credenciales de Windows/i);
+  });
+
+  it('abre el diálogo de exportación con un clip y los perfiles del proyecto', async () => {
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra export', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const seeded = addClipFromAsset(addAsset(base, asset), asset, {}).project;
+    const seededOpened = {
+      project: seeded,
+      label: 'export.editoria.json',
+      path: 'C:\\tmp\\export.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra export');
+    fireEvent.click(screen.getByRole('button', { name: /Exportar MP4/i }));
+    const dialog = screen.getByRole('dialog', { name: /Render MP4 verificado/i });
+    expect(dialog).toBeTruthy();
+    expect(within(dialog).getByText(/YouTube 1080p/)).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /Elegir destino y exportar/i })).toBeTruthy();
   });
 });

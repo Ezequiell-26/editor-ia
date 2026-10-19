@@ -29,7 +29,7 @@ corta, se reanuda leyendo el ledger.
 2. Si `action` no es `task`, registrar `--status noop` y terminar.
 3. Escribir el test primero y **verlo fallar** por la razón esperada.
 4. Implementar lo mínimo para pasar.
-5. `npm run verify` (typecheck + 228 tests del esquema + lo nuevo).
+5. `npm run verify` (typecheck + suite completa; 314 tests al 2026-10-19).
 6. `npm run loop:record -- --task <id> --status done --files "src/x.ts,src/x.test.ts" --note "qué se hizo"`.
 7. Rust, solo así: `node scripts/rust-env.mjs -- cargo test` — nunca `cargo` pelado.
 
@@ -53,7 +53,12 @@ corta, se reanuda leyendo el ledger.
 - `node` 24.14.0 (`.nvmrc` fija 24; CI del Task 7 debe usar el mismo).
 - Rust host `x86_64-pc-windows-msvc`, cargo 198.
 - **Linker disponible**: BuildTools MSVC 14.44.35207 (también Community 14.43.34808). Verificado con un `rustc` real que compiló, linkeó y ejecutó. Con `LIB` vacío falla `LNK1104: no se puede abrir el archivo 'msvcrt.lib'` — por eso existe el prefijo.
-- **Hueco medido**: `rc.exe` no está en ninguno de los tres toolchains. `cargo check` y `cargo test` funcionan igual; lo que puede necesitar el compilador de recursos es embeber manifiesto/íconos al empaquetar Tauri. Si una tarea choca con eso, se registra `blocked` con este texto como remedio y no se instala nada.
+- **Hueco medido y resuelto**: `rc.exe` no está en los toolchains MSVC, pero sí en
+  el Windows SDK (`C:\Program Files (x86)\Windows Kits\10\bin\10.0.22621.0\x64`,
+  `10.0.26100.0\x64` y `10.0.28000.0\x64`). `scripts/rust-env.mjs` agrega el bin
+  del SDK al `PATH` y el build de recursos de Tauri funciona. Sin `LIB`/`INCLUDE`
+  el link sigue fallando con `LNK1104` sobre `msvcrt.lib`; por eso el prefijo es
+  obligatorio.
 - 14.51.36231 tiene `link.exe` pero le falta `lib/x64/msvcrt.lib`: el descubrimiento lo descarta solo, no hay que recordarlo.
 - SDK usado por el prefijo: 10.0.28000.0 (el más nuevo que trae `Lib/ucrt/x64` e `Include/ucrt`).
 - RAM: 13,9 GB total, rondando 1,3–1,6 GB libres con el escritorio abierto.
@@ -71,6 +76,14 @@ Para pausarla, frenarla, cambiar la cadencia o forzar una pasada, pedirlo en el
 chat; se opera con `disable`, `remove`, `update` o `run` sobre ese `jobId`.
 Detener no revierte los archivos ya escritos: eso se revisa con `git diff` y se
 deshace con `git checkout -- <ruta literal>`.
+
+## Estado del loop (2026-10-19)
+
+La automatización **quedó deshabilitada** (`pauseReason: manual`) cuando la app se
+completó en una sesión dirigida por el humano. El usuario autorizó explícitamente
+el push a `main`; esa publicación la hizo la sesión humana, no el loop. El ledger
+conserva las 16 tareas cerradas con evidencia, incluidas las que estaban bloqueadas
+(4b y 7) y las nuevas slices de medios, timeline, IA, render y empaquetado.
 
 ## Cómo agregar trabajo
 

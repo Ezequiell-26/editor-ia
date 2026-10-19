@@ -83,9 +83,21 @@ pub enum ProjectErrorCode {
     AlreadyExists,
     NotFound,
     Io,
+    ProviderUnavailable,
+    ProviderRejected,
+    InvalidProviderResponse,
+    CostNotApproved,
+    KeyringUnavailable,
+    RenderFailed,
+    RenderCancelled,
+    RenderBusy,
+    EmptyTimeline,
+    AssetNotReady,
+    UnsupportedSpeed,
+    SessionMismatch,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ProjectIssue {
     pub path: String,
     pub message: String,
@@ -96,6 +108,49 @@ pub struct ProjectError {
     pub code: ProjectErrorCode,
     pub message: String,
     pub issues: Vec<ProjectIssue>,
+}
+
+impl ProjectErrorCode {
+    pub fn name(self) -> &'static str {
+        match self {
+            ProjectErrorCode::UnsupportedSchemaVersion => "UNSUPPORTED_SCHEMA_VERSION",
+            ProjectErrorCode::InvalidJson => "INVALID_JSON",
+            ProjectErrorCode::InvalidProject => "INVALID_PROJECT",
+            ProjectErrorCode::PathEscapesRoot => "PATH_ESCAPES_ROOT",
+            ProjectErrorCode::FileTooLarge => "FILE_TOO_LARGE",
+            ProjectErrorCode::AlreadyExists => "ALREADY_EXISTS",
+            ProjectErrorCode::NotFound => "NOT_FOUND",
+            ProjectErrorCode::Io => "IO",
+            ProjectErrorCode::ProviderUnavailable => "PROVIDER_UNAVAILABLE",
+            ProjectErrorCode::ProviderRejected => "PROVIDER_REJECTED",
+            ProjectErrorCode::InvalidProviderResponse => "INVALID_PROVIDER_RESPONSE",
+            ProjectErrorCode::CostNotApproved => "COST_NOT_APPROVED",
+            ProjectErrorCode::KeyringUnavailable => "KEYRING_UNAVAILABLE",
+            ProjectErrorCode::RenderFailed => "RENDER_FAILED",
+            ProjectErrorCode::RenderCancelled => "RENDER_CANCELLED",
+            ProjectErrorCode::RenderBusy => "RENDER_BUSY",
+            ProjectErrorCode::EmptyTimeline => "EMPTY_TIMELINE",
+            ProjectErrorCode::AssetNotReady => "ASSET_NOT_READY",
+            ProjectErrorCode::UnsupportedSpeed => "UNSUPPORTED_SPEED",
+            ProjectErrorCode::SessionMismatch => "SESSION_MISMATCH",
+        }
+    }
+}
+
+/// The UI receives a stable code, a safe sentence and the punctual issues; the
+/// received document values and absolute paths never cross this boundary.
+impl serde::Serialize for ProjectError {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("ProjectError", 3)?;
+        state.serialize_field("code", self.code.name())?;
+        state.serialize_field("message", &self.message)?;
+        state.serialize_field("issues", &self.issues)?;
+        state.end()
+    }
 }
 
 impl ProjectError {
@@ -249,7 +304,7 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
     (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let seconds = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_secs())
@@ -797,8 +852,92 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-/// Crea un documento v1 nuevo y lo escribe sin pisar nada existente.
+fn profile(
+    name: &str,
+    width: u64,
+    height: u64,
+    aspect: &str,
+    frame_rate: &Value,
+    crf: bool,
+    min_bytes: u64,
+) -> Value {
+    let bitrate = if crf {
+        json!({ "mode": "crf", "crf": 20 })
+    } else {
+        json!({ "mode": "target", "videoBitsPerSecond": 8_000_000u64 })
+    };
+    json!({
+        "id": new_uuid_v4(),
+        "name": name,
+        "container": "mp4",
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "resolution": { "width": width, "height": height },
+        "frameRate": frame_rate.clone(),
+        "bitrate": bitrate,
+        "pixelFormat": "yuv420p",
+        "audioSampleRate": 48_000,
+        "audioChannels": 2,
+        "aspectRatio": aspect,
+        "qualityGate": {
+            "minOutputBytes": min_bytes,
+            "durationToleranceFrames": 10,
+            "requireAllAssetsReady": true
+        }
+    })
+}
+
+fn default_delivery(frame_rate: &Value) -> (Vec<Value>, Vec<Value>) {
+    let youtube = profile(
+        "YouTube 1080p",
+        1920,
+        1080,
+        "16:9",
+        frame_rate,
+        true,
+        500_000,
+    );
+    let shorts = profile(
+        "Shorts 1080x1920",
+        1080,
+        1920,
+        "9:16",
+        frame_rate,
+        false,
+        300_000,
+    );
+    let youtube_id = youtube["id"].as_str().unwrap_or_default().to_owned();
+    let shorts_id = shorts["id"].as_str().unwrap_or_default().to_owned();
+    let variants = vec![
+        json!({
+            "id": new_uuid_v4(),
+            "name": "YouTube",
+            "renderProfileId": youtube_id,
+            "platform": "youtube"
+        }),
+        json!({
+            "id": new_uuid_v4(),
+            "name": "Shorts",
+            "renderProfileId": shorts_id,
+            "platform": "shorts"
+        }),
+    ];
+    (vec![youtube, shorts], variants)
+}
+
+/// Crea un documento v1 nuevo con entrega 16:9 y 9:16 declaradas, y lo escribe
+/// sin pisar nada existente.
 pub fn create_project(path: &Path, name: &str) -> Result<OpenedProject, ProjectError> {
+    create_project_with_video(path, name, None)
+}
+
+/// Igual que `create_project` pero permite fijar la resolución y tasa del
+/// proyecto al momento de crearlo.
+pub fn create_project_with_video(
+    path: &Path,
+    name: &str,
+    video: Option<Value>,
+) -> Result<OpenedProject, ProjectError> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         return Err(ProjectError::single(
@@ -819,6 +958,15 @@ pub fn create_project(path: &Path, name: &str) -> Result<OpenedProject, ProjectE
     }
 
     let stamp = now_rfc3339();
+    let video = video.unwrap_or_else(
+        || json!({ "width": 1920, "height": 1080, "frameRate": { "num": 30, "den": 1 } }),
+    );
+    let frame_rate = video
+        .get("frameRate")
+        .cloned()
+        .unwrap_or_else(|| json!({ "num": 30, "den": 1 }));
+    let (profiles, variants) = default_delivery(&frame_rate);
+
     let document = json!({
         "id": new_uuid_v4(),
         "name": trimmed,
@@ -827,15 +975,15 @@ pub fn create_project(path: &Path, name: &str) -> Result<OpenedProject, ProjectE
         "updatedAt": stamp,
         "revision": 0,
         "language": "es",
-        "video": { "width": 1920, "height": 1080, "frameRate": { "num": 30, "den": 1 } },
+        "video": video,
         "assets": [],
         "timeline": { "tracks": [], "clips": [] },
         "captions": { "styles": [], "cues": [] },
         "scenes": [],
         "motion": [],
         "audio": {},
-        "renderProfiles": [],
-        "exportVariants": [],
+        "renderProfiles": profiles,
+        "exportVariants": variants,
         "provenance": { "sources": [], "claims": [], "operations": [] },
         "migrationHistory": []
     });

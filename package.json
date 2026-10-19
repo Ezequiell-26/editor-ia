@@ -1,8 +1,8 @@
 {
   "name": "editor-ia",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "Local-first AI-assisted video editor for Windows. Foundation phase: project format only.",
+  "description": "Local-first AI-assisted video editor for Windows: timeline, script, local narration and verified FFmpeg export.",
   "type": "module",
   "workspaces": [
     "packages/*",
@@ -19,12 +19,18 @@
     "schema:generate": "node --experimental-strip-types packages/project-schema/scripts/generate-json-schema.ts",
     "loop:preflight": "node scripts/loop-preflight.mjs",
     "loop:record": "node scripts/loop-record.mjs",
-    "verify": "npm run typecheck && npm run test"
+    "verify": "npm run typecheck && npm run test",
+    "dev": "npm --workspace @editor-ia/desktop run dev",
+    "build": "npm --workspace @editor-ia/desktop run build",
+    "tauri:dev": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:dev",
+    "tauri:build": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build",
+    "tauri:build:debug": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --debug --no-bundle"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
     "typescript": "5.6.3",
     "vitest": "2.1.8",
     "zod-to-json-schema": "^3.24.1"
-  }
+  },
+  "license": "MIT"
 }

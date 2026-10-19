@@ -1,6 +1,9 @@
 # Editor IA — Especificación del producto y arquitectura
 
-**Estado:** propuesta v0.1 — requiere aprobación antes de crear el scaffolding de aplicación.  
+**Estado:** MVP implementado y verificado en Windows (2026-10-19). El detalle de lo
+que existe, lo que falta y la evidencia de verificación está en el
+[README](../../README.md). Las fases marcadas como “no incluidas” siguen fuera de
+alcance.
 **Repositorio:** https://github.com/Ezequiell-26/editor-ia  
 **Objetivo inicial:** aplicación de escritorio para Windows, local-first y gratuita en su núcleo, que automatiza la producción de contenido para redes sociales y entrega proyectos editables, no solo vídeos finales.
 

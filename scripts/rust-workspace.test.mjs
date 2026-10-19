@@ -71,23 +71,32 @@ describe('rust-toolchain.toml', () => {
 });
 
 describe('crate editor-ia-desktop', () => {
-  it('declara solo el crate de persistencia que fija el plan, sin Tauri todavia', () => {
+  it('declara el crate de escritorio con el puente Tauri y sus dependencias justificadas', () => {
     expect(existsSync(desktopManifest)).toBe(true);
     const source = readFileSync(desktopManifest, 'utf8');
     expect(source.match(/^name\s*=\s*"([^"]+)"/m)[1]).toBe('editor-ia-desktop');
     expect(source).toMatch(/^edition\s*=\s*"2\d{3}"/m);
-    expect(source.match(/^version\s*=\s*"([^"]+)"/m)[1]).toBe('0.0.0');
+    expect(source.match(/^version\s*=\s*"([^"]+)"/m)[1]).toBe('0.1.0');
     const dependencies = tableBody(source, 'dependencies') ?? [];
-    // El bootstrap (1b) arranco sin ninguna crate de red. La tarea 4 agrega
-    // unicosamente la lectura/escritura de JSON que el plan nombra (Serde).
-    // Cualquier crate nueva tiene que justificarse aca, y Tauri no entra hasta
-    // que exista el compilador de recursos que mide BUILD-LOOP.md (rc.exe).
-    expect(
-      dependencies.map((line) => line.split('=')[0].trim()).sort(),
-      'el crate solo puede traer serde_json',
-    ).toEqual(['serde_json']);
-    expect(source).not.toMatch(/^\[dependencies\./m);
-    expect(source).not.toMatch(/^\[build-dependencies\]/m);
+    // El puente Tauri, el diálogo nativo, el render, las credenciales y las
+    // mediciones de medios son las únicas razones para estas crates.
+    const names = dependencies.map((line) => line.split('=')[0].trim());
+    for (const crate of [
+      'tauri',
+      'tauri-plugin-dialog',
+      'tauri-plugin-opener',
+      'serde',
+      'serde_json',
+      'sha2',
+      'base64',
+      'reqwest',
+      'keyring',
+      'uuid',
+    ]) {
+      expect(names, `falta ${crate}`).toContain(crate);
+    }
+    expect(source).toMatch(/^\[build-dependencies\]/m);
+    expect(source).toMatch(/tauri-build/);
   });
 
   it('main.rs es un punto de entrada compilable y no promete capacidades', () => {

@@ -105,10 +105,41 @@ describe('script de verificacion deterministica', () => {
 });
 
 describe('empaquetado Windows', () => {
-  it('no existe todavia, y el README lo dice en lugar de simularlo', () => {
-    expect(exists('.github/workflows/windows-package.yml')).toBe(false);
+  it('existe, compila Tauri y sube solo el instalador generado', () => {
+    const workflow = '.github/workflows/windows-package.yml';
+    expect(exists(workflow), `falta ${workflow}`).toBe(true);
+    const text = read(workflow);
+    expect(text).not.toMatch(/\t/);
+    for (const command of [
+      'npm ci',
+      'npm run verify',
+      'tauri:build',
+      'upload-artifact',
+      'if-no-files-found: error',
+      'bundle/nsis',
+      'cargo',
+    ]) {
+      expect(text, `el workflow de empaquetado no menciona ${command}`).toContain(command);
+    }
+    const used = [...text.matchAll(/uses:\s*([^\s#]+)/g)].map((match) => match[1] ?? '');
+    expect(used.length).toBeGreaterThan(1);
+    for (const reference of used) {
+      const [, tag] = /@(.+)$/.exec(reference) ?? [, ''];
+      expect(/^v?\d+(\.\d+)*$|^[0-9a-f]{40}$/.test(tag ?? ''), `acción sin fijar: ${reference}`).toBe(
+        true,
+      );
+    }
+    expect(text).toMatch(/node-version:\s*'22'/);
+    expect(text).toMatch(/if-no-files-found:\s*error/);
+  });
+
+  it('el script local no declara éxito sin un instalador real', () => {
+    const script = read('scripts/package-windows.ps1');
+    expect(script).toMatch(/tauri:build/);
+    expect(script).toMatch(/Test-Path/);
+    expect(script).toMatch(/exit\s+[123]/);
+    expect(script).toMatch(/bundle\\nsis/);
     const readme = read('README.md').toLowerCase();
-    expect(readme).toMatch(/empaquetad|package-windows|windows-package/);
-    expect(readme).toMatch(/todavia no|no existe|pendiente|blocked/);
+    expect(readme).toMatch(/instalador|empaquet/);
   });
 });
