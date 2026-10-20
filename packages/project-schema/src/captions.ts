@@ -27,6 +27,14 @@ export const CaptionStyleSchema = z
   })
   .strict();
 
+const CaptionWordSchema = z
+  .object({
+    text: z.string().min(1).max(200),
+    startFrame: FrameSchema,
+    endFrame: FrameSchema,
+  })
+  .strict();
+
 export const CaptionCueSchema = z
   .object({
     id: EntityIdSchema,
@@ -36,6 +44,7 @@ export const CaptionCueSchema = z
     language: LanguageTagSchema,
     startFrame: FrameSchema,
     endFrame: FrameSchema,
+    words: z.array(CaptionWordSchema).optional(),
   })
   .strict()
   .superRefine((item, ctx) => {
@@ -99,4 +108,5 @@ export const CaptionsSchema = z
   });
 
 export type CaptionCue = z.infer<typeof CaptionCueSchema>;
+export type CaptionWord = z.infer<typeof CaptionWordSchema>;
 export type CaptionStyle = z.infer<typeof CaptionStyleSchema>;

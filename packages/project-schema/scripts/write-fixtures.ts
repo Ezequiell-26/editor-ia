@@ -116,6 +116,14 @@ const sample = {
         startFrame: 0,
         durationFrames: 300,
         source: { type: 'asset', assetId: ASSET_VIDEO, inFrame: 0, outFrame: 300 },
+        transform: {
+          scaleX: 1,
+          keyframes: [
+            { frame: 0, scale: 1, opacity: 1 },
+            { frame: 120, scale: 1.15, opacity: 1, offsetX: 24 },
+            { frame: 299, scale: 1, opacity: 0.85 },
+          ],
+        },
       },
       {
         id: CLIP_B,
@@ -124,7 +132,16 @@ const sample = {
         startFrame: 120,
         durationFrames: 330,
         source: { type: 'asset', assetId: ASSET_VOICE, inFrame: 0, outFrame: 330 },
-        audio: { gainDb: -2, fadeInFrames: 5, fadeOutFrames: 10 },
+        audio: {
+          gainDb: -2,
+          fadeInFrames: 5,
+          fadeOutFrames: 10,
+          gainKeyframes: [
+            { frame: 0, gainDb: -2 },
+            { frame: 165, gainDb: -8 },
+            { frame: 329, gainDb: -2 },
+          ],
+        },
       },
       {
         id: CLIP_GRAPHIC,

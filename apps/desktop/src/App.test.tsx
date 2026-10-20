@@ -31,17 +31,47 @@ afterEach(() => {
 });
 
 describe('shell de Editor IA', () => {
-  it('anuncia la marca y las cinco vistas como navegación principal', () => {
+  it('usa toda la pantalla con menús profesionales y un rail de iconos sin marca', () => {
     renderApp();
     const banner = screen.getByRole('banner');
-    expect(within(banner).getByRole('heading', { level: 1, name: /Editor IA/ })).toBeTruthy();
+    expect(within(banner).queryByRole('heading', { level: 1 })).toBeNull();
+    expect(banner.textContent).not.toMatch(/Editor IA/);
+    for (const menu of ['Archivo', 'Editar', 'Ver', 'Reproducción', 'Herramientas', 'Ayuda']) {
+      expect(within(banner).getByRole('button', { name: menu })).toBeTruthy();
+    }
     const navigation = screen.getByRole('navigation', { name: /vistas/i });
     expect(
-      [...navigation.querySelectorAll('button')].map((button) => button.textContent?.replace(/\d+$/, '').trim()),
-    ).toEqual(['Proyectos', 'Editor', 'Guion', 'Medios', 'Ajustes']);
+      [...navigation.querySelectorAll('ul button')].map((button) => button.getAttribute('aria-label')),
+    ).toEqual([
+      'Proyectos',
+      'Director',
+      'Producción',
+      'Fábrica',
+      'Editor',
+      'Guion',
+      'Medios',
+      'Convertir',
+      'Aprender',
+      'MCP',
+      'Ajustes',
+    ]);
     expect(
       within(navigation).getByRole('button', { name: /Proyectos/ }).getAttribute('aria-current'),
     ).toBe('page');
+    expect(
+      within(navigation).getByRole('button', { name: /Proyectos/ }).getAttribute('data-tooltip'),
+    ).toMatch(/Crear, abrir/i);
+  });
+
+  it('abre los menús y ejecuta acciones reales', async () => {
+    const service = renderApp();
+    fireEvent.click(screen.getByRole('button', { name: 'Archivo' }));
+    expect(screen.getByRole('menuitem', { name: /Abrir proyecto/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: /Abrir proyecto/i }));
+    await waitFor(() => expect(service.calls.open).toBe(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Ajustes' }));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Apariencia'));
   });
 
   it('sin runtime nativo avisa y deshabilita la creación', () => {
@@ -74,7 +104,7 @@ describe('shell de Editor IA', () => {
     await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/));
     fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }));
     await waitFor(() => expect(service.calls.save).toBe(1));
-    expect(screen.getByRole('banner').textContent).toMatch(/Guardado/i);
+    expect(screen.getByRole('contentinfo').textContent).toMatch(/Guardado/i);
   });
 
   it('declara un guardado fallido sin fingir éxito', async () => {
@@ -111,6 +141,17 @@ describe('shell de Editor IA', () => {
     expect(
       (within(screen.getByRole('main')).getByRole('button', { name: /Generar guion/i }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+
+  it('Producción muestra el flujo de video automático y sus pasos', async () => {
+    renderApp();
+    await createProject('Obra producción');
+    nav('Producción');
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('De guion a video'));
+    expect(main.textContent).toContain('Guion y escenas');
+    expect(main.textContent).toContain('Generar video automático');
+    expect(main.textContent).toMatch(/Faltan escenas de guion/i);
   });
 
   it('Medios muestra la biblioteca vacía y el consentimiento de derechos', async () => {
@@ -151,7 +192,8 @@ describe('shell de Editor IA', () => {
     fireEvent.click(screen.getByRole('button', { name: /Exportar MP4/i }));
     const dialog = screen.getByRole('dialog', { name: /Render MP4 verificado/i });
     expect(dialog).toBeTruthy();
-    expect(within(dialog).getByText(/YouTube 1080p/)).toBeTruthy();
+    expect(within(dialog).getAllByText(/YouTube 1080p/).length).toBeGreaterThan(0);
     expect(within(dialog).getByRole('button', { name: /Elegir destino y exportar/i })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /Elegir carpeta y exportar lote/i })).toBeTruthy();
   });
 });

@@ -6,6 +6,8 @@
 
 use serde_json::Value;
 
+const WORD_ACCENT: &str = "&H00D4EA5E";
+
 fn expand_hex(value: &str) -> Option<(u8, u8, u8)> {
     let hex = value.trim().trim_start_matches('#');
     let normalized = match hex.len() {
@@ -169,6 +171,29 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
         .collect();
     visible.sort_by_key(|cue| cue["startFrame"].as_u64().unwrap_or(0));
 
+    let cue_color = |cue: &Value| -> String {
+        let style_id = cue["styleId"].as_str().unwrap_or("");
+        styles
+            .iter()
+            .find(|style| style["id"].as_str() == Some(style_id))
+            .and_then(|style| style["color"].as_str())
+            .map(|color| ass_color(color, "#ffffff"))
+            .unwrap_or_else(|| "&H00FFFFFF".to_owned())
+    };
+
+    let push_dialogue = |header: &mut String, start: f64, end: f64, style: &str, text: &str| {
+        if end <= start || text.trim().is_empty() {
+            return;
+        }
+        header.push_str(&format!(
+            "Dialogue: 0,{},{},{},,0,0,0,,{}\n",
+            ass_time(start),
+            ass_time(end),
+            style,
+            text
+        ));
+    };
+
     for cue in visible {
         let start = cue["startFrame"].as_u64().unwrap_or(0) as f64 / input.project_fps.max(1.0);
         let end = cue["endFrame"].as_u64().unwrap_or(0) as f64 / input.project_fps.max(1.0);
@@ -182,14 +207,67 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             .map(|(_, name)| name.clone())
             .or_else(|| names.first().map(|(_, name)| name.clone()))
             .unwrap_or_else(|| "Default".to_owned());
+        let primary = cue_color(cue);
+        let words = cue["words"].as_array().cloned().unwrap_or_default();
+        let mut ordered: Vec<&Value> = words
+            .iter()
+            .filter(|word| {
+                word["text"]
+                    .as_str()
+                    .map(str::trim)
+                    .is_some_and(|text| !text.is_empty())
+                    && word["endFrame"].as_u64().unwrap_or(0)
+                        > word["startFrame"].as_u64().unwrap_or(0)
+            })
+            .collect();
+        ordered.sort_by_key(|word| word["startFrame"].as_u64().unwrap_or(0));
+        if ordered.len() > 1 {
+            let cue_start = cue["startFrame"].as_u64().unwrap_or(0);
+            let cue_end = cue["endFrame"].as_u64().unwrap_or(cue_start + 1);
+            let first_start = ordered[0]["startFrame"].as_u64().unwrap_or(cue_start);
+            if first_start > cue_start {
+                let text = escape_text(cue["text"].as_str().unwrap_or(""));
+                push_dialogue(
+                    &mut header,
+                    start,
+                    first_start as f64 / input.project_fps.max(1.0),
+                    &style,
+                    &text,
+                );
+            }
+            for (index, word) in ordered.iter().enumerate() {
+                let word_start = word["startFrame"]
+                    .as_u64()
+                    .unwrap_or(cue_start)
+                    .max(cue_start);
+                let next_start = ordered
+                    .get(index + 1)
+                    .and_then(|next| next["startFrame"].as_u64())
+                    .unwrap_or(cue_end)
+                    .min(cue_end);
+                let word_end = next_start.max(word_start + 1);
+                let mut line = String::new();
+                for (word_index, item) in ordered.iter().enumerate() {
+                    let token = escape_text(item["text"].as_str().unwrap_or(""));
+                    let color = if word_index == index {
+                        WORD_ACCENT
+                    } else {
+                        primary.as_str()
+                    };
+                    line.push_str(&format!("{{\\c{color}&}}{token}{{\\c{primary}&}} "));
+                }
+                push_dialogue(
+                    &mut header,
+                    word_start as f64 / input.project_fps.max(1.0),
+                    word_end as f64 / input.project_fps.max(1.0),
+                    &style,
+                    line.trim_end(),
+                );
+            }
+            continue;
+        }
         let text = escape_text(cue["text"].as_str().unwrap_or(""));
-        header.push_str(&format!(
-            "Dialogue: 0,{},{},{},,0,0,0,,{}\n",
-            ass_time(start),
-            ass_time(end),
-            style,
-            text
-        ));
+        push_dialogue(&mut header, start, end, &style, &text);
     }
 
     header
@@ -251,6 +329,25 @@ mod tests {
         assert!(!ass.contains("No debe verse"));
         assert!(ass.contains("Dialogue: 0,0:00:00.00,0:00:01.00,Principal"));
         assert!(ass.contains("Style: Principal,Segoe UI,54.0,&H000000FF"));
+    }
+
+    #[test]
+    fn word_captions_emit_highlight_events() {
+        let mut value = project();
+        value["captions"]["cues"][0]["words"] = serde_json::json!([
+            { "text": "Hola", "startFrame": 0, "endFrame": 10 },
+            { "text": "mundo", "startFrame": 10, "endFrame": 20 },
+            { "text": "nuevo", "startFrame": 20, "endFrame": 30 }
+        ]);
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(ass.contains(r"\c&H00D4EA5E&"));
+        assert!(ass.matches("Dialogue:").count() >= 3);
     }
 
     #[test]

@@ -306,6 +306,45 @@ pub async fn reveal_output(app: AppHandle, path: String) -> Result<(), ProjectEr
         })
 }
 
+fn validate_external_url(value: &str) -> Result<reqwest::Url, ProjectError> {
+    let value = value.trim();
+    if value.chars().count() > 500 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "la URL es demasiado larga",
+        ));
+    }
+    let url = reqwest::Url::parse(value).map_err(|_| {
+        ProjectError::message(ProjectErrorCode::ProviderUnavailable, "la URL no es válida")
+    })?;
+    if url.scheme() != "https" {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "solo se abren direcciones HTTPS",
+        ));
+    }
+    if !url.username().is_empty() || url.password().is_some() || url.host_str().is_none() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "la URL no puede incluir credenciales",
+        ));
+    }
+    Ok(url)
+}
+
+#[tauri::command]
+pub async fn open_external_url(app: AppHandle, url: String) -> Result<(), ProjectError> {
+    let url = validate_external_url(&url)?;
+    app.opener()
+        .open_url(url.as_str(), None::<&str>)
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo abrir la URL en el navegador",
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,5 +363,13 @@ mod tests {
             Some("C:/no/existe.exe"),
         );
         assert!(found.is_none());
+    }
+
+    #[test]
+    fn external_urls_are_https_only_and_cannot_carry_credentials() {
+        assert!(validate_external_url("https://elevenlabs.io/app").is_ok());
+        assert!(validate_external_url("http://elevenlabs.io/app").is_err());
+        assert!(validate_external_url("https://user:pass@example.com").is_err());
+        assert!(validate_external_url("not a url").is_err());
     }
 }

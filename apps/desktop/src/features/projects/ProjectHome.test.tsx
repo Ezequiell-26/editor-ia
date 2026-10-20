@@ -56,12 +56,30 @@ describe('Projects', () => {
     expect(within(main).getByRole('button', { name: /Guardar como/i })).toBeTruthy();
   });
 
-  it('permite elegir vertical 9:16 antes de crear', async () => {
+  it('permite elegir vertical 9:16 y fps antes de crear', async () => {
     render(<App service={createFakeService()} />);
     const main = screen.getByRole('main');
-    const vertical = within(main).getByRole('radio', { name: /Vertical 9:16/i }) as HTMLInputElement;
-    fireEvent.click(vertical);
-    expect(vertical.checked).toBe(true);
+    fireEvent.change(within(main).getByLabelText(/^Formato$/i), {
+      target: { value: 'vertical' },
+    });
+    fireEvent.change(within(main).getByLabelText(/^Tasa de frames$/i), {
+      target: { value: '25' },
+    });
     expect(main.textContent).toContain('1080×1920');
+    expect(main.textContent).toContain('9:16');
+    expect(main.textContent).toContain('25 fps');
+  });
+
+  it('acepta un formato y fps personalizados', () => {
+    render(<App service={createFakeService()} />);
+    const main = screen.getByRole('main');
+    fireEvent.change(within(main).getByLabelText(/^Formato$/i), {
+      target: { value: 'custom' },
+    });
+    const [width, height] = within(main).getAllByRole('spinbutton');
+    fireEvent.change(width!, { target: { value: '1366' } });
+    fireEvent.change(height!, { target: { value: '768' } });
+    expect(main.textContent).toContain('1366×768');
+    expect(main.textContent).toContain('683:384');
   });
 });

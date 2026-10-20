@@ -37,7 +37,7 @@ describe('README.md', () => {
 
   it('documenta comandos que existen de verdad', () => {
     const documented = new Set(
-      [...readme.matchAll(/npm (?:run ([a-z:]+)|test)/g)].map((match) => match[1] ?? 'test'),
+      [...readme.matchAll(/npm (?:run ([a-z:-]+)|test)/g)].map((match) => match[1] ?? 'test'),
     );
     expect(documented.size, 'README debe listar comandos').toBeGreaterThan(3);
     for (const name of documented) {

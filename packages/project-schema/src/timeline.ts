@@ -36,6 +36,54 @@ export const TrackSchema = z
   })
   .strict();
 
+/** Hard caps keep the generated FFmpeg expressions inside a bounded argv. */
+export const MAX_TRANSFORM_KEYFRAMES = 48;
+export const MAX_GAIN_KEYFRAMES = 96;
+export const TRANSFORM_KEYFRAME_SCALE_MIN = 0.5;
+export const TRANSFORM_KEYFRAME_SCALE_MAX = 4;
+
+/**
+ * A transform keyframe is an absolute sample at `frame` frames from the clip
+ * start. Properties absent from a keyframe fall back to the nearest keyframe
+ * that defines them, then to the clip's static transform. `scale` is uniform:
+ * the renderer animates it with zoompan, which cannot express a per-axis zoom.
+ */
+export const ClipTransformKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    offsetX: z.number().int().gte(-100_000).lte(100_000).optional(),
+    offsetY: z.number().int().gte(-100_000).lte(100_000).optional(),
+    scale: z
+      .number()
+      .gte(TRANSFORM_KEYFRAME_SCALE_MIN)
+      .lte(TRANSFORM_KEYFRAME_SCALE_MAX)
+      .optional(),
+    rotationDeg: z.number().gte(-360).lte(360).optional(),
+    opacity: UnitIntervalSchema.optional(),
+  })
+  .strict()
+  .superRefine((keyframe, ctx) => {
+    if (
+      keyframe.offsetX === undefined &&
+      keyframe.offsetY === undefined &&
+      keyframe.scale === undefined &&
+      keyframe.rotationDeg === undefined &&
+      keyframe.opacity === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'a transform keyframe must animate at least one property',
+      });
+    }
+  });
+
+export const ClipGainKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    gainDb: DecibelSchema,
+  })
+  .strict();
+
 export const ClipTransformSchema = z
   .object({
     offsetX: z.number().int().gte(-100_000).lte(100_000).optional(),
@@ -44,6 +92,9 @@ export const ClipTransformSchema = z
     scaleY: z.number().gt(0).lte(100).optional(),
     rotationDeg: z.number().gte(-360).lte(360).optional(),
     opacity: UnitIntervalSchema.optional(),
+    flipH: z.boolean().optional(),
+    flipV: z.boolean().optional(),
+    keyframes: z.array(ClipTransformKeyframeSchema).min(1).max(MAX_TRANSFORM_KEYFRAMES).optional(),
   })
   .strict();
 
@@ -52,6 +103,16 @@ export const ClipAudioSchema = z
     gainDb: DecibelSchema.optional(),
     fadeInFrames: DurationSchema.optional(),
     fadeOutFrames: DurationSchema.optional(),
+    highPassHz: z.number().gte(20).lte(2_000).optional(),
+    lowPassHz: z.number().gte(1_000).lte(20_000).optional(),
+    eqLowDb: z.number().gte(-12).lte(12).optional(),
+    eqMidDb: z.number().gte(-12).lte(12).optional(),
+    eqHighDb: z.number().gte(-12).lte(12).optional(),
+    compressor: z.boolean().optional(),
+    deesser: z.boolean().optional(),
+    gateDb: z.number().gte(-60).lte(-10).optional(),
+    denoise: z.number().gte(0).lte(1).optional(),
+    gainKeyframes: z.array(ClipGainKeyframeSchema).min(1).max(MAX_GAIN_KEYFRAMES).optional(),
   })
   .strict();
 
@@ -78,6 +139,49 @@ const GraphicSourceSchema = z
   })
   .strict();
 
+export const ClipEffectsSchema = z
+  .object({
+    brightness: z.number().gte(-1).lte(1).optional(),
+    contrast: z.number().gte(0).lte(3).optional(),
+    saturation: z.number().gte(0).lte(3).optional(),
+    temperature: z.number().gte(-1).lte(1).optional(),
+    vignette: z.number().gte(0).lte(1).optional(),
+    sharpen: z.number().gte(0).lte(5).optional(),
+    blur: z.number().gte(0).lte(50).optional(),
+    grayscale: z.boolean().optional(),
+    sepia: z.boolean().optional(),
+    hueRotateDeg: z.number().gte(-180).lte(180).optional(),
+    curvePreset: z
+      .enum([
+        'contrast-soft',
+        'contrast-medium',
+        'contrast-strong',
+        'vintage',
+        'cross-process',
+        'darker',
+        'lighter',
+      ])
+      .optional(),
+    fadeInFrames: DurationSchema.optional(),
+    fadeOutFrames: DurationSchema.optional(),
+  })
+  .strict();
+
+export const ClipMotionSchema = z
+  .object({
+    type: z.enum(['zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down']),
+    intensity: z.number().gte(0.02).lte(0.5).optional(),
+  })
+  .strict();
+
+export const ChromaKeySchema = z
+  .object({
+    color: z.string().regex(/^#[0-9a-f]{6}$/i),
+    similarity: z.number().gte(0.01).lte(1),
+    blend: z.number().gte(0).lte(1),
+  })
+  .strict();
+
 const clipCommon = {
   id: EntityIdSchema,
   trackId: EntityIdSchema,
@@ -94,6 +198,9 @@ const VideoClipSchema = z
     kind: z.literal('video'),
     source: WindowedAssetSourceSchema,
     speed: FrameRateSchema.optional(),
+    effects: ClipEffectsSchema.optional(),
+    motion: ClipMotionSchema.optional(),
+    chromaKey: ChromaKeySchema.optional(),
   })
   .strict();
 
@@ -107,7 +214,14 @@ const AudioClipSchema = z
   .strict();
 
 const ImageIconSchema = z
-  .object({ ...clipCommon, kind: z.literal('image'), source: StillAssetSourceSchema })
+  .object({
+    ...clipCommon,
+    kind: z.literal('image'),
+    source: StillAssetSourceSchema,
+    effects: ClipEffectsSchema.optional(),
+    motion: ClipMotionSchema.optional(),
+    chromaKey: ChromaKeySchema.optional(),
+  })
   .strict();
 
 const GraphicClipSchema = z
@@ -130,28 +244,83 @@ export const ClipSchema = z
     GraphicClipSchema,
   ])
   .superRefine((clip, ctx) => {
-    if (clip.kind !== 'video' && clip.kind !== 'audio') {
-      return;
+    if (clip.kind === 'video' || clip.kind === 'audio') {
+      const sourceFrames = clip.source.outFrame - clip.source.inFrame;
+      if (sourceFrames <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['source', 'outFrame'],
+          message: 'a clip source window must end after it starts',
+        });
+      } else {
+        const speed = clip.speed ?? { num: 1, den: 1 };
+        if (clip.durationFrames * speed.num !== sourceFrames * speed.den) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['durationFrames'],
+            message:
+              'the clip duration must match its source window divided by its speed, in whole frames',
+          });
+        }
+      }
     }
 
-    const sourceFrames = clip.source.outFrame - clip.source.inFrame;
-    if (sourceFrames <= 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['source', 'outFrame'],
-        message: 'a clip source window must end after it starts',
-      });
-      return;
+    const transformKeyframes = clip.transform?.keyframes;
+    if (transformKeyframes !== undefined) {
+      if (clip.kind !== 'video' && clip.kind !== 'image') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['transform', 'keyframes'],
+          message: 'only video and image clips can animate their transform',
+        });
+      }
+      let previous = -1;
+      for (const [index, keyframe] of transformKeyframes.entries()) {
+        if (keyframe.frame >= clip.durationFrames) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['transform', 'keyframes', index, 'frame'],
+            message: 'a keyframe must fall inside the clip duration',
+          });
+        }
+        if (keyframe.frame <= previous) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['transform', 'keyframes', index, 'frame'],
+            message: 'keyframes must be strictly increasing and unique',
+          });
+        }
+        previous = keyframe.frame;
+      }
     }
 
-    const speed = clip.speed ?? { num: 1, den: 1 };
-    if (clip.durationFrames * speed.num !== sourceFrames * speed.den) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['durationFrames'],
-        message:
-          'the clip duration must match its source window divided by its speed, in whole frames',
-      });
+    const gainKeyframes = clip.audio?.gainKeyframes;
+    if (gainKeyframes !== undefined) {
+      if (clip.kind !== 'video' && clip.kind !== 'audio') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['audio', 'gainKeyframes'],
+          message: 'only clips with audio can automate their gain',
+        });
+      }
+      let previous = -1;
+      for (const [index, keyframe] of gainKeyframes.entries()) {
+        if (keyframe.frame >= clip.durationFrames) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['audio', 'gainKeyframes', index, 'frame'],
+            message: 'a keyframe must fall inside the clip duration',
+          });
+        }
+        if (keyframe.frame <= previous) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['audio', 'gainKeyframes', index, 'frame'],
+            message: 'keyframes must be strictly increasing and unique',
+          });
+        }
+        previous = keyframe.frame;
+      }
     }
   });
 
@@ -244,3 +413,8 @@ export const TimelineSchema = z
 
 export type Track = z.infer<typeof TrackSchema>;
 export type Clip = z.infer<typeof ClipSchema>;
+export type ClipEffects = z.infer<typeof ClipEffectsSchema>;
+export type ClipMotion = z.infer<typeof ClipMotionSchema>;
+export type ClipTransformKeyframe = z.infer<typeof ClipTransformKeyframeSchema>;
+export type ClipGainKeyframe = z.infer<typeof ClipGainKeyframeSchema>;
+export type ChromaKey = z.infer<typeof ChromaKeySchema>;

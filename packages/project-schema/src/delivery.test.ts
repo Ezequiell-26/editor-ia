@@ -61,6 +61,36 @@ describe('RenderProfileSchema', () => {
     expect(RenderProfileSchema.safeParse(profile({ aspectRatio: '9:16' })).success).toBe(false);
   });
 
+  it('accepts arbitrary project ratios and fills compact defaults', () => {
+    const parsed = RenderProfileSchema.safeParse(
+      profile({
+        resolution: { width: 1440, height: 1080 },
+        aspectRatio: '4:3',
+        name: 'Proyecto 1440x1080',
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.videoPreset).toBe('veryfast');
+      expect(parsed.data.audioBitsPerSecond).toBe(128_000);
+      expect(parsed.data.fit).toBe('contain');
+    }
+    expect(
+      RenderProfileSchema.safeParse(profile({ fit: 'cover' })).data?.fit,
+    ).toBe('cover');
+    expect(RenderProfileSchema.safeParse(profile({ fit: 'stretch' })).success).toBe(false);
+    expect(
+      RenderProfileSchema.safeParse(
+        profile({ resolution: { width: 1366, height: 768 }, aspectRatio: '683:384' }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('rejects malformed or zero aspect ratios', () => {
+    expect(RenderProfileSchema.safeParse(profile({ aspectRatio: '4x3' })).success).toBe(false);
+    expect(RenderProfileSchema.safeParse(profile({ aspectRatio: '0:9' })).success).toBe(false);
+  });
+
   it('accepts a vertical resolution that matches a vertical ratio', () => {
     expect(
       RenderProfileSchema.safeParse(

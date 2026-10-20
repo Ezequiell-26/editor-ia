@@ -1,0 +1,171 @@
+:root {
+  color-scheme: dark;
+  --bg: #080d13;
+  --panel: #0f1720;
+  --border: #22303f;
+  --text: #e7eef7;
+  --muted: #93a4b8;
+  --mint: #7dd3c0;
+  --danger: #ff8b8b;
+  --warn: #f5c26b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(600px 300px at 90% -10%, rgba(125, 211, 192, 0.09), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 16px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 2px 0 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.badge {
+  border: 1px solid rgba(125, 211, 192, 0.4);
+  color: var(--mint);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+main {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  padding: 12px;
+}
+
+.field {
+  display: grid;
+  gap: 5px;
+  margin: 8px 0;
+}
+
+.field > span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+input,
+textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #0a1119;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+  resize: vertical;
+}
+
+input:focus,
+textarea:focus {
+  outline: 2px solid rgba(125, 211, 192, 0.55);
+  outline-offset: 1px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+button {
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #16212d;
+  color: var(--text);
+  padding: 8px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--mint);
+  border-color: var(--mint);
+  color: #07110f;
+  font-weight: 700;
+}
+
+button.ghost {
+  background: transparent;
+}
+
+.fine,
+.tab-info {
+  color: var(--muted);
+  font-size: 11px;
+  margin: 8px 0 0;
+}
+
+.tab-info {
+  overflow-wrap: anywhere;
+}
+
+code {
+  color: var(--mint);
+}
+
+.status {
+  margin: 4px 0 0;
+  padding: 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: #0a1119;
+  overflow-wrap: anywhere;
+}
+
+.status.success {
+  border-color: rgba(125, 211, 192, 0.5);
+  color: var(--mint);
+}
+
+.status.failed,
+.status.blocked {
+  border-color: rgba(255, 139, 139, 0.5);
+  color: var(--danger);
+}
+
+.status.working {
+  border-color: rgba(245, 194, 107, 0.5);
+  color: var(--warn);
+}

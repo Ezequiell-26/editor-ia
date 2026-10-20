@@ -6,8 +6,10 @@ import {
   formatTimecode,
   fpsOf,
   splitClip,
+  totalFrames,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { Icon } from '../../components/Icon';
 import { EditorAssets } from './EditorAssets';
 import { ExportDialog } from './ExportDialog';
 import { Inspector } from './Inspector';
@@ -28,14 +30,26 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
   usePlayback();
 
   useEffect(() => {
+    if (!store.state.exportRequested) return;
+    setExportOpen(true);
+    store.consumeExportRequest();
+  }, [store.state.exportRequested, store.consumeExportRequest]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTypingTarget(event.target) || !project) return;
       const selection = store.state.selection;
       if (event.key === 'Delete' || event.key === 'Backspace') {
         if (selection.kind === 'clip') {
           event.preventDefault();
-          store.update((current) => deleteClip(current, selection.id));
+          let nextDuration = 0;
+          store.update((current) => {
+            const next = deleteClip(current, selection.id);
+            nextDuration = totalFrames(next);
+            return next;
+          });
           store.setSelection({ kind: 'none' });
+          store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
         } else if (selection.kind === 'cue') {
           event.preventDefault();
           store.update((current) => deleteCaptionCue(current, selection.id));
@@ -100,23 +114,39 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
           </span>
         </div>
         <div className="editor-toolbar-actions">
-          <span className={`status-pill ${store.state.phase}`}>{store.statusText}</span>
-          <button type="button" className="ghost" onClick={() => onNavigate('script')}>
-            Guion
+          <span
+            className={`status-pill ${store.state.phase}`}
+            title={store.statusText}
+            aria-live="polite"
+          >
+            <span className={`status-pill-dot phase-${store.state.phase}`} aria-hidden="true" />
+            {store.state.phase === 'saved'
+              ? 'Guardado'
+              : store.state.phase === 'saving'
+                ? 'Guardando…'
+                : store.state.phase === 'failed'
+                  ? 'Error al guardar'
+                  : 'Sin guardar'}
+          </span>
+          <button type="button" className="ghost icon-text" onClick={() => onNavigate('script')}>
+            <Icon name="script" size={15} />
+            <span>Guion</span>
           </button>
-          <button type="button" className="ghost" onClick={() => onNavigate('assets')}>
-            Medios
+          <button type="button" className="ghost icon-text" onClick={() => onNavigate('assets')}>
+            <Icon name="assets" size={15} />
+            <span>Medios</span>
           </button>
           <button
             type="button"
-            className="primary"
+            className="primary icon-text"
             onClick={() => {
               setExportOpen(true);
             }}
             disabled={project.timeline.clips.length === 0}
             title={project.timeline.clips.length === 0 ? 'Montá al menos un clip para exportar' : undefined}
           >
-            Exportar MP4
+            <Icon name="export" size={15} />
+            <span>Exportar MP4</span>
           </button>
         </div>
       </div>

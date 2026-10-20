@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
+import { Icon } from '../../components/Icon';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import {
   addAsset,
@@ -12,6 +13,7 @@ import {
   updateAssetLabel,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { buildStoryboard } from '../../state/storyboard';
 
 interface AssetsPanelProps {
   readonly onNavigate: (id: ViewId) => void;
@@ -30,6 +32,12 @@ function kindLabel(kind: Asset['kind']): string {
     case 'text':
       return 'Texto';
   }
+}
+
+function statusLabel(status: Asset['status']): string {
+  return { ready: 'listo', unverified: 'sin verificar', missing: 'faltante', failed: 'fallido' }[
+    status
+  ];
 }
 
 function mediaSummary(asset: Asset): string {
@@ -76,7 +84,7 @@ function AssetCard({
         ) : (
           <span className={`asset-kind kind-${asset.kind}`}>{kindLabel(asset.kind)}</span>
         )}
-        <span className={`asset-status status-${asset.status}`}>{asset.status}</span>
+        <span className={`asset-status status-${asset.status}`}>{statusLabel(asset.status)}</span>
       </div>
       <div className="asset-body">
         {editing ? (
@@ -180,8 +188,13 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const project = store.state.project;
   const [rightsConfirmed, setRightsConfirmed] = useState(false);
   const [licenseMode, setLicenseMode] = useState<'allowed' | 'requires-attribution'>('allowed');
+  const [photoMotion, setPhotoMotion] = useState<'auto' | 'none'>('auto');
+  const [transitionFrames, setTransitionFrames] = useState(8);
+  const [imageSeconds, setImageSeconds] = useState(5);
   const [busy, setBusy] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [assetQuery, setAssetQuery] = useState('');
+  const [assetFilter, setAssetFilter] = useState<'all' | 'video' | 'image' | 'audio'>('all');
 
   if (!project) {
     return (
@@ -205,6 +218,16 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
 
   const root = store.state.opened?.root ?? '';
   const fps = fpsOf(project);
+  const assetNeedle = assetQuery.trim().toLocaleLowerCase('es');
+  const visibleAssets = project.assets.filter((asset) => {
+    if (assetFilter !== 'all' && asset.kind !== assetFilter) return false;
+    if (!assetNeedle) return true;
+    const source = 'path' in asset.source ? asset.source.path : '';
+    return (
+      asset.label.toLocaleLowerCase('es').includes(assetNeedle) ||
+      source.toLocaleLowerCase('es').includes(assetNeedle)
+    );
+  });
 
   async function importMedia(): Promise<void> {
     if (!rightsConfirmed) {
@@ -257,6 +280,102 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
     }
   }
 
+  async function autoStoryboard(): Promise<void> {
+    if (!rightsConfirmed) {
+      setWarnings([
+        'Confirmá que tenés derechos para usar y exportar los archivos antes de montar el storyboard.',
+      ]);
+      return;
+    }
+    setBusy(true);
+    setWarnings([]);
+    try {
+      const outcome = await store.service.importAssets(
+        project?.video.frameRate.num ?? 30,
+        project?.video.frameRate.den ?? 1,
+      );
+      if (!outcome) return;
+      if (outcome.assets.length === 0) {
+        setWarnings(
+          outcome.warnings.length ? outcome.warnings : ['No se seleccionó ningún archivo.'],
+        );
+        return;
+      }
+      const images = outcome.assets.filter((asset) => asset.kind === 'image');
+      if (images.length === 0) {
+        setWarnings([
+          'Elegí al menos una imagen. Para el audio, seleccioná también el WAV o MP3 de la narración.',
+          ...outcome.warnings,
+        ]);
+        return;
+      }
+      const audioCandidates = outcome.assets.filter((asset) => asset.kind === 'audio');
+      const audio = audioCandidates[0] ?? null;
+
+      const result = store.mutate((current) => {
+        let next = current;
+        for (const asset of outcome.assets) {
+          next = addAsset(next, asset);
+          next = markAssetReady(next, asset.id, licenseMode);
+        }
+        const readyImages = images
+          .map((image) => next.assets.find((asset) => asset.id === image.id))
+          .filter((asset): asset is Asset => Boolean(asset));
+        const readyAudio = audio
+          ? next.assets.find((asset) => asset.id === audio.id) ?? null
+          : null;
+        const storyboard = buildStoryboard(next, {
+          images: readyImages,
+          audio: readyAudio,
+          photoMotion,
+          transitionFrames,
+          defaultImageSeconds: imageSeconds,
+        });
+        return {
+          project: storyboard.project,
+          storyboard,
+          imageCount: readyImages.length,
+        };
+      });
+
+      if (!result) {
+        setWarnings(['No se pudo montar el storyboard; revisá el mensaje de error.']);
+        return;
+      }
+
+      const distributionLabel = {
+        audio: 'sincronizado a la narración',
+        scenes: 'según las duraciones del guion',
+        default: '5 segundos por imagen',
+      }[result.storyboard.distribution];
+      const extra: string[] = [];
+      if (audioCandidates.length > 1) {
+        extra.push(
+          `Se usó "${audio?.label ?? 'el primer audio'}" como narración; los demás audios quedaron en la biblioteca.`,
+        );
+      }
+      const videos = outcome.assets.filter((asset) => asset.kind === 'video').length;
+      if (videos > 0) {
+        extra.push(
+          `${videos} video(s) se importaron pero no se montaron en el storyboard automático.`,
+        );
+      }
+      setWarnings([...outcome.warnings, ...extra]);
+      const firstClip = result.storyboard.imageClipIds[0];
+      if (firstClip) store.setSelection({ kind: 'clip', id: firstClip });
+      store.setNotice(
+        `Storyboard: ${result.imageCount} imagen(es), ${result.storyboard.audioClipId ? 'narración montada' : 'sin audio'}, ${result.storyboard.totalFrames} frames (${distributionLabel}).`,
+      );
+      onNavigate('editor');
+    } catch (error) {
+      setWarnings([
+        error instanceof Error ? error.message : 'el storyboard automático falló',
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="view assets-view">
       <div className="view-head">
@@ -269,8 +388,24 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
           </p>
         </div>
         <div className="head-actions">
-          <button type="button" className="primary" onClick={() => void importMedia()} disabled={busy || !store.service.available}>
-            {busy ? 'Importando…' : 'Importar medios…'}
+          <button
+            type="button"
+            className="ghost icon-text"
+            onClick={() => void autoStoryboard()}
+            disabled={busy || !store.service.available}
+            title="Seleccioná imágenes y una narración; se montan en orden por nombre"
+          >
+            <Icon name="sparkles" size={14} />
+            <span>Auto-montar lote…</span>
+          </button>
+          <button
+            type="button"
+            className="primary icon-text"
+            onClick={() => void importMedia()}
+            disabled={busy || !store.service.available}
+          >
+            <Icon name="plus" size={14} />
+            <span>{busy ? 'Importando…' : 'Importar medios…'}</span>
           </button>
         </div>
       </div>
@@ -294,6 +429,44 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
             <option value="requires-attribution">Requiere atribución</option>
           </select>
         </label>
+        <label className="field inline">
+          <span>Movimiento automático</span>
+          <select
+            value={photoMotion}
+            onChange={(event) => setPhotoMotion(event.target.value as 'auto' | 'none')}
+          >
+            <option value="auto">Ken Burns alternado</option>
+            <option value="none">Sin movimiento</option>
+          </select>
+        </label>
+        <label className="field inline">
+          <span>Segundos por imagen (sin audio)</span>
+          <input
+            type="number"
+            min={1}
+            max={30}
+            step={1}
+            value={imageSeconds}
+            onChange={(event) =>
+              setImageSeconds(Math.max(1, Math.min(30, Math.round(Number(event.target.value) || 5))))
+            }
+          />
+        </label>
+        <label className="field inline">
+          <span>Transición (frames)</span>
+          <input
+            type="number"
+            min={0}
+            max={30}
+            step={1}
+            value={transitionFrames}
+            onChange={(event) =>
+              setTransitionFrames(
+                Math.max(0, Math.min(30, Math.round(Number(event.target.value) || 0))),
+              )
+            }
+          />
+        </label>
       </div>
       <p className="fine-print">
         El formato de proyecto rechaza materiales “ready” con licencia desconocida. El render
@@ -308,14 +481,46 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
         </div>
       ) : null}
 
-      {project.assets.length === 0 ? (
+      <div className="library-toolbar">
+        <label className="library-search">
+          <Icon name="search" size={14} />
+          <input
+            type="search"
+            value={assetQuery}
+            placeholder="Buscar por nombre o ruta…"
+            aria-label="Buscar en la biblioteca de medios"
+            onChange={(event) => setAssetQuery(event.target.value)}
+          />
+        </label>
+        <label className="field inline library-filter">
+          <span>Tipo</span>
+          <select
+            value={assetFilter}
+            aria-label="Filtrar biblioteca por tipo"
+            onChange={(event) =>
+              setAssetFilter(event.target.value as 'all' | 'video' | 'image' | 'audio')
+            }
+          >
+            <option value="all">Todos</option>
+            <option value="video">Video</option>
+            <option value="image">Imagen</option>
+            <option value="audio">Audio</option>
+          </select>
+        </label>
+        <span className="library-count">
+          {visibleAssets.length} de {project.assets.length} medios
+        </span>
+      </div>
+
+      {visibleAssets.length === 0 ? (
         <p className="empty-state">
-          No hay assets todavía. Importá un video, una imagen o un audio; cada archivo llega con
-          hash, medición y licencia declarada por vos.
+          {project.assets.length === 0
+            ? 'No hay assets todavía. Importá un video, una imagen o un audio; cada archivo llega con hash, medición y licencia declarada por vos.'
+            : 'Ningún medio coincide con la búsqueda o el filtro.'}
         </p>
       ) : (
         <div className="asset-grid">
-          {project.assets.map((asset) => (
+          {visibleAssets.map((asset) => (
             <AssetCard key={asset.id} asset={asset} root={root} onUse={useAsset} />
           ))}
         </div>

@@ -1,0 +1,14 @@
+{
+  "name": "@editor-ia/flow-queue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome MV3 side panel that queues image prompts on Google Flow and downloads numbered results for Editor IA.",
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "icons": "node scripts/make-icons.mjs",
+    "smoke": "node scripts/smoke-extension.mjs",
+    "smoke:download": "node scripts/smoke-download.mjs"
+  },
+  "license": "MIT"
+}

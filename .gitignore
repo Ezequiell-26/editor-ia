@@ -10,3 +10,6 @@ Thumbs.db
 target/
 apps/desktop/src-tauri/gen/
 packages/project-schema/schema/.generated/
+
+# Flow Queue smoke-test artifacts
+extensions/flow-queue/tests/smoke-panel.png

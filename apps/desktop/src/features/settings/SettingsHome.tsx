@@ -5,6 +5,8 @@ import type {
 } from '../../services/project-service';
 import { providerUrlProblem } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
+import { AudioProviderCard } from './AudioProviderCard';
+import { AppearanceCard } from './AppearanceCard';
 
 function VersionLine({ label, info }: { readonly label: string; readonly info: SystemInfo['ffmpeg'] }) {
   return (
@@ -138,8 +140,8 @@ export function SettingsHome() {
           <p className="eyebrow">Configuración</p>
           <h2>Ajustes</h2>
           <p className="view-summary">
-            Proveedor de IA, herramientas de render y almacenamiento. Ninguna clave se guarda en el
-            proyecto, en el navegador ni en los logs.
+            Apariencia, proveedor de IA, herramientas de render, servidores MCP y almacenamiento.
+            Ninguna clave se guarda en el proyecto, en el navegador ni en los logs.
           </p>
         </div>
       </div>
@@ -149,6 +151,8 @@ export function SettingsHome() {
       ) : null}
 
       <div className="settings-grid">
+        <AppearanceCard />
+
         <article className="card">
           <p className="eyebrow">Proveedor de IA</p>
           <h3>Texto para guiones y escenas</h3>
@@ -221,6 +225,40 @@ export function SettingsHome() {
           </p>
         </article>
 
+        <AudioProviderCard />
+
+        <article className="card">
+          <p className="eyebrow">Automatización web</p>
+          <h3>Web TTS Bridge</h3>
+          <p className="muted">
+            Extensión companion de Chrome para webs de voz: pide permiso por sitio, escribe el
+            texto, pulsa generar y descarga el audio en <code>Descargas/web-tts</code>. No inicia
+            sesión, no paga y no evade captchas; si encuentra un bloqueo, se detiene y lo informa.
+          </p>
+          <ul className="scope-list">
+            <li>Se instala como extensión descomprimida desde el repositorio.</li>
+            <li>El texto se escribe en la web que vos abrís y autorizás.</li>
+            <li>Después importás el audio descargado desde Medios.</li>
+          </ul>
+          <div className="actions">
+            <button
+              type="button"
+              className="ghost"
+              onClick={() =>
+                void store.service
+                  .openExternalUrl(
+                    'https://github.com/Ezequiell-26/editor-ia/tree/main/extensions/web-tts-bridge',
+                  )
+                  .catch((error) =>
+                    store.setNotice(error instanceof Error ? error.message : 'no se pudo abrir la web'),
+                  )
+              }
+            >
+              Ver extensión en GitHub
+            </button>
+          </div>
+        </article>
+
         <article className="card">
           <p className="eyebrow">Herramientas</p>
           <h3>FFmpeg, FFprobe y voz</h3>
@@ -290,6 +328,9 @@ export function SettingsHome() {
             <li>Render MP4 H.264/AAC con libx264 y verificación FFprobe.</li>
             <li>Timeline multipista en frames, trims, splits y subtítulos ASS.</li>
             <li>Guiones por proveedor compatible o simulador; TTS local con SAPI.</li>
+            <li>Voz por ElevenLabs (API oficial, consume créditos) o web externa manual.</li>
+            <li>Servidores MCP locales por stdio: listar y ejecutar herramientas.</li>
+            <li>Manifiesto local de publicación con hashes, licencias y procedencia.</li>
             <li>No publica en redes ni descarga stock sin procedencia.</li>
             <li>Remotion queda fuera hasta validar su licencia comercial.</li>
             <li>Los clips gráficos se rechazan en render hasta tener motor propio.</li>

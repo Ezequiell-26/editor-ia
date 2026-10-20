@@ -2,10 +2,26 @@ import type {
   Asset,
   CaptionCue,
   Clip,
+  ChromaKey,
+  ClipEffects,
+  ClipGainKeyframe,
+  ClipMotion,
+  ClipTransformKeyframe,
   ProjectDocument,
   Scene,
   Track,
 } from '@editor-ia/project-schema';
+import {
+  MAX_GAIN_KEYFRAMES,
+  MAX_TRANSFORM_KEYFRAMES,
+  TRANSFORM_KEYFRAME_SCALE_MAX,
+  TRANSFORM_KEYFRAME_SCALE_MIN,
+  hasGeometryKeyframes,
+  sampleGainKeyframes,
+  sampleTransformKeyframes,
+} from '@editor-ia/project-schema';
+import { friendlyAssetLabel } from './asset-labels';
+import { aspectRatioOf, evenDimension, retimeProject, validFpsRange } from './video-format';
 
 /**
  * Pure project mutations.
@@ -145,38 +161,78 @@ export function canPlaceClip(
   );
 }
 
-export function ensureDelivery(project: ProjectDocument): ProjectDocument {
-  const next = cloneProject(project);
-  const existingAspects = new Set(next.renderProfiles.map((profile) => profile.aspectRatio));
-  const frameRate = next.video.frameRate;
-  const makeProfile = (
-    name: string,
-    width: number,
-    height: number,
-    aspectRatio: '16:9' | '9:16',
-    crf: boolean,
-    minOutputBytes: number,
-  ) => ({
+const NATIVE_PROFILE_PREFIX = 'Formato del proyecto';
+
+function makeDeliveryProfile(
+  project: ProjectDocument,
+  name: string,
+  width: number,
+  height: number,
+  minOutputBytes: number,
+) {
+  return {
     id: newId(),
     name,
     container: 'mp4' as const,
     videoCodec: 'h264' as const,
     audioCodec: 'aac' as const,
     resolution: { width, height },
-    frameRate,
-    bitrate: crf ? { mode: 'crf' as const, crf: 20 } : { mode: 'target' as const, videoBitsPerSecond: 8_000_000 },
+    frameRate: { ...project.video.frameRate },
+    bitrate: { mode: 'crf' as const, crf: 22 },
+    videoPreset: 'veryfast' as const,
+    fit: 'contain' as const,
     pixelFormat: 'yuv420p' as const,
     audioSampleRate: 48_000,
     audioChannels: 2,
-    aspectRatio,
+    audioBitsPerSecond: 128_000,
+    aspectRatio: aspectRatioOf(width, height),
     qualityGate: { minOutputBytes, durationToleranceFrames: 10, requireAllAssetsReady: true },
-  });
+  };
+}
+
+/** Keep one profile that follows the project canvas, even for unusual ratios. */
+export function syncNativeProfile(project: ProjectDocument): ProjectDocument {
+  const next = project;
+  const width = next.video.width;
+  const height = next.video.height;
+  const name = `${NATIVE_PROFILE_PREFIX} ${width}×${height}`;
+  const existing = next.renderProfiles.find((profile) =>
+    profile.name.startsWith(NATIVE_PROFILE_PREFIX),
+  );
+  if (existing) {
+    existing.name = name;
+    existing.resolution = { width, height };
+    existing.aspectRatio = aspectRatioOf(width, height);
+    return next;
+  }
+  if (next.renderProfiles.some((profile) => profile.resolution.width === width && profile.resolution.height === height)) {
+    return next;
+  }
+  next.renderProfiles.push(makeDeliveryProfile(next, name, width, height, 50_000));
+  return next;
+}
+
+export function ensureDelivery(project: ProjectDocument): ProjectDocument {
+  const next = cloneProject(project);
+  const existingAspects = new Set(next.renderProfiles.map((profile) => profile.aspectRatio));
+  const addProfile = (
+    name: string,
+    width: number,
+    height: number,
+    minOutputBytes: number,
+  ) => {
+    next.renderProfiles.push(makeDeliveryProfile(next, name, width, height, minOutputBytes));
+  };
   if (!existingAspects.has('16:9')) {
-    next.renderProfiles.push(makeProfile('YouTube 1080p', 1920, 1080, '16:9', true, 500_000));
+    addProfile('YouTube 1080p', 1920, 1080, 500_000);
   }
   if (!existingAspects.has('9:16')) {
-    next.renderProfiles.push(makeProfile('Shorts 1080x1920', 1080, 1920, '9:16', false, 300_000));
+    addProfile('Shorts 1080x1920', 1080, 1920, 300_000);
   }
+  if (!existingAspects.has('1:1')) {
+    addProfile('Feed 1080x1080', 1080, 1080, 250_000);
+  }
+  syncNativeProfile(next);
   const platforms = new Set(next.exportVariants.map((variant) => variant.platform));
   for (const profile of next.renderProfiles) {
     if (profile.aspectRatio === '16:9' && !platforms.has('youtube')) {
@@ -197,7 +253,105 @@ export function ensureDelivery(project: ProjectDocument): ProjectDocument {
       });
       platforms.add('shorts');
     }
+    if (profile.aspectRatio === '1:1' && !platforms.has('other')) {
+      next.exportVariants.push({
+        id: newId(),
+        name: profile.name,
+        renderProfileId: profile.id,
+        platform: 'other',
+      });
+      platforms.add('other');
+    }
   }
+  return next;
+}
+
+export type CompressionPresetId = 'rapido' | 'equilibrado' | 'compacto' | 'maximo';
+
+export interface CompressionPreset {
+  readonly id: CompressionPresetId;
+  readonly label: string;
+  readonly note: string;
+  readonly crf: number;
+  readonly videoPreset: 'ultrafast' | 'veryfast' | 'faster' | 'medium';
+  readonly audioBitsPerSecond: number;
+}
+
+export const COMPRESSION_PRESETS: readonly CompressionPreset[] = [
+  {
+    id: 'rapido',
+    label: 'Rápido',
+    note: 'Renderiza lo antes posible; ocupa más.',
+    crf: 23,
+    videoPreset: 'ultrafast',
+    audioBitsPerSecond: 128_000,
+  },
+  {
+    id: 'equilibrado',
+    label: 'Equilibrado',
+    note: 'Buena calidad y tamaño razonable.',
+    crf: 22,
+    videoPreset: 'veryfast',
+    audioBitsPerSecond: 128_000,
+  },
+  {
+    id: 'compacto',
+    label: 'Compacto',
+    note: 'El archivo más chico; tarda un poco más.',
+    crf: 27,
+    videoPreset: 'faster',
+    audioBitsPerSecond: 96_000,
+  },
+  {
+    id: 'maximo',
+    label: 'Máxima calidad',
+    note: 'Más pesado y más lento; para masters.',
+    crf: 18,
+    videoPreset: 'medium',
+    audioBitsPerSecond: 192_000,
+  },
+];
+
+export function compressionPresetOf(
+  profile: ProjectDocument['renderProfiles'][number],
+): CompressionPresetId | 'custom' {
+  const crf = profile.bitrate.mode === 'crf' ? profile.bitrate.crf : null;
+  const match = COMPRESSION_PRESETS.find(
+    (preset) =>
+      preset.crf === crf &&
+      preset.videoPreset === profile.videoPreset &&
+      preset.audioBitsPerSecond === profile.audioBitsPerSecond,
+  );
+  return match?.id ?? 'custom';
+}
+
+/** Apply one compression profile and optional codec to every delivery profile. */
+export function applyCompression(
+  project: ProjectDocument,
+  presetId: CompressionPresetId,
+  videoCodec?: 'h264' | 'h265',
+): ProjectDocument {
+  const preset = COMPRESSION_PRESETS.find((item) => item.id === presetId);
+  if (!preset) throw new ProjectActionError('el preset de compresión no existe');
+  const next = cloneProject(project);
+  for (const profile of next.renderProfiles) {
+    profile.bitrate = { mode: 'crf', crf: preset.crf };
+    profile.videoPreset = preset.videoPreset;
+    profile.audioBitsPerSecond = preset.audioBitsPerSecond;
+    if (videoCodec) profile.videoCodec = videoCodec;
+  }
+  touch(next);
+  return next;
+}
+
+/** Apply contain/cover to every delivery profile (used by the export dialog). */
+export function applyProfileFit(
+  project: ProjectDocument,
+  fit: 'contain' | 'cover',
+): ProjectDocument {
+  const next = cloneProject(project);
+  for (const profile of next.renderProfiles) profile.fit = fit;
+  touch(next);
   return next;
 }
 
@@ -344,7 +498,14 @@ function compatibleTrackKinds(kind: Clip['kind']): Track['kind'][] {
 export function addClipFromAsset(
   project: ProjectDocument,
   asset: Asset,
-  options: { trackId?: string; atFrame?: number; durationFrames?: number; narration?: boolean } = {},
+  options: {
+    trackId?: string;
+    atFrame?: number;
+    durationFrames?: number;
+    narration?: boolean;
+    inFrame?: number;
+    outFrame?: number;
+  } = {},
 ): { project: ProjectDocument; clipId: string; trackId: string; startFrame: number } {
   if (asset.status !== 'ready') {
     throw new ProjectActionError('confirmá los derechos del material antes de montarlo');
@@ -391,13 +552,22 @@ export function addClipFromAsset(
     if (!mediaDuration) {
       throw new ProjectActionError('el material no declara duración medida');
     }
-    durationFrames = options.durationFrames ?? mediaDuration;
-    durationFrames = Math.max(1, Math.min(durationFrames, mediaDuration));
+    const requestedIn = Math.max(
+      0,
+      Math.min(mediaDuration - 1, Math.floor(options.inFrame ?? 0)),
+    );
+    const requestedOut = Math.max(
+      requestedIn + 1,
+      Math.min(mediaDuration, Math.floor(options.outFrame ?? mediaDuration)),
+    );
+    const windowFrames = requestedOut - requestedIn;
+    durationFrames = options.durationFrames ?? windowFrames;
+    durationFrames = Math.max(1, Math.min(durationFrames, windowFrames));
     source = {
       type: 'asset',
       assetId: asset.id,
-      inFrame: 0,
-      outFrame: durationFrames,
+      inFrame: requestedIn,
+      outFrame: requestedIn + durationFrames,
     };
   } else {
     const defaultSeconds = 5;
@@ -414,7 +584,7 @@ export function addClipFromAsset(
   const base = {
     id: clipId,
     trackId: track.id,
-    label: asset.label,
+    label: friendlyAssetLabel(asset.label),
     startFrame,
     durationFrames,
   };
@@ -478,6 +648,14 @@ export function trimClip(
   if (owner?.locked) {
     return null;
   }
+  const oldStart = clip.startFrame;
+  const oldDuration = clip.durationFrames;
+  const originalTransformKeyframes = clip.transform?.keyframes
+    ? [...clip.transform.keyframes]
+    : undefined;
+  const originalGainKeyframes = clip.audio?.gainKeyframes
+    ? [...clip.audio.gainKeyframes]
+    : undefined;
   if (edge === 'start') {
     const maxStart = clip.startFrame + clip.durationFrames - 1;
     let newStart = Math.min(Math.max(0, target), maxStart);
@@ -536,6 +714,41 @@ export function trimClip(
     }
     clip.durationFrames = newDuration;
   }
+  if (originalTransformKeyframes) {
+    if (edge === 'start') {
+      assignTransformKeyframes(
+        clip,
+        trimStartKeyframes(
+          originalTransformKeyframes,
+          clip.startFrame - oldStart,
+          (frame) => sampleTransformKeyframes(originalTransformKeyframes, frame),
+        ),
+      );
+    } else if (clip.durationFrames !== oldDuration) {
+      assignTransformKeyframes(
+        clip,
+        trimEndKeyframes(originalTransformKeyframes, clip.durationFrames, (frame) =>
+          sampleTransformKeyframes(originalTransformKeyframes, frame),
+        ),
+      );
+    }
+  }
+  if (originalGainKeyframes) {
+    const sample = (frame: number) => ({
+      gainDb: sampleGainKeyframes(originalGainKeyframes, frame) ?? 0,
+    });
+    if (edge === 'start') {
+      assignGainKeyframes(
+        clip,
+        trimStartKeyframes(originalGainKeyframes, clip.startFrame - oldStart, sample),
+      );
+    } else if (clip.durationFrames !== oldDuration) {
+      assignGainKeyframes(
+        clip,
+        trimEndKeyframes(originalGainKeyframes, clip.durationFrames, sample),
+      );
+    }
+  }
   touch(next);
   return next;
 }
@@ -563,6 +776,12 @@ export function splitClip(
   if (at <= clip.startFrame || at >= clip.startFrame + clip.durationFrames) {
     return null;
   }
+  const originalTransformKeyframes = clip.transform?.keyframes
+    ? [...clip.transform.keyframes]
+    : undefined;
+  const originalGainKeyframes = clip.audio?.gainKeyframes
+    ? [...clip.audio.gainKeyframes]
+    : undefined;
   const leftDuration = at - clip.startFrame;
   const rightDuration = clip.durationFrames - leftDuration;
   const rightId = newId();
@@ -602,6 +821,67 @@ export function splitClip(
   return { project: next, rightClipId: rightId };
 }
 
+/** Split a clip at several absolute timeline frames, in order. */
+export function splitClipAtFrames(
+  project: ProjectDocument,
+  clipId: string,
+  cutFrames: readonly number[],
+): { project: ProjectDocument; clipIds: string[] } | null {
+  const clip = project.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) return null;
+  const start = clip.startFrame;
+  const end = clip.startFrame + clip.durationFrames;
+  const cuts = [...new Set(cutFrames.map((frame) => Math.round(frame)))]
+    .filter((frame) => frame > start && frame < end)
+    .sort((a, b) => a - b);
+  let next = project;
+  let currentId = clipId;
+  const clipIds = [clipId];
+  for (const cut of cuts) {
+    const result = splitClip(next, currentId, cut);
+    if (!result) continue;
+    next = result.project;
+    currentId = result.rightClipId;
+    clipIds.push(currentId);
+  }
+  return { project: next, clipIds };
+}
+
+/** Copy a clip after itself on the same track, preserving every effect. */
+export function duplicateClip(
+  project: ProjectDocument,
+  clipId: string,
+): { project: ProjectDocument; clipId: string } | null {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    return null;
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    return null;
+  }
+  const startFrame = findGap(
+    intervalsForTrack(next, clip.trackId),
+    clip.startFrame + clip.durationFrames,
+    clip.durationFrames,
+  );
+  const id = newId();
+  const copy = {
+    ...JSON.parse(JSON.stringify(clip)),
+    id,
+    startFrame,
+  } as Clip;
+  next.timeline.clips.push(copy);
+  for (const scene of next.scenes) {
+    const index = scene.clipIds.indexOf(clip.id);
+    if (index >= 0) {
+      scene.clipIds.splice(index + 1, 0, id);
+    }
+  }
+  touch(next);
+  return { project: next, clipId: id };
+}
+
 export function deleteClip(project: ProjectDocument, clipId: string): ProjectDocument {
   const next = cloneProject(project);
   const clip = next.timeline.clips.find((item) => item.id === clipId);
@@ -626,6 +906,9 @@ export function updateClip(
     label: string;
     transform: Clip extends { transform?: infer T } ? T : never;
     audio: Clip extends { audio?: infer T } ? T : never;
+    effects: ClipEffects;
+    motion: ClipMotion | undefined;
+    chromaKey: ChromaKey | undefined;
   }>,
 ): ProjectDocument {
   const next = cloneProject(project);
@@ -655,6 +938,521 @@ export function updateClip(
       delete clip.audio;
     } else {
       clip.audio = patch.audio as NonNullable<Clip['audio']>;
+    }
+  }
+  if (patch.effects !== undefined) {
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta efectos visuales');
+    }
+    if (Object.keys(patch.effects).length === 0) {
+      delete clip.effects;
+    } else {
+      clip.effects = patch.effects;
+    }
+  }
+  if ('motion' in patch) {
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta movimiento');
+    }
+    if (patch.motion === undefined) {
+      delete clip.motion;
+    } else {
+      clip.motion = patch.motion;
+    }
+  }
+  if ('chromaKey' in patch) {
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta chroma key');
+    }
+    if (patch.chromaKey === undefined) {
+      delete clip.chromaKey;
+    } else {
+      clip.chromaKey = patch.chromaKey;
+    }
+  }
+  touch(next);
+  return next;
+}
+
+export type ClipTransformSample = {
+  offsetX: number;
+  offsetY: number;
+  scaleX: number;
+  scaleY: number;
+  rotationDeg: number;
+  opacity: number;
+  keyframed: boolean;
+  geometryKeyframed: boolean;
+};
+
+/**
+ * Transform at a clip-relative frame. A keyframed property overrides its
+ * static value; `scale` is a uniform multiplier on top of the static scaleX/Y.
+ */
+export function clipTransformAtFrame(clip: Clip, frame: number): ClipTransformSample {
+  const transform = clip.transform ?? {};
+  const keyframes = transform.keyframes ?? [];
+  const sampled = sampleTransformKeyframes(keyframes, frame);
+  const animatedScale = sampled.scale ?? 1;
+  return {
+    offsetX: sampled.offsetX ?? transform.offsetX ?? 0,
+    offsetY: sampled.offsetY ?? transform.offsetY ?? 0,
+    scaleX: (transform.scaleX ?? 1) * animatedScale,
+    scaleY: (transform.scaleY ?? 1) * animatedScale,
+    rotationDeg: sampled.rotationDeg ?? transform.rotationDeg ?? 0,
+    opacity: sampled.opacity ?? transform.opacity ?? 1,
+    keyframed: keyframes.length > 0,
+    geometryKeyframed: hasGeometryKeyframes(keyframes),
+  };
+}
+
+export function clipGainAtFrame(clip: Clip, frame: number): number {
+  const keyframes = clip.audio?.gainKeyframes ?? [];
+  return sampleGainKeyframes(keyframes, frame) ?? clip.audio?.gainDb ?? 0;
+}
+
+type TransformKeyframePatch = Partial<Omit<ClipTransformKeyframe, 'frame'>>;
+type FrameKeyframe = { frame: number };
+
+function assignTransformKeyframes(clip: Clip, keyframes: ClipTransformKeyframe[]): void {
+  const transform = clip.transform ?? {};
+  if (keyframes.length === 0) {
+    delete transform.keyframes;
+  } else {
+    transform.keyframes = keyframes;
+  }
+  if (Object.keys(transform).length === 0) {
+    delete clip.transform;
+  } else {
+    clip.transform = transform;
+  }
+}
+
+function assignGainKeyframes(clip: Clip, keyframes: ClipGainKeyframe[]): void {
+  const audio = clip.audio ?? {};
+  if (keyframes.length === 0) {
+    delete audio.gainKeyframes;
+  } else {
+    audio.gainKeyframes = keyframes;
+  }
+  if (Object.keys(audio).length === 0) {
+    delete clip.audio;
+  } else {
+    clip.audio = audio;
+  }
+}
+
+function normalizeTransformPatch(patch: TransformKeyframePatch): TransformKeyframePatch {
+  const clean: TransformKeyframePatch = {};
+  if (patch.offsetX !== undefined) {
+    if (!Number.isFinite(patch.offsetX) || Math.abs(patch.offsetX) > 100_000) {
+      throw new ProjectActionError('el desplazamiento debe estar entre -100000 y 100000');
+    }
+    clean.offsetX = Math.round(patch.offsetX);
+  }
+  if (patch.offsetY !== undefined) {
+    if (!Number.isFinite(patch.offsetY) || Math.abs(patch.offsetY) > 100_000) {
+      throw new ProjectActionError('el desplazamiento debe estar entre -100000 y 100000');
+    }
+    clean.offsetY = Math.round(patch.offsetY);
+  }
+  if (patch.scale !== undefined) {
+    if (
+      !Number.isFinite(patch.scale) ||
+      patch.scale < TRANSFORM_KEYFRAME_SCALE_MIN ||
+      patch.scale > TRANSFORM_KEYFRAME_SCALE_MAX
+    ) {
+      throw new ProjectActionError(
+        `la escala animada debe estar entre ${TRANSFORM_KEYFRAME_SCALE_MIN} y ${TRANSFORM_KEYFRAME_SCALE_MAX}`,
+      );
+    }
+    clean.scale = patch.scale;
+  }
+  if (patch.rotationDeg !== undefined) {
+    if (!Number.isFinite(patch.rotationDeg) || Math.abs(patch.rotationDeg) > 360) {
+      throw new ProjectActionError('la rotación debe estar entre -360 y 360 grados');
+    }
+    clean.rotationDeg = patch.rotationDeg;
+  }
+  if (patch.opacity !== undefined) {
+    if (!Number.isFinite(patch.opacity) || patch.opacity < 0 || patch.opacity > 1) {
+      throw new ProjectActionError('la opacidad debe estar entre 0 y 1');
+    }
+    clean.opacity = patch.opacity;
+  }
+  if (Object.keys(clean).length === 0) {
+    throw new ProjectActionError('la clave necesita al menos una propiedad animada');
+  }
+  return clean;
+}
+
+/** Creates or updates a transform keyframe at a clip-relative frame. */
+export function setTransformKeyframe(
+  project: ProjectDocument,
+  clipId: string,
+  frame: number,
+  patch: TransformKeyframePatch,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  if (clip.kind !== 'video' && clip.kind !== 'image') {
+    throw new ProjectActionError('este tipo de clip no acepta keyframes de transformación');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const offset = Math.round(frame);
+  if (offset < 0 || offset >= clip.durationFrames) {
+    throw new ProjectActionError('la clave debe caer dentro del clip');
+  }
+  const clean = normalizeTransformPatch(patch);
+  const keyframes = (clip.transform?.keyframes ?? []).map((keyframe) => ({ ...keyframe }));
+  const index = keyframes.findIndex((keyframe) => keyframe.frame === offset);
+  if (index >= 0) {
+    keyframes[index] = { ...keyframes[index], ...clean, frame: offset };
+  } else {
+    if (keyframes.length >= MAX_TRANSFORM_KEYFRAMES) {
+      throw new ProjectActionError(
+        `este clip ya tiene el máximo de ${MAX_TRANSFORM_KEYFRAMES} keyframes`,
+      );
+    }
+    keyframes.push({ frame: offset, ...clean });
+  }
+  keyframes.sort((a, b) => a.frame - b.frame);
+  assignTransformKeyframes(clip, keyframes);
+  touch(next);
+  return next;
+}
+
+export function removeTransformKeyframe(
+  project: ProjectDocument,
+  clipId: string,
+  frame: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const keyframes = clip.transform?.keyframes ?? [];
+  const offset = Math.round(frame);
+  if (!keyframes.some((keyframe) => keyframe.frame === offset)) {
+    return project;
+  }
+  assignTransformKeyframes(
+    clip,
+    keyframes
+      .filter((keyframe) => keyframe.frame !== offset)
+      .map((keyframe) => ({ ...keyframe })),
+  );
+  touch(next);
+  return next;
+}
+
+/** Removes the animation but freezes the value at `freezeAtFrame` in the static transform. */
+export function clearTransformKeyframes(
+  project: ProjectDocument,
+  clipId: string,
+  freezeAtFrame = 0,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  const keyframes = clip.transform?.keyframes ?? [];
+  if (keyframes.length === 0) {
+    return project;
+  }
+  const transform = { ...(clip.transform ?? {}) };
+  const freeze = Math.max(0, Math.min(clip.durationFrames - 1, Math.round(freezeAtFrame)));
+  const sampled = sampleTransformKeyframes(keyframes, freeze);
+  if (sampled.offsetX !== undefined) transform.offsetX = sampled.offsetX;
+  if (sampled.offsetY !== undefined) transform.offsetY = sampled.offsetY;
+  if (sampled.scale !== undefined) {
+    transform.scaleX = (transform.scaleX ?? 1) * sampled.scale;
+    transform.scaleY = (transform.scaleY ?? 1) * sampled.scale;
+  }
+  if (sampled.rotationDeg !== undefined) transform.rotationDeg = sampled.rotationDeg;
+  if (sampled.opacity !== undefined) transform.opacity = sampled.opacity;
+  delete transform.keyframes;
+  if (Object.keys(transform).length === 0) {
+    delete clip.transform;
+  } else {
+    clip.transform = transform;
+  }
+  touch(next);
+  return next;
+}
+
+/** Creates or updates a gain keyframe at a clip-relative frame. */
+export function setGainKeyframe(
+  project: ProjectDocument,
+  clipId: string,
+  frame: number,
+  gainDb: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  if (clip.kind !== 'video' && clip.kind !== 'audio') {
+    throw new ProjectActionError('este tipo de clip no tiene audio para automatizar');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  if (!Number.isFinite(gainDb) || gainDb < -60 || gainDb > 12) {
+    throw new ProjectActionError('la ganancia debe estar entre -60 y 12 dB');
+  }
+  const offset = Math.round(frame);
+  if (offset < 0 || offset >= clip.durationFrames) {
+    throw new ProjectActionError('la clave debe caer dentro del clip');
+  }
+  const audio = { ...(clip.audio ?? {}) };
+  const keyframes = (audio.gainKeyframes ?? []).map((keyframe) => ({ ...keyframe }));
+  const index = keyframes.findIndex((keyframe) => keyframe.frame === offset);
+  if (index >= 0) {
+    keyframes[index] = { frame: offset, gainDb };
+  } else {
+    if (keyframes.length >= MAX_GAIN_KEYFRAMES) {
+      throw new ProjectActionError(
+        `este clip ya tiene el máximo de ${MAX_GAIN_KEYFRAMES} keyframes de volumen`,
+      );
+    }
+    keyframes.push({ frame: offset, gainDb });
+  }
+  keyframes.sort((a, b) => a.frame - b.frame);
+  audio.gainKeyframes = keyframes;
+  clip.audio = audio;
+  touch(next);
+  return next;
+}
+
+export function removeGainKeyframe(
+  project: ProjectDocument,
+  clipId: string,
+  frame: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const keyframes = clip.audio?.gainKeyframes ?? [];
+  const offset = Math.round(frame);
+  if (!keyframes.some((keyframe) => keyframe.frame === offset)) {
+    return project;
+  }
+  assignGainKeyframes(
+    clip,
+    keyframes
+      .filter((keyframe) => keyframe.frame !== offset)
+      .map((keyframe) => ({ ...keyframe })),
+  );
+  touch(next);
+  return next;
+}
+
+/** Removes gain automation but freezes the sampled gain at `freezeAtFrame`. */
+export function clearGainKeyframes(
+  project: ProjectDocument,
+  clipId: string,
+  freezeAtFrame = 0,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  const keyframes = clip.audio?.gainKeyframes ?? [];
+  if (keyframes.length === 0) {
+    return project;
+  }
+  const audio = { ...(clip.audio ?? {}) };
+  const freeze = Math.max(0, Math.min(clip.durationFrames - 1, Math.round(freezeAtFrame)));
+  audio.gainDb = sampleGainKeyframes(keyframes, freeze) ?? audio.gainDb ?? 0;
+  delete audio.gainKeyframes;
+  clip.audio = audio;
+  touch(next);
+  return next;
+}
+
+function sliceKeyframes<T extends FrameKeyframe>(
+  keyframes: readonly T[] | undefined,
+  cutFrame: number,
+  sampleAt: (frame: number) => Partial<Omit<T, 'frame'>>,
+): { left: T[]; right: T[] } | undefined {
+  if (!keyframes || keyframes.length === 0) {
+    return undefined;
+  }
+  const left = keyframes
+    .filter((keyframe) => keyframe.frame < cutFrame)
+    .map((keyframe) => ({ ...keyframe }));
+  const right = keyframes
+    .filter((keyframe) => keyframe.frame >= cutFrame)
+    .map((keyframe) => ({ ...keyframe, frame: keyframe.frame - cutFrame }));
+  if (cutFrame > 0) {
+    if (!left.some((keyframe) => keyframe.frame === cutFrame - 1)) {
+      left.push({ frame: cutFrame - 1, ...sampleAt(cutFrame - 1) } as T);
+    }
+    if (!right.some((keyframe) => keyframe.frame === 0)) {
+      right.unshift({ frame: 0, ...sampleAt(cutFrame) } as T);
+    }
+  }
+  left.sort((a, b) => a.frame - b.frame);
+  right.sort((a, b) => a.frame - b.frame);
+  return { left, right };
+}
+
+function trimStartKeyframes<T extends FrameKeyframe>(
+  keyframes: readonly T[],
+  delta: number,
+  sampleAt: (frame: number) => Partial<Omit<T, 'frame'>>,
+): T[] {
+  if (delta === 0) {
+    return keyframes.map((keyframe) => ({ ...keyframe }));
+  }
+  if (delta < 0) {
+    return keyframes
+      .map((keyframe) => ({ ...keyframe, frame: keyframe.frame - delta }))
+      .sort((a, b) => a.frame - b.frame);
+  }
+  const shifted = keyframes
+    .filter((keyframe) => keyframe.frame >= delta)
+    .map((keyframe) => ({ ...keyframe, frame: keyframe.frame - delta }));
+  if (!shifted.some((keyframe) => keyframe.frame === 0)) {
+    shifted.unshift({ frame: 0, ...sampleAt(delta) } as T);
+  }
+  return shifted.sort((a, b) => a.frame - b.frame);
+}
+
+function trimEndKeyframes<T extends FrameKeyframe>(
+  keyframes: readonly T[],
+  newDuration: number,
+  sampleAt: (frame: number) => Partial<Omit<T, 'frame'>>,
+): T[] {
+  const kept = keyframes
+    .filter((keyframe) => keyframe.frame < newDuration)
+    .map((keyframe) => ({ ...keyframe }));
+  const boundary = Math.max(0, newDuration - 1);
+  if (!kept.some((keyframe) => keyframe.frame === boundary)) {
+    kept.push({ frame: boundary, ...sampleAt(boundary) } as T);
+  }
+  return kept.sort((a, b) => a.frame - b.frame);
+}
+
+function scaleKeyframes<T extends FrameKeyframe>(
+  keyframes: readonly T[],
+  factor: number,
+  maxFrame: number,
+): T[] {
+  const merged = new Map<number, T>();
+  for (const keyframe of keyframes) {
+    const frame = Math.max(0, Math.min(maxFrame, Math.round(keyframe.frame * factor)));
+    const previous = merged.get(frame);
+    merged.set(frame, { ...(previous ?? {}), ...keyframe, frame } as T);
+  }
+  return [...merged.values()].sort((a, b) => a.frame - b.frame);
+}
+
+function applySplitKeyframes(
+  left: Clip,
+  right: Clip,
+  cutFrame: number,
+  transformKeyframes: readonly ClipTransformKeyframe[] | undefined,
+  gainKeyframes: readonly ClipGainKeyframe[] | undefined,
+): void {
+  if (transformKeyframes && transformKeyframes.length > 0) {
+    const sliced = sliceKeyframes(transformKeyframes, cutFrame, (frame) =>
+      sampleTransformKeyframes(transformKeyframes, frame),
+    );
+    if (sliced) {
+      assignTransformKeyframes(left, sliced.left);
+      assignTransformKeyframes(right, sliced.right);
+    }
+  }
+  if (gainKeyframes && gainKeyframes.length > 0) {
+    const sliced = sliceKeyframes(gainKeyframes, cutFrame, (frame) => ({
+      gainDb: sampleGainKeyframes(gainKeyframes, frame) ?? 0,
+    }));
+    if (sliced) {
+      assignGainKeyframes(left, sliced.left);
+      assignGainKeyframes(right, sliced.right);
+    }
+  }
+}
+
+/** Change the playback speed of a windowed clip and ripple the rest of its track.
+ * The source window is adjusted so `durationFrames x speed = sourceFrames` stays exact. */
+export function setClipSpeed(
+  project: ProjectDocument,
+  clipId: string,
+  speed: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !isWindowed(clip)) {
+    throw new ProjectActionError('solo los clips de video o audio tienen velocidad');
+  }
+  const track = next.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (track?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const requested = Number.isFinite(speed) ? Math.max(0.1, Math.min(4, speed)) : 1;
+  const rawDen = 1_000;
+  const rawNum = Math.max(1, Math.round(requested * rawDen));
+  const divisor = gcd(rawNum, rawDen);
+  const num = rawNum / divisor;
+  const den = rawDen / divisor;
+  const sourceFrames = clip.source.outFrame - clip.source.inFrame;
+  const oldDuration = clip.durationFrames;
+  const asset = next.assets.find((item) => item.id === clip.source.assetId);
+  const mediaFrames =
+    asset && 'media' in asset && asset.media && 'durationFrames' in asset.media
+      ? asset.media.durationFrames
+      : undefined;
+  const maxSourceFrames =
+    mediaFrames !== undefined ? Math.max(1, mediaFrames - clip.source.inFrame) : sourceFrames;
+
+  let duration: number;
+  if (num === den) {
+    duration = Math.min(sourceFrames, maxSourceFrames);
+    delete clip.speed;
+    clip.source.outFrame = clip.source.inFrame + duration;
+  } else {
+    const unit = den / gcd(num, den);
+    duration = Math.max(unit, Math.round((sourceFrames * den) / num / unit) * unit);
+    let source = (duration * num) / den;
+    while (source > maxSourceFrames && duration > unit) {
+      duration -= unit;
+      source = (duration * num) / den;
+    }
+    if (!Number.isInteger(source) || source < 1) {
+      throw new ProjectActionError('esa velocidad no se puede representar en frames enteros');
+    }
+    clip.durationFrames = duration;
+    clip.source.outFrame = clip.source.inFrame + source;
+    clip.speed = { num, den };
+  }
+  const delta = clip.durationFrames - oldDuration;
+  const oldEnd = clip.startFrame + oldDuration;
+  if (delta !== 0) {
+    for (const other of next.timeline.clips) {
+      if (other.id === clip.id || other.trackId !== clip.trackId) continue;
+      if (other.startFrame >= oldEnd) {
+        other.startFrame = Math.max(0, other.startFrame + delta);
+      }
     }
   }
   touch(next);
@@ -738,6 +1536,158 @@ export function addCaptionCue(
   next.captions.cues.push(cue);
   touch(next);
   return { project: next, cueId: cue.id, startFrame: start, trackId: setup.trackId };
+}
+
+export function addTranscriptionCues(
+  project: ProjectDocument,
+  clipId: string,
+  segments: readonly {
+    start: number;
+    end: number;
+    text: string;
+    words?: readonly { start: number; end: number; word: string }[];
+  }[],
+  replaceExisting = true,
+): { project: ProjectDocument; added: number; skipped: number } {
+  const clip = project.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  const setup = ensureCaptionSetup(project);
+  const next = cloneProject(setup.project);
+  const captionTrack = next.timeline.tracks.find((item) => item.id === setup.trackId);
+  if (captionTrack?.locked) {
+    throw new ProjectActionError('la pista de subtítulos está bloqueada');
+  }
+  const fps = fpsOf(next);
+  const clipStart = clip.startFrame;
+  const clipEnd = clip.startFrame + clip.durationFrames;
+  if (replaceExisting) {
+    next.captions.cues = next.captions.cues.filter(
+      (cue) => !(cue.trackId === setup.trackId && cue.startFrame < clipEnd && cue.endFrame > clipStart),
+    );
+  }
+  let added = 0;
+  let skipped = 0;
+  for (const segment of segments) {
+    const text = segment.text.replace(/\s+/g, ' ').trim().slice(0, 500);
+    const startFrame = Math.max(clipStart, clipStart + Math.round(segment.start * fps));
+    const endFrame = Math.min(clipEnd, clipStart + Math.round(segment.end * fps));
+    if (!text || endFrame <= startFrame) {
+      skipped += 1;
+      continue;
+    }
+    const overlaps = next.captions.cues.some(
+      (cue) =>
+        cue.trackId === setup.trackId &&
+        cue.startFrame < endFrame &&
+        cue.endFrame > startFrame,
+    );
+    if (overlaps) {
+      skipped += 1;
+      continue;
+    }
+    const words =
+      'words' in segment && Array.isArray(segment.words)
+        ? segment.words
+            .filter(
+              (word: { start: number; end: number; word: string }) =>
+                word.word.trim() && word.end > word.start,
+            )
+            .map((word: { start: number; end: number; word: string }) => ({
+              text: word.word.trim().slice(0, 200),
+              startFrame: Math.max(
+                startFrame,
+                clipStart + Math.round(word.start * fps),
+              ),
+              endFrame: Math.min(
+                endFrame,
+                clipStart + Math.round(word.end * fps),
+              ),
+            }))
+            .filter(
+              (word: { startFrame: number; endFrame: number }) =>
+                word.endFrame > word.startFrame,
+            )
+        : undefined;
+    next.captions.cues.push({
+      id: newId(),
+      trackId: setup.trackId,
+      styleId: setup.styleId,
+      text,
+      language: next.language,
+      startFrame,
+      endFrame,
+      ...(words && words.length > 0 ? { words } : {}),
+    });
+    added += 1;
+  }
+  touch(next);
+  return { project: next, added, skipped };
+}
+
+/** Insert already-timed cues, used by the automatic director. */
+export function addCaptionCueWindows(
+  project: ProjectDocument,
+  inputs: readonly {
+    text: string;
+    startFrame: number;
+    endFrame: number;
+    words?: readonly { text: string; startFrame: number; endFrame: number }[];
+  }[],
+  options: { replaceTrack?: boolean } = {},
+): { project: ProjectDocument; added: number; skipped: number; trackId: string } {
+  const setup = ensureCaptionSetup(project);
+  const next = cloneProject(setup.project);
+  const captionTrack = next.timeline.tracks.find((item) => item.id === setup.trackId);
+  if (captionTrack?.locked) {
+    throw new ProjectActionError('la pista de subtítulos está bloqueada');
+  }
+  if (options.replaceTrack) {
+    next.captions.cues = next.captions.cues.filter((cue) => cue.trackId !== setup.trackId);
+  }
+  let added = 0;
+  let skipped = 0;
+  for (const input of inputs) {
+    const text = input.text.replace(/\s+/g, ' ').trim().slice(0, 500);
+    const startFrame = Math.max(0, Math.round(input.startFrame));
+    const endFrame = Math.max(0, Math.round(input.endFrame));
+    if (!text || endFrame <= startFrame) {
+      skipped += 1;
+      continue;
+    }
+    const overlaps = next.captions.cues.some(
+      (cue) =>
+        cue.trackId === setup.trackId &&
+        cue.startFrame < endFrame &&
+        cue.endFrame > startFrame,
+    );
+    if (overlaps) {
+      skipped += 1;
+      continue;
+    }
+    const words = input.words
+      ?.filter((word) => word.text.trim() && word.endFrame > word.startFrame)
+      .map((word) => ({
+        text: word.text.trim().slice(0, 200),
+        startFrame: Math.max(startFrame, Math.round(word.startFrame)),
+        endFrame: Math.min(endFrame, Math.round(word.endFrame)),
+      }))
+      .filter((word) => word.endFrame > word.startFrame);
+    next.captions.cues.push({
+      id: newId(),
+      trackId: setup.trackId,
+      styleId: setup.styleId,
+      text,
+      language: next.language,
+      startFrame,
+      endFrame,
+      ...(words && words.length > 0 ? { words } : {}),
+    });
+    added += 1;
+  }
+  touch(next);
+  return { project: next, added, skipped, trackId: setup.trackId };
 }
 
 export function updateCaptionCue(
@@ -1093,21 +2043,63 @@ export function updateProjectSettings(
   project: ProjectDocument,
   patch: { name?: string; width?: number; height?: number; fpsNum?: number; fpsDen?: number; backgroundColor?: string; language?: string },
 ): ProjectDocument {
-  const next = cloneProject(project);
+  let next = cloneProject(project);
   if (patch.name !== undefined) {
     const name = patch.name.trim();
     if (!name) throw new ProjectActionError('el proyecto necesita un nombre');
     next.name = name.slice(0, 120);
   }
-  if (patch.width !== undefined) next.video.width = Math.max(16, Math.min(16_384, Math.round(patch.width)));
-  if (patch.height !== undefined) next.video.height = Math.max(16, Math.min(16_384, Math.round(patch.height)));
-  if (patch.fpsNum !== undefined) next.video.frameRate.num = Math.max(1, Math.round(patch.fpsNum));
-  if (patch.fpsDen !== undefined) next.video.frameRate.den = Math.max(1, Math.round(patch.fpsDen));
+  if (patch.width !== undefined) next.video.width = evenDimension(patch.width, next.video.width);
+  if (patch.height !== undefined) next.video.height = evenDimension(patch.height, next.video.height);
   if (patch.backgroundColor !== undefined) next.video.backgroundColor = patch.backgroundColor;
   if (patch.language !== undefined) next.language = patch.language;
-  if (next.timeline.clips.length > 0 && (patch.width !== undefined || patch.height !== undefined)) {
-    // Changing canvas size is allowed and non-destructive: clips keep their
-    // frame timing; the renderer fits them to the new canvas.
+  if (patch.width !== undefined || patch.height !== undefined) {
+    // Canvas changes are non-destructive; the renderer fits every clip to the
+    // new frame. The native delivery profile follows the project size.
+    syncNativeProfile(next);
+  }
+  const nextNum = patch.fpsNum !== undefined ? Math.max(1, Math.round(patch.fpsNum)) : next.video.frameRate.num;
+  const nextDen = patch.fpsDen !== undefined ? Math.max(1, Math.round(patch.fpsDen)) : next.video.frameRate.den;
+  if (!validFpsRange(nextNum, nextDen)) {
+    throw new ProjectActionError('La tasa de frames debe quedar entre 1 y 240 fps.');
+  }
+  const fpsChanged =
+    nextNum !== next.video.frameRate.num || nextDen !== next.video.frameRate.den;
+  if (fpsChanged) {
+    try {
+      next = retimeProject(next, nextNum, nextDen);
+    } catch (error) {
+      throw new ProjectActionError(
+        error instanceof Error ? error.message : 'no se pudo cambiar la tasa de frames',
+      );
+    }
+  } else {
+    touch(next);
+  }
+  return next;
+}
+
+export function updateAudioMix(
+  project: ProjectDocument,
+  patch: {
+    masterGainDb?: number;
+    masterLimiter?: boolean;
+    loudnessTarget?: ProjectDocument['audio']['loudnessTarget'];
+  },
+): ProjectDocument {
+  const next = cloneProject(project);
+  if (patch.masterGainDb !== undefined) {
+    next.audio.master.gainDb = Math.max(-60, Math.min(12, patch.masterGainDb));
+  }
+  if (patch.masterLimiter !== undefined) {
+    next.audio.master.limiter = patch.masterLimiter;
+  }
+  if ('loudnessTarget' in patch) {
+    if (patch.loudnessTarget === undefined) {
+      delete next.audio.loudnessTarget;
+    } else {
+      next.audio.loudnessTarget = patch.loudnessTarget;
+    }
   }
   touch(next);
   return next;

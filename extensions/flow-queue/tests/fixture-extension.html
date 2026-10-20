@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Flow fixture (extension smoke)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background:#0b1220; color:#e8eef7; margin:0; padding:32px; }
+      textarea { width:100%; min-height:90px; background:#08111e; color:#fff; border:1px solid #223a58; border-radius:10px; padding:10px; }
+      button { background:#16263c; color:#fff; border:1px solid #2a4668; border-radius:9px; padding:8px 12px; cursor:pointer; margin:4px; }
+      [aria-label="Generar imagen"] { background:#2f7df6; border-color:#2f7df6; }
+      #menu { background:#101d30; border:1px solid #2a4668; border-radius:8px; padding:4px; display:none; position:absolute; }
+      #menu.open { display:block; }
+      #menu button { display:block; width:100%; text-align:left; }
+      #results { display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+      #results img { width:220px; border-radius:8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Flow fixture</h1>
+    <button id="model-trigger" aria-haspopup="menu">Modelo: <strong>Nano Banana 2</strong></button>
+    <div id="menu" role="menu">
+      <button role="menuitem" data-model="Nano Banana 2">Nano Banana 2</button>
+      <button role="menuitem" data-model="Imagen 4">Imagen 4</button>
+    </div>
+    <button aria-label="Añadir imágenes">Añadir imágenes</button>
+    <input id="images" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+    <textarea id="prompt" placeholder="¿Qué quieres crear?"></textarea>
+    <button aria-label="Generar imagen">→ Generar imagen</button>
+    <div id="results"></div>
+    <script>
+      const prompt = document.querySelector('#prompt');
+      const menu = document.querySelector('#menu');
+      const trigger = document.querySelector('#model-trigger');
+      const results = document.querySelector('#results');
+      trigger.addEventListener('click', () => menu.classList.toggle('open'));
+      for (const option of menu.querySelectorAll('[role="menuitem"]')) {
+        option.addEventListener('click', () => {
+          trigger.querySelector('strong').textContent = option.dataset.model;
+          menu.classList.remove('open');
+        });
+      }
+      document.querySelector('[aria-label="Generar imagen"]').addEventListener('click', () => {
+        setTimeout(() => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 512;
+          const context = canvas.getContext('2d');
+          context.fillStyle = '#2f7df6';
+          context.fillRect(0, 0, 512, 512);
+          context.fillStyle = '#fff';
+          context.font = '28px sans-serif';
+          context.fillText(prompt.value.slice(0, 34) || 'resultado', 26, 268);
+          const image = new Image();
+          image.width = 512;
+          image.height = 512;
+          image.src = canvas.toDataURL('image/png');
+          image.alt = 'resultado';
+          results.append(image);
+        }, 300);
+      });
+    </script>
+  </body>
+</html>

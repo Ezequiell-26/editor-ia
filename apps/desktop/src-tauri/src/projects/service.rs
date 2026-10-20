@@ -852,20 +852,23 @@ fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn profile(
-    name: &str,
-    width: u64,
-    height: u64,
-    aspect: &str,
-    frame_rate: &Value,
-    crf: bool,
-    min_bytes: u64,
-) -> Value {
-    let bitrate = if crf {
-        json!({ "mode": "crf", "crf": 20 })
-    } else {
-        json!({ "mode": "target", "videoBitsPerSecond": 8_000_000u64 })
-    };
+fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+    a = a.max(1);
+    b = b.max(1);
+    while b != 0 {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    a.max(1)
+}
+
+fn aspect_ratio(width: u64, height: u64) -> String {
+    let divisor = gcd_u64(width, height);
+    format!("{}:{}", width / divisor, height / divisor)
+}
+
+fn profile(name: &str, width: u64, height: u64, frame_rate: &Value, min_bytes: u64) -> Value {
     json!({
         "id": new_uuid_v4(),
         "name": name,
@@ -874,11 +877,14 @@ fn profile(
         "audioCodec": "aac",
         "resolution": { "width": width, "height": height },
         "frameRate": frame_rate.clone(),
-        "bitrate": bitrate,
+        "bitrate": { "mode": "crf", "crf": 22 },
+        "videoPreset": "veryfast",
+        "fit": "contain",
         "pixelFormat": "yuv420p",
         "audioSampleRate": 48_000,
         "audioChannels": 2,
-        "aspectRatio": aspect,
+        "audioBitsPerSecond": 128_000,
+        "aspectRatio": aspect_ratio(width, height),
         "qualityGate": {
             "minOutputBytes": min_bytes,
             "durationToleranceFrames": 10,
@@ -887,27 +893,27 @@ fn profile(
     })
 }
 
-fn default_delivery(frame_rate: &Value) -> (Vec<Value>, Vec<Value>) {
-    let youtube = profile(
-        "YouTube 1080p",
-        1920,
-        1080,
-        "16:9",
-        frame_rate,
-        true,
-        500_000,
-    );
-    let shorts = profile(
-        "Shorts 1080x1920",
-        1080,
-        1920,
-        "9:16",
-        frame_rate,
-        false,
-        300_000,
-    );
+fn default_delivery(frame_rate: &Value, width: u64, height: u64) -> (Vec<Value>, Vec<Value>) {
+    let mut profiles = Vec::new();
+    let standard = [(1920u64, 1080u64), (1080, 1920), (1080, 1080)];
+    if !standard.contains(&(width, height)) {
+        profiles.push(profile(
+            &format!("Formato del proyecto {width}×{height}"),
+            width,
+            height,
+            frame_rate,
+            50_000,
+        ));
+    }
+    let youtube = profile("YouTube 1080p", 1920, 1080, frame_rate, 500_000);
+    let shorts = profile("Shorts 1080x1920", 1080, 1920, frame_rate, 300_000);
+    let feed = profile("Feed 1080x1080", 1080, 1080, frame_rate, 250_000);
     let youtube_id = youtube["id"].as_str().unwrap_or_default().to_owned();
     let shorts_id = shorts["id"].as_str().unwrap_or_default().to_owned();
+    let feed_id = feed["id"].as_str().unwrap_or_default().to_owned();
+    profiles.push(youtube);
+    profiles.push(shorts);
+    profiles.push(feed);
     let variants = vec![
         json!({
             "id": new_uuid_v4(),
@@ -921,8 +927,14 @@ fn default_delivery(frame_rate: &Value) -> (Vec<Value>, Vec<Value>) {
             "renderProfileId": shorts_id,
             "platform": "shorts"
         }),
+        json!({
+            "id": new_uuid_v4(),
+            "name": "Feed",
+            "renderProfileId": feed_id,
+            "platform": "other"
+        }),
     ];
-    (vec![youtube, shorts], variants)
+    (profiles, variants)
 }
 
 /// Crea un documento v1 nuevo con entrega 16:9 y 9:16 declaradas, y lo escribe
@@ -965,7 +977,17 @@ pub fn create_project_with_video(
         .get("frameRate")
         .cloned()
         .unwrap_or_else(|| json!({ "num": 30, "den": 1 }));
-    let (profiles, variants) = default_delivery(&frame_rate);
+    let width = video
+        .get("width")
+        .and_then(Value::as_u64)
+        .unwrap_or(1920)
+        .clamp(16, 16_384);
+    let height = video
+        .get("height")
+        .and_then(Value::as_u64)
+        .unwrap_or(1080)
+        .clamp(16, 16_384);
+    let (profiles, variants) = default_delivery(&frame_rate, width, height);
 
     let document = json!({
         "id": new_uuid_v4(),

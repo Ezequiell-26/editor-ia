@@ -45,6 +45,8 @@ ConvertTo-Json -InputObject $voices -Compress
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VoiceInfo {
+    /// Provider-specific identifier. For SAPI it is the installed voice name.
+    pub id: String,
     pub name: String,
     pub culture: String,
     pub gender: String,
@@ -55,6 +57,7 @@ pub struct VoiceInfo {
 pub struct NarrationResult {
     pub asset: Value,
     pub voice: String,
+    pub provider: String,
 }
 
 fn hide_console(command: &mut Command) {
@@ -141,6 +144,7 @@ fn parse_voices(raw: &str) -> Vec<VoiceInfo> {
                 return None;
             }
             Some(VoiceInfo {
+                id: name.to_owned(),
                 name: name.to_owned(),
                 culture: entry["culture"].as_str().unwrap_or("").to_owned(),
                 gender: entry["gender"].as_str().unwrap_or("").to_owned(),
@@ -150,8 +154,7 @@ fn parse_voices(raw: &str) -> Vec<VoiceInfo> {
         .collect()
 }
 
-#[tauri::command]
-pub async fn list_voices(state: State<'_, AppState>) -> Result<Vec<VoiceInfo>, ProjectError> {
+pub(crate) async fn sapi_voices(state: &AppState) -> Result<Vec<VoiceInfo>, ProjectError> {
     let settings = state.settings_snapshot()?;
     let (_, _, powershell) = resolve_tools(&settings);
     let Some(powershell) = powershell else {
@@ -165,13 +168,43 @@ pub async fn list_voices(state: State<'_, AppState>) -> Result<Vec<VoiceInfo>, P
 }
 
 #[tauri::command]
+pub async fn list_voices(state: State<'_, AppState>) -> Result<Vec<VoiceInfo>, ProjectError> {
+    let settings = state.settings_snapshot()?;
+    match settings.audio_provider.kind.as_str() {
+        "elevenlabs" => crate::commands::audio_providers::list_elevenlabs_voices(&state).await,
+        "external-web" => Ok(Vec::new()),
+        _ => sapi_voices(&state).await,
+    }
+}
+
+#[tauri::command]
 pub async fn synthesize_narration(
     state: State<'_, AppState>,
     text: String,
     voice: Option<String>,
     fps_num: u32,
     fps_den: u32,
+    provider: Option<String>,
 ) -> Result<NarrationResult, ProjectError> {
+    let settings = state.settings_snapshot()?;
+    let forced_local = provider.as_deref() == Some("windows-sapi");
+    if !forced_local {
+        match settings.audio_provider.kind.as_str() {
+            "elevenlabs" => {
+                return crate::commands::audio_providers::synthesize_elevenlabs(
+                    &state, text, voice, fps_num, fps_den,
+                )
+                .await;
+            }
+            "external-web" => {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::ProviderUnavailable,
+                    "el proveedor de audio externo es manual: abrí la web en Ajustes, generá el audio, descargalo e importalo desde Medios",
+                ));
+            }
+            _ => {}
+        }
+    }
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Err(ProjectError::message(
@@ -291,6 +324,7 @@ pub async fn synthesize_narration(
     Ok(NarrationResult {
         asset,
         voice: voice_arg,
+        provider: "windows-sapi".to_owned(),
     })
 }
 

@@ -5,22 +5,30 @@ import {
   ProjectActionError,
   addAsset,
   addCaptionCue,
+  applyCompression,
+  applyProfileFit,
+  compressionPresetOf,
+  addTranscriptionCues,
   addClipFromAsset,
   addGeneratedNarration,
   addScene,
   applyScenePlan,
   captionsFromScenes,
   deleteClip,
+  duplicateClip,
   ensureDelivery,
   markAssetReady,
   moveClip,
   newId,
   removeAsset,
+  setClipSpeed,
   splitClip,
+  splitClipAtFrames,
   totalFrames,
   trimClip,
   updateCaptionCue,
   updateClip,
+  updateAudioMix,
   updateProjectSettings,
   updateTrack,
 } from './project-actions';
@@ -56,6 +64,22 @@ function videoAsset(durationFrames = 300, overrides: Partial<Asset> = {}): Asset
   } as Asset;
 }
 
+function imageAsset(width = 1024, height = 1024): Asset {
+  return {
+    id: newId(),
+    label: 'Imagen',
+    kind: 'image',
+    source: { type: 'local', path: 'media/imagen.png' },
+    status: 'ready',
+    integrity: { sha256: 'e'.repeat(64), bytes: 8_000 },
+    rights: {
+      license: { id: 'owned', commercialUse: 'allowed' },
+      provenance: { origin: 'user-imported', acquiredAt: NOW },
+    },
+    media: { width, height },
+  } as Asset;
+}
+
 function audioAsset(durationFrames = 150): Asset {
   return {
     id: newId(),
@@ -73,13 +97,15 @@ function audioAsset(durationFrames = 150): Asset {
 }
 
 describe('entrega por defecto', () => {
-  it('agrega perfiles 16:9 y 9:16, variantes y valida', () => {
+  it('agrega perfiles 16:9, 9:16 y 1:1, variantes y valida', () => {
     const project = base();
     expect(project.renderProfiles.map((profile) => profile.aspectRatio).sort()).toEqual([
       '16:9',
+      '1:1',
       '9:16',
     ]);
     expect(project.exportVariants.map((variant) => variant.platform).sort()).toEqual([
+      'other',
       'shorts',
       'youtube',
     ]);
@@ -403,5 +429,285 @@ describe('guion y ajustes', () => {
     const noRightsProject = validated(noRights.project);
     expect(noRightsProject.assets.length).toBe(withScene.assets.length + 1);
     expect(noRightsProject.timeline.clips).toHaveLength(0);
+  });
+});
+
+describe('velocidad y efectos de clip', () => {
+  it('cambia la velocidad conservando la identidad de timing y hace ripple', () => {
+    const project = base();
+    const asset = videoAsset(300);
+    const withAsset = addAsset(project, asset);
+    const first = addClipFromAsset(withAsset, asset, { atFrame: 0 });
+    const second = addClipFromAsset(first.project, asset, { atFrame: 300 });
+
+    const fast = setClipSpeed(second.project, first.clipId, 2);
+    const fastClip = fast.timeline.clips.find((clip) => clip.id === first.clipId);
+    const shifted = fast.timeline.clips.find((clip) => clip.id === second.clipId);
+
+    expect(fastClip?.durationFrames).toBe(150);
+    if (fastClip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(fastClip.source.outFrame - fastClip.source.inFrame).toBe(300);
+    expect(fastClip.speed).toEqual({ num: 2, den: 1 });
+    expect(shifted?.startFrame).toBe(150);
+    validated(fast);
+
+    const slow = setClipSpeed(fast, first.clipId, 0.5);
+    const slowClip = slow.timeline.clips.find((clip) => clip.id === first.clipId);
+    expect(slowClip?.durationFrames).toBe(600);
+    if (slowClip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(slowClip.speed).toEqual({ num: 1, den: 2 });
+    validated(slow);
+  });
+
+  it('aplica y limpia efectos de color en un clip de imagen', () => {
+    const project = base();
+    const asset = imageAsset();
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0, durationFrames: 90 });
+
+    const colored = updateClip(added.project, added.clipId, {
+      effects: { brightness: 0.2, contrast: 1.1, vignette: 0.3, sepia: true },
+    });
+    const clip = colored.timeline.clips.find((item) => item.id === added.clipId);
+    expect(clip?.kind).toBe('image');
+    if (clip?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(clip.effects?.brightness).toBe(0.2);
+    expect(clip.effects?.sepia).toBe(true);
+    validated(colored);
+
+    const cleared = updateClip(colored, added.clipId, { effects: {} });
+    const clean = cleared.timeline.clips.find((item) => item.id === added.clipId);
+    if (clean?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(clean.effects).toBeUndefined();
+    validated(cleared);
+  });
+
+  it('aplica y limpia movimiento Ken Burns en un clip de imagen', () => {
+    const project = base();
+    const asset = imageAsset();
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0, durationFrames: 90 });
+
+    const moving = updateClip(added.project, added.clipId, {
+      motion: { type: 'zoom-in', intensity: 0.18 },
+    });
+    const clip = moving.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(clip.motion).toEqual({ type: 'zoom-in', intensity: 0.18 });
+    validated(moving);
+
+    const cleared = updateClip(moving, added.clipId, { motion: undefined });
+    const clean = cleared.timeline.clips.find((item) => item.id === added.clipId);
+    if (clean?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(clean.motion).toBeUndefined();
+    validated(cleared);
+  });
+
+  it('rechaza movimiento en audio y en clips gráficos', () => {
+    const project = base();
+    const audio = audioAsset(120);
+    const audioClip = addClipFromAsset(addAsset(project, audio), audio, { atFrame: 0, durationFrames: 120 });
+    expect(() =>
+      updateClip(audioClip.project, audioClip.clipId, { motion: { type: 'zoom-in' } }),
+    ).toThrow(ProjectActionError);
+  });
+
+  it('aplica chroma key y suite de audio en clips compatibles', () => {
+    const project = base();
+    const image = imageAsset();
+    const added = addClipFromAsset(addAsset(project, image), image, { atFrame: 0, durationFrames: 90 });
+    const keyed = updateClip(added.project, added.clipId, {
+      chromaKey: { color: '#00ff00', similarity: 0.3, blend: 0.1 },
+    });
+    const imageClip = keyed.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (imageClip?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(imageClip.chromaKey?.color).toBe('#00ff00');
+    validated(keyed);
+
+    const audio = audioAsset(120);
+    const addedAudio = addClipFromAsset(addAsset(project, audio), audio, {
+      atFrame: 0,
+      durationFrames: 120,
+    });
+    const processed = updateClip(addedAudio.project, addedAudio.clipId, {
+      audio: {
+        gainDb: -3,
+        highPassHz: 80,
+        lowPassHz: 12_000,
+        eqLowDb: -2,
+        eqMidDb: 3,
+        eqHighDb: 2,
+        compressor: true,
+        denoise: 0.2,
+      },
+    });
+    const audioClip = processed.timeline.clips.find((clip) => clip.id === addedAudio.clipId);
+    if (audioClip?.kind !== 'audio') throw new Error('se esperaba audio');
+    expect(audioClip.audio?.eqMidDb).toBe(3);
+    expect(audioClip.audio?.compressor).toBe(true);
+    validated(processed);
+  });
+
+  it('normaliza el loudness del proyecto y lo limpia', () => {
+    const normalized = updateAudioMix(base(), {
+      loudnessTarget: {
+        platform: 'youtube',
+        integratedLufs: -14,
+        truePeakDb: -1.5,
+        toleranceDb: 1.5,
+      },
+    });
+    expect(normalized.audio.loudnessTarget?.platform).toBe('youtube');
+    validated(normalized);
+
+    const cleared = updateAudioMix(normalized, { loudnessTarget: undefined, masterLimiter: true });
+    expect(cleared.audio.loudnessTarget).toBeUndefined();
+    expect(cleared.audio.master.limiter).toBe(true);
+    validated(cleared);
+  });
+
+  it('inserta subtítulos transcritos en la posición del clip', () => {
+    const project = base();
+    const audio = audioAsset(120);
+    const added = addClipFromAsset(addAsset(project, audio), audio, {
+      atFrame: 30,
+      durationFrames: 90,
+    });
+    const result = addTranscriptionCues(added.project, added.clipId, [
+      { start: 0, end: 1, text: 'Hola' },
+      { start: 1, end: 2, text: 'Mundo' },
+    ]);
+    const cues = result.project.captions.cues.filter((cue) =>
+      cue.text === 'Hola' || cue.text === 'Mundo',
+    );
+    expect(result.added).toBe(2);
+    expect(cues.map((cue) => [cue.startFrame, cue.endFrame])).toEqual([
+      [30, 60],
+      [60, 90],
+    ]);
+    validated(result.project);
+  });
+
+  it('divide un clip en varios cortes de escena', () => {
+    const project = base();
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    const result = splitClipAtFrames(added.project, added.clipId, [90, 180, 260]);
+
+    expect(result).not.toBeNull();
+    const clips = result!.project.timeline.clips
+      .filter((clip) => clip.kind === 'video')
+      .sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips.map((clip) => clip.startFrame)).toEqual([0, 90, 180, 260]);
+    expect(clips.map((clip) => clip.durationFrames)).toEqual([90, 90, 80, 40]);
+    expect(result!.clipIds).toHaveLength(4);
+    validated(result!.project);
+  });
+
+  it('duplica un clip después de sí mismo conservando efectos', () => {
+    const project = base();
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const styled = updateClip(added.project, added.clipId, {
+      effects: { brightness: 0.1, contrast: 1.1 },
+    });
+    const result = duplicateClip(styled, added.clipId);
+
+    expect(result).not.toBeNull();
+    const clips = result!.project.timeline.clips;
+    expect(clips).toHaveLength(2);
+    const copy = clips.find((clip) => clip.id === result!.clipId);
+    expect(copy?.startFrame).toBe(90);
+    expect(copy?.durationFrames).toBe(90);
+    if (copy?.kind !== 'video') throw new Error('se esperaba un clip de video');
+    expect(copy.effects).toEqual({ brightness: 0.1, contrast: 1.1 });
+    validated(result!.project);
+  });
+
+  it('agrega un perfil nativo para formatos personalizados', () => {
+    const project = updateProjectSettings(base(), { width: 1440, height: 1080 });
+    const native = project.renderProfiles.find((profile) =>
+      profile.name.startsWith('Formato del proyecto'),
+    );
+    expect(native?.resolution).toEqual({ width: 1440, height: 1080 });
+    expect(native?.aspectRatio).toBe('4:3');
+    expect(native?.videoPreset).toBe('veryfast');
+    expect(native?.audioBitsPerSecond).toBe(128_000);
+    validated(project);
+  });
+
+  it('retimea clips, assets, subtítulos y perfiles al cambiar fps', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    const first = addClipFromAsset(project, asset, { atFrame: 0, durationFrames: 90 });
+    project = first.project;
+    const second = addClipFromAsset(project, asset, { atFrame: 90, durationFrames: 60 });
+    project = addCaptionCue(second.project, {
+      text: 'Hola',
+      startFrame: 30,
+      durationFrames: 60,
+    }).project;
+
+    const retimed = updateProjectSettings(project, { fpsNum: 24, fpsDen: 1 });
+    expect(retimed.video.frameRate).toEqual({ num: 24, den: 1 });
+    const clips = retimed.timeline.clips.sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips.map((clip) => [clip.startFrame, clip.durationFrames])).toEqual([
+      [0, 72],
+      [72, 48],
+    ]);
+    expect(clips[0]?.kind).toBe('video');
+    if (clips[0]?.kind === 'video') {
+      expect(clips[0].source).toMatchObject({ inFrame: 0, outFrame: 72 });
+    }
+    const audio = retimed.assets.find((item) => item.id === asset.id);
+    expect(audio && 'media' in audio && audio.media && 'durationFrames' in audio.media
+      ? audio.media.durationFrames
+      : null).toBe(240);
+    expect(retimed.captions.cues[0]).toMatchObject({ startFrame: 24, endFrame: 72 });
+    expect(retimed.renderProfiles.every((profile) => profile.frameRate.num === 24)).toBe(true);
+    validated(retimed);
+  });
+
+  it('rechaza cambiar fps con clips a velocidad distinta de 1x', () => {
+    const project = base();
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    const fast = setClipSpeed(added.project, added.clipId, 2);
+    expect(() => updateProjectSettings(fast, { fpsNum: 24 })).toThrow(/velocidad distinta de 1×/);
+  });
+
+  it('aplica encuadre cover a todos los perfiles', () => {
+    const covered = applyProfileFit(base(), 'cover');
+    expect(covered.renderProfiles.every((profile) => profile.fit === 'cover')).toBe(true);
+    validated(covered);
+  });
+
+  it('aplica compresión y códec a todos los perfiles', () => {
+    const compressed = applyCompression(base(), 'compacto', 'h265');
+    for (const profile of compressed.renderProfiles) {
+      expect(profile.bitrate).toEqual({ mode: 'crf', crf: 27 });
+      expect(profile.videoPreset).toBe('faster');
+      expect(profile.audioBitsPerSecond).toBe(96_000);
+      expect(profile.videoCodec).toBe('h265');
+      expect(compressionPresetOf(profile)).toBe('compacto');
+    }
+    validated(compressed);
+  });
+
+  it('rechaza velocidad en imágenes y limita el rango', () => {
+    const project = base();
+    const image = imageAsset();
+    const added = addClipFromAsset(addAsset(project, image), image, { atFrame: 0, durationFrames: 90 });
+    expect(() => setClipSpeed(added.project, added.clipId, 2)).toThrow(ProjectActionError);
+
+    const video = videoAsset(300);
+    const withVideo = addAsset(base(), video);
+    const addedVideo = addClipFromAsset(withVideo, video, { atFrame: 0 });
+    const fast = setClipSpeed(addedVideo.project, addedVideo.clipId, 99);
+    const clip = fast.timeline.clips[0];
+    if (clip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(clip.speed).toEqual({ num: 4, den: 1 });
+    validated(fast);
   });
 });

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObjec
 import type { Asset, CaptionCue, Clip, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { framesToSeconds, fpsOf, formatTimecode } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { Icon } from '../../components/Icon';
 
 function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, { width: number; height: number }] {
   const ref = useRef<T | null>(null);
@@ -29,17 +30,66 @@ function volumeFromDb(gainDb: number | undefined): number {
   return Math.min(1, Math.max(0, 10 ** (db / 20)));
 }
 
-function transformStyle(clip: Clip, project: ProjectDocument): CSSProperties {
+function transformStyle(
+  clip: Clip,
+  project: ProjectDocument,
+  playheadFrame?: number,
+): CSSProperties {
   const transform = clip.transform;
   const offsetX = (transform?.offsetX ?? 0) / project.video.width;
   const offsetY = (transform?.offsetY ?? 0) / project.video.height;
   const scaleX = transform?.scaleX ?? 1;
   const scaleY = transform?.scaleY ?? 1;
   const rotation = transform?.rotationDeg ?? 0;
+  const motion = 'motion' in clip ? clip.motion : undefined;
+  let motionScale = 1;
+  let motionX = 0;
+  let motionY = 0;
+  if (motion) {
+    const progress =
+      playheadFrame === undefined
+        ? 0
+        : Math.max(0, Math.min(1, (playheadFrame - clip.startFrame) / Math.max(1, clip.durationFrames)));
+    const intensity = motion.intensity ?? 0.12;
+    if (motion.type === 'zoom-in') motionScale = 1 + intensity * progress;
+    if (motion.type === 'zoom-out') motionScale = 1 + intensity * (1 - progress);
+    if (motion.type === 'pan-left') {
+      motionScale = 1 + intensity;
+      motionX = (0.5 - progress) * intensity * 50;
+    }
+    if (motion.type === 'pan-right') {
+      motionScale = 1 + intensity;
+      motionX = (progress - 0.5) * intensity * 50;
+    }
+    if (motion.type === 'pan-up') {
+      motionScale = 1 + intensity;
+      motionY = (0.5 - progress) * intensity * 50;
+    }
+    if (motion.type === 'pan-down') {
+      motionScale = 1 + intensity;
+      motionY = (progress - 0.5) * intensity * 50;
+    }
+  }
   return {
-    transform: `translate(${offsetX * 100}%, ${offsetY * 100}%) scale(${scaleX}, ${scaleY}) rotate(${rotation}deg)`,
+    transform: `translate(${offsetX * 100}%, ${offsetY * 100}%) translate(${motionX}%, ${motionY}%) scale(${scaleX * motionScale}, ${scaleY * motionScale}) rotate(${rotation}deg)`,
     opacity: transform?.opacity ?? 1,
   };
+}
+
+function effectsStyle(clip: Clip): CSSProperties {
+  if (!('effects' in clip) || !clip.effects) return {};
+  const effects = clip.effects;
+  const filters: string[] = [];
+  if (effects.brightness !== undefined) filters.push(`brightness(${Math.max(0, 1 + effects.brightness)})`);
+  if (effects.contrast !== undefined) filters.push(`contrast(${effects.contrast})`);
+  if (effects.saturation !== undefined) filters.push(`saturate(${effects.saturation})`);
+  if (effects.blur !== undefined && effects.blur > 0) filters.push(`blur(${effects.blur}px)`);
+  if (effects.grayscale) filters.push('grayscale(1)');
+  if (effects.sepia) filters.push('sepia(1)');
+  if (effects.temperature !== undefined && effects.temperature > 0) {
+    filters.push(`sepia(${Math.min(0.35, effects.temperature * 0.35)})`);
+  }
+  return filters.length > 0 ? { filter: filters.join(' ') } : {};
 }
 
 function assetById(project: ProjectDocument, id: string): Asset | undefined {
@@ -103,7 +153,7 @@ function VideoLayer({
 
   if (!url) {
     return (
-      <div className="media-missing" style={transformStyle(clip, project)}>
+      <div className="media-missing" style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}>
         <span>Medio no disponible en la vista previa</span>
       </div>
     );
@@ -114,7 +164,7 @@ function VideoLayer({
       ref={ref}
       className="preview-media"
       src={url}
-      style={transformStyle(clip, project)}
+      style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
       muted={muted}
       playsInline
       preload="auto"
@@ -126,17 +176,19 @@ function ImageLayer({
   clip,
   asset,
   project,
+  playheadFrame,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
   readonly project: ProjectDocument;
+  readonly playheadFrame: number;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
   const url = asset ? store.service.mediaUrl(root, asset.source.path) : '';
   if (!url) {
     return (
-      <div className="media-missing" style={transformStyle(clip, project)}>
+      <div className="media-missing" style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}>
         <span>Imagen no disponible</span>
       </div>
     );
@@ -146,7 +198,7 @@ function ImageLayer({
       className="preview-media"
       src={url}
       alt={clip.label ?? 'Imagen de la timeline'}
-      style={transformStyle(clip, project)}
+      style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
     />
   );
 }
@@ -256,18 +308,44 @@ function CaptionOverlay({
   const color = style?.color ?? '#ffffff';
   const outline = style?.outlineColor ?? '#000000';
   const position = style?.position ?? 'bottom';
+  const hasWords = active.words && active.words.length > 1;
   return (
     <div className={`preview-caption caption-${position}`} aria-live="off">
-      <span
-        style={{
-          color,
-          fontSize,
-          WebkitTextStroke: `${Math.max(1, fontSize * 0.03)}px ${outline}`,
-          textShadow: `0 2px 12px rgba(0,0,0,0.75)`,
-        }}
-      >
-        {active.text}
-      </span>
+      {hasWords ? (
+        <span
+          className="caption-words"
+          style={{
+            fontSize,
+            WebkitTextStroke: `${Math.max(1, fontSize * 0.03)}px ${outline}`,
+            textShadow: '0 2px 12px rgba(0,0,0,0.75)',
+          }}
+        >
+          {active.words!.map((word, index) => {
+            const highlighted =
+              playheadFrame >= word.startFrame && playheadFrame < word.endFrame;
+            return (
+              <span
+                key={`${word.startFrame}-${index}`}
+                className={highlighted ? 'caption-word active' : 'caption-word'}
+                style={{ color: highlighted ? '#5eead4' : color }}
+              >
+                {word.text}{' '}
+              </span>
+            );
+          })}
+        </span>
+      ) : (
+        <span
+          style={{
+            color,
+            fontSize,
+            WebkitTextStroke: `${Math.max(1, fontSize * 0.03)}px ${outline}`,
+            textShadow: '0 2px 12px rgba(0,0,0,0.75)',
+          }}
+        >
+          {active.text}
+        </span>
+      )}
     </div>
   );
 }
@@ -276,6 +354,7 @@ export function Preview() {
   const store = useProjectStore();
   const project = store.state.project;
   const [stageRef, stageSize] = useElementSize<HTMLDivElement>();
+  const [showGuides, setShowGuides] = useState(false);
   const fps = project ? fpsOf(project) : 30;
   const playhead = store.state.playheadFrame;
   const playing = store.state.playing;
@@ -319,6 +398,28 @@ export function Preview() {
 
   return (
     <div className="preview-stage" ref={stageRef}>
+      <div className="preview-hud" aria-hidden="true">
+        <span className="preview-hud-chip strong">
+          {project.video.width}×{project.video.height}
+        </span>
+        <span className="preview-hud-chip">{fps} fps</span>
+        <span className="preview-hud-chip preview-hud-render" title="El render final usa FFmpeg">
+          Vista previa aproximada
+        </span>
+      </div>
+      <div className="preview-tools">
+        <button
+          type="button"
+          className={showGuides ? 'preview-tool active' : 'preview-tool'}
+          aria-pressed={showGuides}
+          aria-label="Guías de composición"
+          title="Guías de composición"
+          onClick={() => setShowGuides((value) => !value)}
+        >
+          <Icon name="grid" size={13} />
+          <span>Guías</span>
+        </button>
+      </div>
       <div
         className="preview-canvas"
         style={{
@@ -345,7 +446,15 @@ export function Preview() {
             );
           }
           if (clip.kind === 'image') {
-            return <ImageLayer key={clip.id} clip={clip} asset={asset} project={project} />;
+            return (
+              <ImageLayer
+                key={clip.id}
+                clip={clip}
+                asset={asset}
+                project={project}
+                playheadFrame={playhead}
+              />
+            );
           }
           if (clip.kind === 'graphic') {
             return <GraphicLayer key={clip.id} clip={clip} project={project} />;
@@ -363,6 +472,18 @@ export function Preview() {
           />
         ))}
         <CaptionOverlay project={project} playheadFrame={playhead} previewWidth={frameWidth} />
+        {showGuides ? (
+          <div className="safe-guides" aria-hidden="true">
+            <span className="safe-action" />
+            <span className="safe-title" />
+          </div>
+        ) : null}
+        <span
+          className="preview-timecode-chip"
+          title={`${framesToSeconds(playhead, fps).toFixed(2)} s en la timeline`}
+        >
+          {formatTimecode(playhead, fps)}
+        </span>
         {visualClips.length === 0 ? (
           <div className="preview-overlay">
             <strong>
@@ -377,13 +498,7 @@ export function Preview() {
             </span>
           </div>
         ) : null}
-        <div className="preview-badge">
-          Vista previa aproximada · el render usa FFmpeg
-        </div>
       </div>
-      <p className="preview-timecode">
-        {formatTimecode(playhead, fps)} · frame {playhead} · {framesToSeconds(playhead, fps).toFixed(2)} s
-      </p>
     </div>
   );
 }

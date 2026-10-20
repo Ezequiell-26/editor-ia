@@ -20,7 +20,7 @@ use crate::state::{AppState, ProviderSettings};
 const KEYRING_SERVICE: &str = "editor-ia.provider";
 const KEYRING_USER: &str = "openai-compatible";
 const MAX_BRIEF_CHARS: usize = 4_000;
-const MAX_SCENES: usize = 12;
+const MAX_SCENES: usize = 30;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

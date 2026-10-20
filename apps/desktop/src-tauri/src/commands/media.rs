@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 
 use serde::Serialize;
+use serde_json::{json, Value};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -85,6 +86,85 @@ pub async fn import_assets(
         }
     }
     Ok(Some(outcome))
+}
+
+/// Import media from explicit local paths. Used by tool bridges (Google Flow
+/// MCP, converters) that already produced files on this machine. The dialog is
+/// not involved, so the caller must have received the paths from an explicit
+/// user action. Rights remain unverified unless `confirm_rights` is true.
+#[tauri::command]
+pub async fn import_media_paths(
+    state: State<'_, AppState>,
+    fps_num: u32,
+    fps_den: u32,
+    paths: Vec<String>,
+    confirm_rights: Option<bool>,
+    provider: Option<String>,
+) -> Result<ImportOutcome, ProjectError> {
+    let session = state.require_session()?;
+    let settings = state.settings_snapshot()?;
+    let (_, ffprobe, _) = resolve_tools(&settings);
+    let Some(ffprobe) = ffprobe else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "ffprobe no está disponible; sin medir el material no se puede importar",
+        ));
+    };
+    let mut outcome = ImportOutcome {
+        assets: Vec::new(),
+        warnings: Vec::new(),
+    };
+    let confirmed = confirm_rights.unwrap_or(false);
+    let provenance_provider = provider
+        .map(|value| value.trim().chars().take(80).collect::<String>())
+        .filter(|value| !value.is_empty());
+    for raw in paths.into_iter().take(crate::media::MAX_IMPORT_FILES) {
+        let path = PathBuf::from(raw.trim());
+        if !path.is_file() {
+            outcome
+                .warnings
+                .push("Se salteó un artefacto que ya no existe en esa ruta.".to_owned());
+            continue;
+        }
+        match import_file(
+            &session.root,
+            &path,
+            &ffprobe,
+            fps_num.max(1),
+            fps_den.max(1),
+        ) {
+            Ok(mut asset) => {
+                if confirmed {
+                    confirm_generated_rights(&mut asset, provenance_provider.as_deref());
+                }
+                outcome.assets.push(asset);
+            }
+            Err(error) => outcome.warnings.push(format!(
+                "{}: {}",
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "archivo".to_owned()),
+                error.message
+            )),
+        }
+    }
+    Ok(outcome)
+}
+
+fn confirm_generated_rights(asset: &mut Value, provider: Option<&str>) {
+    asset["status"] = json!("ready");
+    if let Some(rights) = asset.get_mut("rights").and_then(Value::as_object_mut) {
+        rights.insert(
+            "license".to_owned(),
+            json!({ "id": "user-declared", "commercialUse": "allowed" }),
+        );
+        if let Some(provenance) = rights.get_mut("provenance").and_then(Value::as_object_mut) {
+            provenance.insert("origin".to_owned(), json!("generated-by-provider"));
+            if let Some(provider) = provider {
+                provenance.insert("provider".to_owned(), json!(provider));
+            }
+        }
+    }
 }
 
 #[tauri::command]
@@ -173,3 +253,31 @@ pub async fn check_asset_files(
 
 #[allow(dead_code)]
 fn _assert_pathbuf_send(_: PathBuf) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn confirmed_generated_rights_become_ready_with_provider_provenance() {
+        let mut asset = json!({
+            "id": "a",
+            "status": "unverified",
+            "rights": {
+                "license": { "id": "unknown", "commercialUse": "unknown" },
+                "provenance": { "origin": "user-imported", "acquiredAt": "2026-10-20T00:00:00Z" }
+            }
+        });
+        confirm_generated_rights(&mut asset, Some("google-flow-image"));
+        assert_eq!(asset["status"], "ready");
+        assert_eq!(asset["rights"]["license"]["commercialUse"], "allowed");
+        assert_eq!(
+            asset["rights"]["provenance"]["origin"],
+            "generated-by-provider"
+        );
+        assert_eq!(
+            asset["rights"]["provenance"]["provider"],
+            "google-flow-image"
+        );
+    }
+}

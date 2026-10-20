@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flow Queue — Editor IA</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="24" height="24" fill="none">
+            <rect x="2" y="2" width="28" height="28" rx="8" fill="#2f7df6" />
+            <path d="M10 10h12M10 16h8M10 22h5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" />
+            <path d="M22 19l5 3-5 3v-6z" fill="#fff" />
+          </svg>
+        </span>
+        <div>
+          <h1>Flow Queue</h1>
+          <p>para Google Flow · Editor IA</p>
+        </div>
+      </div>
+      <button id="connect" type="button" class="ghost small">Conectar pestaña</button>
+    </header>
+
+    <main>
+      <section class="card" id="connection-card">
+        <div class="card-head">
+          <span class="step">01</span>
+          <h2>Pestaña de Flow</h2>
+          <span id="connection-dot" class="dot" aria-hidden="true"></span>
+        </div>
+        <p id="connection-text" class="muted">
+          Abrí <code>flow.google.com</code> en una pestaña y conectala antes de iniciar la cola.
+        </p>
+        <ul id="diagnostics" class="diagnostics"></ul>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="step">02</span>
+          <h2>Modelo</h2>
+        </div>
+        <label class="field">
+          <span>Modelo de imagen</span>
+          <select id="model">
+            <option>Nano Banana 2.1</option>
+            <option>Nano Banana 2</option>
+            <option>Nano Banana Pro</option>
+            <option>Nano Banana 2 Lite</option>
+            <option value="__custom">Otro…</option>
+          </select>
+        </label>
+        <input id="model-custom" class="hidden" maxlength="80" placeholder="Nombre exacto en el selector de Flow" />
+        <input id="mode" type="hidden" value="image" />
+        <input id="count" type="hidden" value="1" />
+        <label class="field">
+          <span>Relación de aspecto</span>
+          <select id="aspect">
+            <option value="16:9">16:9</option>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
+            <option value="4:3">4:3</option>
+            <option value="3:4">3:4</option>
+          </select>
+        </label>
+        <p class="fine">Modo Imagen · x1 por prompt. Si omitís el selector, dejá Flow en Imagen y x1.</p>
+        <label class="check">
+          <input id="skip-model" type="checkbox" />
+          <span>Ya configuré modelo y formato en Flow; no tocar el selector</span>
+        </label>
+        <p class="fine">Se aplican en el selector de Flow y se verifican antes del primer prompt.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="step">03</span>
+          <h2>Referencias</h2>
+          <span id="ref-count" class="badge">0/4</span>
+        </div>
+        <p class="muted">Todas las referencias se adjuntan juntas en cada prompt (máx. 4).</p>
+        <label class="dropzone" id="dropzone">
+          <input id="reference-input" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden />
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true">
+            <path d="M12 16V4m0 0L7 9m5-5l5 5M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+          <strong>Añadir imágenes</strong>
+          <span>Click o arrastrar · PNG, JPG, WEBP</span>
+        </label>
+        <div id="reference-grid" class="reference-grid"></div>
+        <label class="field">
+          <span>Uso de la referencia</span>
+          <select id="reference-use">
+            <option value="style">Sólo estilo visual</option>
+            <option value="style-composition">Estilo y composición</option>
+          </select>
+        </label>
+        <label class="check">
+          <input id="skip-references" type="checkbox" />
+          <span>Ya adjunté estas referencias en Flow; no tocar el selector</span>
+        </label>
+        <p class="fine">Flow abre un selector de archivos nativo; si la extensión no puede adjuntarlas, agregalas a mano y activá la casilla.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <span class="step">04</span>
+          <h2>Prompts</h2>
+          <span id="prompt-count" class="badge">0 prompts</span>
+        </div>
+        <textarea
+          id="prompts"
+          rows="8"
+          maxlength="200000"
+          spellcheck="false"
+          placeholder="Un prompt por línea. También podés importar un .txt o separar prompts largos con una línea ---"
+        ></textarea>
+        <div class="row">
+          <label class="button file-button">
+            Importar .TXT
+            <input id="prompt-file" type="file" accept=".txt,text/plain" hidden />
+          </label>
+          <button id="clear-prompts" type="button" class="ghost small">Limpiar</button>
+        </div>
+        <p class="fine">Se envían de uno en uno, sin duplicados. Los prompts quedan en este navegador.</p>
+        <details class="pace">
+          <summary>Ritmo de la cola</summary>
+          <div class="grid2">
+            <label class="field">
+              <span>Pausa entre prompts (s)</span>
+              <input id="delay" type="number" min="0" max="120" step="1" value="5" />
+            </label>
+            <label class="field">
+              <span>Espera máxima por imagen (s)</span>
+              <input id="timeout" type="number" min="30" max="600" step="10" value="180" />
+            </label>
+          </div>
+          <label class="check">
+            <input id="continue-on-error" type="checkbox" />
+            <span>Continuar si un prompt falla</span>
+          </label>
+        </details>
+      </section>
+
+      <section class="card start-card">
+        <div class="card-head">
+          <span class="step">05</span>
+          <h2>Listo para generar</h2>
+        </div>
+        <p id="start-summary" class="muted">0 prompts · 0 referencias</p>
+        <button id="start" type="button" class="primary big" disabled>
+          <span aria-hidden="true">▶</span> Iniciar cola
+        </button>
+        <div class="row">
+          <button id="pause" type="button" class="ghost small" disabled>Pausar</button>
+          <button id="stop" type="button" class="danger small" disabled>Detener</button>
+        </div>
+        <p class="fine">
+          La cola corre mientras este panel esté abierto. La extensión no envía prompts ni imágenes
+          a servidores de Editor IA.
+        </p>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2>Progreso</h2>
+          <span id="run-id" class="badge">sin ejecución</span>
+        </div>
+        <ol id="queue-list" class="queue-list"></ol>
+        <div class="row">
+          <button id="download-manifest" type="button" class="ghost small" disabled>
+            Descargar manifiesto
+          </button>
+          <button id="export-prompts" type="button" class="ghost small">Exportar prompts .txt</button>
+        </div>
+        <pre id="log" class="log" aria-live="polite"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

@@ -1,8 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { applyAppearance, loadAppearance } from './state/appearance';
 import './styles/tokens.css';
 import './styles/app.css';
+import './styles/chrome.css';
+
+// Apply the saved chrome before the first paint so the window never flashes
+// the default palette when a custom one is stored.
+applyAppearance(loadAppearance());
 
 const container = document.getElementById('root');
 if (!container) {

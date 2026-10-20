@@ -161,7 +161,18 @@ describe('ClipSchema', () => {
   it('accepts a transform with an offset and an opacity', () => {
     expect(
       ClipSchema.safeParse(
-        videoClip({ transform: { offsetX: 12, offsetY: -4, scaleX: 1.2, scaleY: 1.2, rotationDeg: 90, opacity: 0.8 } }),
+        videoClip({
+          transform: {
+            offsetX: 12,
+            offsetY: -4,
+            scaleX: 1.2,
+            scaleY: 1.2,
+            rotationDeg: 90,
+            opacity: 0.8,
+            flipH: true,
+            flipV: false,
+          },
+        }),
       ).success,
     ).toBe(true);
   });

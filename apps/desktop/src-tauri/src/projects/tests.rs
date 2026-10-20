@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde_json::{json, Value};
 
 use crate::projects::service::{
-    create_project, open_project, save_project, ProjectError, ProjectErrorCode,
-    PROJECT_SCHEMA_VERSION,
+    create_project, create_project_with_video, open_project, save_project, ProjectError,
+    ProjectErrorCode, PROJECT_SCHEMA_VERSION,
 };
 
 /// Scratch inside the repo's ignored `target/` tree, never under the user's home.
@@ -491,6 +491,44 @@ fn la_identidad_de_timing_se_exige_con_enteros_exactos() {
         save_project(&dir.file("slow.editoria.json"), &slowed).is_ok(),
         "150 x 2 = (300 - 0) x 1: media duracion de timeline sobre 2x velocidad es valido"
     );
+}
+
+#[test]
+fn crea_entrega_nativa_para_formato_y_fps_personalizados() {
+    let dir = TempDir::new("custom-format");
+    let path = dir.file("custom.editoria.json");
+    let opened = create_project_with_video(
+        &path,
+        "Formato raro",
+        Some(json!({
+            "width": 1440,
+            "height": 1080,
+            "frameRate": { "num": 24_000, "den": 1_001 },
+            "backgroundColor": "#0b0e13"
+        })),
+    )
+    .expect("el proyecto personalizado debería crearse");
+    let profiles = opened.project["renderProfiles"]
+        .as_array()
+        .expect("perfiles");
+    let native = profiles
+        .iter()
+        .find(|profile| {
+            profile["name"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("Formato del proyecto")
+        })
+        .expect("debe existir un perfil nativo");
+    assert_eq!(native["resolution"]["width"], 1440);
+    assert_eq!(native["resolution"]["height"], 1080);
+    assert_eq!(native["aspectRatio"], "4:3");
+    assert_eq!(native["videoPreset"], "veryfast");
+    assert_eq!(native["audioBitsPerSecond"], 128_000);
+    assert_eq!(native["frameRate"]["num"], 24_000);
+    assert!(profiles
+        .iter()
+        .any(|profile| profile["name"] == "YouTube 1080p"));
 }
 
 #[test]

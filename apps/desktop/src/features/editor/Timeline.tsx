@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Asset, CaptionCue, Clip, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { useThumbnail } from '../../hooks/useThumbnail';
+import { peaksForWindow, useWaveform } from '../../hooks/useWaveform';
+import { Icon } from '../../components/Icon';
+import { friendlyAssetLabel } from '../../state/asset-labels';
 import {
   ProjectActionError,
   addTrack,
@@ -11,12 +14,13 @@ import {
   moveClip,
   splitClip,
   trimClip,
+  totalFrames,
   updateCaptionCue,
   updateTrack,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 
-const HEADER = 152;
+const HEADER = 168;
 const ROW_HEIGHT = 56;
 const CAPTION_ROW_HEIGHT = 42;
 const SNAP_FRAMES = 5;
@@ -80,6 +84,7 @@ function ClipBlock({
   const root = store.state.opened?.root ?? '';
   const asset = clip.source.type === 'asset' && project ? assetById(project, clip.source.assetId) : undefined;
   const thumbnail = useThumbnail(store.service, asset ?? null, root || null);
+  const waveform = useWaveform(store.service, root || null, asset ?? null);
   const activePreview =
     preview && preview.kind === 'clip' && preview.clipId === clip.id ? preview : null;
   const start = activePreview?.previewStart ?? clip.startFrame;
@@ -87,6 +92,15 @@ function ClipBlock({
   const left = start * pxPerFrame;
   const width = Math.max(3, duration * pxPerFrame);
   const isWindowed = clip.kind === 'video' || clip.kind === 'audio';
+  const sourceWindow = clip.kind === 'video' || clip.kind === 'audio' ? clip.source : null;
+  const assetMedia = asset && 'media' in asset ? asset.media : undefined;
+  const assetFrames =
+    assetMedia && 'durationFrames' in assetMedia ? assetMedia.durationFrames : 0;
+  const peaks =
+    waveform && asset && sourceWindow
+      ? peaksForWindow(waveform, sourceWindow.inFrame, sourceWindow.outFrame, assetFrames)
+      : null;
+  const clipLabel = clip.label ? friendlyAssetLabel(clip.label) : track.label;
 
   return (
     <div
@@ -94,7 +108,7 @@ function ClipBlock({
       style={{ left, width }}
       role="button"
       tabIndex={0}
-      aria-label={`${clip.label ?? clip.kind} en ${track.label}, desde ${formatTimecode(clip.startFrame, project ? fpsOf(project) : 30)}`}
+      aria-label={`${clipLabel} en ${track.label}, desde ${formatTimecode(clip.startFrame, project ? fpsOf(project) : 30)}`}
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.stopPropagation();
@@ -111,7 +125,30 @@ function ClipBlock({
       {thumbnail && (clip.kind === 'video' || clip.kind === 'image') ? (
         <img className="clip-thumb" src={thumbnail} alt="" draggable={false} />
       ) : null}
-      <span className="clip-label">{clip.label ?? track.label}</span>
+      {peaks && peaks.length > 1 ? (
+        <svg
+          className={`clip-waveform kind-${clip.kind}`}
+          viewBox={`0 0 ${peaks.length} 40`}
+          preserveAspectRatio="none"
+          aria-hidden="true"
+          focusable="false"
+        >
+          {peaks.map((peak, index) => {
+            const height = Math.max(1.4, peak * 34);
+            return (
+              <rect
+                key={index}
+                x={index + 0.14}
+                y={20 - height / 2}
+                width={0.72}
+                height={height}
+                rx={0.28}
+              />
+            );
+          })}
+        </svg>
+      ) : null}
+      <span className="clip-label">{clipLabel}</span>
       {isWindowed ? (
         <span className="clip-window">
           in {clip.source.inFrame} · out {clip.source.outFrame}
@@ -414,9 +451,15 @@ export function Timeline() {
   const pxPerSecond = pxPerFrame * fps;
   const steps = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
   const step = steps.find((value) => value * pxPerSecond >= 92) ?? 900;
+  const majorFrames = Math.max(1, Math.round(step * fps));
+  const minorFrames = Math.max(2, Math.round(majorFrames / 5));
   const ticks: number[] = [];
-  for (let frame = 0; frame <= duration + fps; frame += Math.max(1, Math.round(step * fps))) {
+  for (let frame = 0; frame <= duration + fps; frame += majorFrames) {
     ticks.push(frame);
+  }
+  const minorTicks: number[] = [];
+  for (let frame = 0; frame <= duration + fps; frame += minorFrames) {
+    if (frame % majorFrames !== 0) minorTicks.push(frame);
   }
 
   function beginScrub(event: ReactPointerEvent): void {
@@ -488,7 +531,7 @@ export function Timeline() {
             aria-label="Alejar"
             onClick={() => setPxPerFrame((value) => Math.max(0.2, value / 1.4))}
           >
-            −
+            <Icon name="minus" size={14} />
           </button>
           <span className="zoom-readout">{pxPerFrame.toFixed(2)} px/frame</span>
           <button
@@ -497,11 +540,12 @@ export function Timeline() {
             aria-label="Acercar"
             onClick={() => setPxPerFrame((value) => Math.min(14, value * 1.4))}
           >
-            +
+            <Icon name="plus" size={14} />
           </button>
           <button
             type="button"
-            className="small ghost"
+            className="small ghost zoom-fit"
+            aria-label="Ajustar zoom a la duración"
             onClick={() => {
               const seconds = Math.max(4, duration / fps);
               setPxPerFrame(clamp(760 / (seconds * fps), 0.2, 14));
@@ -523,14 +567,21 @@ export function Timeline() {
             <option value="caption">Subtítulos</option>
             <option value="graphic">Gráficos</option>
           </select>
-          <button type="button" className="small" onClick={addTrackToTimeline}>
-            Agregar pista
+          <button
+            type="button"
+            className="small icon-text"
+            aria-label="Agregar pista"
+            onClick={addTrackToTimeline}
+          >
+            <Icon name="plus" size={13} />
+            <span className="tool-label">Agregar pista</span>
           </button>
         </div>
         <div className="timeline-tools">
           <button
             type="button"
-            className="small"
+            className="small icon-text"
+            aria-label="Dividir en playhead"
             disabled={!selectedClip}
             onClick={() => {
               if (!selectedClip) return;
@@ -543,23 +594,33 @@ export function Timeline() {
               });
             }}
           >
-            Dividir en playhead
+            <Icon name="split" size={13} />
+            <span className="tool-label">Dividir en playhead</span>
           </button>
           <button
             type="button"
-            className="small danger-ghost"
+            className="small danger-ghost icon-text"
+            aria-label="Borrar clip"
             disabled={!selectedClip}
             onClick={() => {
               if (!selectedClip) return;
-              store.update((current) => deleteClip(current, selectedClip.id));
+              let nextDuration = 0;
+              store.update((current) => {
+                const next = deleteClip(current, selectedClip.id);
+                nextDuration = totalFrames(next);
+                return next;
+              });
               store.setSelection({ kind: 'none' });
+              store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
             }}
           >
-            Borrar clip
+            <Icon name="trash" size={13} />
+            <span className="tool-label">Borrar clip</span>
           </button>
           <button
             type="button"
-            className="small danger-ghost"
+            className="small danger-ghost icon-text"
+            aria-label="Borrar subtítulo"
             disabled={!selectedCueId}
             onClick={() => {
               if (!selectedCueId) return;
@@ -567,19 +628,32 @@ export function Timeline() {
               store.setSelection({ kind: 'none' });
             }}
           >
-            Borrar subtítulo
+            <Icon name="captions" size={13} />
+            <span className="tool-label">Borrar subtítulo</span>
           </button>
         </div>
         <span className="timeline-duration">
-          {formatTimecode(store.durationFrames, fps)} · {project.timeline.tracks.length} pistas
+          {formatTimecode(store.durationFrames, fps)}
+          <span className="duration-tracks"> · {project.timeline.tracks.length} pistas</span>
         </span>
       </div>
 
       <div className="timeline-scroll">
         <div className="timeline-surface" ref={surfaceRef} style={{ width: surfaceWidth + HEADER }}>
           <div className="ruler-row">
-            <div className="ruler-corner">Timeline</div>
+            <div className="ruler-corner">
+              <span className="ruler-corner-title">Timeline</span>
+              <span className="ruler-corner-badge">SEQ 01</span>
+            </div>
             <div className="ruler-lane" onPointerDown={beginScrub}>
+              {minorTicks.map((frame) => (
+                <span
+                  key={`minor-${frame}`}
+                  className="ruler-minor"
+                  style={{ left: frame * pxPerFrame }}
+                  aria-hidden="true"
+                />
+              ))}
               {ticks.map((frame) => (
                 <div
                   key={frame}
@@ -631,28 +705,31 @@ export function Timeline() {
                       type="button"
                       aria-label={`Silenciar ${track.label}`}
                       aria-pressed={track.muted}
+                      title="Silenciar pista"
                       className={track.muted ? 'flag active' : 'flag'}
                       onClick={() => store.update((current) => updateTrack(current, track.id, { muted: !track.muted }))}
                     >
-                      M
+                      <Icon name="volume" size={12} />
                     </button>
                     <button
                       type="button"
                       aria-label={`Ocultar ${track.label}`}
                       aria-pressed={track.hidden}
+                      title="Ocultar pista"
                       className={track.hidden ? 'flag active' : 'flag'}
                       onClick={() => store.update((current) => updateTrack(current, track.id, { hidden: !track.hidden }))}
                     >
-                      O
+                      <Icon name="eye" size={12} />
                     </button>
                     <button
                       type="button"
                       aria-label={`Bloquear ${track.label}`}
                       aria-pressed={track.locked}
+                      title="Bloquear pista"
                       className={track.locked ? 'flag active' : 'flag'}
                       onClick={() => store.update((current) => updateTrack(current, track.id, { locked: !track.locked }))}
                     >
-                      L
+                      <Icon name="lock" size={12} />
                     </button>
                   </div>
                 </div>

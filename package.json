@@ -14,17 +14,20 @@
   },
   "scripts": {
     "test": "vitest run",
+    "test:extension": "npm --prefix extensions/flow-queue test",
     "typecheck": "tsc --noEmit -p packages/project-schema/tsconfig.json && tsc --noEmit -p apps/desktop/tsconfig.json && tsc --noEmit -p apps/render-worker/tsconfig.json",
     "fixtures:write": "node --experimental-strip-types packages/project-schema/scripts/write-fixtures.ts",
     "schema:generate": "node --experimental-strip-types packages/project-schema/scripts/generate-json-schema.ts",
     "loop:preflight": "node scripts/loop-preflight.mjs",
     "loop:record": "node scripts/loop-record.mjs",
-    "verify": "npm run typecheck && npm run test",
+    "verify": "npm run typecheck && npm run test && npm run test:extension && npm run test:web-tts",
     "dev": "npm --workspace @editor-ia/desktop run dev",
     "build": "npm --workspace @editor-ia/desktop run build",
     "tauri:dev": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:dev",
     "tauri:build": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build",
-    "tauri:build:debug": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --debug --no-bundle"
+    "tauri:build:debug": "node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --debug --no-bundle",
+    "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
+    "test:web-tts": "npm --prefix extensions/web-tts-bridge test"
   },
   "devDependencies": {
     "@types/node": "22.10.2",

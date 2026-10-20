@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web TTS Bridge — Editor IA</title>
+    <link rel="stylesheet" href="sidepanel.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">Editor IA</p>
+        <h1>Web TTS Bridge</h1>
+      </div>
+      <span class="badge">Permiso por sitio</span>
+    </header>
+
+    <main>
+      <section class="card">
+        <p class="fine">
+          Abrí una web de voz en una pestaña, iniciá sesión vos si hace falta y volvé acá. La
+          extensión escribe el texto, pulsa generar y descarga el audio. No evade login, pagos ni
+          captcha.
+        </p>
+        <label class="field">
+          <span>URL de la web</span>
+          <input id="url" type="url" placeholder="https://ejemplo.com/tts" autocomplete="off" />
+        </label>
+        <div class="row">
+          <button id="open" type="button">Abrir web</button>
+          <button id="refresh" type="button" class="ghost">Usar pestaña actual</button>
+        </div>
+        <p id="tab-info" class="tab-info">Leyendo la pestaña activa…</p>
+      </section>
+
+      <section class="card">
+        <label class="field">
+          <span>Texto a convertir</span>
+          <textarea id="text" rows="7" maxlength="4000" placeholder="Pegá el texto de la narración…"></textarea>
+        </label>
+        <div class="row">
+          <button id="run" type="button" class="primary">Generar y descargar</button>
+          <button id="clear" type="button" class="ghost">Limpiar</button>
+        </div>
+        <p class="fine">
+          La descarga va a <code>Descargas/web-tts/</code>. Después importala en Editor IA →
+          Medios. La extensión no garantiza que cada web use los mismos botones; si no reconoce el
+          generador, devuelve un diagnóstico en vez de hacer clic a ciegas.
+        </p>
+      </section>
+
+      <section class="card">
+        <p class="eyebrow">Estado</p>
+        <p id="status" class="status idle" role="status" aria-live="polite">
+          Esperando una tarea.
+        </p>
+        <div class="row">
+          <button id="downloads" type="button" class="ghost">Abrir carpeta de Descargas</button>
+        </div>
+      </section>
+    </main>
+
+    <script src="sidepanel.js" type="module"></script>
+  </body>
+</html>

@@ -17,7 +17,7 @@ export {
   CaptionsSchema,
   CaptionPositionSchema,
 } from './captions.ts';
-export type { CaptionCue, CaptionStyle } from './captions.ts';
+export type { CaptionCue, CaptionWord, CaptionStyle } from './captions.ts';
 
 export {
   RenderProfileSchema,
@@ -50,8 +50,41 @@ export {
 } from './provenance.ts';
 export type { Source, Claim, AgentOperation } from './provenance.ts';
 
-export { TrackSchema, ClipSchema, TimelineSchema, TrackKindSchema, ClipKindSchema } from './timeline.ts';
-export type { Track, Clip } from './timeline.ts';
+export {
+  MAX_GAIN_KEYFRAMES,
+  MAX_TRANSFORM_KEYFRAMES,
+  TRANSFORM_KEYFRAME_SCALE_MAX,
+  TRANSFORM_KEYFRAME_SCALE_MIN,
+  TrackSchema,
+  ClipSchema,
+  TimelineSchema,
+  TrackKindSchema,
+  ClipKindSchema,
+  ClipEffectsSchema,
+  ClipMotionSchema,
+  ClipTransformKeyframeSchema,
+  ClipGainKeyframeSchema,
+  ChromaKeySchema,
+} from './timeline.ts';
+export type {
+  Track,
+  Clip,
+  ClipEffects,
+  ClipMotion,
+  ClipTransformKeyframe,
+  ClipGainKeyframe,
+  ChromaKey,
+} from './timeline.ts';
+
+export {
+  hasGainKeyframes,
+  hasGeometryKeyframes,
+  hasTransformKeyframes,
+  keyframeFrameAt,
+  sampleGainKeyframes,
+  sampleTransformKeyframes,
+} from './keyframes.ts';
+export type { SampledTransform } from './keyframes.ts';
 
 export {
   EntityIdSchema,

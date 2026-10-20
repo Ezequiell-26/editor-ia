@@ -14,8 +14,22 @@ export const ContainerSchema = z.enum(['mp4', 'mov', 'webm']);
 export const VideoCodecSchema = z.enum(['h264', 'h265', 'vp9', 'av1']);
 export const AudioCodecSchema = z.enum(['aac', 'opus']);
 export const PixelFormatSchema = z.enum(['yuv420p', 'yuv444p', 'rgb24']);
-export const AspectRatioSchema = z.enum(['16:9', '9:16', '1:1', '4:5', '3:2', '2:3']);
+/** Any simplified integer ratio: 16:9, 9:16, 4:3, 21:9, 683:384… */
+export const AspectRatioSchema = z
+  .string()
+  .regex(/^\d{1,5}:\d{1,5}$/, 'aspect ratio must look like 16:9');
 export const TargetPlatformSchema = z.enum(['youtube', 'shorts', 'reels', 'tiktok', 'other']);
+export const VideoPresetSchema = z.enum([
+  'ultrafast',
+  'superfast',
+  'veryfast',
+  'faster',
+  'fast',
+  'medium',
+  'slow',
+  'slower',
+]);
+export const FitModeSchema = z.enum(['contain', 'cover']);
 
 const CONTAINER_MATRIX: Record<z.infer<typeof ContainerSchema>, {
   video: readonly string[];
@@ -64,9 +78,14 @@ export const RenderProfileSchema = z
       .strict(),
     frameRate: FrameRateSchema,
     bitrate: BitrateSchema,
+    /** x264/x265 speed preset. `veryfast` keeps exports responsive. */
+    videoPreset: VideoPresetSchema.default('veryfast'),
+    /** `contain` shows the whole canvas (bars); `cover` fills and center-crops. */
+    fit: FitModeSchema.default('contain'),
     pixelFormat: PixelFormatSchema,
     audioSampleRate: z.number().int().gte(8_000).lte(192_000),
     audioChannels: z.number().int().gte(1).lte(8),
+    audioBitsPerSecond: z.number().int().gte(16_000).lte(512_000).default(128_000),
     aspectRatio: AspectRatioSchema,
     qualityGate: QualityGateSchema,
   })
@@ -74,8 +93,8 @@ export const RenderProfileSchema = z
   .superRefine((item, ctx) => {
     const [ratioWidth, ratioHeight] = item.aspectRatio.split(':').map(Number);
     if (
-      ratioWidth &&
-      ratioHeight &&
+      !ratioWidth ||
+      !ratioHeight ||
       item.resolution.width * ratioHeight !== item.resolution.height * ratioWidth
     ) {
       ctx.addIssue({

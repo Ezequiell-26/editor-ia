@@ -221,12 +221,12 @@ fn emit_failed(
     );
 }
 
-#[tauri::command]
-pub async fn start_render(
-    app: AppHandle,
-    state: State<'_, AppState>,
+fn start_render_with_output(
+    app: &AppHandle,
+    state: &AppState,
     profile_id: Option<String>,
     include_captions: bool,
+    requested_output: Option<PathBuf>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
     let session = state.require_session()?;
     let settings = state.settings_snapshot()?;
@@ -291,8 +291,22 @@ pub async fn start_render(
         safe_name(project_name),
         safe_name(&profile.name)
     );
-    let Some(final_output) = pick_output(&app, &session.root, &suggested)? else {
-        return Ok(None);
+    let final_output = match requested_output {
+        Some(path) => {
+            if path.exists() {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::AlreadyExists,
+                    "ya existe un archivo con ese nombre en la carpeta del lote; elegí otra carpeta",
+                ));
+            }
+            path
+        }
+        None => {
+            let Some(path) = pick_output(app, &session.root, &suggested)? else {
+                return Ok(None);
+            };
+            path
+        }
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();
@@ -544,6 +558,71 @@ pub async fn start_render(
         job_id,
         profile_name: profile.name,
     }))
+}
+
+#[tauri::command]
+pub async fn start_render(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: Option<String>,
+    include_captions: bool,
+) -> Result<Option<RenderStarted>, ProjectError> {
+    start_render_with_output(&app, &state, profile_id, include_captions, None)
+}
+
+#[tauri::command]
+pub async fn start_render_to(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    profile_id: String,
+    include_captions: bool,
+    output_path: String,
+) -> Result<Option<RenderStarted>, ProjectError> {
+    let path = PathBuf::from(output_path);
+    if !path
+        .extension()
+        .map(|value| value.eq_ignore_ascii_case("mp4"))
+        .unwrap_or(false)
+    {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el lote solo escribe archivos .mp4",
+        ));
+    }
+    if path.exists() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::AlreadyExists,
+            "ya existe un archivo con ese nombre en la carpeta elegida",
+        ));
+    }
+    start_render_with_output(&app, &state, Some(profile_id), include_captions, Some(path))
+}
+
+#[tauri::command]
+pub async fn choose_export_directory(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, ProjectError> {
+    let session = state.require_session()?;
+    let Some(folder) = app
+        .dialog()
+        .file()
+        .set_title("Elegir carpeta para el lote de exportación")
+        .set_directory(&session.root)
+        .blocking_pick_folder()
+    else {
+        return Ok(None);
+    };
+    let folder = folder.into_path().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "no se pudo usar la carpeta elegida")
+    })?;
+    if !folder.is_dir() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "la ruta elegida no es una carpeta",
+        ));
+    }
+    Ok(Some(folder.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]

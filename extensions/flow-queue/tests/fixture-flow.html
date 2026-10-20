@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Flow Queue — fixture de adaptador</title>
+    <style>
+      body { font-family: system-ui, sans-serif; background:#0b1220; color:#e8eef7; margin:0; padding:24px; }
+      main { max-width: 760px; margin: 0 auto; }
+      .bar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+      textarea { width:100%; min-height:80px; background:#08111e; color:#fff; border:1px solid #223a58; border-radius:10px; padding:10px; }
+      button { background:#16263c; color:#fff; border:1px solid #2a4668; border-radius:9px; padding:8px 12px; cursor:pointer; }
+      button[aria-label="Generar imagen"] { background:#2f7df6; border-color:#2f7df6; }
+      #results { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:16px; }
+      #results img { width:100%; border-radius:8px; display:block; }
+      #menu { position:absolute; background:#101d30; border:1px solid #2a4668; border-radius:8px; padding:4px; display:none; }
+      #menu.open { display:block; }
+      #menu button { display:block; width:100%; text-align:left; }
+      .row { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+      .ok { color:#37d38a; } .bad { color:#ff6272; }
+      pre { background:#050b13; border:1px solid #1d334f; padding:10px; border-radius:8px; overflow:auto; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Flow Queue · fixture</h1>
+      <p>Este DOM imita los controles mínimos que busca el adaptador. No es Google Flow.</p>
+
+      <div class="bar">
+        <button id="model-trigger" aria-haspopup="menu">Modelo: <strong>Nano Banana 2</strong></button>
+        <div id="menu" role="menu">
+          <button role="menuitem" data-model="Nano Banana 2">Nano Banana 2</button>
+          <button role="menuitem" data-model="Imagen 4">Imagen 4</button>
+        </div>
+        <button aria-label="Añadir imágenes">Añadir imágenes</button>
+        <input id="images" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+      </div>
+
+      <textarea id="prompt" placeholder="¿Qué quieres crear?"></textarea>
+      <div class="row">
+        <button aria-label="Generar imagen">→ Generar imagen</button>
+        <span id="status" class="ok">listo</span>
+      </div>
+      <div id="results"></div>
+
+      <h2>Diagnóstico del adaptador</h2>
+      <pre id="diag">cargando…</pre>
+    </main>
+
+    <script type="module">
+      import {
+        collectResultImages,
+        diagnostics,
+        findFileInput,
+        findGenerateButton,
+        findModelCandidates,
+        findPromptInput,
+        setPromptValue,
+        waitForResult,
+      } from '../src/lib/adapter.js';
+      import { parsePrompts } from '../src/lib/prompts.js';
+
+      const prompt = document.querySelector('#prompt');
+      const generate = document.querySelector('[aria-label="Generar imagen"]');
+      const results = document.querySelector('#results');
+      const status = document.querySelector('#status');
+      const menu = document.querySelector('#menu');
+      const trigger = document.querySelector('#model-trigger');
+
+      trigger.addEventListener('click', () => menu.classList.toggle('open'));
+      for (const option of menu.querySelectorAll('[role="menuitem"]')) {
+        option.addEventListener('click', () => {
+          trigger.querySelector('strong').textContent = option.dataset.model;
+          menu.classList.remove('open');
+        });
+      }
+
+      generate.addEventListener('click', () => {
+        status.textContent = 'generando…';
+        const before = collectResultImages(document, window);
+        setTimeout(() => {
+          const canvas = document.createElement('canvas');
+          canvas.width = 512;
+          canvas.height = 512;
+          const context = canvas.getContext('2d');
+          const gradient = context.createLinearGradient(0, 0, 512, 512);
+          gradient.addColorStop(0, '#2f7df6');
+          gradient.addColorStop(1, '#37d38a');
+          context.fillStyle = gradient;
+          context.fillRect(0, 0, 512, 512);
+          context.fillStyle = 'rgba(255,255,255,0.85)';
+          context.font = '28px sans-serif';
+          context.fillText(prompt.value.slice(0, 36) || 'resultado', 28, 268);
+          const image = new Image();
+          image.width = 512;
+          image.height = 512;
+          image.src = canvas.toDataURL('image/png');
+          image.alt = 'resultado';
+          results.append(image);
+          status.textContent = 'imagen lista';
+          window.__lastBefore = before;
+        }, 500);
+      });
+
+      window.__flowq = {
+        diagnostics: () => diagnostics(document, window),
+        parse: (text) => parsePrompts(text),
+        findPromptInput: () => findPromptInput(document),
+        findGenerateButton: () => findGenerateButton(document),
+        findFileInput: () => findFileInput(document),
+        findModelCandidates: (model) => findModelCandidates(document, model),
+        setPrompt: (text) => setPromptValue(findPromptInput(document), text, window),
+        waitForResult: (before) => waitForResult(document, window, before, { timeoutMs: 5000, intervalMs: 100 }),
+      };
+
+      const render = () => {
+        document.querySelector('#diag').textContent = JSON.stringify(
+          { diagnostics: window.__flowq.diagnostics(), models: window.__flowq.findModelCandidates('Nano Banana 2').length },
+          null,
+          2,
+        );
+      };
+      render();
+      setInterval(render, 1000);
+    </script>
+  </body>
+</html>

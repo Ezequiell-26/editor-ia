@@ -48,6 +48,7 @@ interface StoreState {
   playheadFrame: number;
   playing: boolean;
   lastSavedAt: string | null;
+  exportRequested: boolean;
 }
 
 const INITIAL: StoreState = {
@@ -62,6 +63,7 @@ const INITIAL: StoreState = {
   playheadFrame: 0,
   playing: false,
   lastSavedAt: null,
+  exportRequested: false,
 };
 
 export interface CreateProjectInput {
@@ -98,6 +100,8 @@ export interface ProjectStoreValue {
   setSelection(selection: Selection): void;
   setPlayhead(frame: number): void;
   setPlaying(playing: boolean): void;
+  requestExport(): void;
+  consumeExportRequest(): void;
   clearError(): void;
   setNotice(notice: string | null): void;
 }
@@ -420,6 +424,14 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     setState((current) => ({ ...current, selection }));
   }, []);
 
+  const requestExport = useCallback(() => {
+    setState((current) => ({ ...current, exportRequested: true }));
+  }, []);
+
+  const consumeExportRequest = useCallback(() => {
+    setState((current) => ({ ...current, exportRequested: false }));
+  }, []);
+
   const setPlayhead = useCallback((frame: number) => {
     setState((current) => {
       const duration = current.project ? totalFrames(current.project) : 0;
@@ -486,6 +498,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setSelection,
       setPlayhead,
       setPlaying,
+      requestExport,
+      consumeExportRequest,
       clearError,
       setNotice,
     }),
@@ -505,6 +519,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setPlayhead,
       setPlaying,
       setSelection,
+      requestExport,
+      consumeExportRequest,
       state,
       statusText,
       undo,

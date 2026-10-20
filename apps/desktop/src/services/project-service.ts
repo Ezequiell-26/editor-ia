@@ -85,6 +85,7 @@ export interface GenerateScriptRequest {
 }
 
 export interface VoiceInfo {
+  readonly id: string;
   readonly name: string;
   readonly culture: string;
   readonly gender: string;
@@ -93,6 +94,17 @@ export interface VoiceInfo {
 export interface NarrationResult {
   readonly asset: Asset;
   readonly voice: string;
+  readonly provider: string;
+}
+
+export interface AudioProviderInfo {
+  readonly kind: 'windows-sapi' | 'elevenlabs' | 'external-web' | string;
+  readonly voiceId: string;
+  readonly modelId: string;
+  readonly approved: boolean;
+  readonly externalUrl: string;
+  readonly hasKey: boolean;
+  readonly keyringAvailable: boolean;
 }
 
 export interface RenderStarted {
@@ -122,10 +134,157 @@ export interface RenderFinishedEvent {
   readonly elapsedMs: number;
 }
 
+export interface McpServerConfig {
+  readonly id: string;
+  readonly name: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly envKeys: readonly string[];
+  readonly workingDir: string | null;
+  readonly enabled: boolean;
+}
+
+export interface McpServerInput {
+  readonly id?: string;
+  readonly name: string;
+  readonly command: string;
+  readonly args: readonly string[];
+  readonly env: readonly { readonly key: string; readonly value?: string }[];
+  readonly workingDir?: string;
+  readonly enabled: boolean;
+}
+
+export interface McpToolInfo {
+  readonly name: string;
+  readonly description: string | null;
+  readonly inputSchema: unknown;
+}
+
+export interface McpProbeResult {
+  readonly serverId: string;
+  readonly serverName: string;
+  readonly serverVersion: string;
+  readonly protocolVersion: string;
+  readonly tools: readonly McpToolInfo[];
+  readonly elapsedMs: number;
+}
+
+export interface McpCallResult {
+  readonly serverId: string;
+  readonly toolName: string;
+  readonly result: unknown;
+  readonly isError: boolean;
+  readonly elapsedMs: number;
+}
+
 export interface AssetFileInfo {
   readonly path: string;
   readonly exists: boolean;
   readonly bytes: number;
+}
+
+export interface SceneCut {
+  readonly frame: number;
+  readonly seconds: number;
+}
+
+export interface SceneDetection {
+  readonly cuts: SceneCut[];
+  readonly durationFrames: number;
+  readonly fpsNum: number;
+  readonly fpsDen: number;
+  readonly threshold: number;
+}
+
+export interface AnalysisRange {
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+}
+
+export interface LoudnessSummary {
+  readonly integratedLufs: number | null;
+  readonly truePeakDb: number | null;
+  readonly lraDb: number | null;
+  readonly noiseFloorDb: number | null;
+}
+
+export interface MediaAnalysis {
+  readonly assetId: string;
+  readonly kind: 'video' | 'audio';
+  readonly durationSeconds: number;
+  readonly fpsNum: number;
+  readonly fpsDen: number;
+  readonly hasAudio: boolean;
+  readonly scenes: readonly number[];
+  readonly silences: readonly AnalysisRange[];
+  readonly blacks: readonly AnalysisRange[];
+  readonly freezes: readonly AnalysisRange[];
+  readonly loudness: LoudnessSummary | null;
+  readonly lumaAverage: number | null;
+  readonly saturationAverage: number | null;
+  readonly warnings: readonly string[];
+}
+
+export type ConversionTarget =
+  | 'png'
+  | 'jpg'
+  | 'webp'
+  | 'mp4'
+  | 'webm'
+  | 'mov'
+  | 'gif'
+  | 'mp3'
+  | 'wav';
+
+export interface ConversionRequest {
+  readonly assetId: string;
+  readonly target: ConversionTarget;
+  readonly outputDir: string;
+  readonly quality?: number;
+  readonly maxWidth?: number;
+}
+
+export interface ConversionResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly durationSeconds: number | null;
+  readonly formatName: string;
+}
+
+export interface VariantWritten {
+  readonly path: string;
+  readonly bytes: number;
+  readonly copiedAssets: number;
+}
+
+export interface VariantRendered {
+  readonly path: string;
+  readonly bytes: number;
+  readonly durationSeconds: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface TranscriptionWord {
+  readonly start: number;
+  readonly end: number;
+  readonly word: string;
+  readonly probability: number;
+}
+
+export interface TranscriptionSegment {
+  readonly start: number;
+  readonly end: number;
+  readonly text: string;
+  readonly words: readonly TranscriptionWord[];
+}
+
+export interface TranscriptionResult {
+  readonly language: string;
+  readonly languageProbability: number;
+  readonly durationSeconds: number;
+  readonly model: string;
+  readonly segments: readonly TranscriptionSegment[];
 }
 
 export type NativeInvoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;
@@ -141,8 +300,46 @@ export interface DesktopService {
   saveProjectAs(project: ProjectDocument): Promise<OpenedProject | null>;
   closeProject(): Promise<void>;
   importAssets(fpsNum: number, fpsDen: number): Promise<ImportOutcome | null>;
+  importMediaPaths(input: {
+    paths: readonly string[];
+    fpsNum: number;
+    fpsDen: number;
+    confirmRights?: boolean;
+    provider?: string;
+  }): Promise<ImportOutcome>;
   mediaThumbnail(path: string, isImage: boolean): Promise<string>;
   checkAssetFiles(paths: string[]): Promise<AssetFileInfo[]>;
+  detectScenes(assetId: string, threshold: number): Promise<SceneDetection>;
+  analyzeMedia(
+    assetId: string,
+    sceneThreshold?: number,
+    silenceDb?: number,
+    minSilenceSeconds?: number,
+  ): Promise<MediaAnalysis>;
+  convertMedia(request: ConversionRequest): Promise<ConversionResult>;
+  listMcpServers(): Promise<McpServerConfig[]>;
+  saveMcpServer(input: McpServerInput): Promise<McpServerConfig>;
+  deleteMcpServer(id: string): Promise<void>;
+  probeMcpServer(id: string): Promise<McpProbeResult>;
+  callMcpTool(id: string, tool: string, args: unknown): Promise<McpCallResult>;
+  writeProjectVariant(input: {
+    directory: string;
+    fileName: string;
+    project: unknown;
+  }): Promise<VariantWritten>;
+  renderProjectVariant(input: {
+    projectPath: string;
+    profileId: string;
+    outputPath: string;
+    includeCaptions: boolean;
+  }): Promise<VariantRendered>;
+  loadDirectorMemory(): Promise<unknown | null>;
+  saveDirectorMemory(memory: unknown): Promise<void>;
+  transcribeAsset(
+    assetId: string,
+    language?: string,
+    model?: string,
+  ): Promise<TranscriptionResult>;
   systemInfo(): Promise<SystemInfo>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
@@ -154,6 +351,18 @@ export interface DesktopService {
     apiKey?: string;
   }): Promise<ProviderInfo>;
   clearProviderKey(): Promise<ProviderInfo>;
+  getAudioProvider(): Promise<AudioProviderInfo>;
+  saveAudioProvider(input: {
+    kind: string;
+    voiceId: string;
+    modelId: string;
+    externalUrl: string;
+    approved: boolean;
+    apiKey?: string;
+  }): Promise<AudioProviderInfo>;
+  clearAudioProviderKey(): Promise<AudioProviderInfo>;
+  openExternalUrl(url: string): Promise<void>;
+  savePublicationManifest(manifest: unknown): Promise<string | null>;
   generateScript(request: GenerateScriptRequest): Promise<ScriptPlan>;
   listVoices(): Promise<VoiceInfo[]>;
   synthesizeNarration(input: {
@@ -161,8 +370,15 @@ export interface DesktopService {
     voice?: string;
     fpsNum: number;
     fpsDen: number;
+    provider?: 'windows-sapi';
   }): Promise<NarrationResult>;
   startRender(profileId: string | null, includeCaptions: boolean): Promise<RenderStarted | null>;
+  startRenderTo(
+    profileId: string,
+    outputPath: string,
+    includeCaptions: boolean,
+  ): Promise<RenderStarted | null>;
+  chooseExportDirectory(): Promise<string | null>;
   cancelRender(jobId: string): Promise<void>;
   activeRender(): Promise<string | null>;
   pruneRenderCache(): Promise<number>;
@@ -181,18 +397,39 @@ export const PROJECT_COMMANDS = {
   saveAs: 'save_project_as',
   close: 'close_project',
   importAssets: 'import_assets',
+  importMediaPaths: 'import_media_paths',
   thumbnail: 'media_thumbnail',
   checkAssets: 'check_asset_files',
+  detectScenes: 'detect_scenes',
+  analyzeMedia: 'analyze_media',
+  convertMedia: 'convert_media',
+  listMcpServers: 'list_mcp_servers',
+  saveMcpServer: 'save_mcp_server',
+  deleteMcpServer: 'delete_mcp_server',
+  probeMcpServer: 'probe_mcp_server',
+  callMcpTool: 'call_mcp_tool',
+  writeProjectVariant: 'write_project_variant',
+  renderProjectVariant: 'render_project_variant',
+  loadDirectorMemory: 'load_director_memory',
+  saveDirectorMemory: 'save_director_memory',
+  transcribeAsset: 'transcribe_asset',
   systemInfo: 'system_info',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
   getProvider: 'get_provider',
   saveProvider: 'save_provider',
   clearProviderKey: 'clear_provider_key',
+  getAudioProvider: 'get_audio_provider',
+  saveAudioProvider: 'save_audio_provider',
+  clearAudioProviderKey: 'clear_audio_provider_key',
+  openExternalUrl: 'open_external_url',
+  savePublicationManifest: 'save_publication_manifest',
   generateScript: 'generate_script',
   listVoices: 'list_voices',
   synthesizeNarration: 'synthesize_narration',
   startRender: 'start_render',
+  startRenderTo: 'start_render_to',
+  chooseExportDirectory: 'choose_export_directory',
   cancelRender: 'cancel_render',
   activeRender: 'active_render',
   pruneRenderCache: 'prune_render_cache',
@@ -417,6 +654,22 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
           : [],
       };
     },
+    async importMediaPaths(input) {
+      const raw = await call(PROJECT_COMMANDS.importMediaPaths, {
+        paths: [...input.paths],
+        fpsNum: input.fpsNum,
+        fpsDen: input.fpsDen,
+        confirmRights: input.confirmRights ?? false,
+        provider: input.provider ?? null,
+      });
+      const record = (raw ?? {}) as { assets?: unknown; warnings?: unknown };
+      return {
+        assets: parseAssets(record.assets),
+        warnings: Array.isArray(record.warnings)
+          ? record.warnings.filter((warning): warning is string => typeof warning === 'string')
+          : [],
+      };
+    },
     async mediaThumbnail(path, isImage) {
       const raw = await call(PROJECT_COMMANDS.thumbnail, { path, isImage });
       if (typeof raw !== 'string') {
@@ -427,6 +680,77 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async checkAssetFiles(paths) {
       const raw = await call(PROJECT_COMMANDS.checkAssets, { paths });
       return Array.isArray(raw) ? (raw as AssetFileInfo[]) : [];
+    },
+    async detectScenes(assetId, threshold) {
+      return (await call(PROJECT_COMMANDS.detectScenes, {
+        assetId,
+        threshold,
+      })) as SceneDetection;
+    },
+    async analyzeMedia(assetId, sceneThreshold, silenceDb, minSilenceSeconds) {
+      return (await call(PROJECT_COMMANDS.analyzeMedia, {
+        assetId,
+        sceneThreshold: sceneThreshold ?? null,
+        silenceDb: silenceDb ?? null,
+        minSilenceSeconds: minSilenceSeconds ?? null,
+      })) as MediaAnalysis;
+    },
+    async convertMedia(request) {
+      return (await call(PROJECT_COMMANDS.convertMedia, {
+        assetId: request.assetId,
+        target: request.target,
+        outputDir: request.outputDir,
+        quality: request.quality ?? null,
+        maxWidth: request.maxWidth ?? null,
+      })) as ConversionResult;
+    },
+    async listMcpServers() {
+      const raw = await call(PROJECT_COMMANDS.listMcpServers);
+      return Array.isArray(raw) ? (raw as McpServerConfig[]) : [];
+    },
+    async saveMcpServer(input) {
+      return (await call(PROJECT_COMMANDS.saveMcpServer, { server: input })) as McpServerConfig;
+    },
+    async deleteMcpServer(id) {
+      await call(PROJECT_COMMANDS.deleteMcpServer, { id });
+    },
+    async probeMcpServer(id) {
+      return (await call(PROJECT_COMMANDS.probeMcpServer, { id })) as McpProbeResult;
+    },
+    async callMcpTool(id, tool, args) {
+      return (await call(PROJECT_COMMANDS.callMcpTool, {
+        id,
+        tool,
+        arguments: args,
+      })) as McpCallResult;
+    },
+    async writeProjectVariant(input) {
+      return (await call(PROJECT_COMMANDS.writeProjectVariant, {
+        directory: input.directory,
+        fileName: input.fileName,
+        project: input.project,
+      })) as VariantWritten;
+    },
+    async renderProjectVariant(input) {
+      return (await call(PROJECT_COMMANDS.renderProjectVariant, {
+        projectPath: input.projectPath,
+        profileId: input.profileId,
+        outputPath: input.outputPath,
+        includeCaptions: input.includeCaptions,
+      })) as VariantRendered;
+    },
+    async loadDirectorMemory() {
+      return await call(PROJECT_COMMANDS.loadDirectorMemory);
+    },
+    async saveDirectorMemory(memory) {
+      await call(PROJECT_COMMANDS.saveDirectorMemory, { memory });
+    },
+    async transcribeAsset(assetId, language, model) {
+      return (await call(PROJECT_COMMANDS.transcribeAsset, {
+        assetId,
+        language: language ?? null,
+        model: model ?? null,
+      })) as TranscriptionResult;
     },
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
@@ -451,6 +775,29 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async clearProviderKey() {
       return (await call(PROJECT_COMMANDS.clearProviderKey)) as ProviderInfo;
     },
+    async getAudioProvider() {
+      return (await call(PROJECT_COMMANDS.getAudioProvider)) as AudioProviderInfo;
+    },
+    async saveAudioProvider(input) {
+      return (await call(PROJECT_COMMANDS.saveAudioProvider, {
+        kind: input.kind,
+        voiceId: input.voiceId,
+        modelId: input.modelId,
+        externalUrl: input.externalUrl,
+        approved: input.approved,
+        apiKey: input.apiKey ?? null,
+      })) as AudioProviderInfo;
+    },
+    async clearAudioProviderKey() {
+      return (await call(PROJECT_COMMANDS.clearAudioProviderKey)) as AudioProviderInfo;
+    },
+    async openExternalUrl(url) {
+      await call(PROJECT_COMMANDS.openExternalUrl, { url });
+    },
+    async savePublicationManifest(manifest) {
+      const raw = await call(PROJECT_COMMANDS.savePublicationManifest, { manifest });
+      return typeof raw === 'string' ? raw : null;
+    },
     async generateScript(request) {
       return (await call(PROJECT_COMMANDS.generateScript, { request })) as ScriptPlan;
     },
@@ -464,6 +811,7 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         voice: input.voice ?? null,
         fpsNum: input.fpsNum,
         fpsDen: input.fpsDen,
+        provider: input.provider ?? null,
       })) as NarrationResult;
     },
     async startRender(profileId, includeCaptions) {
@@ -471,6 +819,17 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         profileId,
         includeCaptions,
       })) as RenderStarted | null;
+    },
+    async startRenderTo(profileId, outputPath, includeCaptions) {
+      return (await call(PROJECT_COMMANDS.startRenderTo, {
+        profileId,
+        outputPath,
+        includeCaptions,
+      })) as RenderStarted | null;
+    },
+    async chooseExportDirectory() {
+      const raw = await call(PROJECT_COMMANDS.chooseExportDirectory);
+      return typeof raw === 'string' ? raw : null;
     },
     async cancelRender(jobId) {
       await call(PROJECT_COMMANDS.cancelRender, { jobId });
@@ -520,18 +879,39 @@ function createUnavailableService(): DesktopService {
     saveProjectAs: async () => unavailable(),
     closeProject: async () => unavailable(),
     importAssets: async () => unavailable(),
+    importMediaPaths: async () => unavailable(),
     mediaThumbnail: async () => unavailable(),
     checkAssetFiles: async () => unavailable(),
+    detectScenes: async () => unavailable(),
+    analyzeMedia: async () => unavailable(),
+    convertMedia: async () => unavailable(),
+    listMcpServers: async () => unavailable(),
+    saveMcpServer: async () => unavailable(),
+    deleteMcpServer: async () => unavailable(),
+    probeMcpServer: async () => unavailable(),
+    callMcpTool: async () => unavailable(),
+    writeProjectVariant: async () => unavailable(),
+    renderProjectVariant: async () => unavailable(),
+    loadDirectorMemory: async () => unavailable(),
+    saveDirectorMemory: async () => unavailable(),
+    transcribeAsset: async () => unavailable(),
     systemInfo: async () => unavailable(),
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),
     getProvider: async () => unavailable(),
     saveProvider: async () => unavailable(),
     clearProviderKey: async () => unavailable(),
+    getAudioProvider: async () => unavailable(),
+    saveAudioProvider: async () => unavailable(),
+    clearAudioProviderKey: async () => unavailable(),
+    openExternalUrl: async () => unavailable(),
+    savePublicationManifest: async () => unavailable(),
     generateScript: async () => unavailable(),
     listVoices: async () => unavailable(),
     synthesizeNarration: async () => unavailable(),
     startRender: async () => unavailable(),
+    startRenderTo: async () => unavailable(),
+    chooseExportDirectory: async () => unavailable(),
     cancelRender: async () => unavailable(),
     activeRender: async () => unavailable(),
     pruneRenderCache: async () => unavailable(),

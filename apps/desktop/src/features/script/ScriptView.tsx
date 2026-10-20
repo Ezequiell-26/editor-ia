@@ -18,6 +18,12 @@ import {
   updateScene,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { Icon } from '../../components/Icon';
+import {
+  DEFAULT_FLOW_STYLE,
+  buildFlowPrompts,
+  flowPromptsToText,
+} from './flow-prompts';
 
 interface ScriptViewProps {
   readonly onNavigate: (id: ViewId) => void;
@@ -191,7 +197,7 @@ function SceneCard({
         </div>
       </div>
       <label className="field">
-        <span>Nota visual</span>
+        <span>Prompt visual / nota</span>
         <input
           value={notes}
           maxLength={2_000}
@@ -236,6 +242,15 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   const [manualTitle, setManualTitle] = useState('');
   const [manualNarration, setManualNarration] = useState('');
   const [manualIntent, setManualIntent] = useState<Scene['intent']>('explainer');
+  const [flowStyle, setFlowStyle] = useState(DEFAULT_FLOW_STYLE);
+  const [flowNarration, setFlowNarration] = useState(false);
+  const [flowProjectUrl, setFlowProjectUrl] = useState(() => {
+    try {
+      return localStorage.getItem('editoria.flowProjectUrl') ?? '';
+    } catch {
+      return '';
+    }
+  });
 
   useEffect(() => {
     if (!project) return;
@@ -267,6 +282,16 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   const scenes = useMemo(
     () => (project ? [...project.scenes].sort((a, b) => a.order - b.order) : []),
     [project],
+  );
+  const flowPrompts = useMemo(
+    () =>
+      project
+        ? buildFlowPrompts(project, {
+            style: flowStyle,
+            includeNarration: flowNarration,
+          })
+        : [],
+    [project, flowStyle, flowNarration],
   );
 
   if (!project) {
@@ -408,6 +433,62 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
     }
   }
 
+  useEffect(() => {
+    try {
+      localStorage.setItem('editoria.flowProjectUrl', flowProjectUrl);
+    } catch {
+      // A locked storage only means the URL won't persist.
+    }
+  }, [flowProjectUrl]);
+
+  async function openFlowProject(): Promise<void> {
+    try {
+      const url = new URL(flowProjectUrl.trim());
+      if (url.protocol !== 'https:' || url.hostname !== 'flow.google.com' || !url.pathname.startsWith('/project/')) {
+        store.setNotice('Pegá una URL de proyecto de Flow: https://flow.google.com/project/…');
+        return;
+      }
+      await store.service.openExternalUrl(url.toString());
+      store.setNotice('Proyecto de Flow abierto. Iniciá sesión allí si hace falta; Flow Queue trabaja en esa pestaña.');
+    } catch {
+      store.setNotice('La URL del proyecto de Flow no es válida.');
+    }
+  }
+
+  function downloadFlowPrompts(): void {
+    if (!project || flowPrompts.length === 0) return;
+    const slug =
+      project.name
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 60) || 'proyecto';
+    const blob = new Blob([flowPromptsToText(flowPrompts)], {
+      type: 'text/plain;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `flow-prompts-${slug}.txt`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    store.setNotice(`${flowPrompts.length} prompt(s) descargados para Flow Queue.`);
+  }
+
+  async function copyFlowPrompts(): Promise<void> {
+    if (flowPrompts.length === 0) return;
+    try {
+      await navigator.clipboard.writeText(flowPromptsToText(flowPrompts));
+      store.setNotice(`${flowPrompts.length} prompt(s) copiados al portapapeles.`);
+    } catch {
+      store.setNotice('No se pudo copiar; usá la descarga .txt.');
+    }
+  }
+
   return (
     <section className="view script-view">
       <div className="view-head">
@@ -422,7 +503,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
         <div className="head-actions">
           <button
             type="button"
-            className="ghost"
+            className="ghost icon-text"
             onClick={() => {
               const ok = store.update(captionsFromScenes, {
                 notice: 'Subtítulos generados desde el guion con tiempos estimados; editalos en el editor.',
@@ -431,10 +512,12 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
             }}
             disabled={scenes.length === 0}
           >
-            Subtítulos desde el guion
+            <Icon name="captions" size={14} />
+            <span>Subtítulos desde el guion</span>
           </button>
-          <button type="button" className="ghost" onClick={() => onNavigate('editor')}>
-            Ir al editor
+          <button type="button" className="ghost icon-text" onClick={() => onNavigate('editor')}>
+            <Icon name="editor" size={14} />
+            <span>Ir al editor</span>
           </button>
         </div>
       </div>
@@ -485,9 +568,9 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
             <input
               type="number"
               min={1}
-              max={12}
+              max={30}
               value={sceneCount}
-              onChange={(event) => setSceneCount(Math.max(1, Math.min(12, Number(event.target.value) || 1)))}
+              onChange={(event) => setSceneCount(Math.max(1, Math.min(30, Number(event.target.value) || 1)))}
             />
           </label>
           <label className="field compact-field">
@@ -566,6 +649,91 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
           </div>
         </article>
       ) : null}
+
+      <article className="card flow-prompts-card">
+        <div className="flow-prompts-head">
+          <div>
+            <p className="eyebrow">Storyboard con IA</p>
+            <h3>Prompts para Flow</h3>
+            <p className="muted">
+              Un prompt por escena para la extensión Flow Queue. Nada se envía solo.
+            </p>
+          </div>
+          <span className="count-pill">{flowPrompts.length} prompts</span>
+        </div>
+        <div className="form-grid">
+          <label className="field wide">
+            <span>Estilo visual</span>
+            <input
+              value={flowStyle}
+              maxLength={500}
+              onChange={(event) => setFlowStyle(event.target.value)}
+              placeholder="Ilustración editorial limpia, fondo plano, sin texto…"
+            />
+          </label>
+          <label className="check flow-check">
+            <input
+              type="checkbox"
+              checked={flowNarration}
+              onChange={(event) => setFlowNarration(event.target.checked)}
+            />
+            <span>Incluir la narración como contexto del prompt</span>
+          </label>
+          <label className="field wide">
+            <span>Proyecto de Google Flow</span>
+            <input
+              value={flowProjectUrl}
+              maxLength={500}
+              onChange={(event) => setFlowProjectUrl(event.target.value)}
+              placeholder="https://flow.google.com/project/…"
+            />
+          </label>
+        </div>
+        <div className="actions">
+          <button
+            type="button"
+            onClick={() => void openFlowProject()}
+            disabled={!flowProjectUrl.trim()}
+          >
+            Abrir proyecto de Flow
+          </button>
+        </div>
+        <p className="fine-print">
+          Abrí el proyecto con tu propia sesión de Google. Editor IA no maneja tu cuenta; Flow
+          Queue genera en la pestaña activa de Flow.
+        </p>
+        {flowPrompts.length === 0 ? (
+          <p className="empty-state compact">
+            Generá o agregá escenas para crear la lista de prompts.
+          </p>
+        ) : (
+          <details className="prompt-preview">
+            <summary>Ver el primer prompt</summary>
+            <pre>{flowPrompts[0]?.prompt}</pre>
+          </details>
+        )}
+        <div className="actions">
+          <button
+            type="button"
+            className="primary"
+            onClick={downloadFlowPrompts}
+            disabled={flowPrompts.length === 0}
+          >
+            Descargar .txt para Flow Queue
+          </button>
+          <button
+            type="button"
+            onClick={() => void copyFlowPrompts()}
+            disabled={flowPrompts.length === 0}
+          >
+            Copiar prompts
+          </button>
+        </div>
+        <p className="fine-print">
+          En la extensión: Importar .TXT → referencias → Iniciar cola. Las imágenes vuelven
+          numeradas para Auto-montar lote en Medios.
+        </p>
+      </article>
 
       <div className="script-toolbar">
         <div>

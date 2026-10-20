@@ -697,6 +697,52 @@
                         "type": "number",
                         "minimum": 0,
                         "maximum": 1
+                      },
+                      "flipH": {
+                        "type": "boolean"
+                      },
+                      "flipV": {
+                        "type": "boolean"
+                      },
+                      "keyframes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "frame": {
+                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                            },
+                            "offsetX": {
+                              "type": "integer",
+                              "minimum": -100000,
+                              "maximum": 100000
+                            },
+                            "offsetY": {
+                              "type": "integer",
+                              "minimum": -100000,
+                              "maximum": 100000
+                            },
+                            "scale": {
+                              "type": "number",
+                              "minimum": 0.5,
+                              "maximum": 4
+                            },
+                            "rotationDeg": {
+                              "type": "number",
+                              "minimum": -360,
+                              "maximum": 360
+                            },
+                            "opacity": {
+                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/opacity"
+                            }
+                          },
+                          "required": [
+                            "frame"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 1,
+                        "maxItems": 48
                       }
                     },
                     "additionalProperties": false
@@ -714,6 +760,68 @@
                       },
                       "fadeOutFrames": {
                         "$ref": "#/properties/assets/items/anyOf/0/properties/media/properties/durationFrames"
+                      },
+                      "highPassHz": {
+                        "type": "number",
+                        "minimum": 20,
+                        "maximum": 2000
+                      },
+                      "lowPassHz": {
+                        "type": "number",
+                        "minimum": 1000,
+                        "maximum": 20000
+                      },
+                      "eqLowDb": {
+                        "type": "number",
+                        "minimum": -12,
+                        "maximum": 12
+                      },
+                      "eqMidDb": {
+                        "type": "number",
+                        "minimum": -12,
+                        "maximum": 12
+                      },
+                      "eqHighDb": {
+                        "type": "number",
+                        "minimum": -12,
+                        "maximum": 12
+                      },
+                      "compressor": {
+                        "type": "boolean"
+                      },
+                      "deesser": {
+                        "type": "boolean"
+                      },
+                      "gateDb": {
+                        "type": "number",
+                        "minimum": -60,
+                        "maximum": -10
+                      },
+                      "denoise": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "gainKeyframes": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "frame": {
+                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                            },
+                            "gainDb": {
+                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio/properties/gainDb"
+                            }
+                          },
+                          "required": [
+                            "frame",
+                            "gainDb"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 1,
+                        "maxItems": 96
                       }
                     },
                     "additionalProperties": false
@@ -749,6 +857,126 @@
                   },
                   "speed": {
                     "$ref": "#/properties/video/properties/frameRate"
+                  },
+                  "effects": {
+                    "type": "object",
+                    "properties": {
+                      "brightness": {
+                        "type": "number",
+                        "minimum": -1,
+                        "maximum": 1
+                      },
+                      "contrast": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 3
+                      },
+                      "saturation": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 3
+                      },
+                      "temperature": {
+                        "type": "number",
+                        "minimum": -1,
+                        "maximum": 1
+                      },
+                      "vignette": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "sharpen": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 5
+                      },
+                      "blur": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 50
+                      },
+                      "grayscale": {
+                        "type": "boolean"
+                      },
+                      "sepia": {
+                        "type": "boolean"
+                      },
+                      "hueRotateDeg": {
+                        "type": "number",
+                        "minimum": -180,
+                        "maximum": 180
+                      },
+                      "curvePreset": {
+                        "type": "string",
+                        "enum": [
+                          "contrast-soft",
+                          "contrast-medium",
+                          "contrast-strong",
+                          "vintage",
+                          "cross-process",
+                          "darker",
+                          "lighter"
+                        ]
+                      },
+                      "fadeInFrames": {
+                        "$ref": "#/properties/assets/items/anyOf/0/properties/media/properties/durationFrames"
+                      },
+                      "fadeOutFrames": {
+                        "$ref": "#/properties/assets/items/anyOf/0/properties/media/properties/durationFrames"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "motion": {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "zoom-in",
+                          "zoom-out",
+                          "pan-left",
+                          "pan-right",
+                          "pan-up",
+                          "pan-down"
+                        ]
+                      },
+                      "intensity": {
+                        "type": "number",
+                        "minimum": 0.02,
+                        "maximum": 0.5
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "chromaKey": {
+                    "type": "object",
+                    "properties": {
+                      "color": {
+                        "type": "string",
+                        "pattern": "^#[0-9a-f]{6}$"
+                      },
+                      "similarity": {
+                        "type": "number",
+                        "minimum": 0.01,
+                        "maximum": 1
+                      },
+                      "blend": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      }
+                    },
+                    "required": [
+                      "color",
+                      "similarity",
+                      "blend"
+                    ],
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -850,6 +1078,15 @@
                       "assetId"
                     ],
                     "additionalProperties": false
+                  },
+                  "effects": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/effects"
+                  },
+                  "motion": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/motion"
+                  },
+                  "chromaKey": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/chromaKey"
                   }
                 },
                 "required": [
@@ -1008,6 +1245,31 @@
               },
               "endFrame": {
                 "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+              },
+              "words": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "startFrame": {
+                      "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    },
+                    "endFrame": {
+                      "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    }
+                  },
+                  "required": [
+                    "text",
+                    "startFrame",
+                    "endFrame"
+                  ],
+                  "additionalProperties": false
+                }
               }
             },
             "required": [
@@ -1384,6 +1646,28 @@
               }
             ]
           },
+          "videoPreset": {
+            "type": "string",
+            "enum": [
+              "ultrafast",
+              "superfast",
+              "veryfast",
+              "faster",
+              "fast",
+              "medium",
+              "slow",
+              "slower"
+            ],
+            "default": "veryfast"
+          },
+          "fit": {
+            "type": "string",
+            "enum": [
+              "contain",
+              "cover"
+            ],
+            "default": "contain"
+          },
           "pixelFormat": {
             "type": "string",
             "enum": [
@@ -1402,16 +1686,15 @@
             "minimum": 1,
             "maximum": 8
           },
+          "audioBitsPerSecond": {
+            "type": "integer",
+            "minimum": 16000,
+            "maximum": 512000,
+            "default": 128000
+          },
           "aspectRatio": {
             "type": "string",
-            "enum": [
-              "16:9",
-              "9:16",
-              "1:1",
-              "4:5",
-              "3:2",
-              "2:3"
-            ]
+            "pattern": "^\\d{1,5}:\\d{1,5}$"
           },
           "qualityGate": {
             "type": "object",

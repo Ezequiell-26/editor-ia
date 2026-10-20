@@ -46,12 +46,36 @@ pub struct ProviderSettings {
     pub model: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AudioProviderSettings {
+    /// `windows-sapi`, `elevenlabs` or `external-web`.
+    pub kind: String,
+    pub voice_id: String,
+    pub model_id: String,
+    pub approved: bool,
+    pub external_url: String,
+}
+
+impl Default for AudioProviderSettings {
+    fn default() -> Self {
+        Self {
+            kind: "windows-sapi".to_owned(),
+            voice_id: String::new(),
+            model_id: "eleven_multilingual_v2".to_owned(),
+            approved: false,
+            external_url: "https://elevenlabs.io/app/speech-synthesis".to_owned(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub ffmpeg_path: Option<String>,
     pub ffprobe_path: Option<String>,
     pub provider: ProviderSettings,
+    pub audio_provider: AudioProviderSettings,
     pub tts_voice: Option<String>,
     pub language: Option<String>,
 }
@@ -60,6 +84,12 @@ impl Settings {
     fn sanitized(mut self) -> Self {
         if self.provider.kind.is_empty() {
             self.provider.kind = "openai-compatible".to_owned();
+        }
+        if self.audio_provider.kind.is_empty() {
+            self.audio_provider.kind = "windows-sapi".to_owned();
+        }
+        if self.audio_provider.model_id.trim().is_empty() {
+            self.audio_provider.model_id = "eleven_multilingual_v2".to_owned();
         }
         if self.language.is_none() {
             self.language = Some("es".to_owned());
@@ -82,6 +112,7 @@ pub struct AppState {
     pub cache_dir: PathBuf,
     pub render_jobs: SharedRenderJobs,
     pub thumbnails: Mutex<HashMap<String, String>>,
+    pub analysis_cache: Mutex<HashMap<String, crate::commands::intelligence::MediaAnalysis>>,
 }
 
 impl AppState {
@@ -110,6 +141,7 @@ impl AppState {
             cache_dir,
             render_jobs: Arc::new(Mutex::new(HashMap::new())),
             thumbnails: Mutex::new(HashMap::new()),
+            analysis_cache: Mutex::new(HashMap::new()),
         }
     }
 

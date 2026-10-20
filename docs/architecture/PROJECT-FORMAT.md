@@ -111,7 +111,7 @@ Un asset **siempre** tiene una ruta local. No existe la variante "renderizo desd
 
 ### 5.4 `timeline.clips[]` — discriminado por `kind`
 
-`kind` ∈ `video | image | audio | graphic`. Campos comunes: `id`, `trackId`, `startFrame`, `durationFrames`, `label?`, `transform?`, `audio?`.
+`kind` ∈ `video | image | audio | graphic`. Campos comunes: `id`, `trackId`, `startFrame`, `durationFrames`, `label?`, `transform?`, `audio?`, `effects?`, `motion?`.
 
 `source` ∈
 - `{type:"asset", assetId, inFrame, outFrame}` — clips `video` y `audio`
@@ -120,7 +120,44 @@ Un asset **siempre** tiene una ruta local. No existe la variante "renderizo desd
 
 `speed` (racional) solo en `video` y `audio`.
 `transform` = `{offsetX, offsetY, scaleX, scaleY, rotationDeg, opacity}` todos opcionales; `opacity` en [0,1], `scaleX/Y` > 0.
-`audio` = `{gainDb ∈ [−60,12], fadeInFrames, fadeOutFrames}`.
+`audio` = `{gainDb ∈ [−60,12], fadeInFrames, fadeOutFrames, highPassHz ∈ [20,2000], lowPassHz ∈ [1000,20000], eqLowDb|eqMidDb|eqHighDb ∈ [−12,12], compressor: boolean, denoise ∈ [0,1]}`.
+`chromaKey` solo en `video` y `image` = `{color: "#rrggbb", similarity ∈ [0.01,1], blend ∈ [0,1]}`; el render usa `chromakey` y conserva el alfa para la capa inferior.
+`effects` solo en `video` y `image`, todos opcionales y con rangos cerrados:
+
+| Campo | Rango | Efecto |
+| --- | --- | --- |
+| `brightness` | [−1, 1] | luminosidad, `eq` |
+| `contrast` | [0, 3] | contraste, `eq` |
+| `saturation` | [0, 3] | saturación, `eq` |
+| `temperature` | [−1, 1] | balance cálido/frío, `colorbalance` |
+| `vignette` | [0, 1] | viñeta |
+| `sharpen` | [0, 5] | nitidez, `unsharp` |
+| `blur` | [0, 50] | desenfoque gaussiano, sigma |
+| `grayscale`, `sepia` | booleano | conversión de color |
+| `fadeInFrames`, `fadeOutFrames` | duración | fundido visual dentro del clip |
+
+La vista previa aplica los efectos con filtros CSS y el render con FFmpeg; ambos
+leen los mismos campos. Rust valida la identidad de timing y acota cada efecto al
+construir el grafo, mientras que los rangos estrictos se rechazan al validar el
+documento con Zod. Los efectos no se admiten en clips `audio` ni `graphic`.
+
+`motion` solo en `video` y `image`:
+
+| Campo | Valores | Efecto |
+| --- | --- | --- |
+| `type` | `zoom-in`, `zoom-out`, `pan-left`, `pan-right`, `pan-up`, `pan-down` | movimiento durante todo el clip |
+| `intensity` | [0.02, 0.5], default 0.12 | porcentaje de zoom o recorrido del paneo |
+
+El render usa `zoompan` con `z`, `x`, `y` evaluados por frame y conserva la
+relación de aspecto del material; la vista previa lo aproxima con transformaciones
+CSS. El ensamblado automático puede alternar estos presets y agregar fades de
+transición sin intervención manual.
+
+La suite de audio por clip se implementa con `highpass`, `lowpass`, `equalizer`,
+`afftdn`, `acompressor`, `volume` y `afade`. El proyecto puede declarar
+`audio.loudnessTarget`; el render aplica `loudnorm` en una pasada antes del
+limitador final. La normalización es aproximada y así se declara en la UI. La
+reducción de ruido (`afftdn`) no es un modelo de voice isolation.
 
 **Invariables:** dos clips del mismo track no se solapan (tocarse en el borde exacto es válido); el `kind` del track debe ser compatible con el del clip (`audio` acepta tracks `audio` y `narration`).
 
@@ -157,12 +194,16 @@ El valor medido del stack actual (`−13,8 LUFS`) entra en el rango, y los objet
 
 ### 5.9 `renderProfiles[]`
 
-`{id, name (único), container, videoCodec, audioCodec, resolution, frameRate, bitrate, pixelFormat, audioSampleRate, audioChannels, aspectRatio, qualityGate}`
+`{id, name (único), container, videoCodec, audioCodec, resolution, frameRate, bitrate, videoPreset, pixelFormat, audioSampleRate, audioChannels, audioBitsPerSecond, aspectRatio, qualityGate}`
 
 - `container` ∈ `mp4 | mov | webm`; matriz obligatoria: mp4/mov → `h264|h265` + `aac`; webm → `vp9|av1` + `opus`.
 - `bitrate` ∈ `{mode:"crf", crf 0–51}` | `{mode:"target", videoBitsPerSecond > 0}`.
-- `aspectRatio` ∈ `16:9 | 9:16 | 1:1 | 4:5 | 3:2 | 2:3` y debe coincidir con `resolution` en multiplicación cruzada exacta (`1920×9 = 1080×16`).
+- `videoPreset` ∈ `ultrafast|superfast|veryfast|faster|fast|medium|slow|slower` (default `veryfast`).
+- `audioBitsPerSecond` 16 000–512 000 (default 128 000).
+- `aspectRatio` es cualquier proporción entera `^\d{1,5}:\d{1,5}$` (16:9, 9:16, 4:3, 21:9, 683:384…) y debe coincidir con `resolution` en multiplicación cruzada exacta (`1920×9 = 1080×16`).
 - `qualityGate` = `{minOutputBytes > 0, durationToleranceFrames 0–600, requireAllAssetsReady default true}`.
+
+Los perfiles nuevos usan CRF 22 + `veryfast` + AAC 128 kbps. El perfil **“Formato del proyecto WxH”** sigue el canvas del proyecto, incluso en proporciones no estándar.
 
 `qualityGate` es la promesa que el worker debe verificar antes de informar `completed`. Un perfil no puede aceptar un archivo de salida vacío.
 
@@ -238,7 +279,7 @@ Regenerar el artefacto y los fixtures:
 ```bash
 npm run schema:generate
 npm run fixtures:write
-npm run verify   # typecheck + 228 tests
+npm run verify   # typecheck + 358 tests Vitest
 ```
 
 Un test falla si el JSON Schema commiteado difiere del generado, así que no puede quedar desactualizado sin romper CI.

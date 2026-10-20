@@ -1,0 +1,11 @@
+{
+  "name": "@editor-ia/web-tts-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome MV3 side panel that fills text, clicks generate and downloads audio from a user-authorized TTS website.",
+  "scripts": {
+    "test": "node scripts/run-tests.mjs"
+  },
+  "license": "MIT"
+}

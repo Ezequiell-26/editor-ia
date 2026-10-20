@@ -2,10 +2,15 @@ import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import type {
   AssetFileInfo,
+  AudioProviderInfo,
   CreateProjectRequest,
   DesktopService,
   GenerateScriptRequest,
   ImportOutcome,
+  McpCallResult,
+  McpProbeResult,
+  McpServerConfig,
+  McpServerInput,
   NarrationResult,
   OpenedProject,
   ProviderInfo,
@@ -91,6 +96,7 @@ export function createFakeService(): FakeService {
   let current: OpenedProject | null = null;
   let saveFailure: string | null = null;
   let importOutcome: ImportOutcome | null = null;
+  let mcpServers: McpServerConfig[] = [];
   const progressHandlers = new Set<(event: RenderProgressEvent) => void>();
   const finishedHandlers = new Set<(event: RenderFinishedEvent) => void>();
   const calls = { create: 0, open: 0, save: 0, import: 0, render: 0 };
@@ -167,11 +173,179 @@ export function createFakeService(): FakeService {
         }
       );
     },
+    async importMediaPaths(input) {
+      return {
+        assets: input.paths.slice(0, 12).map((path, index) =>
+          readyAsset({
+            id: newId(),
+            label: `Artefacto ${index + 1}`,
+            source: { type: 'local', path },
+          }),
+        ),
+        warnings: [],
+      };
+    },
     async mediaThumbnail() {
       return THUMB;
     },
     async checkAssetFiles(paths: string[]) {
       return paths.map<AssetFileInfo>((path) => ({ path, exists: true, bytes: 1000 }));
+    },
+    async detectScenes(_assetId: string, threshold: number) {
+      return {
+        cuts: [
+          { frame: 60, seconds: 2 },
+          { frame: 120, seconds: 4 },
+        ],
+        durationFrames: 300,
+        fpsNum: 30,
+        fpsDen: 1,
+        threshold,
+      };
+    },
+    async analyzeMedia(
+      assetId: string,
+      _sceneThreshold?: number,
+      _silenceDb?: number,
+      _minSilenceSeconds?: number,
+    ) {
+      return {
+        assetId,
+        kind: 'video' as const,
+        durationSeconds: 10,
+        fpsNum: 30,
+        fpsDen: 1,
+        hasAudio: true,
+        scenes: [2, 4],
+        silences: [{ startSeconds: 1, endSeconds: 1.5 }],
+        blacks: [],
+        freezes: [],
+        loudness: {
+          integratedLufs: -18,
+          truePeakDb: -1.5,
+          lraDb: 3,
+          noiseFloorDb: -62,
+        },
+        lumaAverage: 118,
+        saturationAverage: 42,
+        warnings: [],
+      };
+    },
+    async writeProjectVariant(input) {
+      return {
+        path: `${input.directory}\${input.fileName}.editoria.json`,
+        bytes: 2048,
+        copiedAssets: 1,
+      };
+    },
+    async renderProjectVariant(input) {
+      return {
+        path: input.outputPath,
+        bytes: 1024,
+        durationSeconds: 5,
+        width: 1920,
+        height: 1080,
+      };
+    },
+    async convertMedia(request) {
+      return {
+        path: `${request.outputDir}\\convertido.${request.target}`,
+        bytes: 2048,
+        durationSeconds: 1,
+        formatName: request.target,
+      };
+    },
+    async listMcpServers() {
+      return mcpServers.map((server) => ({ ...server }));
+    },
+    async saveMcpServer(input: McpServerInput) {
+      const server: McpServerConfig = {
+        id: input.id ?? newId(),
+        name: input.name,
+        command: input.command,
+        args: input.args,
+        envKeys: input.env.map((variable) => variable.key),
+        workingDir: input.workingDir ?? null,
+        enabled: input.enabled,
+      };
+      const index = mcpServers.findIndex((item) => item.id === server.id);
+      if (index >= 0) mcpServers[index] = server;
+      else mcpServers = [...mcpServers, server];
+      return server;
+    },
+    async deleteMcpServer(id: string) {
+      mcpServers = mcpServers.filter((server) => server.id !== id);
+    },
+    async probeMcpServer(id: string): Promise<McpProbeResult> {
+      const server = mcpServers.find((item) => item.id === id);
+      const flow = /flow/i.test(server?.name ?? '');
+      return {
+        serverId: id,
+        serverName: server?.name ?? 'Servidor simulado',
+        serverVersion: '1.0.0',
+        protocolVersion: '2025-06-18',
+        tools: [
+          {
+            name: 'echo',
+            description: 'Devuelve el texto recibido',
+            inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+          },
+          ...(flow
+            ? [
+                {
+                  name: 'flow_generate_image',
+                  description: 'Genera una imagen con Google Flow',
+                  inputSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
+                },
+                {
+                  name: 'flow_generate_video',
+                  description: 'Genera un video con Google Flow',
+                  inputSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
+                },
+              ]
+            : []),
+        ],
+        elapsedMs: 12,
+      };
+    },
+    async callMcpTool(id: string, tool: string, args: unknown): Promise<McpCallResult> {
+      return {
+        serverId: id,
+        toolName: tool,
+        result: { content: [{ type: 'text', text: JSON.stringify(args) }], isError: false },
+        isError: false,
+        elapsedMs: 9,
+      };
+    },
+    async loadDirectorMemory() {
+      return null;
+    },
+    async saveDirectorMemory() {},
+    async transcribeAsset() {
+      return {
+        language: 'es',
+        languageProbability: 0.98,
+        durationSeconds: 2.5,
+        model: 'small',
+        segments: [
+          {
+            start: 0,
+            end: 1.2,
+            text: 'Hola desde la prueba.',
+            words: [
+              { start: 0, end: 0.4, word: 'Hola', probability: 0.9 },
+              { start: 0.4, end: 0.8, word: 'desde', probability: 0.9 },
+              { start: 0.8, end: 1.2, word: 'la', probability: 0.9 },
+            ],
+          },
+          {
+            start: 1.2,
+            end: 2.5,
+            text: 'Segundo subtítulo automático.',
+            words: [],
+          },
+        ],
+      };
     },
     async systemInfo(): Promise<SystemInfo> {
       return {
@@ -217,6 +391,37 @@ export function createFakeService(): FakeService {
     async clearProviderKey() {
       return service.getProvider();
     },
+    async getAudioProvider(): Promise<AudioProviderInfo> {
+      return {
+        kind: 'windows-sapi',
+        voiceId: 'Microsoft Helena',
+        modelId: 'eleven_multilingual_v2',
+        approved: false,
+        externalUrl: 'https://elevenlabs.io/app/speech-synthesis',
+        hasKey: false,
+        keyringAvailable: true,
+      };
+    },
+    async saveAudioProvider(input) {
+      return {
+        kind: input.kind,
+        voiceId: input.voiceId,
+        modelId: input.modelId,
+        approved: input.approved,
+        externalUrl: input.externalUrl,
+        hasKey: Boolean(input.apiKey),
+        keyringAvailable: true,
+      };
+    },
+    async clearAudioProviderKey() {
+      return service.getAudioProvider();
+    },
+    async openExternalUrl() {
+      return;
+    },
+    async savePublicationManifest() {
+      return 'C:\\Users\\tester\\Proyectos\\publicacion.json';
+    },
     async generateScript(request: GenerateScriptRequest): Promise<ScriptPlan> {
       return {
         title: `Guion de ${request.sceneCount} escenas`,
@@ -238,16 +443,23 @@ export function createFakeService(): FakeService {
     },
     async listVoices(): Promise<VoiceInfo[]> {
       return [
-        { name: 'Microsoft Helena', culture: 'es-ES', gender: 'Female' },
-        { name: 'Microsoft Sabina', culture: 'es-MX', gender: 'Female' },
+        { id: 'Microsoft Helena', name: 'Microsoft Helena', culture: 'es-ES', gender: 'Female' },
+        { id: 'Microsoft Sabina', name: 'Microsoft Sabina', culture: 'es-MX', gender: 'Female' },
       ];
     },
     async synthesizeNarration(): Promise<NarrationResult> {
-      return { asset: unverifiedAudioAsset(), voice: 'Microsoft Helena' };
+      return { asset: unverifiedAudioAsset(), voice: 'Microsoft Helena', provider: 'windows-sapi' };
     },
     async startRender(): Promise<RenderStarted> {
       calls.render += 1;
       return { jobId: 'job-1', profileName: 'YouTube 1080p' };
+    },
+    async startRenderTo(_profileId: string, outputPath: string): Promise<RenderStarted> {
+      calls.render += 1;
+      return { jobId: `job-${calls.render}`, profileName: outputPath.split(/[\\/]/).pop() ?? 'lote' };
+    },
+    async chooseExportDirectory() {
+      return 'C:\\Users\\tester\\Exports';
     },
     async cancelRender() {
       return;

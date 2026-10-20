@@ -8,24 +8,30 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { forgetRecent, loadRecents, rememberRecent, type RecentProject } from '../../lib/recents';
+import {
+  FPS_PRESETS,
+  FORMAT_PRESETS,
+  aspectRatioOf,
+  evenDimension,
+  formatFps,
+  validFpsRange,
+} from '../../state/video-format';
 
 interface ProjectHomeProps {
   readonly onNavigate: (id: ViewId) => void;
 }
-
-type Preset = '16:9' | '9:16';
-
-const PRESETS: Record<Preset, { width: number; height: number; label: string; note: string }> = {
-  '16:9': { width: 1920, height: 1080, label: 'Horizontal 16:9', note: 'YouTube, tutoriales, escritorio' },
-  '9:16': { width: 1080, height: 1920, label: 'Vertical 9:16', note: 'Shorts, Reels, TikTok' },
-};
 
 export function ProjectHome({ onNavigate }: ProjectHomeProps) {
   const store = useProjectStore();
   const project = store.state.project;
   const opened = store.state.opened;
   const [name, setName] = useState('');
-  const [preset, setPreset] = useState<Preset>('16:9');
+  const [formatId, setFormatId] = useState(FORMAT_PRESETS[0]?.id ?? 'landscape');
+  const [width, setWidth] = useState(1920);
+  const [height, setHeight] = useState(1080);
+  const [fpsId, setFpsId] = useState('30');
+  const [fpsNum, setFpsNum] = useState(30);
+  const [fpsDen, setFpsDen] = useState(1);
   const [recents, setRecents] = useState<RecentProject[]>(() => loadRecents());
   const [busy, setBusy] = useState(false);
 
@@ -62,15 +68,20 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
       store.setNotice('Poné un nombre para el proyecto.');
       return;
     }
+    if (!validFpsRange(fpsNum, fpsDen)) {
+      store.setNotice('La tasa de frames debe quedar entre 1 y 240 fps.');
+      return;
+    }
     if (!confirmLeave('Crear un proyecto nuevo')) return;
     setBusy(true);
-    const chosen = PRESETS[preset];
+    const safeWidth = evenDimension(width);
+    const safeHeight = evenDimension(height);
     const ok = await store.createProject({
       name: trimmed,
-      width: chosen.width,
-      height: chosen.height,
-      fpsNum: 30,
-      fpsDen: 1,
+      width: safeWidth,
+      height: safeHeight,
+      fpsNum: Math.max(1, Math.round(fpsNum || 30)),
+      fpsDen: Math.max(1, Math.round(fpsDen || 1)),
     });
     setBusy(false);
     if (ok) {
@@ -105,6 +116,24 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
       void store.service.closeProject().catch(() => {
         // Closing the native session is best-effort; the screen is already empty.
       });
+    }
+  }
+
+  function chooseFormat(id: string): void {
+    setFormatId(id);
+    const preset = FORMAT_PRESETS.find((item) => item.id === id);
+    if (preset) {
+      setWidth(preset.width);
+      setHeight(preset.height);
+    }
+  }
+
+  function chooseFps(id: string): void {
+    setFpsId(id);
+    const preset = FPS_PRESETS.find((item) => item.id === id);
+    if (preset) {
+      setFpsNum(preset.num);
+      setFpsDen(preset.den);
     }
   }
 
@@ -209,6 +238,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
             <label className="field">
               <span>Nombre</span>
               <input
+                id="project-name"
                 type="text"
                 value={name}
                 placeholder="Mi próximo video"
@@ -222,34 +252,111 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
                 }}
               />
             </label>
-            <fieldset className="preset-group" disabled={locked}>
-              <legend>Formato</legend>
-              {(Object.keys(PRESETS) as Preset[]).map((key) => (
-                <label key={key} className={preset === key ? 'preset selected' : 'preset'}>
+            <label className="field">
+              <span>Formato</span>
+              <select
+                value={formatId}
+                disabled={locked}
+                onChange={(event) => chooseFormat(event.target.value)}
+              >
+                {FORMAT_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} · {preset.width}×{preset.height}
+                  </option>
+                ))}
+                <option value="custom">Personalizado…</option>
+              </select>
+            </label>
+            {formatId === 'custom' ? (
+              <div className="format-custom">
+                <label className="field">
+                  <span>Ancho</span>
                   <input
-                    type="radio"
-                    name="preset"
-                    value={key}
-                    checked={preset === key}
-                    onChange={() => setPreset(key)}
+                    type="number"
+                    min={16}
+                    max={16_384}
+                    step={2}
+                    value={width}
+                    disabled={locked}
+                    onChange={(event) => setWidth(Number(event.target.value))}
                   />
-                  <strong>{PRESETS[key].label}</strong>
-                  <span>{PRESETS[key].note}</span>
-                  <span className="preset-size">
-                    {PRESETS[key].width}×{PRESETS[key].height} · 30 fps
-                  </span>
                 </label>
-              ))}
-            </fieldset>
+                <label className="field">
+                  <span>Alto</span>
+                  <input
+                    type="number"
+                    min={16}
+                    max={16_384}
+                    step={2}
+                    value={height}
+                    disabled={locked}
+                    onChange={(event) => setHeight(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+            ) : null}
+            <label className="field">
+              <span>Tasa de frames</span>
+              <select
+                value={fpsId}
+                disabled={locked}
+                onChange={(event) => chooseFps(event.target.value)}
+              >
+                {FPS_PRESETS.map((preset) => (
+                  <option key={preset.id} value={preset.id}>
+                    {preset.label} fps
+                  </option>
+                ))}
+                <option value="custom">Personalizada…</option>
+              </select>
+            </label>
+            {fpsId === 'custom' ? (
+              <div className="format-custom">
+                <label className="field">
+                  <span>FPS numerador</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={240_000}
+                    value={fpsNum}
+                    disabled={locked}
+                    onChange={(event) => setFpsNum(Number(event.target.value))}
+                  />
+                </label>
+                <label className="field">
+                  <span>FPS denominador</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={100_100}
+                    value={fpsDen}
+                    disabled={locked}
+                    onChange={(event) => setFpsDen(Number(event.target.value))}
+                  />
+                </label>
+              </div>
+            ) : null}
+          </div>
+          <div className="project-format-summary">
+            <span>
+              <strong>{aspectRatioOf(evenDimension(width), evenDimension(height))}</strong>
+            </span>
+            <span>
+              {evenDimension(width)}×{evenDimension(height)}
+            </span>
+            <span>{formatFps(fpsNum, fpsDen)} fps</span>
           </div>
           <div className="actions">
             <button type="button" className="primary" onClick={() => void create()} disabled={locked}>
               {busy ? 'Creando…' : 'Crear y elegir ubicación…'}
             </button>
+            <button type="button" className="ghost" onClick={() => onNavigate('learn')}>
+              Ver tutorial
+            </button>
           </div>
           <p className="fine-print">
-            Se abre el diálogo de Windows para guardar el archivo. Nada se escribe hasta que
-            elegís la carpeta.
+            Cualquier formato y fps exacto. Se abre el diálogo de Windows para guardar el archivo;
+            nada se escribe hasta que elegís la carpeta.
           </p>
         </article>
 
