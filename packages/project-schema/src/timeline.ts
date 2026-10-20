@@ -20,9 +20,16 @@ export const TrackKindSchema = z.enum([
   'narration',
   'caption',
   'graphic',
+  'adjustment',
 ]);
 
-export const ClipKindSchema = z.enum(['video', 'image', 'audio', 'graphic']);
+export const ClipKindSchema = z.enum([
+  'video',
+  'image',
+  'audio',
+  'graphic',
+  'adjustment',
+]);
 
 export const TrackSchema = z
   .object({
@@ -42,6 +49,16 @@ export const MAX_GAIN_KEYFRAMES = 96;
 export const TRANSFORM_KEYFRAME_SCALE_MIN = 0.5;
 export const TRANSFORM_KEYFRAME_SCALE_MAX = 4;
 
+/** Easing of the segment that starts at this keyframe. */
+export const KeyframeEasingSchema = z.enum([
+  'linear',
+  'ease-in',
+  'ease-out',
+  'ease-in-out',
+  'hold',
+]);
+export type KeyframeEasing = z.infer<typeof KeyframeEasingSchema>;
+
 /**
  * A transform keyframe is an absolute sample at `frame` frames from the clip
  * start. Properties absent from a keyframe fall back to the nearest keyframe
@@ -60,6 +77,7 @@ export const ClipTransformKeyframeSchema = z
       .optional(),
     rotationDeg: z.number().gte(-360).lte(360).optional(),
     opacity: UnitIntervalSchema.optional(),
+    easing: KeyframeEasingSchema.optional(),
   })
   .strict()
   .superRefine((keyframe, ctx) => {
@@ -81,6 +99,7 @@ export const ClipGainKeyframeSchema = z
   .object({
     frame: FrameSchema,
     gainDb: DecibelSchema,
+    easing: KeyframeEasingSchema.optional(),
   })
   .strict();
 
@@ -112,6 +131,9 @@ export const ClipAudioSchema = z
     deesser: z.boolean().optional(),
     gateDb: z.number().gte(-60).lte(-10).optional(),
     denoise: z.number().gte(0).lte(1).optional(),
+    voiceEffect: z
+      .enum(['deep', 'chipmunk', 'robot', 'echo', 'cave', 'radio'])
+      .optional(),
     gainKeyframes: z.array(ClipGainKeyframeSchema).min(1).max(MAX_GAIN_KEYFRAMES).optional(),
   })
   .strict();
@@ -139,12 +161,133 @@ const GraphicSourceSchema = z
   })
   .strict();
 
+/**
+ * A source-less timeline element that grades the final composite inside its own
+ * time window. It owns no media: the renderer emits its effect chain with
+ * `enable='between(t,start,end)'`, so the grade only exists while the clip is
+ * under the playhead.
+ */
+const AdjustmentSourceSchema = z.object({ type: z.literal('adjustment') }).strict();
+
+export const MAX_CURVE_POINTS = 16;
+export const CURVE_CHANNELS = ['master', 'red', 'green', 'blue'] as const;
+export type CurveChannel = (typeof CURVE_CHANNELS)[number];
+
+/**
+ * A point of a color curve. `x` is the input level and `y` the output level,
+ * both in [0,1]. The first point anchors black (x=0) and the last anchors white
+ * (x=1); the renderer's `curves` filter expects an ordered set.
+ */
+export const CurvePointSchema = z
+  .object({
+    x: UnitIntervalSchema,
+    y: UnitIntervalSchema,
+  })
+  .strict();
+export type CurvePoint = z.infer<typeof CurvePointSchema>;
+
+const CurveChannelPointsSchema = z
+  .array(CurvePointSchema)
+  .min(2)
+  .max(MAX_CURVE_POINTS)
+  .superRefine((points, ctx) => {
+    const first = points[0];
+    const last = points[points.length - 1];
+    if (!first || first.x !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'the first curve point must anchor black at x=0',
+      });
+    }
+    if (!last || last.x !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'the last curve point must anchor white at x=1',
+      });
+    }
+    for (let index = 1; index < points.length; index += 1) {
+      const previous = points[index - 1];
+      const point = points[index];
+      if (previous && point && point.x <= previous.x) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'curve points must be strictly ordered by x',
+        });
+        break;
+      }
+    }
+  });
+
+export const ClipCurvesSchema = z
+  .object({
+    master: CurveChannelPointsSchema.optional(),
+    red: CurveChannelPointsSchema.optional(),
+    green: CurveChannelPointsSchema.optional(),
+    blue: CurveChannelPointsSchema.optional(),
+  })
+  .strict()
+  .superRefine((curves, ctx) => {
+    if (!curves.master && !curves.red && !curves.green && !curves.blue) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'a custom curve needs at least one channel',
+      });
+    }
+  });
+export type ClipCurves = z.infer<typeof ClipCurvesSchema>;
+
 export const ClipEffectsSchema = z
   .object({
     brightness: z.number().gte(-1).lte(1).optional(),
     contrast: z.number().gte(0).lte(3).optional(),
     saturation: z.number().gte(0).lte(3).optional(),
     temperature: z.number().gte(-1).lte(1).optional(),
+    lift: z
+      .object({
+        r: z.number().gte(-1).lte(1),
+        g: z.number().gte(-1).lte(1),
+        b: z.number().gte(-1).lte(1),
+      })
+      .strict()
+      .optional(),
+    gamma: z
+      .object({
+        r: z.number().gte(-1).lte(1),
+        g: z.number().gte(-1).lte(1),
+        b: z.number().gte(-1).lte(1),
+      })
+      .strict()
+      .optional(),
+    gain: z
+      .object({
+        r: z.number().gte(-1).lte(1),
+        g: z.number().gte(-1).lte(1),
+        b: z.number().gte(-1).lte(1),
+      })
+      .strict()
+      .optional(),
+    hsl: z
+      .object({
+        hue: z.number().gte(-180).lte(180),
+        saturation: z.number().gte(-1).lte(1),
+        intensity: z.number().gte(-1).lte(1),
+        colors: z
+          .array(z.enum(['r', 'y', 'g', 'c', 'b', 'm']))
+          .min(1)
+          .max(6)
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    colorMatch: z
+      .object({
+        r: z.number().gte(0.25).lte(4),
+        g: z.number().gte(0.25).lte(4),
+        b: z.number().gte(0.25).lte(4),
+        strength: z.number().gte(0).lte(1),
+      })
+      .strict()
+      .optional(),
     vignette: z.number().gte(0).lte(1).optional(),
     sharpen: z.number().gte(0).lte(5).optional(),
     blur: z.number().gte(0).lte(50).optional(),
@@ -162,6 +305,8 @@ export const ClipEffectsSchema = z
         'lighter',
       ])
       .optional(),
+    curves: ClipCurvesSchema.optional(),
+    lutFile: z.string().min(1).max(500).optional(),
     fadeInFrames: DurationSchema.optional(),
     fadeOutFrames: DurationSchema.optional(),
   })
@@ -182,6 +327,121 @@ export const ChromaKeySchema = z
   })
   .strict();
 
+export const BlendModeSchema = z.enum([
+  'multiply',
+  'screen',
+  'overlay',
+  'soft-light',
+  'darken',
+  'lighten',
+  'color-dodge',
+  'color-burn',
+  'hard-light',
+]);
+export type BlendMode = z.infer<typeof BlendModeSchema>;
+
+export const MAX_MASK_KEYFRAMES = 32;
+export const ClipMaskKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    x: z.number().gte(-1).lte(1).optional(),
+    y: z.number().gte(-1).lte(1).optional(),
+    width: z.number().gt(0).lte(2).optional(),
+    height: z.number().gt(0).lte(2).optional(),
+    rotationDeg: z.number().gte(-180).lte(180).optional(),
+    feather: z.number().gte(0).lte(1).optional(),
+    easing: KeyframeEasingSchema.optional(),
+  })
+  .strict()
+  .superRefine((keyframe, ctx) => {
+    if (
+      keyframe.x === undefined &&
+      keyframe.y === undefined &&
+      keyframe.width === undefined &&
+      keyframe.height === undefined &&
+      keyframe.rotationDeg === undefined &&
+      keyframe.feather === undefined
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'a mask keyframe must animate at least one property',
+      });
+    }
+  });
+export type ClipMaskKeyframe = z.infer<typeof ClipMaskKeyframeSchema>;
+
+export const ClipMaskSchema = z
+  .object({
+    shape: z.enum(['rectangle', 'ellipse']),
+    x: z.number().gte(-1).lte(1),
+    y: z.number().gte(-1).lte(1),
+    width: z.number().gt(0).lte(2),
+    height: z.number().gt(0).lte(2),
+    rotationDeg: z.number().gte(-180).lte(180).optional(),
+    feather: z.number().gte(0).lte(1).default(0.08),
+    invert: z.boolean().default(false),
+    keyframes: z.array(ClipMaskKeyframeSchema).min(1).max(MAX_MASK_KEYFRAMES).optional(),
+  })
+  .strict();
+export type ClipMask = z.infer<typeof ClipMaskSchema>;
+
+/**
+ * A stabilization transform analyzed on the clip's own source window. The
+ * renderer refuses to apply it if the clip is later trimmed, retimed, reversed
+ * or given an entrance transition, because the transform rows would no longer
+ * line up with the frames it feeds.
+ */
+export const ClipStabilizationSchema = z
+  .object({
+    smoothing: z.number().int().min(1).max(60),
+    transformFile: z.string().min(1).max(500),
+    inFrame: FrameSchema,
+    outFrame: FrameSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.outFrame <= value.inFrame) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['outFrame'],
+        message: 'the analyzed window must end after it starts',
+      });
+    }
+  });
+export type ClipStabilization = z.infer<typeof ClipStabilizationSchema>;
+
+/** Visual transition into a clip. Dissolve overlaps the previous clip. */
+export const MAX_TRANSITION_FRAMES = 120;
+export const ClipTransitionSchema = z
+  .object({
+    type: z.enum(['dissolve', 'fade-black', 'slide-left', 'slide-right']),
+    frames: z.number().int().min(1).max(MAX_TRANSITION_FRAMES),
+  })
+  .strict();
+
+/**
+ * Entrance or exit animation owned by the clip itself. Unlike a transition,
+ * it does not overlap a neighbour: the animation plays inside the clip.
+ * `slide-*` describes the direction the layer travels, `zoom-in` grows,
+ * `zoom-out` shrinks and `spin` rotates clockwise.
+ */
+export const MAX_ANIMATION_FRAMES = 240;
+export const ClipAnimationTypeSchema = z.enum([
+  'fade',
+  'slide-left',
+  'slide-right',
+  'slide-up',
+  'slide-down',
+]);
+export type ClipAnimationType = z.infer<typeof ClipAnimationTypeSchema>;
+export const ClipAnimationSchema = z
+  .object({
+    type: ClipAnimationTypeSchema,
+    durationFrames: z.number().int().min(1).max(MAX_ANIMATION_FRAMES),
+  })
+  .strict();
+export type ClipAnimation = z.infer<typeof ClipAnimationSchema>;
+
 const clipCommon = {
   id: EntityIdSchema,
   trackId: EntityIdSchema,
@@ -198,9 +458,16 @@ const VideoClipSchema = z
     kind: z.literal('video'),
     source: WindowedAssetSourceSchema,
     speed: FrameRateSchema.optional(),
+    reverse: z.boolean().optional(),
     effects: ClipEffectsSchema.optional(),
     motion: ClipMotionSchema.optional(),
     chromaKey: ChromaKeySchema.optional(),
+    mask: ClipMaskSchema.optional(),
+    blendMode: BlendModeSchema.optional(),
+    stabilization: ClipStabilizationSchema.optional(),
+    transitionIn: ClipTransitionSchema.optional(),
+    animationIn: ClipAnimationSchema.optional(),
+    animationOut: ClipAnimationSchema.optional(),
   })
   .strict();
 
@@ -210,6 +477,7 @@ const AudioClipSchema = z
     kind: z.literal('audio'),
     source: WindowedAssetSourceSchema,
     speed: FrameRateSchema.optional(),
+    reverse: z.boolean().optional(),
   })
   .strict();
 
@@ -221,11 +489,25 @@ const ImageIconSchema = z
     effects: ClipEffectsSchema.optional(),
     motion: ClipMotionSchema.optional(),
     chromaKey: ChromaKeySchema.optional(),
+    mask: ClipMaskSchema.optional(),
+    blendMode: BlendModeSchema.optional(),
+    transitionIn: ClipTransitionSchema.optional(),
+    animationIn: ClipAnimationSchema.optional(),
+    animationOut: ClipAnimationSchema.optional(),
   })
   .strict();
 
 const GraphicClipSchema = z
   .object({ ...clipCommon, kind: z.literal('graphic'), source: GraphicSourceSchema })
+  .strict();
+
+const AdjustmentClipSchema = z
+  .object({
+    ...clipCommon,
+    kind: z.literal('adjustment'),
+    source: AdjustmentSourceSchema,
+    effects: ClipEffectsSchema.optional(),
+  })
   .strict();
 
 /** Which track kinds are allowed to host each clip kind. */
@@ -234,6 +516,7 @@ const TRACK_KINDS_FOR_CLIP: Record<z.infer<typeof ClipKindSchema>, readonly stri
   image: ['image'],
   audio: ['audio', 'narration'],
   graphic: ['graphic'],
+  adjustment: ['adjustment'],
 };
 
 export const ClipSchema = z
@@ -242,6 +525,7 @@ export const ClipSchema = z
     AudioClipSchema,
     ImageIconSchema,
     GraphicClipSchema,
+    AdjustmentClipSchema,
   ])
   .superRefine((clip, ctx) => {
     if (clip.kind === 'video' || clip.kind === 'audio') {
@@ -294,6 +578,31 @@ export const ClipSchema = z
       }
     }
 
+    const maskKeyframes =
+      clip.kind === 'video' || clip.kind === 'image'
+        ? clip.mask?.keyframes
+        : undefined;
+    if (maskKeyframes !== undefined) {
+      let previous = -1;
+      for (const [index, keyframe] of maskKeyframes.entries()) {
+        if (keyframe.frame >= clip.durationFrames) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['mask', 'keyframes', index, 'frame'],
+            message: 'a keyframe must fall inside the clip duration',
+          });
+        }
+        if (keyframe.frame <= previous) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['mask', 'keyframes', index, 'frame'],
+            message: 'keyframes must be strictly increasing and unique',
+          });
+        }
+        previous = keyframe.frame;
+      }
+    }
+
     const gainKeyframes = clip.audio?.gainKeyframes;
     if (gainKeyframes !== undefined) {
       if (clip.kind !== 'video' && clip.kind !== 'audio') {
@@ -320,6 +629,16 @@ export const ClipSchema = z
           });
         }
         previous = keyframe.frame;
+      }
+    }
+
+    if ('transitionIn' in clip && clip.transitionIn !== undefined) {
+      if (clip.transitionIn.frames > clip.durationFrames) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['transitionIn', 'frames'],
+          message: 'a transition cannot be longer than the clip it enters',
+        });
       }
     }
   });
@@ -418,3 +737,4 @@ export type ClipMotion = z.infer<typeof ClipMotionSchema>;
 export type ClipTransformKeyframe = z.infer<typeof ClipTransformKeyframeSchema>;
 export type ClipGainKeyframe = z.infer<typeof ClipGainKeyframeSchema>;
 export type ChromaKey = z.infer<typeof ChromaKeySchema>;
+export type ClipTransition = z.infer<typeof ClipTransitionSchema>;

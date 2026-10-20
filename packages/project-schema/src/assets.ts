@@ -73,6 +73,16 @@ export const AssetIntegritySchema = z
   })
   .strict();
 
+export const AssetProxySchema = z
+  .object({
+    path: ProjectRelativePathSchema,
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    bytes: z.number().int().positive(),
+  })
+  .strict();
+export type AssetProxy = z.infer<typeof AssetProxySchema>;
+
 const LicenseSchema = z
   .object({
     id: z.string().min(1).max(120),
@@ -113,6 +123,7 @@ const VideoAssetSchema = z
   .object({
     ...baseShape,
     kind: z.literal('video'),
+    proxy: AssetProxySchema.optional(),
     media: z
       .object({
         width: PixelsSchema,

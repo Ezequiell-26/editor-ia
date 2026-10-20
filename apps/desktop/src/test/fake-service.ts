@@ -185,6 +185,102 @@ export function createFakeService(): FakeService {
         warnings: [],
       };
     },
+    async importLut() {
+      return { path: 'media/luts/fake.cube', name: 'fake.cube' };
+    },
+    async downloaderStatus() {
+      return {
+        available: true,
+        version: '2026.10.01',
+        path: 'yt-dlp',
+        managed: true,
+        canInstall: true,
+        hint: null,
+      };
+    },
+    async installDownloader() {
+      return {
+        available: true,
+        version: '2026.10.01',
+        path: 'yt-dlp',
+        managed: true,
+        canInstall: true,
+        hint: null,
+      };
+    },
+    async probeDownload(url: string) {
+      return {
+        url,
+        title: 'Video de prueba',
+        uploader: 'Canal de prueba',
+        durationSeconds: 600,
+        thumbnail: THUMB,
+        kind: 'video' as const,
+        entryCount: 1,
+        maxHeight: 4320,
+        estimatedBytes: 300_000_000,
+        qualities: [
+          {
+            height: 4320,
+            label: '4320p · 8K',
+            width: 7680,
+            fps: 30,
+            ext: 'mp4',
+            vcodec: 'vp9',
+            filesize: 300_000_000,
+          },
+          {
+            height: 1080,
+            label: '1080p · Full HD',
+            width: 1920,
+            fps: 30,
+            ext: 'mp4',
+            vcodec: 'avc1',
+            filesize: 80_000_000,
+          },
+        ],
+      };
+    },
+    async downloadMedia(request) {
+      return {
+        runId: '11111111-1111-4111-8111-111111111111',
+        directory: 'C:\\cache\\downloads\\fake',
+        files: [
+          {
+            path: 'C:\\cache\\downloads\\fake\\video.mp4',
+            name: 'video.mp4',
+            bytes: 90_000_000,
+            kind: 'video' as const,
+          },
+        ],
+        compressed: request.compression !== 'none',
+        warnings: [],
+      };
+    },
+    async cleanupDownload() {},
+    async onDownloadProgress() {
+      return () => {};
+    },
+    async extractFreezeFrame() {
+      return readyAsset({
+        id: newId(),
+        label: 'Freeze frame',
+        kind: 'image',
+        source: { type: 'local', path: 'media/freeze.png' },
+        media: { width: 1920, height: 1080 },
+      });
+    },
+    async createVideoProxy() {
+      return {
+        path: 'media/proxies/fake.mp4',
+        width: 854,
+        height: 480,
+        bytes: 250_000,
+      };
+    },
+    async sampleAssetColor() {
+      return { r: 120, g: 100, b: 90 };
+    },
     async mediaThumbnail() {
       return THUMB;
     },
@@ -201,6 +297,19 @@ export function createFakeService(): FakeService {
         fpsNum: 30,
         fpsDen: 1,
         threshold,
+      };
+    },
+    async analyzeStabilization(
+      _assetId: string,
+      inFrame: number,
+      outFrame: number,
+      smoothing: number,
+    ) {
+      return {
+        path: 'media/stabilized-preview.mp4',
+        smoothing,
+        inFrame,
+        outFrame,
       };
     },
     async analyzeMedia(

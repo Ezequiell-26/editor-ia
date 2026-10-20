@@ -41,6 +41,16 @@ describe('CaptionStyleSchema', () => {
     expect(CaptionStyleSchema.safeParse(captionStyle()).success).toBe(true);
   });
 
+  it('accepts 3D depth and rejects invalid depth values', () => {
+    expect(
+      CaptionStyleSchema.safeParse(captionStyle({ depth3d: 6, depthColor: '#f43f5e' })).success,
+    ).toBe(true);
+    expect(CaptionStyleSchema.safeParse(captionStyle({ depth3d: 13 })).success).toBe(false);
+    expect(
+      CaptionStyleSchema.safeParse(captionStyle({ depth3d: 4, depthColor: 'rojo' })).success,
+    ).toBe(false);
+  });
+
   it('rejects a font size that cannot be rendered', () => {
     expect(CaptionStyleSchema.safeParse(captionStyle({ fontSizePx: 0 })).success).toBe(false);
     expect(CaptionStyleSchema.safeParse(captionStyle({ fontSizePx: 5_000 })).success).toBe(false);

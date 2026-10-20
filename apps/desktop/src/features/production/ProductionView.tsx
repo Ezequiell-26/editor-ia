@@ -546,7 +546,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
                   </div>
                   <div>
                     <strong>{plan.captionCount} subtítulos</strong>
-                    <span>{plan.imagesUsed} imágenes usadas</span>
+                    <span>{plan.mediaUsed} medios usados</span>
                   </div>
                   <div>
                     <strong>{plan.scenes.filter((scene) => scene.audioId).length} audios</strong>

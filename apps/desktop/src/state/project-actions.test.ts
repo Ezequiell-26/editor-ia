@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { Asset, ProjectDocument, Scene } from '@editor-ia/project-schema';
 import { createEmptyProject, parseProject } from '@editor-ia/project-schema';
+import { TITLE_TEMPLATES } from './title-templates';
 import {
   ProjectActionError,
+  addAdjustmentLayer,
   addAsset,
   addCaptionCue,
+  addTitleCue,
+  addTitleFromTemplate,
   applyCompression,
+  applySpeedCurve,
+  applySpeedRamp,
   applyProfileFit,
   compressionPresetOf,
   addTranscriptionCues,
@@ -14,6 +20,8 @@ import {
   addScene,
   applyScenePlan,
   captionsFromScenes,
+  captureTransformKeyframe,
+  clipTransformAtFrame,
   deleteClip,
   duplicateClip,
   ensureDelivery,
@@ -22,13 +30,24 @@ import {
   newId,
   removeAsset,
   setClipSpeed,
+  setClipStabilization,
+  setAssetProxy,
+  pasteClip,
+  rippleDeleteClip,
+  setMaskKeyframe,
+  setTransformKeyframe,
   splitClip,
   splitClipAtFrames,
+  splitTrackAtFrames,
+  removeMaskKeyframe,
+  clearMaskKeyframes,
   totalFrames,
   trimClip,
   updateCaptionCue,
   updateClip,
   updateAudioMix,
+  updateProjectLook,
+  setProjectLook,
   updateProjectSettings,
   updateTrack,
 } from './project-actions';
@@ -249,6 +268,94 @@ describe('biblioteca y timeline', () => {
   });
 });
 
+describe('proxy de video', () => {
+  it('asigna y quita un proxy solo en videos', () => {
+    const asset = videoAsset();
+    const project = addAsset(base(), asset);
+    const proxy = {
+      path: 'media/proxies/proxy-1.mp4',
+      width: 854,
+      height: 480,
+      bytes: 120_000,
+    };
+
+    const withProxy = validated(setAssetProxy(project, asset.id, proxy));
+    expect(
+      (withProxy.assets.find((item) => item.id === asset.id) as { proxy?: typeof proxy } | undefined)
+        ?.proxy,
+    ).toEqual(proxy);
+
+    const without = validated(setAssetProxy(withProxy, asset.id, undefined));
+    expect(
+      (without.assets.find((item) => item.id === asset.id) as { proxy?: unknown } | undefined)
+        ?.proxy,
+    ).toBeUndefined();
+
+    const image = imageAsset();
+    const imageProject = addAsset(base(), image);
+    expect(() => setAssetProxy(imageProject, image.id, proxy)).toThrow(ProjectActionError);
+  });
+});
+
+describe('rampa de velocidad', () => {
+  it('divide en tres tramos contiguos y conserva duración y ventana de origen', () => {
+    const asset = videoAsset(300);
+    const project = addAsset(base(), asset);
+    const added = addClipFromAsset(project, asset, { atFrame: 0, durationFrames: 300 });
+
+    const result = applySpeedRamp(added.project, added.clipId, { from: 2, to: 0.5 });
+    const next = validated(result.project);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.trackId === added.trackId)
+      .sort((a, b) => a.startFrame - b.startFrame);
+
+    expect(clips).toHaveLength(3);
+    expect(result.clipIds).toHaveLength(3);
+    expect(clips.map((clip) => clip.id)).toEqual(result.clipIds);
+    expect(clips.reduce((sum, clip) => sum + clip.durationFrames, 0)).toBe(300);
+    expect(
+      clips.reduce(
+        (sum, clip) =>
+          sum +
+          (clip.kind === 'video' || clip.kind === 'audio'
+            ? clip.source.outFrame - clip.source.inFrame
+            : 0),
+        0,
+      ),
+    ).toBe(300);
+    for (let index = 1; index < clips.length; index += 1) {
+      const previous = clips[index - 1]!;
+      expect(clips[index]!.startFrame).toBe(previous.startFrame + previous.durationFrames);
+    }
+    const speedOf = (clip: (typeof clips)[number]) =>
+      clip.kind === 'video' || clip.kind === 'audio'
+        ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1)
+        : 1;
+    expect(speedOf(clips[0]!)).toBeGreaterThan(speedOf(clips[2]!));
+    expect(result.speeds).toHaveLength(3);
+  });
+
+  it('rechaza rampas con keyframes, Ken Burns o un rango inválido', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    const added = addClipFromAsset(project, asset, { atFrame: 0, durationFrames: 300 });
+    const animated = setTransformKeyframe(added.project, added.clipId, 0, { scale: 1.2 });
+    expect(() => applySpeedRamp(animated, added.clipId, { from: 2, to: 0.5 })).toThrow(
+      ProjectActionError,
+    );
+
+    const withMotion = updateClip(added.project, added.clipId, {
+      motion: { type: 'zoom-in', intensity: 0.1 },
+    });
+    expect(() => applySpeedRamp(withMotion, added.clipId, { from: 2, to: 0.5 })).toThrow(
+      ProjectActionError,
+    );
+    expect(() => applySpeedRamp(added.project, added.clipId, { from: 9, to: 0.5 })).toThrow(
+      ProjectActionError,
+    );
+  });
+});
+
 describe('subtítulos', () => {
   it('crea pista, estilo y cue; el segundo cue busca un hueco', () => {
     const project = base();
@@ -273,6 +380,27 @@ describe('subtítulos', () => {
     expect(() =>
       updateCaptionCue(second.project, first.cueId, { endFrame: 120 }),
     ).toThrow(ProjectActionError);
+  });
+
+  it('crea una pista de títulos separada con estilo centrado', () => {
+    const project = base();
+    const caption = addCaptionCue(project, { text: 'Subtítulo', startFrame: 0, durationFrames: 90 });
+    const title = addTitleCue(caption.project, {
+      text: 'Título grande',
+      startFrame: 0,
+      durationFrames: 60,
+    });
+    const next = validated(title.project);
+    const titleTrack = next.timeline.tracks.find((track) => track.id === title.trackId);
+    const style = next.captions.styles.find((item) => item.id === title.styleId);
+    const titleCue = next.captions.cues.find((cue) => cue.id === title.cueId);
+
+    expect(titleTrack?.label).toBe('Títulos');
+    expect(titleTrack?.kind).toBe('caption');
+    expect(style?.position).toBe('center');
+    expect(style?.fontSizePx).toBe(92);
+    expect(titleCue?.trackId).toBe(title.trackId);
+    expect(titleCue?.trackId).not.toBe(caption.trackId);
   });
 
   it('genera subtítulos desde las escenas y valida', () => {
@@ -481,6 +609,30 @@ describe('velocidad y efectos de clip', () => {
     validated(cleared);
   });
 
+  it('mezcla, reemplaza y limpia el look global del proyecto', () => {
+    const project = base();
+    const merged = updateProjectLook(project, { brightness: 0.1, vignette: 0.2 });
+    expect(merged.look).toEqual({ brightness: 0.1, vignette: 0.2 });
+    expect(merged.revision).toBeGreaterThan(project.revision);
+    validated(merged);
+
+    const tweaked = updateProjectLook(merged, { vignette: undefined, contrast: 1.1 });
+    expect(tweaked.look).toEqual({ brightness: 0.1, contrast: 1.1 });
+    validated(tweaked);
+
+    const preset = setProjectLook(tweaked, { sepia: true, temperature: 0.2 });
+    expect(preset.look).toEqual({ sepia: true, temperature: 0.2 });
+    validated(preset);
+
+    const cleared = setProjectLook(preset, null);
+    expect(cleared.look).toBeUndefined();
+    validated(cleared);
+
+    const empty = updateProjectLook(cleared, {});
+    expect(empty.look).toBeUndefined();
+    validated(empty);
+  });
+
   it('aplica y limpia movimiento Ken Burns en un clip de imagen', () => {
     const project = base();
     const asset = imageAsset();
@@ -544,6 +696,104 @@ describe('velocidad y efectos de clip', () => {
     expect(audioClip.audio?.eqMidDb).toBe(3);
     expect(audioClip.audio?.compressor).toBe(true);
     validated(processed);
+  });
+
+  it('anima la máscara con keyframes y los quita sin tocar la forma base', () => {
+    const project = base();
+    const image = imageAsset();
+    const added = addClipFromAsset(addAsset(project, image), image, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const masked = updateClip(added.project, added.clipId, {
+      mask: {
+        shape: 'ellipse',
+        x: 0,
+        y: 0,
+        width: 0.8,
+        height: 0.6,
+        rotationDeg: 0,
+        feather: 0.1,
+        invert: false,
+      },
+    });
+    let next = setMaskKeyframe(masked, added.clipId, 0, { x: -0.2, width: 0.6 });
+    next = setMaskKeyframe(next, added.clipId, 45, { x: 0.2 });
+    const animated = next.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (animated?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(animated.mask?.keyframes?.map((keyframe) => keyframe.frame)).toEqual([0, 45]);
+    expect(animated.mask?.keyframes?.[0]?.x).toBe(-0.2);
+    validated(next);
+
+    const removed = removeMaskKeyframe(next, added.clipId, 45);
+    const stillAnimated = removed.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (stillAnimated?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(stillAnimated.mask?.keyframes).toHaveLength(1);
+    const cleared = clearMaskKeyframes(removed, added.clipId);
+    const plain = cleared.timeline.clips[0];
+    if (plain?.kind !== 'image') throw new Error('se esperaba imagen');
+    expect(plain.mask?.keyframes).toBeUndefined();
+    expect(plain.mask?.shape).toBe('ellipse');
+    validated(cleared);
+  });
+
+  it('pega clips en el primer hueco libre y cierra huecos con ripple', () => {
+    const project = base();
+    const image = imageAsset();
+    const first = addClipFromAsset(addAsset(project, image), image, {
+      atFrame: 0,
+      durationFrames: 30,
+    });
+    const second = addClipFromAsset(first.project, image, {
+      atFrame: 30,
+      durationFrames: 30,
+    });
+    const source = second.project.timeline.clips.find((clip) => clip.id === first.clipId);
+    if (!source) throw new Error('se esperaba el clip original');
+
+    const pasted = pasteClip(second.project, source, { startFrame: 10 });
+    expect(pasted.startFrame).toBe(60);
+    expect(pasted.clipId).not.toBe(source.id);
+    const copy = pasted.project.timeline.clips.find((clip) => clip.id === pasted.clipId);
+    expect(copy?.startFrame).toBe(60);
+    validated(pasted.project);
+
+    const ripped = rippleDeleteClip(pasted.project, first.clipId);
+    const remaining = ripped.timeline.clips
+      .map((clip) => clip.startFrame)
+      .sort((a, b) => a - b);
+    expect(remaining).toEqual([0, 30]);
+    validated(ripped);
+  });
+
+  it('agrega títulos con plantillas y reutiliza el estilo', () => {
+    const template = TITLE_TEMPLATES.find((item) => item.id === 'caja');
+    if (!template) throw new Error('falta la plantilla Caja');
+    const first = addTitleFromTemplate(base(), {
+      text: 'Hola',
+      startFrame: 0,
+      durationFrames: 60,
+      template,
+    });
+    const style = first.project.captions.styles.find(
+      (item) => item.name === 'Plantilla · Caja',
+    );
+    expect(style?.backgroundColor).toBe('#f7f7f2');
+    const cue = first.project.captions.cues.find((item) => item.id === first.cueId);
+    expect(cue?.styleId).toBe(style?.id);
+    expect(cue?.animation).toBe('slide-up');
+    validated(first.project);
+
+    const second = addTitleFromTemplate(first.project, {
+      text: 'Otra',
+      startFrame: 90,
+      durationFrames: 60,
+      template,
+    });
+    expect(
+      second.project.captions.styles.filter((item) => item.name === 'Plantilla · Caja'),
+    ).toHaveLength(1);
+    validated(second.project);
   });
 
   it('normaliza el loudness del proyecto y lo limpia', () => {
@@ -709,5 +959,266 @@ describe('velocidad y efectos de clip', () => {
     if (clip?.kind !== 'video') throw new Error('se esperaba video');
     expect(clip.speed).toEqual({ num: 4, den: 1 });
     validated(fast);
+  });
+});
+
+describe('estabilización', () => {
+  it('guarda y quita la ventana analizada en un clip de video', () => {
+    const video = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), video), video, { atFrame: 0 });
+    const applied = setClipStabilization(added.project, added.clipId, {
+      smoothing: 12,
+      transformFile: 'media/stabilizers/a.trf',
+      inFrame: 0,
+      outFrame: 300,
+    });
+    const clip = applied.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'video') throw new Error('se esperaba un clip de video');
+    expect(clip.stabilization).toEqual({
+      smoothing: 12,
+      transformFile: 'media/stabilizers/a.trf',
+      inFrame: 0,
+      outFrame: 300,
+    });
+    validated(applied);
+
+    const removed = setClipStabilization(applied, added.clipId, undefined);
+    const cleared = removed.timeline.clips.find((item) => item.id === added.clipId);
+    if (cleared?.kind !== 'video') throw new Error('se esperaba un clip de video');
+    expect(cleared.stabilization).toBeUndefined();
+    validated(removed);
+  });
+
+  it('limita el suavizado al rango del esquema', () => {
+    const video = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), video), video, { atFrame: 0 });
+    const low = setClipStabilization(added.project, added.clipId, {
+      smoothing: 0,
+      transformFile: 'media/stabilizers/a.trf',
+      inFrame: 0,
+      outFrame: 300,
+    });
+    const lowClip = low.timeline.clips.find((item) => item.id === added.clipId);
+    if (lowClip?.kind !== 'video') throw new Error('se esperaba un clip de video');
+    expect(lowClip.stabilization?.smoothing).toBe(1);
+    validated(low);
+
+    const high = setClipStabilization(added.project, added.clipId, {
+      smoothing: 999.6,
+      transformFile: 'media/stabilizers/a.trf',
+      inFrame: 0,
+      outFrame: 300,
+    });
+    const highClip = high.timeline.clips.find((item) => item.id === added.clipId);
+    if (highClip?.kind !== 'video') throw new Error('se esperaba un clip de video');
+    expect(highClip.stabilization?.smoothing).toBe(60);
+    validated(high);
+  });
+
+  it('rechaza imágenes y clips que no están en la timeline', () => {
+    const image = imageAsset();
+    const added = addClipFromAsset(addAsset(base(), image), image, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    expect(() =>
+      setClipStabilization(added.project, added.clipId, {
+        smoothing: 10,
+        transformFile: 'media/stabilizers/a.trf',
+        inFrame: 0,
+        outFrame: 90,
+      }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      setClipStabilization(base(), newId(), {
+        smoothing: 10,
+        transformFile: 'media/stabilizers/a.trf',
+        inFrame: 0,
+        outFrame: 30,
+      }),
+    ).toThrow(/no está en la timeline/);
+  });
+});
+
+describe('keyframes de opacidad', () => {
+  function clipWithOpacity(project: ProjectDocument) {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    const updated = updateClip(added.project, added.clipId, {
+      transform: { scaleX: 1.4, scaleY: 1.4, opacity: 0.6 },
+    });
+    const clip = updated.timeline.clips.find((item) => item.id === added.clipId);
+    if (!clip) throw new Error('falta el clip');
+    return { project: updated, clipId: added.clipId, clip };
+  }
+
+  it('captura la escala uniforme y la opacidad vigentes sin tocar la escala estática', () => {
+    const { project, clipId, clip } = clipWithOpacity(base());
+    const captured = captureTransformKeyframe(clip, 0);
+    expect(captured.scale).toBe(1);
+    expect(captured.opacity).toBe(0.6);
+
+    const pinned = validated(setTransformKeyframe(project, clipId, 0, captured));
+    const pinnedClip = pinned.timeline.clips.find((item) => item.id === clipId);
+    if (!pinnedClip) throw new Error('falta el clip');
+    const sampled = clipTransformAtFrame(pinnedClip, 0);
+    expect(sampled.scaleX).toBeCloseTo(1.4, 5);
+    expect(sampled.opacity).toBeCloseTo(0.6, 5);
+  });
+
+  it('interpola opacidad y escala entre dos claves', () => {
+    const { project, clipId, clip } = clipWithOpacity(base());
+    const first = validated(setTransformKeyframe(project, clipId, 0, captureTransformKeyframe(clip, 0)));
+    const second = validated(
+      setTransformKeyframe(first, clipId, 30, { scale: 1.5, opacity: 1 }),
+    );
+    const animated = second.timeline.clips.find((item) => item.id === clipId);
+    if (!animated) throw new Error('falta el clip');
+    const middle = clipTransformAtFrame(animated, 15);
+    expect(middle.opacity).toBeCloseTo(0.8, 5);
+    expect(middle.scaleX).toBeCloseTo(1.4 * 1.25, 5);
+
+    const captureMiddle = captureTransformKeyframe(animated, 15);
+    expect(captureMiddle.scale).toBeCloseTo(1.25, 3);
+    expect(captureMiddle.opacity).toBeCloseTo(0.8, 3);
+  });
+
+  it('persiste la opacidad en 0 en vez de descartarla', () => {
+    const { project, clipId, clip } = clipWithOpacity(base());
+    const pinned = setTransformKeyframe(project, clipId, 0, captureTransformKeyframe(clip, 0));
+    const dark = validated(setTransformKeyframe(pinned, clipId, 12, { opacity: 0 }));
+    const saved = dark.timeline.clips
+      .find((item) => item.id === clipId)
+      ?.transform?.keyframes?.find((keyframe) => keyframe.frame === 12);
+    expect(saved?.opacity).toBe(0);
+  });
+
+  it('rechaza una opacidad fuera de 0..1', () => {
+    const { project, clipId } = clipWithOpacity(base());
+    expect(() => setTransformKeyframe(project, clipId, 0, { opacity: 1.5 })).toThrow(
+      ProjectActionError,
+    );
+  });
+});
+
+describe('cortes al ritmo sobre una pista', () => {
+  it('divide todos los clips que cruzan los frames y conserva la duración total', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const trackId = added.project.timeline.tracks[0]?.id;
+    if (!trackId) throw new Error('falta la pista');
+    const split = splitTrackAtFrames(added.project, trackId, [90, 180]);
+    expect(split).not.toBeNull();
+    const next = validated(split ?? added.project);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.trackId === trackId)
+      .sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips).toHaveLength(3);
+    expect(totalFrames(next)).toBe(300);
+    const windows = clips.map((clip) =>
+      'inFrame' in clip.source ? `${clip.source.inFrame}-${clip.source.outFrame}` : 'sin ventana',
+    );
+    expect(windows).toEqual(['0-90', '90-180', '180-300']);
+  });
+
+  it('no toca una pista bloqueada ni frames fuera de los clips', () => {
+    const asset = videoAsset(120);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const trackId = added.project.timeline.tracks[0]?.id;
+    if (!trackId) throw new Error('falta la pista');
+    expect(splitTrackAtFrames(added.project, trackId, [500])).toBeNull();
+    const locked = updateTrack(added.project, trackId, { locked: true });
+    expect(splitTrackAtFrames(locked, trackId, [30])).toBeNull();
+  });
+});
+
+describe('curva de velocidad', () => {
+  it('reparte el clip en tramos contiguos y conserva duración y ventana', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const result = applySpeedCurve(added.project, added.clipId, {
+      from: 1,
+      to: 0.25,
+      segments: 6,
+    });
+    expect(result.clipIds).toHaveLength(6);
+    const next = validated(result.project);
+    const clips = next.timeline.clips
+      .filter((clip) => result.clipIds.includes(clip.id))
+      .sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips).toHaveLength(6);
+    expect(clips.reduce((sum, clip) => sum + clip.durationFrames, 0)).toBe(300);
+    const windows = clips.map((clip) =>
+      'inFrame' in clip.source ? clip.source.outFrame - clip.source.inFrame : 0,
+    );
+    expect(windows.reduce((sum, value) => sum + value, 0)).toBe(300);
+    for (let index = 1; index < clips.length; index += 1) {
+      const previous = clips[index - 1]!;
+      const current = clips[index]!;
+      expect(current.startFrame).toBe(previous.startFrame + previous.durationFrames);
+      expect('inFrame' in current.source && 'inFrame' in previous.source).toBe(true);
+      if ('inFrame' in current.source && 'inFrame' in previous.source) {
+        expect(current.source.inFrame).toBe(previous.source.outFrame);
+      }
+    }
+    const firstSpeed = windows[0]! / clips[0]!.durationFrames;
+    const lastSpeed = windows[5]! / clips[5]!.durationFrames;
+    expect(firstSpeed).toBeCloseTo(1, 2);
+    expect(lastSpeed).toBeCloseTo(0.25, 1);
+  });
+
+  it('rechaza extremos iguales, pocos tramos y clips animados', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    expect(() =>
+      applySpeedCurve(added.project, added.clipId, { from: 1, to: 1, segments: 8 }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      applySpeedCurve(added.project, added.clipId, { from: 1, to: 0.5, segments: 2 }),
+    ).toThrow(ProjectActionError);
+    const animated = setTransformKeyframe(added.project, added.clipId, 0, { scale: 1.2 });
+    expect(() =>
+      applySpeedCurve(animated, added.clipId, { from: 1, to: 0.5, segments: 8 }),
+    ).toThrow(ProjectActionError);
+  });
+});
+
+describe('capas de ajuste', () => {
+  it('crea la pista y coloca la capa en el playhead', () => {
+    const result = addAdjustmentLayer(base(), 45);
+    const project = validated(result.project);
+    const track = project.timeline.tracks.find((item) => item.id === result.trackId);
+    expect(track?.kind).toBe('adjustment');
+    const clip = project.timeline.clips.find((item) => item.id === result.clipId);
+    expect(clip?.kind).toBe('adjustment');
+    expect(clip?.startFrame).toBe(45);
+    expect(clip?.durationFrames).toBe(90);
+    expect(clip?.source.type).toBe('adjustment');
+  });
+
+  it('reutiliza la pista y conserva los efectos al dividir', () => {
+    const first = addAdjustmentLayer(base(), 0);
+    const graded = updateClip(validated(first.project), first.clipId, {
+      effects: { contrast: 1.3, curvePreset: 'vintage' },
+    });
+    const second = addAdjustmentLayer(graded, 120);
+    const project = validated(second.project);
+    expect(project.timeline.tracks.filter((item) => item.kind === 'adjustment')).toHaveLength(1);
+    expect(project.timeline.clips).toHaveLength(2);
+
+    const split = splitClip(project, first.clipId, 30);
+    expect(split).not.toBeNull();
+    const after = validated(split!.project);
+    const left = after.timeline.clips.find((item) => item.id === first.clipId);
+    const right = after.timeline.clips.find((item) => item.id === split!.rightClipId);
+    expect(left?.durationFrames).toBe(30);
+    expect(right?.startFrame).toBe(30);
+    expect(right && 'effects' in right ? right.effects?.contrast : undefined).toBe(1.3);
+  });
+
+  it('rechaza una pista que no sea de ajustes', () => {
+    expect(() => addAdjustmentLayer(base(), 0, { trackId: newId() })).toThrow(
+      ProjectActionError,
+    );
   });
 });

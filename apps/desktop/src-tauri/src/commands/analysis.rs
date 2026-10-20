@@ -177,6 +177,152 @@ pub async fn detect_scenes(
     })
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StabilizationAnalysis {
+    pub path: String,
+    pub smoothing: u32,
+    pub in_frame: u64,
+    pub out_frame: u64,
+}
+
+/// Analyzes camera motion on the clip's own source window and writes a `.trf`
+/// under `media/stabilizers`. The renderer only applies it when the clip still
+/// has the same source window, so the transform rows line up with the frames
+/// FFmpeg feeds to `vidstabtransform`.
+#[tauri::command]
+pub async fn analyze_stabilization(
+    state: State<'_, AppState>,
+    asset_id: String,
+    in_frame: u64,
+    out_frame: u64,
+    smoothing: u32,
+) -> Result<StabilizationAnalysis, ProjectError> {
+    let session = state.require_session()?;
+    let settings = state.settings_snapshot()?;
+    let (ffmpeg, _, _) = resolve_tools(&settings);
+    let Some(ffmpeg) = ffmpeg else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "ffmpeg no está disponible para estabilizar",
+        ));
+    };
+    let opened = service::open_project(&session.path)?;
+    let asset = opened.project["assets"]
+        .as_array()
+        .and_then(|assets| {
+            assets
+                .iter()
+                .find(|asset| asset["id"].as_str() == Some(asset_id.as_str()))
+        })
+        .cloned()
+        .ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "el material que se quiere estabilizar no está en el proyecto",
+            )
+        })?;
+    if asset["kind"].as_str() != Some("video") {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la estabilización sólo se aplica a videos",
+        ));
+    }
+    if asset["status"].as_str() != Some("ready") {
+        return Err(ProjectError::message(
+            ProjectErrorCode::AssetNotReady,
+            "el video no está listo para estabilizar",
+        ));
+    }
+    let relative = asset["source"]["path"].as_str().unwrap_or("");
+    let path = resolve_inside_root(&session.root, relative)?;
+    if !path.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el archivo del video no está en disco",
+        ));
+    }
+    if out_frame <= in_frame {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la ventana de estabilización no es válida",
+        ));
+    }
+    let fps_num = opened.project["video"]["frameRate"]["num"]
+        .as_f64()
+        .unwrap_or(30.0)
+        .max(1.0);
+    let fps_den = opened.project["video"]["frameRate"]["den"]
+        .as_f64()
+        .unwrap_or(1.0)
+        .max(1.0);
+    let fps = fps_num / fps_den;
+    let in_seconds = in_frame as f64 / fps;
+    let duration = (out_frame - in_frame) as f64 / fps;
+    if !duration.is_finite() || duration <= 0.0 || duration > 3_600.0 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la ventana de estabilización no es válida",
+        ));
+    }
+    let smoothing = smoothing.clamp(1, 60);
+    let directory = session.root.join("media").join("stabilizers");
+    std::fs::create_dir_all(&directory).map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "no se pudo crear media/stabilizers")
+    })?;
+    let file_name = format!("{}.trf", uuid::Uuid::new_v4());
+    let transform_path = directory.join(&file_name);
+    // FFmpeg filter options reject an unquoted Windows drive colon. Running
+    // inside `media/stabilizers` keeps the value a bare UUID file name.
+    let filter = format!("vidstabdetect=shakiness=5:accuracy=15:result={file_name}");
+    let output = Command::new(&ffmpeg)
+        .current_dir(&directory)
+        .args([
+            "-hide_banner",
+            "-nostats",
+            "-ss",
+            &format!("{in_seconds:.6}"),
+            "-t",
+            &format!("{duration:.6}"),
+            "-i",
+        ])
+        .arg(&path)
+        .args(["-vf", &filter, "-an", "-f", "null", "-"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo iniciar FFmpeg para estabilizar",
+            )
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let _ = std::fs::remove_file(&transform_path);
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            format!(
+                "FFmpeg no pudo analizar el movimiento: {}",
+                sanitize_log(&stderr, &session.root, 300)
+            )
+            .as_str(),
+        ));
+    }
+    if !transform_path.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "FFmpeg no produjo el archivo de transformación",
+        ));
+    }
+    Ok(StabilizationAnalysis {
+        path: format!("media/stabilizers/{file_name}"),
+        smoothing,
+        in_frame,
+        out_frame,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -222,6 +222,83 @@ pub fn parse_probe(kind: MediaKind, payload: &Value) -> MediaMeasure {
 /// destination already holds a different file the operation fails before
 /// writing the project. On a partial failure, only the files created by this
 /// call are removed.
+/// Project-relative `.cube` files referenced by clips, validated like assets.
+pub fn project_lut_paths(project: &Value) -> Result<Vec<String>, ProjectError> {
+    let mut paths: Vec<String> = Vec::new();
+    if let Some(relative) = project["look"]["lutFile"].as_str() {
+        if let Some(problem) = is_forbidden_relative(relative) {
+            return Err(ProjectError::message(
+                ProjectErrorCode::PathEscapesRoot,
+                problem,
+            ));
+        }
+        paths.push(relative.to_owned());
+    }
+    for clip in project["timeline"]["clips"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let Some(relative) = clip["effects"]["lutFile"].as_str() else {
+            continue;
+        };
+        if let Some(problem) = is_forbidden_relative(relative) {
+            return Err(ProjectError::message(
+                ProjectErrorCode::PathEscapesRoot,
+                problem,
+            ));
+        }
+        if !paths.iter().any(|path| path == relative) {
+            paths.push(relative.to_owned());
+        }
+    }
+    Ok(paths)
+}
+
+/// Project-relative proxies referenced by video assets.
+pub fn project_proxy_paths(project: &Value) -> Result<Vec<String>, ProjectError> {
+    let mut paths: Vec<String> = Vec::new();
+    for asset in project["assets"].as_array().into_iter().flatten() {
+        let Some(relative) = asset["proxy"]["path"].as_str() else {
+            continue;
+        };
+        if let Some(problem) = is_forbidden_relative(relative) {
+            return Err(ProjectError::message(
+                ProjectErrorCode::PathEscapesRoot,
+                problem,
+            ));
+        }
+        if !paths.iter().any(|path| path == relative) {
+            paths.push(relative.to_owned());
+        }
+    }
+    Ok(paths)
+}
+
+/// Project-relative vidstab transform files referenced by video clips.
+pub fn project_stabilization_paths(project: &Value) -> Result<Vec<String>, ProjectError> {
+    let mut paths: Vec<String> = Vec::new();
+    for clip in project["timeline"]["clips"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        let Some(relative) = clip["stabilization"]["transformFile"].as_str() else {
+            continue;
+        };
+        if let Some(problem) = is_forbidden_relative(relative) {
+            return Err(ProjectError::message(
+                ProjectErrorCode::PathEscapesRoot,
+                problem,
+            ));
+        }
+        if !paths.iter().any(|path| path == relative) {
+            paths.push(relative.to_owned());
+        }
+    }
+    Ok(paths)
+}
+
 pub fn copy_project_assets(
     project: &Value,
     old_root: &Path,
@@ -251,7 +328,7 @@ pub fn copy_project_assets(
         ));
     }
 
-    let mut planned: Vec<(PathBuf, PathBuf)> = Vec::new();
+    let mut relative_paths: Vec<String> = Vec::new();
     for asset in &assets {
         let Some(relative) = asset["source"]["path"].as_str() else {
             continue;
@@ -262,6 +339,28 @@ pub fn copy_project_assets(
                 problem,
             ));
         }
+        if !relative_paths.iter().any(|path| path == relative) {
+            relative_paths.push(relative.to_owned());
+        }
+    }
+    for relative in project_lut_paths(project)? {
+        if !relative_paths.iter().any(|path| path == &relative) {
+            relative_paths.push(relative);
+        }
+    }
+    for relative in project_proxy_paths(project)? {
+        if !relative_paths.iter().any(|path| path == &relative) {
+            relative_paths.push(relative);
+        }
+    }
+    for relative in project_stabilization_paths(project)? {
+        if !relative_paths.iter().any(|path| path == &relative) {
+            relative_paths.push(relative);
+        }
+    }
+
+    let mut planned: Vec<(PathBuf, PathBuf)> = Vec::new();
+    for relative in &relative_paths {
         let source = resolve_inside_root(&old_root, relative)?;
         let destination = new_root.join(relative.replace('/', std::path::MAIN_SEPARATOR_STR));
         if destination.exists() {
@@ -731,6 +830,43 @@ mod tests {
         assert!(copy_project_assets(&project, &old_root, &old_root)
             .unwrap()
             .is_empty());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn save_as_copies_stabilization_transforms() {
+        let base = std::env::temp_dir().join(format!("editor-ia-copy-{}", Uuid::new_v4()));
+        let old_root = base.join("old");
+        let new_root = base.join("new");
+        std::fs::create_dir_all(old_root.join("media/stabilizers")).unwrap();
+        std::fs::create_dir_all(&new_root).unwrap();
+        std::fs::write(old_root.join("media/stabilizers/a.trf"), b"trf-bytes").unwrap();
+        let project = json!({
+            "assets": [],
+            "timeline": { "clips": [{
+                "id": "22222222-2222-4222-8222-222222222222",
+                "kind": "video",
+                "stabilization": {
+                    "smoothing": 10,
+                    "transformFile": "media/stabilizers/a.trf",
+                    "inFrame": 0,
+                    "outFrame": 30
+                }
+            }] }
+        });
+        let created = copy_project_assets(&project, &old_root, &new_root).unwrap();
+        assert_eq!(created.len(), 1);
+        assert_eq!(
+            std::fs::read(new_root.join("media/stabilizers/a.trf")).unwrap(),
+            b"trf-bytes"
+        );
+        let escaping = json!({
+            "assets": [],
+            "timeline": { "clips": [{
+                "stabilization": { "transformFile": "../fuera.trf" }
+            }] }
+        });
+        assert!(copy_project_assets(&escaping, &old_root, &new_root).is_err());
         let _ = std::fs::remove_dir_all(&base);
     }
 

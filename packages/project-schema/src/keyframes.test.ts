@@ -4,6 +4,7 @@ import {
   hasGeometryKeyframes,
   keyframeFrameAt,
   sampleGainKeyframes,
+  sampleMaskKeyframes,
   sampleTransformKeyframes,
 } from './keyframes.ts';
 
@@ -96,6 +97,40 @@ describe('keyframes de transformación', () => {
     const parsed = ClipSchema.safeParse(imageClip({ transform: { keyframes } }));
     expect(parsed.success).toBe(false);
   });
+
+  it('interpola con curvas ease-in, ease-out, ease-in-out y hold', () => {
+    const keyframes = [
+      { frame: 0, scale: 1, easing: 'ease-in' as const },
+      { frame: 10, scale: 2, easing: 'ease-out' as const },
+      { frame: 20, scale: 3, easing: 'hold' as const },
+      { frame: 30, scale: 4, easing: 'ease-in-out' as const },
+      { frame: 40, scale: 5 },
+    ];
+    expect(sampleTransformKeyframes(keyframes, 5).scale).toBeCloseTo(1.125, 5);
+    expect(sampleTransformKeyframes(keyframes, 15).scale).toBeCloseTo(2.875, 5);
+    expect(sampleTransformKeyframes(keyframes, 25).scale).toBe(3);
+    expect(sampleTransformKeyframes(keyframes, 35).scale).toBeCloseTo(4.5, 5);
+    expect(sampleTransformKeyframes(keyframes, 40).scale).toBe(5);
+  });
+});
+
+describe('reverse y efectos de voz', () => {
+  it('acepta reverse en video y audio, y lo rechaza en imagen', () => {
+    expect(ClipSchema.safeParse(videoClip({ reverse: true })).success).toBe(true);
+    expect(
+      ClipSchema.safeParse({ ...videoClip(), kind: 'audio', reverse: true }).success,
+    ).toBe(true);
+    expect(ClipSchema.safeParse(imageClip({ reverse: true })).success).toBe(false);
+  });
+
+  it('valida el efecto de voz', () => {
+    expect(
+      ClipSchema.safeParse(videoClip({ audio: { voiceEffect: 'robot' } })).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(videoClip({ audio: { voiceEffect: 'alien' } })).success,
+    ).toBe(false);
+  });
 });
 
 describe('keyframes de ganancia', () => {
@@ -175,6 +210,19 @@ describe('muestreo lineal', () => {
     expect(sampleGainKeyframes(gain, 15)).toBe(-6);
     expect(sampleGainKeyframes(gain, 100)).toBe(-12);
     expect(sampleGainKeyframes([], 10)).toBeUndefined();
+  });
+
+  it('muestrea keyframes de máscara por propiedad', () => {
+    const maskKeys = [
+      { frame: 0, x: -0.2, width: 0.5 },
+      { frame: 20, x: 0.2, width: 1, rotationDeg: 45 },
+      { frame: 40, rotationDeg: 90 },
+    ];
+    expect(sampleMaskKeyframes(maskKeys, 10).x).toBeCloseTo(0, 5);
+    expect(sampleMaskKeyframes(maskKeys, 10).width).toBeCloseTo(0.75, 5);
+    expect(sampleMaskKeyframes(maskKeys, 30).rotationDeg).toBeCloseTo(67.5, 5);
+    expect(sampleMaskKeyframes(maskKeys, 30).feather).toBeUndefined();
+    expect(sampleMaskKeyframes([], 10)).toEqual({});
   });
 
   it('clampa el playhead al interior del clip', () => {

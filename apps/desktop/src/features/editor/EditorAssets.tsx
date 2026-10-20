@@ -4,7 +4,8 @@ import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { friendlyAssetLabel } from '../../state/asset-labels';
-import { addClipFromAsset, fpsOf } from '../../state/project-actions';
+import { addClipFromAsset, addTitleFromTemplate, fpsOf } from '../../state/project-actions';
+import { TITLE_TEMPLATES, type TitleTemplate } from '../../state/title-templates';
 import { useProjectStore } from '../../state/project-store';
 
 type AssetFilter = 'all' | 'video' | 'image' | 'audio';
@@ -123,6 +124,15 @@ function RailAsset({
               Voz
             </button>
           ) : null}
+          <button
+            type="button"
+            className="small ghost"
+            onClick={() => store.setSelection({ kind: 'asset', id: asset.id })}
+            aria-label={`Ver detalles de ${label}`}
+            title="Ver licencia, procedencia y proxy de este material"
+          >
+            Detalles
+          </button>
         </div>
       </div>
     </div>
@@ -134,6 +144,8 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const project = store.state.project;
   const [filter, setFilter] = useState<AssetFilter>('all');
   const [query, setQuery] = useState('');
+  const [view, setView] = useState<'media' | 'titles'>('media');
+  const [titleText, setTitleText] = useState('Tu título aquí');
   const fps = project ? fpsOf(project) : 30;
 
   const counts = useMemo(() => {
@@ -175,6 +187,36 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }
   }
 
+  function addTitle(template: TitleTemplate): void {
+    const text = titleText.trim() || template.sample;
+    const result = store.mutate((current) =>
+      addTitleFromTemplate(current, {
+        text,
+        startFrame: store.state.playheadFrame,
+        durationFrames: Math.round(3 * fps),
+        template,
+      }),
+    );
+    if (result) {
+      store.setSelection({ kind: 'cue', id: result.cueId });
+      store.setNotice(`${template.name}: título agregado en el playhead.`);
+    }
+  }
+
+  function templatePreview(template: TitleTemplate) {
+    const style = template.style;
+    return {
+      fontFamily: `"${style.fontFamily}", sans-serif`,
+      fontWeight: style.bold ? 800 : 500,
+      fontStyle: style.italic ? 'italic' : 'normal',
+      color: style.color,
+      ...(style.backgroundColor ? { background: style.backgroundColor } : {}),
+      WebkitTextStroke:
+        style.borderStyle === 'box' ? undefined : `1px ${style.outlineColor}`,
+      textShadow: style.shadow ? '0 3px 10px rgba(0, 0, 0, 0.55)' : undefined,
+    };
+  }
+
   const filters: ReadonlyArray<{ id: AssetFilter; label: string; count: number }> = [
     { id: 'all', label: 'Todo', count: counts.all },
     { id: 'video', label: 'Video', count: counts.video },
@@ -183,67 +225,137 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   ];
 
   return (
-    <aside className="asset-rail" aria-label="Medios del proyecto">
+    <aside className="asset-rail" aria-label="Biblioteca del editor">
       <div className="rail-head">
         <div>
-          <p className="eyebrow">Medios</p>
-          <strong>{project.assets.length}</strong>
+          <p className="eyebrow">{view === 'media' ? 'Medios' : 'Títulos'}</p>
+          <strong>{view === 'media' ? project.assets.length : TITLE_TEMPLATES.length}</strong>
         </div>
-        <button type="button" className="small icon-text" onClick={() => onNavigate('assets')}>
-          <Icon name="plus" size={12} />
-          <span>Importar</span>
-        </button>
-      </div>
-      <div className="rail-browser">
-        <div className="rail-search">
-          <Icon name="search" size={13} />
-          <input
-            type="search"
-            value={query}
-            placeholder="Buscar…"
-            aria-label="Buscar medios"
-            onChange={(event) => setQuery(event.target.value)}
-          />
-          {query ? (
-            <button
-              type="button"
-              className="rail-search-clear"
-              aria-label="Limpiar búsqueda de medios"
-              onClick={() => setQuery('')}
-            >
-              <Icon name="close" size={11} />
-            </button>
-          ) : null}
-        </div>
-        <select
-          className="rail-filter"
-          value={filter}
-          aria-label="Filtrar medios por tipo"
-          onChange={(event) => setFilter(event.target.value as AssetFilter)}
-        >
-          {filters.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.label} · {item.count}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="rail-list">
-        {visibleAssets.length === 0 ? (
-          <p className="empty-inline">
-            {project.assets.length === 0
-              ? 'No hay medios. Importá archivos locales y declarales derechos antes de montarlos.'
-              : 'Ningún medio coincide con el filtro o la búsqueda.'}
-          </p>
+        {view === 'media' ? (
+          <button type="button" className="small icon-text" onClick={() => onNavigate('assets')}>
+            <Icon name="plus" size={12} />
+            <span>Importar</span>
+          </button>
         ) : (
-          visibleAssets.map((asset) => (
-            <RailAsset key={asset.id} asset={asset} fps={fps} onMount={mount} />
-          ))
+          <button type="button" className="small ghost icon-text" onClick={() => onNavigate('learn')}>
+            <Icon name="script" size={12} />
+            <span>Guía</span>
+          </button>
         )}
       </div>
-      <button type="button" className="ghost small rail-foot" onClick={() => onNavigate('assets')}>
-        Abrir biblioteca de medios
-      </button>
+      <div className="rail-tabs" role="tablist" aria-label="Biblioteca del editor">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'media'}
+          className={view === 'media' ? 'active' : ''}
+          onClick={() => setView('media')}
+        >
+          Medios
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'titles'}
+          className={view === 'titles' ? 'active' : ''}
+          onClick={() => setView('titles')}
+        >
+          Títulos
+        </button>
+      </div>
+      {view === 'media' ? (
+        <>
+          <div className="rail-browser">
+            <div className="rail-search">
+              <Icon name="search" size={13} />
+              <input
+                type="search"
+                value={query}
+                placeholder="Buscar…"
+                aria-label="Buscar medios"
+                onChange={(event) => setQuery(event.target.value)}
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="rail-search-clear"
+                  aria-label="Limpiar búsqueda de medios"
+                  onClick={() => setQuery('')}
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              ) : null}
+            </div>
+            <select
+              className="rail-filter"
+              value={filter}
+              aria-label="Filtrar medios por tipo"
+              onChange={(event) => setFilter(event.target.value as AssetFilter)}
+            >
+              {filters.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label} · {item.count}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="rail-list">
+            {visibleAssets.length === 0 ? (
+              <p className="empty-inline">
+                {project.assets.length === 0
+                  ? 'No hay medios. Importá archivos locales y declarales derechos antes de montarlos.'
+                  : 'Ningún medio coincide con el filtro o la búsqueda.'}
+              </p>
+            ) : (
+              visibleAssets.map((asset) => (
+                <RailAsset key={asset.id} asset={asset} fps={fps} onMount={mount} />
+              ))
+            )}
+          </div>
+          <button
+            type="button"
+            className="ghost small rail-foot"
+            onClick={() => onNavigate('assets')}
+          >
+            Abrir biblioteca de medios
+          </button>
+        </>
+      ) : (
+        <div className="rail-titles">
+          <label className="field rail-title-text">
+            <span>Texto del título</span>
+            <input
+              type="text"
+              value={titleText}
+              maxLength={120}
+              onChange={(event) => setTitleText(event.target.value)}
+            />
+          </label>
+          <p className="fine-print">
+            Se agrega en el playhead con su propio estilo. Después podés editarlo o moverlo en la
+            timeline.
+          </p>
+          <div className="title-template-list">
+            {TITLE_TEMPLATES.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="title-template-card"
+                onClick={() => addTitle(template)}
+              >
+                <span className="title-template-preview" style={templatePreview(template)}>
+                  {template.sample}
+                </span>
+                <span className="title-template-info">
+                  <strong>{template.name}</strong>
+                  <em>{template.description}</em>
+                </span>
+                <span className="title-template-action">Agregar</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }

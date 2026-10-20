@@ -122,6 +122,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
     ));
 
     let mut names: Vec<(String, String)> = Vec::new();
+    let mut depths: Vec<(String, usize)> = Vec::new();
     for (index, style) in styles.iter().enumerate() {
         let id = style["id"].as_str().unwrap_or("").to_owned();
         let raw_name = style["name"].as_str().unwrap_or("Principal");
@@ -136,12 +137,40 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             style["outlineColor"].as_str().unwrap_or("#000000"),
             "#000000",
         );
+        let mut background = style["backgroundColor"]
+            .as_str()
+            .map(|value| ass_color(value, "#000000"))
+            .unwrap_or_else(|| "&H80000000".to_owned());
+        let bold = if style["bold"].as_bool().unwrap_or(false) {
+            -1
+        } else {
+            0
+        };
+        let italic = if style["italic"].as_bool().unwrap_or(false) {
+            -1
+        } else {
+            0
+        };
+        let boxed = style["borderStyle"].as_str() == Some("box");
+        let border_style = if boxed { 3 } else { 1 };
+        let outline_width = if boxed { 8.0 } else { 2.4 };
+        let mut shadow: f64 = if style["shadow"].as_bool().unwrap_or(false) {
+            2.0
+        } else {
+            0.0
+        };
+        let depth = style["depth3d"].as_u64().unwrap_or(0).min(12) as usize;
+        if depth > 0 && !boxed {
+            background = ass_color(style["depthColor"].as_str().unwrap_or("#1f2937"), "#1f2937");
+            shadow = shadow.max(1.0);
+        }
+        depths.push((id.clone(), if boxed { 0 } else { depth }));
         let (alignment, margin) = alignment_and_margin(
             style["position"].as_str().unwrap_or("bottom"),
             input.render_height,
         );
         header.push_str(&format!(
-            "Style: {name},{font},{size:.1},{color},&H00FFFFFF,{outline},&H80000000,0,0,0,0,100,100,0,0,1,2.4,0,{alignment},70,70,{margin},1\n"
+            "Style: {name},{font},{size:.1},{color},&H00FFFFFF,{outline},{background},{bold},{italic},0,0,100,100,0,0,{border_style},{outline_width:.1},{shadow:.1},{alignment},70,70,{margin},1\n"
         ));
         names.push((id, name));
     }
@@ -194,6 +223,31 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
         ));
     };
 
+    let animation_tags = |cue: &Value, style_id: &str| -> String {
+        match cue["animation"].as_str().unwrap_or("none") {
+            "fade" => "{\\fad(250,250)}".to_owned(),
+            "pop" => "{\\fscx70\\fscy70\\t(0,200,\\fscx100\\fscy100)\\fad(0,120)}".to_owned(),
+            "slide-up" => {
+                let position = styles
+                    .iter()
+                    .find(|style| style["id"].as_str() == Some(style_id))
+                    .and_then(|style| style["position"].as_str())
+                    .unwrap_or("bottom");
+                let x = input.render_width as f64 / 2.0;
+                let y = match position {
+                    "top" => 80.0,
+                    "center" => input.render_height as f64 / 2.0,
+                    _ => input.render_height as f64 - 80.0,
+                };
+                format!(
+                    "{{\\move({x:.0},{:.0},{x:.0},{y:.0},0,250)\\fad(150,150)}}",
+                    y + 50.0
+                )
+            }
+            _ => String::new(),
+        }
+    };
+
     for cue in visible {
         let start = cue["startFrame"].as_u64().unwrap_or(0) as f64 / input.project_fps.max(1.0);
         let end = cue["endFrame"].as_u64().unwrap_or(0) as f64 / input.project_fps.max(1.0);
@@ -208,6 +262,24 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             .or_else(|| names.first().map(|(_, name)| name.clone()))
             .unwrap_or_else(|| "Default".to_owned());
         let primary = cue_color(cue);
+        let depth = depths
+            .iter()
+            .find(|(id, _)| id == style_id)
+            .map(|(_, value)| *value)
+            .unwrap_or(0);
+        if depth > 0 {
+            let depth_text = escape_text(cue["text"].as_str().unwrap_or(""));
+            let tags = animation_tags(cue, style_id);
+            for layer in 1..=depth {
+                push_dialogue(
+                    &mut header,
+                    start,
+                    end,
+                    &style,
+                    &format!("{{\\xshad{layer}\\yshad{layer}}}{tags}{depth_text}"),
+                );
+            }
+        }
         let words = cue["words"].as_array().cloned().unwrap_or_default();
         let mut ordered: Vec<&Value> = words
             .iter()
@@ -227,12 +299,13 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             let first_start = ordered[0]["startFrame"].as_u64().unwrap_or(cue_start);
             if first_start > cue_start {
                 let text = escape_text(cue["text"].as_str().unwrap_or(""));
+                let tags = animation_tags(cue, style_id);
                 push_dialogue(
                     &mut header,
                     start,
                     first_start as f64 / input.project_fps.max(1.0),
                     &style,
-                    &text,
+                    &format!("{tags}{text}"),
                 );
             }
             for (index, word) in ordered.iter().enumerate() {
@@ -267,7 +340,8 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             continue;
         }
         let text = escape_text(cue["text"].as_str().unwrap_or(""));
-        push_dialogue(&mut header, start, end, &style, &text);
+        let tags = animation_tags(cue, style_id);
+        push_dialogue(&mut header, start, end, &style, &format!("{tags}{text}"));
     }
 
     header
@@ -329,6 +403,74 @@ mod tests {
         assert!(!ass.contains("No debe verse"));
         assert!(ass.contains("Dialogue: 0,0:00:00.00,0:00:01.00,Principal"));
         assert!(ass.contains("Style: Principal,Segoe UI,54.0,&H000000FF"));
+    }
+
+    #[test]
+    fn caption_style_supports_bold_box_and_background() {
+        let mut value = project();
+        value["captions"]["styles"][0]["bold"] = serde_json::json!(true);
+        value["captions"]["styles"][0]["italic"] = serde_json::json!(true);
+        value["captions"]["styles"][0]["borderStyle"] = serde_json::json!("box");
+        value["captions"]["styles"][0]["backgroundColor"] = serde_json::json!("#112233");
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(ass.contains("&H00332211,-1,-1,0,0,100,100,0,0,3,8.0,"));
+    }
+
+    #[test]
+    fn caption_style_supports_3d_depth() {
+        let mut value = project();
+        value["captions"]["styles"][0]["depth3d"] = serde_json::json!(4);
+        value["captions"]["styles"][0]["depthColor"] = serde_json::json!("#f43f5e");
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(ass.contains(r"\xshad4\yshad4"));
+        assert!(ass.contains("&H005E3FF4"));
+        assert!(ass.matches("Dialogue:").count() >= 5);
+    }
+
+    #[test]
+    fn caption_animations_emit_ass_tags() {
+        let mut value = project();
+        value["captions"]["cues"][0]["animation"] = serde_json::json!("fade");
+        let fade = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(fade.contains(r"\fad(250,250)"));
+
+        value["captions"]["cues"][0]["animation"] = serde_json::json!("pop");
+        let pop = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(pop.contains(r"\fscx70"));
+
+        value["captions"]["cues"][0]["animation"] = serde_json::json!("slide-up");
+        let slide = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(slide.contains(r"\move("));
     }
 
     #[test]

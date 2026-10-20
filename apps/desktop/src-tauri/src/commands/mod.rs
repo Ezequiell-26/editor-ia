@@ -5,6 +5,7 @@
 pub mod analysis;
 pub mod audio_providers;
 pub mod convert;
+pub mod downloader;
 pub mod intelligence;
 pub mod mcp;
 pub mod media;

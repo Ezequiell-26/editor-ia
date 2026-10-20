@@ -23,6 +23,13 @@ export const CaptionStyleSchema = z
     fontSizePx: z.number().int().gte(1).lte(400),
     color: HexColorSchema,
     outlineColor: HexColorSchema.optional(),
+    backgroundColor: HexColorSchema.optional(),
+    bold: z.boolean().optional(),
+    italic: z.boolean().optional(),
+    borderStyle: z.enum(['outline', 'box']).optional(),
+    shadow: z.boolean().optional(),
+    depth3d: z.number().int().gte(0).lte(12).optional(),
+    depthColor: HexColorSchema.optional(),
     position: CaptionPositionSchema,
   })
   .strict();
@@ -35,6 +42,14 @@ const CaptionWordSchema = z
   })
   .strict();
 
+export const CaptionAnimationSchema = z.enum([
+  'none',
+  'fade',
+  'pop',
+  'slide-up',
+]);
+export type CaptionAnimation = z.infer<typeof CaptionAnimationSchema>;
+
 export const CaptionCueSchema = z
   .object({
     id: EntityIdSchema,
@@ -45,6 +60,7 @@ export const CaptionCueSchema = z
     startFrame: FrameSchema,
     endFrame: FrameSchema,
     words: z.array(CaptionWordSchema).optional(),
+    animation: CaptionAnimationSchema.optional(),
   })
   .strict()
   .superRefine((item, ctx) => {

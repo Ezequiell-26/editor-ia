@@ -6,7 +6,7 @@ import { EntityIdSchema, IsoDateTimeSchema, JsonValueSchema, LanguageTagSchema }
 import { AudioMixSchema, MotionListSchema, SceneListSchema } from './production.ts';
 import { ProvenanceRecordSchema } from './provenance.ts';
 import { FrameRateSchema, TOTAL_DURATION_MAX_FRAMES } from './time.ts';
-import { TimelineSchema } from './timeline.ts';
+import { ClipEffectsSchema, TimelineSchema } from './timeline.ts';
 
 /**
  * The canonical project document: the single source of truth an Editor IA
@@ -33,6 +33,7 @@ const KNOWN_ROOT_KEYS: readonly string[] = [
   'revision',
   'language',
   'video',
+  'look',
   'assets',
   'timeline',
   'captions',
@@ -112,6 +113,7 @@ const ProjectSchemaBase = z.object({
   revision: z.number().int().gte(0),
   language: LanguageTagSchema,
   video: VideoSettingsSchema,
+  look: ClipEffectsSchema.optional(),
   assets: z.array(AssetSchema),
   timeline: TimelineSchema,
   captions: CaptionsSchema,

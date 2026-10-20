@@ -9,12 +9,12 @@ import {
   markAssetReady,
   newId,
   secondsToFrames,
+  setClipSpeed,
   totalFrames,
   updateClip,
 } from './project-actions';
 import {
   automaticPhotoMotion,
-  photoTransitionEffects,
   type AutoPhotoMotion,
 } from './photo-motion';
 
@@ -35,23 +35,27 @@ export interface AutoEditOptions {
   readonly maxCaptionChars?: number;
   readonly photoMotion?: AutoPhotoMotion;
   readonly transitionFrames?: number;
+  readonly includeVideos?: boolean;
+  /** Explicit media per scene, e.g. one generated image or video per script scene. */
+  readonly mediaByScene?: Readonly<Record<string, string>>;
 }
 
 export interface AutoEditScenePlan {
   readonly sceneId: string;
   readonly title: string;
-  readonly imageId: string;
+  readonly mediaId: string;
+  readonly mediaKind: 'image' | 'video';
   readonly audioId?: string;
   readonly startFrame: number;
   readonly durationFrames: number;
-  readonly imageRepeated: boolean;
+  readonly mediaRepeated: boolean;
 }
 
 export interface AutoEditPlan {
   readonly scenes: AutoEditScenePlan[];
   readonly totalFrames: number;
   readonly captionCount: number;
-  readonly imagesUsed: number;
+  readonly mediaUsed: number;
   readonly warnings: string[];
 }
 
@@ -93,6 +97,8 @@ function sceneTokens(scene: Scene): Set<string> {
   );
 }
 
+type AutoMedia = Extract<Asset, { kind: 'image' | 'video' }>;
+
 function scoreImage(scene: Scene, image: Asset, documentFrequency: Map<string, number>, imageCount: number): number {
   const sceneSet = sceneTokens(scene);
   const imageSet = tokenize(image.label);
@@ -106,46 +112,46 @@ function scoreImage(scene: Scene, image: Asset, documentFrequency: Map<string, n
   return score / Math.sqrt(sceneSet.size * imageSet.size);
 }
 
-function assignImages(
+function assignMedia(
   scenes: readonly Scene[],
-  images: readonly Asset[],
+  media: readonly AutoMedia[],
   assignment: AutoEditAssignment,
-): { image: Asset; repeated: boolean }[] {
+): { media: AutoMedia; repeated: boolean }[] {
   if (assignment === 'order') {
     return scenes.map((_, index) => ({
-      image: images[index % images.length] as Asset,
-      repeated: index >= images.length,
+      media: media[index % media.length] as AutoMedia,
+      repeated: index >= media.length,
     }));
   }
 
   const frequency = new Map<string, number>();
-  for (const image of images) {
-    for (const token of tokenize(image.label)) {
+  for (const mediaItem of media) {
+    for (const token of tokenize(mediaItem.label)) {
       frequency.set(token, (frequency.get(token) ?? 0) + 1);
     }
   }
   const used = new Set<string>();
   return scenes.map((scene, index) => {
-    let best: Asset | null = null;
+    let best: AutoMedia | null = null;
     let bestScore = -Infinity;
-    for (const image of images) {
-      if (images.length >= scenes.length && used.has(image.id)) continue;
-      const score = scoreImage(scene, image, frequency, images.length);
+    for (const mediaItem of media) {
+      if (media.length >= scenes.length && used.has(mediaItem.id)) continue;
+      const score = scoreImage(scene, mediaItem, frequency, media.length);
       if (score > bestScore) {
-        best = image;
+        best = mediaItem;
         bestScore = score;
       }
     }
     const fallback =
-      images.find((image) => !used.has(image.id)) ?? (images[index % images.length] as Asset);
+      media.find((mediaItem) => !used.has(mediaItem.id)) ?? (media[index % media.length] as AutoMedia);
     const chosen = bestScore > 0 && best ? best : fallback;
     const repeated = used.has(chosen.id);
     used.add(chosen.id);
-    return { image: chosen, repeated };
+    return { media: chosen, repeated };
   });
 }
 
-function storedAsset<K extends 'image' | 'audio'>(
+function storedAsset<K extends 'image' | 'audio' | 'video'>(
   project: ProjectDocument,
   asset: Asset,
   kind: K,
@@ -175,7 +181,7 @@ function emptyTrack(project: ProjectDocument, kinds: readonly string[]): string 
 function ensureTrack(
   project: ProjectDocument,
   kinds: readonly string[],
-  createKind: 'image' | 'narration',
+  createKind: 'image' | 'narration' | 'video',
   label: string,
 ): { project: ProjectDocument; trackId: string } {
   const existing = emptyTrack(project, kinds);
@@ -271,14 +277,23 @@ export function buildAutoEdit(
   if (scenes.length === 0) {
     throw new ProjectActionError('el montaje automático necesita al menos una escena de guion');
   }
-  const images = project.assets
-    .filter((asset) => asset.kind === 'image' && asset.status === 'ready')
+  const mediaPool = project.assets
+    .filter(
+      (asset): asset is AutoMedia =>
+        (asset.kind === 'image' || asset.kind === 'video') && asset.status === 'ready',
+    )
+    .filter((asset) => options.includeVideos !== false || asset.kind === 'image')
     .sort((a, b) => a.label.localeCompare(b.label, 'es', { numeric: true, sensitivity: 'base' }));
-  if (images.length === 0) {
-    throw new ProjectActionError('el montaje automático necesita al menos una imagen confirmada');
+  const images = mediaPool.filter(
+    (asset): asset is Extract<Asset, { kind: 'image' }> => asset.kind === 'image',
+  );
+  if (mediaPool.length === 0) {
+    throw new ProjectActionError(
+      'el montaje automático necesita al menos una imagen o un video confirmado',
+    );
   }
 
-  const assignments = assignImages(scenes, images, options.assignment);
+  const assignments = assignMedia(scenes, mediaPool, options.assignment);
   const fps = fpsOf(project);
   const warnings: string[] = [];
   let next = cloneProject(project);
@@ -288,8 +303,24 @@ export function buildAutoEdit(
     next.scenes = next.scenes.map((scene) => ({ ...scene, clipIds: [] }));
   }
 
-  const imageTrack = ensureTrack(next, ['image'], 'image', 'Imágenes automáticas');
-  next = imageTrack.project;
+  let imageTrackId: string | null = null;
+  let videoTrackId: string | null = null;
+  const mediaTrack = (kind: 'image' | 'video'): string => {
+    if (kind === 'image') {
+      if (!imageTrackId) {
+        const track = ensureTrack(next, ['image'], 'image', 'Imágenes automáticas');
+        next = track.project;
+        imageTrackId = track.trackId;
+      }
+      return imageTrackId;
+    }
+    if (!videoTrackId) {
+      const track = ensureTrack(next, ['video'], 'video', 'Videos automáticos');
+      next = track.project;
+      videoTrackId = track.trackId;
+    }
+    return videoTrackId;
+  };
   const narrationTrack = ensureTrack(next, ['narration', 'audio'], 'narration', 'Narración');
   next = narrationTrack.project;
   const captionSetup = ensureCaptionSetup(next);
@@ -301,12 +332,11 @@ export function buildAutoEdit(
   let captionCount = 0;
   let repeatedCount = 0;
   let missingAudioCount = 0;
+  let shortVideoCount = 0;
 
   scenes.forEach((scene, index) => {
     const assignment = assignments[index];
     if (!assignment) return;
-    const image = storedAsset(next, assignment.image, 'image');
-    if (assignment.repeated) repeatedCount += 1;
 
     let audio: Extract<Asset, { kind: 'audio' }> | undefined;
     if (scene.narration.assetId) {
@@ -324,21 +354,98 @@ export function buildAutoEdit(
         secondsToFrames(Math.max(2, (scene.narration.text ?? '').length / 15), fps),
     );
 
-    const imageClip = addClipFromAsset(next, image, {
-      trackId: imageTrack.trackId,
+    const preferredId = options.mediaByScene?.[scene.id];
+    const preferred = preferredId
+      ? mediaPool.find((mediaItem) => mediaItem.id === preferredId)
+      : undefined;
+    const initial = preferred ?? assignment.media;
+    let chosen = storedAsset(next, initial, initial.kind);
+    let repeated = preferred ? false : assignment.repeated;
+    if (chosen.kind === 'video') {
+      const available = chosen.media?.durationFrames ?? 0;
+      const requiredSpeed = available > 0 ? available / durationFrames : 0;
+      if (available <= 0 || requiredSpeed < 0.5) {
+        const fallback = images.find((image) => image.id !== chosen.id) ?? images[0];
+        if (!fallback) {
+          throw new ProjectActionError(
+            `"${scene.title}": el video es demasiado corto para la narración y no hay imágenes de respaldo`,
+          );
+        }
+        warnings.push(
+          `"${scene.title}": el video dura menos de la mitad de la escena; se usó la imagen "${fallback.label}".`,
+        );
+        chosen = fallback;
+        repeated = true;
+        shortVideoCount += 1;
+      }
+    }
+    if (repeated) repeatedCount += 1;
+
+    const trackId = mediaTrack(chosen.kind);
+    let mediaClip = addClipFromAsset(next, chosen, {
+      trackId,
       atFrame: cursor,
       durationFrames,
     });
-    next = imageClip.project;
-    const motion = options.photoMotion === 'auto' ? automaticPhotoMotion(index) : undefined;
-    const transition = photoTransitionEffects(options.transitionFrames ?? 0, durationFrames);
-    if (motion || transition) {
-      next = updateClip(next, imageClip.clipId, {
+    next = mediaClip.project;
+
+    if (chosen.kind === 'video') {
+      const available = chosen.media?.durationFrames ?? 0;
+      if (available > 0 && available < durationFrames) {
+        // Stretch the clip so the narration never outlives the picture. The
+        // speed is quantized by the timeline; a one-frame gap is acceptable.
+        let speed = available / durationFrames;
+        for (let attempt = 0; attempt < 6; attempt += 1) {
+          next = setClipSpeed(next, mediaClip.clipId, speed);
+          const clip = next.timeline.clips.find((item) => item.id === mediaClip.clipId);
+          if (!clip || clip.durationFrames <= durationFrames) break;
+          speed *= 1.02;
+        }
+      }
+      if (audio) {
+        const clip = next.timeline.clips.find((item) => item.id === mediaClip.clipId);
+        if (clip && clip.kind === 'video') {
+          next = updateClip(next, clip.id, {
+            audio: { ...(clip.audio ?? {}), gainDb: -60 },
+          });
+        }
+      }
+    }
+
+    const motion =
+      options.photoMotion === 'auto' && chosen.kind === 'image'
+        ? automaticPhotoMotion(index)
+        : undefined;
+    const transitionFrames = Math.min(
+      120,
+      Math.max(0, Math.floor(options.transitionFrames ?? 0)),
+      durationFrames,
+    );
+    const isFirstScene = index === 0;
+    const isLastScene = index === scenes.length - 1;
+    const edgeEffects =
+      transitionFrames > 0
+        ? {
+            ...(isFirstScene ? { fadeInFrames: transitionFrames } : {}),
+            ...(isLastScene ? { fadeOutFrames: transitionFrames } : {}),
+          }
+        : undefined;
+    if (
+      motion ||
+      (edgeEffects && Object.keys(edgeEffects).length > 0) ||
+      (!isFirstScene && transitionFrames > 0)
+    ) {
+      next = updateClip(next, mediaClip.clipId, {
         ...(motion ? { motion } : {}),
-        ...(transition ? { effects: transition } : {}),
+        ...(edgeEffects && Object.keys(edgeEffects).length > 0
+          ? { effects: edgeEffects }
+          : {}),
+        ...(!isFirstScene && transitionFrames > 0
+          ? { transitionIn: { type: 'dissolve' as const, frames: transitionFrames } }
+          : {}),
       });
     }
-    addedClipIds.push(imageClip.clipId);
+    addedClipIds.push(mediaClip.clipId);
 
     let audioClipId: string | null = null;
     if (audio) {
@@ -355,8 +462,8 @@ export function buildAutoEdit(
     const currentScene = next.scenes.find((item) => item.id === scene.id);
     if (currentScene) {
       currentScene.clipIds = audioClipId
-        ? [imageClip.clipId, audioClipId]
-        : [imageClip.clipId];
+        ? [mediaClip.clipId, audioClipId]
+        : [mediaClip.clipId];
       currentScene.narration.estimatedDurationFrames = durationFrames;
       if (audio) {
         currentScene.narration.assetId = audio.id;
@@ -398,18 +505,19 @@ export function buildAutoEdit(
     planScenes.push({
       sceneId: scene.id,
       title: scene.title,
-      imageId: image.id,
+      mediaId: chosen.id,
+      mediaKind: chosen.kind,
       ...(audio ? { audioId: audio.id } : {}),
       startFrame: cursor,
       durationFrames,
-      imageRepeated: assignment.repeated,
+      mediaRepeated: repeated,
     });
     cursor += durationFrames;
   });
 
   if (repeatedCount > 0) {
     warnings.push(
-      `Se repitieron ${repeatedCount} imagen(es) porque hay más escenas que imágenes disponibles.`,
+      `Se repitieron ${repeatedCount} medio(s) porque hay más escenas que recursos disponibles.`,
     );
   }
   if (missingAudioCount > 0) {
@@ -417,17 +525,14 @@ export function buildAutoEdit(
       `${missingAudioCount} escena(s) sin narración usan la duración estimada del guion.`,
     );
   }
-  if (images.length > scenes.length) {
+  if (shortVideoCount > 0) {
     warnings.push(
-      `Se usaron ${scenes.length} de ${images.length} imágenes disponibles; el resto quedó en la biblioteca.`,
+      `${shortVideoCount} video(s) demasiado cortos se reemplazaron por imagen para no cortar la narración.`,
     );
   }
-  const videoCount = project.assets.filter(
-    (asset) => asset.kind === 'video' && asset.status === 'ready',
-  ).length;
-  if (videoCount > 0) {
+  if (mediaPool.length > scenes.length) {
     warnings.push(
-      `${videoCount} video(s) quedaron en la biblioteca: el montaje automático sólo usa imágenes.`,
+      `Se usaron ${scenes.length} de ${mediaPool.length} medios disponibles; el resto quedó en la biblioteca.`,
     );
   }
 
@@ -474,7 +579,7 @@ export function buildAutoEdit(
       scenes: planScenes,
       totalFrames: cursor - (options.replaceTimeline ? 0 : totalFrames(project)),
       captionCount,
-      imagesUsed: new Set(planScenes.map((scene) => scene.imageId)).size,
+      mediaUsed: new Set(planScenes.map((scene) => scene.mediaId)).size,
       warnings,
     },
   };

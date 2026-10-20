@@ -1,12 +1,19 @@
 import type {
   Asset,
+  AssetProxy,
+  BlendMode,
   CaptionCue,
+  CaptionStyle,
   Clip,
   ChromaKey,
   ClipEffects,
   ClipGainKeyframe,
   ClipMotion,
   ClipTransformKeyframe,
+  ClipTransition,
+  ClipMask,
+  ClipMaskKeyframe,
+  ClipAnimation,
   ProjectDocument,
   Scene,
   Track,
@@ -118,6 +125,8 @@ export function trackKindForClip(clip: Clip): Track['kind'] {
       return 'audio';
     case 'graphic':
       return 'graphic';
+    case 'adjustment':
+      return 'adjustment';
   }
 }
 
@@ -461,6 +470,26 @@ export function updateAssetLabel(project: ProjectDocument, assetId: string, labe
   return next;
 }
 
+export function setAssetProxy(
+  project: ProjectDocument,
+  assetId: string,
+  proxy: AssetProxy | undefined,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const asset = next.assets.find((item) => item.id === assetId);
+  if (!asset) {
+    throw new ProjectActionError('el material no está en el proyecto');
+  }
+  if (asset.kind !== 'video') {
+    throw new ProjectActionError('solo los videos aceptan un proxy');
+  }
+  const target = asset as Asset & { proxy?: AssetProxy };
+  if (proxy) target.proxy = proxy;
+  else delete target.proxy;
+  touch(next);
+  return next;
+}
+
 export function addTrack(
   project: ProjectDocument,
   kind: Track['kind'],
@@ -482,6 +511,65 @@ export function addTrack(
   return { project: next, trackId: track.id };
 }
 
+/**
+ * Adds a source-less adjustment layer at the playhead. It lands on its own
+ * track (created on demand) and grades the composite only inside its window;
+ * the default length is three seconds because it is a grade range, not media.
+ */
+export function addAdjustmentLayer(
+  project: ProjectDocument,
+  atFrame: number,
+  options: { durationFrames?: number; trackId?: string } = {},
+): { project: ProjectDocument; clipId: string; trackId: string; startFrame: number } {
+  const next = cloneProject(project);
+  const fps = fpsOf(next);
+  let track: Track | undefined;
+  if (options.trackId) {
+    track = next.timeline.tracks.find((item) => item.id === options.trackId);
+    if (!track || track.kind !== 'adjustment') {
+      throw new ProjectActionError('la pista elegida no es una pista de ajustes');
+    }
+    if (track.locked) {
+      throw new ProjectActionError('la pista de ajustes está bloqueada');
+    }
+  } else {
+    track = next.timeline.tracks.find(
+      (item) => item.kind === 'adjustment' && !item.locked,
+    );
+    if (!track) {
+      const created = addTrack(next, 'adjustment', 'Ajustes');
+      next.timeline = created.project.timeline;
+      track = next.timeline.tracks.find((item) => item.id === created.trackId);
+      if (!track) {
+        throw new ProjectActionError('no se pudo crear la pista de ajustes');
+      }
+    }
+  }
+  const durationFrames = Math.max(
+    1,
+    Math.round(options.durationFrames ?? Math.round(fps * 3)),
+  );
+  const startFrame = findGap(
+    intervalsForTrack(next, track.id),
+    Math.max(0, Math.round(atFrame)),
+    durationFrames,
+  );
+  const clipId = newId();
+  const clip: Clip = {
+    id: clipId,
+    trackId: track.id,
+    kind: 'adjustment',
+    label: 'Capa de ajuste',
+    startFrame,
+    durationFrames,
+    source: { type: 'adjustment' },
+    effects: {},
+  };
+  next.timeline.clips.push(clip);
+  touch(next);
+  return { project: next, clipId, trackId: track.id, startFrame };
+}
+
 function compatibleTrackKinds(kind: Clip['kind']): Track['kind'][] {
   switch (kind) {
     case 'video':
@@ -492,6 +580,8 @@ function compatibleTrackKinds(kind: Clip['kind']): Track['kind'][] {
       return ['audio', 'narration'];
     case 'graphic':
       return ['graphic'];
+    case 'adjustment':
+      return ['adjustment'];
   }
 }
 
@@ -628,6 +718,293 @@ export function moveClip(
   }
   clip.startFrame = start;
   clip.trackId = trackId;
+  touch(next);
+  return next;
+}
+
+export function applySpeedRamp(
+  project: ProjectDocument,
+  clipId: string,
+  options: { readonly from: number; readonly to: number },
+): { project: ProjectDocument; clipIds: string[]; speeds: number[] } {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || (clip.kind !== 'video' && clip.kind !== 'audio')) {
+    throw new ProjectActionError('la rampa de velocidad necesita un clip de video o audio');
+  }
+  const track = next.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (track?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  if (clip.transform?.keyframes?.length || clip.audio?.gainKeyframes?.length) {
+    throw new ProjectActionError(
+      'quitá los keyframes de transformación o volumen antes de aplicar la rampa',
+    );
+  }
+  if ('motion' in clip && clip.motion) {
+    throw new ProjectActionError(
+      'quitá el movimiento Ken Burns antes de aplicar la rampa; después podés aplicarlo por tramo',
+    );
+  }
+  if ('reverse' in clip && clip.reverse) {
+    throw new ProjectActionError(
+      'quitá el reverse antes de aplicar la rampa; después podés invertir cada tramo',
+    );
+  }
+  const from = Number(options.from);
+  const to = Number(options.to);
+  if (from < 0.1 || from > 4 || to < 0.1 || to > 4) {
+    throw new ProjectActionError('las velocidades de la rampa deben estar entre 0.1x y 4x');
+  }
+  if (Math.abs(from - to) < 0.001) {
+    throw new ProjectActionError('elegí dos velocidades distintas para la rampa');
+  }
+  const windowFrames = clip.source.outFrame - clip.source.inFrame;
+  const total = clip.durationFrames;
+  if (windowFrames < 3 || total < 3) {
+    throw new ProjectActionError('el clip es demasiado corto para una rampa de tres tramos');
+  }
+  const d1 = Math.max(1, Math.floor(total / 3));
+  const d2 = Math.max(1, Math.floor((total - d1) / 2));
+  const d3 = total - d1 - d2;
+  if (d3 < 1) {
+    throw new ProjectActionError('el clip es demasiado corto para una rampa de tres tramos');
+  }
+  const middleSpeed = (windowFrames - d1 * from - d3 * to) / d2;
+  if (!Number.isFinite(middleSpeed) || middleSpeed < 0.1 || middleSpeed > 4) {
+    throw new ProjectActionError(
+      'la ventana del clip no alcanza para esas velocidades; acercá los extremos',
+    );
+  }
+  const durations = [d1, d2, d3];
+  const sourceFrames = [
+    Math.max(1, Math.round(d1 * from)),
+    Math.max(1, Math.round(d2 * middleSpeed)),
+    0,
+  ];
+  sourceFrames[2] = windowFrames - sourceFrames[0]! - sourceFrames[1]!;
+  if (sourceFrames[2]! < 1) {
+    throw new ProjectActionError(
+      'la ventana del clip no alcanza para esas velocidades; acercá los extremos',
+    );
+  }
+  const speeds = sourceFrames.map((frames, index) => frames / durations[index]!);
+  if (speeds.some((speed) => speed < 0.1 || speed > 4)) {
+    throw new ProjectActionError(
+      'la rampa produjo un tramo fuera de 0.1x–4x; acercá los extremos',
+    );
+  }
+
+  const result = replaceWithSpeedSegments(
+    next,
+    clipId,
+    durations,
+    sourceFrames,
+    (index) => `${clip.label ?? 'Clip'} · rampa ${index + 1}/3`,
+  );
+  return { project: next, clipIds: result.clipIds, speeds: result.speeds };
+}
+
+/**
+ * Replaces a windowed clip with contiguous segments and keeps the scene
+ * references valid. Shared by the three-step ramp and the smooth curve.
+ */
+function replaceWithSpeedSegments(
+  next: ProjectDocument,
+  clipId: string,
+  durations: readonly number[],
+  sourceFrames: readonly number[],
+  labelFor: (index: number) => string,
+): { clipIds: string[]; speeds: number[] } {
+  const template = next.timeline.clips.find((item) => item.id === clipId) as Extract<
+    Clip,
+    { kind: 'video' | 'audio' }
+  >;
+  const baseIn = template.source.inFrame;
+  const total = durations.length;
+  const clipIds: string[] = [];
+  const created: Clip[] = [];
+  let cursorFrame = template.startFrame;
+  let cursorSource = 0;
+  for (let index = 0; index < total; index += 1) {
+    const duration = durations[index]!;
+    const window = sourceFrames[index]!;
+    const copy = JSON.parse(JSON.stringify(template)) as Extract<
+      Clip,
+      { kind: 'video' | 'audio' }
+    > & {
+      transitionIn?: ClipTransition;
+      effects?: ClipEffects;
+    };
+    copy.id = newId();
+    copy.label = labelFor(index).slice(0, 200);
+    copy.startFrame = cursorFrame;
+    copy.durationFrames = duration;
+    copy.source.inFrame = baseIn + cursorSource;
+    copy.source.outFrame = baseIn + cursorSource + window;
+    const divisor = gcd(window, duration);
+    if (window === duration) delete copy.speed;
+    else copy.speed = { num: window / divisor, den: duration / divisor };
+    if (index > 0) delete copy.transitionIn;
+    if (copy.effects) {
+      if (index > 0) delete copy.effects.fadeInFrames;
+      if (index < total - 1) delete copy.effects.fadeOutFrames;
+      if (Object.keys(copy.effects).length === 0) delete copy.effects;
+    }
+    if (copy.audio) {
+      if (index > 0) delete copy.audio.fadeInFrames;
+      if (index < total - 1) delete copy.audio.fadeOutFrames;
+      if (Object.keys(copy.audio).length === 0) delete copy.audio;
+    }
+    created.push(copy as Clip);
+    clipIds.push(copy.id);
+    cursorFrame += duration;
+    cursorSource += window;
+  }
+  next.timeline.clips = [
+    ...next.timeline.clips.filter((item) => item.id !== clipId),
+    ...created,
+  ];
+  const replacement = new Set(clipIds);
+  next.scenes = next.scenes.map((scene) => ({
+    ...scene,
+    clipIds: scene.clipIds.flatMap((id) => (id === clipId ? [...replacement] : [id])),
+  }));
+  touch(next);
+  return {
+    clipIds,
+    speeds: sourceFrames.map((frames, index) => frames / durations[index]!),
+  };
+}
+
+/**
+ * Smooth speed curve in N contiguous segments. Like the three-step ramp it
+ * keeps the clip's total duration and source window fixed and pins the first
+ * and last segment to `from`/`to`; the intermediate segments are shifted by a
+ * constant so the source window still adds up. The resulting speeds are
+ * returned so the UI can show what was applied.
+ */
+export function applySpeedCurve(
+  project: ProjectDocument,
+  clipId: string,
+  options: { readonly from: number; readonly to: number; readonly segments?: number },
+): { project: ProjectDocument; clipIds: string[]; speeds: number[] } {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || (clip.kind !== 'video' && clip.kind !== 'audio')) {
+    throw new ProjectActionError('la curva de velocidad necesita un clip de video o audio');
+  }
+  const track = next.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (track?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  if (clip.transform?.keyframes?.length || clip.audio?.gainKeyframes?.length) {
+    throw new ProjectActionError(
+      'quitá los keyframes de transformación o volumen antes de aplicar la curva',
+    );
+  }
+  if ('motion' in clip && clip.motion) {
+    throw new ProjectActionError(
+      'quitá el movimiento Ken Burns antes de aplicar la curva; después podés aplicarlo por tramo',
+    );
+  }
+  if ('reverse' in clip && clip.reverse) {
+    throw new ProjectActionError('quitá el reverse antes de aplicar la curva');
+  }
+  const from = Number(options.from);
+  const to = Number(options.to);
+  if (from < 0.1 || from > 4 || to < 0.1 || to > 4) {
+    throw new ProjectActionError('las velocidades de la curva deben estar entre 0.1x y 4x');
+  }
+  if (Math.abs(from - to) < 0.001) {
+    throw new ProjectActionError('elegí dos velocidades distintas para la curva');
+  }
+  const segments = Math.round(options.segments ?? 8);
+  if (segments < 3 || segments > 24) {
+    throw new ProjectActionError('la curva necesita entre 3 y 24 tramos');
+  }
+  const windowFrames = clip.source.outFrame - clip.source.inFrame;
+  const total = clip.durationFrames;
+  if (windowFrames < segments || total < segments * 2) {
+    throw new ProjectActionError('el clip es demasiado corto para esa cantidad de tramos');
+  }
+  const durations: number[] = [];
+  let remaining = total;
+  for (let index = 0; index < segments; index += 1) {
+    const duration = index === segments - 1 ? remaining : Math.floor(total / segments);
+    durations.push(duration);
+    remaining -= duration;
+  }
+  if (durations.some((duration) => duration < 1)) {
+    throw new ProjectActionError('el clip es demasiado corto para esa cantidad de tramos');
+  }
+  const ease = (value: number): number => value * value * (3 - 2 * value);
+  const shape = durations.map((_, index) =>
+    from + (to - from) * ease((index + 0.5) / segments),
+  );
+  const middle = durations.slice(1, -1).reduce((sum, duration) => sum + duration, 0);
+  const fixedSource =
+    durations[0]! * from + durations[segments - 1]! * to;
+  let middleSource = 0;
+  for (let index = 1; index < segments - 1; index += 1) {
+    middleSource += durations[index]! * shape[index]!;
+  }
+  const shift = middle > 0 ? (windowFrames - fixedSource - middleSource) / middle : 0;
+  const speeds = shape.map((value, index) =>
+    index === 0 ? from : index === segments - 1 ? to : value + shift,
+  );
+  if (speeds.some((speed) => speed < 0.1 || speed > 4)) {
+    throw new ProjectActionError(
+      'la curva produjo un tramo fuera de 0.1x–4x; acercá los extremos',
+    );
+  }
+  const sourceFrames = durations.map((duration, index) =>
+    index === segments - 1
+      ? 0
+      : Math.max(1, Math.round(duration * speeds[index]!)),
+  );
+  sourceFrames[segments - 1] = windowFrames - sourceFrames.reduce((sum, value) => sum + value, 0);
+  if (sourceFrames[segments - 1]! < 1) {
+    throw new ProjectActionError('la ventana del clip no alcanza para esa curva');
+  }
+  const actual = sourceFrames.map((frames, index) => frames / durations[index]!);
+  if (actual.some((speed) => speed < 0.1 || speed > 4)) {
+    throw new ProjectActionError(
+      'la curva produjo un tramo fuera de 0.1x–4x; acercá los extremos',
+    );
+  }
+  const result = replaceWithSpeedSegments(next, clipId, durations, sourceFrames, (index) =>
+    `${clip.label ?? 'Clip'} · curva ${index + 1}/${segments}`,
+  );
+  return { project: next, clipIds: result.clipIds, speeds: result.speeds };
+}
+
+/** Attach or clear the analyzed stabilization of a video clip. */
+export function setClipStabilization(
+  project: ProjectDocument,
+  clipId: string,
+  stabilization:
+    | { smoothing: number; transformFile: string; inFrame: number; outFrame: number }
+    | undefined,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  if (clip.kind !== 'video') {
+    throw new ProjectActionError('solo los clips de video aceptan estabilización');
+  }
+  if (stabilization === undefined) {
+    delete clip.stabilization;
+  } else {
+    clip.stabilization = {
+      smoothing: Math.max(1, Math.min(60, Math.round(stabilization.smoothing))),
+      transformFile: stabilization.transformFile,
+      inFrame: stabilization.inFrame,
+      outFrame: stabilization.outFrame,
+    };
+  }
   touch(next);
   return next;
 }
@@ -847,6 +1224,40 @@ export function splitClipAtFrames(
   return { project: next, clipIds };
 }
 
+/**
+ * Split every clip of a track at the given absolute frames. Used by beat sync:
+ * the same cut list is applied to whichever clips overlap those frames.
+ */
+export function splitTrackAtFrames(
+  project: ProjectDocument,
+  trackId: string,
+  frames: readonly number[],
+): ProjectDocument | null {
+  const track = project.timeline.tracks.find((item) => item.id === trackId);
+  if (!track || track.locked) return null;
+  const unique = [...new Set(frames.map((frame) => Math.round(frame)))].sort((a, b) => a - b);
+  if (unique.length === 0) return null;
+  const clips = project.timeline.clips
+    .filter((clip) => clip.trackId === trackId)
+    .map((clip) => ({
+      id: clip.id,
+      start: clip.startFrame,
+      end: clip.startFrame + clip.durationFrames,
+    }));
+  let next = project;
+  let changed = false;
+  for (const clip of clips) {
+    const inside = unique.filter((frame) => frame > clip.start && frame < clip.end);
+    if (inside.length === 0) continue;
+    const result = splitClipAtFrames(next, clip.id, inside);
+    if (result) {
+      next = result.project;
+      changed = true;
+    }
+  }
+  return changed ? next : null;
+}
+
 /** Copy a clip after itself on the same track, preserving every effect. */
 export function duplicateClip(
   project: ProjectDocument,
@@ -899,6 +1310,87 @@ export function deleteClip(project: ProjectDocument, clipId: string): ProjectDoc
   return next;
 }
 
+/**
+ * Pastes a serialized clip at the requested frame. The target track is the
+ * original one when it still exists, and the paste moves to the next free gap
+ * on that track so it never overlaps.
+ */
+export function pasteClip(
+  project: ProjectDocument,
+  clip: Clip,
+  input: { startFrame: number; trackId?: string },
+): { project: ProjectDocument; clipId: string; startFrame: number; trackId: string } {
+  const next = cloneProject(project);
+  const target =
+    (input.trackId
+      ? next.timeline.tracks.find((track) => track.id === input.trackId)
+      : undefined) ??
+    next.timeline.tracks.find((track) => track.id === clip.trackId) ??
+    next.timeline.tracks.find((track) => {
+      if (clip.kind === 'video') return track.kind === 'video';
+      if (clip.kind === 'image') return track.kind === 'image';
+      if (clip.kind === 'audio') return track.kind === 'audio' || track.kind === 'narration';
+      if (clip.kind === 'graphic') return track.kind === 'graphic';
+      return track.kind === 'adjustment';
+    });
+  if (!target) {
+    throw new ProjectActionError('no hay una pista compatible para pegar el clip');
+  }
+  if (target.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const startFrame = findGap(
+    intervalsForTrack(next, target.id),
+    Math.max(0, Math.round(input.startFrame)),
+    clip.durationFrames,
+  );
+  const id = newId();
+  const copy = {
+    ...JSON.parse(JSON.stringify(clip)),
+    id,
+    trackId: target.id,
+    startFrame,
+  } as Clip;
+  next.timeline.clips.push(copy);
+  for (const scene of next.scenes) {
+    const index = scene.clipIds.indexOf(clip.id);
+    if (index >= 0) {
+      scene.clipIds.splice(index + 1, 0, id);
+    }
+  }
+  touch(next);
+  return { project: next, clipId: id, startFrame, trackId: target.id };
+}
+
+/**
+ * Removes a clip and closes the gap it leaves on its own track. Other tracks
+ * keep their timing.
+ */
+export function rippleDeleteClip(
+  project: ProjectDocument,
+  clipId: string,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) return next;
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const end = clip.startFrame + clip.durationFrames;
+  const duration = clip.durationFrames;
+  next.timeline.clips = next.timeline.clips.filter((item) => item.id !== clipId);
+  for (const item of next.timeline.clips) {
+    if (item.trackId === clip.trackId && item.startFrame >= end) {
+      item.startFrame = Math.max(0, item.startFrame - duration);
+    }
+  }
+  for (const scene of next.scenes) {
+    scene.clipIds = scene.clipIds.filter((id) => id !== clipId);
+  }
+  touch(next);
+  return next;
+}
+
 export function updateClip(
   project: ProjectDocument,
   clipId: string,
@@ -909,6 +1401,12 @@ export function updateClip(
     effects: ClipEffects;
     motion: ClipMotion | undefined;
     chromaKey: ChromaKey | undefined;
+    transitionIn: ClipTransition | Record<string, never>;
+    reverse: boolean;
+    mask: ClipMask | undefined;
+    blendMode: BlendMode | undefined;
+    animationIn: ClipAnimation | undefined;
+    animationOut: ClipAnimation | undefined;
   }>,
 ): ProjectDocument {
   const next = cloneProject(project);
@@ -941,7 +1439,7 @@ export function updateClip(
     }
   }
   if (patch.effects !== undefined) {
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'adjustment') {
       throw new ProjectActionError('este tipo de clip no acepta efectos visuales');
     }
     if (Object.keys(patch.effects).length === 0) {
@@ -970,6 +1468,145 @@ export function updateClip(
       clip.chromaKey = patch.chromaKey;
     }
   }
+  if ('transitionIn' in patch && patch.transitionIn !== undefined) {
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta transiciones visuales');
+    }
+    const target = clip as Clip & { transitionIn?: ClipTransition };
+    if (Object.keys(patch.transitionIn).length === 0) {
+      delete target.transitionIn;
+    } else {
+      target.transitionIn = patch.transitionIn as ClipTransition;
+    }
+  }
+  if (patch.reverse !== undefined) {
+    if (clip.kind !== 'video' && clip.kind !== 'audio') {
+      throw new ProjectActionError('este tipo de clip no se puede reproducir al revés');
+    }
+    const target = clip as Clip & { reverse?: boolean };
+    if (patch.reverse) target.reverse = true;
+    else delete target.reverse;
+  }
+  if ('mask' in patch) {
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta máscara');
+    }
+    const target = clip as Clip & { mask?: ClipMask };
+    if (patch.mask === undefined || Object.keys(patch.mask).length === 0) {
+      delete target.mask;
+    } else {
+      target.mask = patch.mask;
+    }
+  }
+  if ('blendMode' in patch) {
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta modo de mezcla');
+    }
+    const target = clip as Clip & { blendMode?: BlendMode };
+    if (patch.blendMode === undefined) delete target.blendMode;
+    else target.blendMode = patch.blendMode;
+  }
+  for (const side of ['animationIn', 'animationOut'] as const) {
+    if (!(side in patch)) continue;
+    if (clip.kind !== 'video' && clip.kind !== 'image') {
+      throw new ProjectActionError('este tipo de clip no acepta animaciones');
+    }
+    const target = clip as Clip & { animationIn?: ClipAnimation; animationOut?: ClipAnimation };
+    const animation = patch[side];
+    if (animation === undefined) {
+      delete target[side];
+      continue;
+    }
+    if (animation.durationFrames > clip.durationFrames) {
+      throw new ProjectActionError('la animación no puede durar más que el clip');
+    }
+    target[side] = animation;
+  }
+  touch(next);
+  return next;
+}
+
+export function setMaskKeyframe(
+  project: ProjectDocument,
+  clipId: string,
+  frame: number,
+  values: Partial<
+    Pick<
+      ClipMaskKeyframe,
+      'x' | 'y' | 'width' | 'height' | 'rotationDeg' | 'feather' | 'easing'
+    >
+  >,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !('mask' in clip) || !clip.mask) {
+    throw new ProjectActionError('el clip no tiene una máscara para animar');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const rounded = Math.round(frame);
+  if (rounded < 0 || rounded >= clip.durationFrames) {
+    throw new ProjectActionError('el keyframe de máscara debe caer dentro del clip');
+  }
+  const properties = Object.fromEntries(
+    Object.entries(values).filter(([, value]) => value !== undefined),
+  );
+  if (Object.keys(properties).length === 0) {
+    throw new ProjectActionError('capturá al menos una propiedad de la máscara');
+  }
+  const keyframe = { frame: rounded, ...properties } as ClipMaskKeyframe;
+  const keyframes = [...(clip.mask.keyframes ?? [])];
+  const index = keyframes.findIndex((item) => item.frame === rounded);
+  if (index >= 0) keyframes[index] = keyframe;
+  else keyframes.push(keyframe);
+  keyframes.sort((a, b) => a.frame - b.frame);
+  if (keyframes.length > 32) {
+    throw new ProjectActionError('la máscara admite como máximo 32 keyframes');
+  }
+  clip.mask = { ...clip.mask, keyframes };
+  touch(next);
+  return next;
+}
+
+export function removeMaskKeyframe(
+  project: ProjectDocument,
+  clipId: string,
+  frame: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !('mask' in clip) || !clip.mask?.keyframes) {
+    return next;
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const keyframes = clip.mask.keyframes.filter((item) => item.frame !== frame);
+  if (keyframes.length === 0) {
+    const { keyframes: _keyframes, ...rest } = clip.mask;
+    clip.mask = rest;
+  } else {
+    clip.mask = { ...clip.mask, keyframes };
+  }
+  touch(next);
+  return next;
+}
+
+export function clearMaskKeyframes(
+  project: ProjectDocument,
+  clipId: string,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !('mask' in clip) || !clip.mask?.keyframes) {
+    return next;
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const { keyframes: _keyframes, ...rest } = clip.mask;
+  clip.mask = rest;
   touch(next);
   return next;
 }
@@ -1009,6 +1646,26 @@ export function clipTransformAtFrame(clip: Clip, frame: number): ClipTransformSa
 export function clipGainAtFrame(clip: Clip, frame: number): number {
   const keyframes = clip.audio?.gainKeyframes ?? [];
   return sampleGainKeyframes(keyframes, frame) ?? clip.audio?.gainDb ?? 0;
+}
+
+/**
+ * Current look at a clip-relative frame, ready to pin as a keyframe.
+ *
+ * `scale` is captured as the uniform keyframe multiplier on top of the static
+ * scaleX/scaleY, so pinning a key does not reset a clip that was already
+ * scaled. Offsets, rotation and opacity fall back to the static transform.
+ */
+export function captureTransformKeyframe(clip: Clip, frame: number): TransformKeyframePatch {
+  const transform = clip.transform ?? {};
+  const sampled = sampleTransformKeyframes(transform.keyframes ?? [], frame);
+  const round = (value: number): number => Math.round(value * 1000) / 1000;
+  return {
+    offsetX: Math.round(sampled.offsetX ?? transform.offsetX ?? 0),
+    offsetY: Math.round(sampled.offsetY ?? transform.offsetY ?? 0),
+    scale: round(sampled.scale ?? 1),
+    rotationDeg: round(sampled.rotationDeg ?? transform.rotationDeg ?? 0),
+    opacity: round(sampled.opacity ?? transform.opacity ?? 1),
+  };
 }
 
 type TransformKeyframePatch = Partial<Omit<ClipTransformKeyframe, 'frame'>>;
@@ -1080,6 +1737,18 @@ function normalizeTransformPatch(patch: TransformKeyframePatch): TransformKeyfra
     }
     clean.opacity = patch.opacity;
   }
+  if (patch.easing !== undefined) {
+    if (
+      patch.easing !== 'linear' &&
+      patch.easing !== 'ease-in' &&
+      patch.easing !== 'ease-out' &&
+      patch.easing !== 'ease-in-out' &&
+      patch.easing !== 'hold'
+    ) {
+      throw new ProjectActionError('la curva de la clave no es válida');
+    }
+    clean.easing = patch.easing;
+  }
   if (Object.keys(clean).length === 0) {
     throw new ProjectActionError('la clave necesita al menos una propiedad animada');
   }
@@ -1111,6 +1780,9 @@ export function setTransformKeyframe(
   const clean = normalizeTransformPatch(patch);
   const keyframes = (clip.transform?.keyframes ?? []).map((keyframe) => ({ ...keyframe }));
   const index = keyframes.findIndex((keyframe) => keyframe.frame === offset);
+  if (index < 0 && Object.keys(clean).every((key) => key === 'easing')) {
+    throw new ProjectActionError('la clave necesita al menos una propiedad animada');
+  }
   if (index >= 0) {
     keyframes[index] = { ...keyframes[index], ...clean, frame: offset };
   } else {
@@ -1197,6 +1869,7 @@ export function setGainKeyframe(
   clipId: string,
   frame: number,
   gainDb: number,
+  easing: NonNullable<ClipGainKeyframe['easing']> = 'linear',
 ): ProjectDocument {
   const next = cloneProject(project);
   const clip = next.timeline.clips.find((item) => item.id === clipId);
@@ -1212,6 +1885,15 @@ export function setGainKeyframe(
   if (!Number.isFinite(gainDb) || gainDb < -60 || gainDb > 12) {
     throw new ProjectActionError('la ganancia debe estar entre -60 y 12 dB');
   }
+  if (
+    easing !== 'linear' &&
+    easing !== 'ease-in' &&
+    easing !== 'ease-out' &&
+    easing !== 'ease-in-out' &&
+    easing !== 'hold'
+  ) {
+    throw new ProjectActionError('la curva de la clave de volumen no es válida');
+  }
   const offset = Math.round(frame);
   if (offset < 0 || offset >= clip.durationFrames) {
     throw new ProjectActionError('la clave debe caer dentro del clip');
@@ -1220,14 +1902,14 @@ export function setGainKeyframe(
   const keyframes = (audio.gainKeyframes ?? []).map((keyframe) => ({ ...keyframe }));
   const index = keyframes.findIndex((keyframe) => keyframe.frame === offset);
   if (index >= 0) {
-    keyframes[index] = { frame: offset, gainDb };
+    keyframes[index] = { frame: offset, gainDb, easing };
   } else {
     if (keyframes.length >= MAX_GAIN_KEYFRAMES) {
       throw new ProjectActionError(
         `este clip ya tiene el máximo de ${MAX_GAIN_KEYFRAMES} keyframes de volumen`,
       );
     }
-    keyframes.push({ frame: offset, gainDb });
+    keyframes.push({ frame: offset, gainDb, easing });
   }
   keyframes.sort((a, b) => a.frame - b.frame);
   audio.gainKeyframes = keyframes;
@@ -1538,6 +2220,171 @@ export function addCaptionCue(
   return { project: next, cueId: cue.id, startFrame: start, trackId: setup.trackId };
 }
 
+/**
+ * Titles are caption cues on their own track and style. They burn through the
+ * same ASS renderer, never overlap the subtitle track, and stay editable.
+ */
+export function addTitleCue(
+  project: ProjectDocument,
+  input: { text: string; startFrame?: number; durationFrames?: number; styleId?: string },
+): { project: ProjectDocument; cueId: string; startFrame: number; trackId: string; styleId: string } {
+  const text = input.text.trim();
+  if (!text) {
+    throw new ProjectActionError('el título está vacío');
+  }
+  const next = cloneProject(project);
+  const fps = fpsOf(next);
+  const duration = Math.max(1, input.durationFrames ?? Math.round(3 * fps));
+  let track = next.timeline.tracks.find(
+    (item) => item.kind === 'caption' && item.label === 'Títulos',
+  );
+  if (!track) {
+    const order = Math.max(-1, ...next.timeline.tracks.map((item) => item.order)) + 1;
+    track = {
+      id: newId(),
+      kind: 'caption',
+      label: 'Títulos',
+      order,
+      muted: false,
+      hidden: false,
+      locked: false,
+    };
+    next.timeline.tracks.push(track);
+  }
+  if (track.locked) {
+    throw new ProjectActionError('la pista de títulos está bloqueada');
+  }
+  let style = input.styleId
+    ? next.captions.styles.find((item) => item.id === input.styleId)
+    : next.captions.styles.find((item) => item.name === 'Título');
+  if (input.styleId && !style) {
+    throw new ProjectActionError('el estilo de título elegido no existe');
+  }
+  if (!style) {
+    style = {
+      id: newId(),
+      name: 'Título',
+      fontFamily: next.captions.styles[0]?.fontFamily ?? 'Arial',
+      fontSizePx: 92,
+      color: '#ffffff',
+      outlineColor: '#000000',
+      position: 'center',
+    };
+    next.captions.styles.push(style);
+  }
+  const cues = next.captions.cues.filter((cue) => cue.trackId === track.id);
+  const start = findGap(
+    cues.map((cue) => ({ start: cue.startFrame, end: cue.endFrame })),
+    input.startFrame ?? 0,
+    duration,
+  );
+  const cue: CaptionCue = {
+    id: newId(),
+    trackId: track.id,
+    styleId: style.id,
+    text: text.slice(0, 500),
+    language: next.language,
+    startFrame: start,
+    endFrame: start + duration,
+    animation: 'pop',
+  };
+  next.captions.cues.push(cue);
+  touch(next);
+  return {
+    project: next,
+    cueId: cue.id,
+    startFrame: start,
+    trackId: track.id,
+    styleId: style.id,
+  };
+}
+
+/**
+ * Adds a title cue with a dedicated caption style for a visual template.
+ * The style is reused by name so several titles share one editable look.
+ */
+export function addTitleFromTemplate(
+  project: ProjectDocument,
+  input: {
+    text: string;
+    startFrame?: number;
+    durationFrames?: number;
+    template: {
+      id: string;
+      name: string;
+      style: Omit<CaptionStyle, 'id' | 'name'>;
+      animation?: CaptionCue['animation'];
+    };
+  },
+): { project: ProjectDocument; cueId: string; startFrame: number; styleId: string } {
+  const styled = cloneProject(project);
+  const styleName = `Plantilla · ${input.template.name}`;
+  let style = styled.captions.styles.find((item) => item.name === styleName);
+  if (!style) {
+    style = {
+      id: newId(),
+      name: styleName,
+      ...input.template.style,
+    };
+    styled.captions.styles.push(style);
+    touch(styled);
+  }
+  const added = addTitleCue(styled, {
+    text: input.text,
+    ...(input.startFrame !== undefined ? { startFrame: input.startFrame } : {}),
+    ...(input.durationFrames !== undefined ? { durationFrames: input.durationFrames } : {}),
+    styleId: style.id,
+  });
+  if (input.template.animation) {
+    const cue = added.project.captions.cues.find((item) => item.id === added.cueId);
+    if (cue) cue.animation = input.template.animation;
+  }
+  return added;
+}
+
+/** Imports SRT/VTT cues into the main caption track. */
+export function importSubtitleCues(
+  project: ProjectDocument,
+  cues: readonly { startSeconds: number; endSeconds: number; text: string }[],
+  options?: { replace?: boolean; styleId?: string },
+): { project: ProjectDocument; added: number; skipped: number; trackId: string } {
+  const setup = ensureCaptionSetup(project);
+  const next = cloneProject(setup.project);
+  const track = next.timeline.tracks.find((item) => item.id === setup.trackId);
+  if (track?.locked) {
+    throw new ProjectActionError('la pista de subtítulos está bloqueada');
+  }
+  if (options?.replace !== false) {
+    next.captions.cues = next.captions.cues.filter(
+      (cue) => cue.trackId !== setup.trackId,
+    );
+  }
+  const fps = fpsOf(next);
+  let added = 0;
+  let skipped = 0;
+  for (const cue of cues) {
+    const text = cue.text.replace(/\s+/g, ' ').trim().slice(0, 500);
+    if (!text || !Number.isFinite(cue.startSeconds) || cue.endSeconds <= cue.startSeconds) {
+      skipped += 1;
+      continue;
+    }
+    const startFrame = Math.max(0, Math.round(cue.startSeconds * fps));
+    const endFrame = Math.max(startFrame + 1, Math.round(cue.endSeconds * fps));
+    next.captions.cues.push({
+      id: newId(),
+      trackId: setup.trackId,
+      styleId: options?.styleId ?? setup.styleId,
+      text,
+      language: next.language,
+      startFrame,
+      endFrame,
+    });
+    added += 1;
+  }
+  touch(next);
+  return { project: next, added, skipped, trackId: setup.trackId };
+}
+
 export function addTranscriptionCues(
   project: ProjectDocument,
   clipId: string,
@@ -1693,7 +2540,7 @@ export function addCaptionCueWindows(
 export function updateCaptionCue(
   project: ProjectDocument,
   cueId: string,
-  patch: Partial<Pick<CaptionCue, 'text' | 'startFrame' | 'endFrame' | 'styleId'>>,
+  patch: Partial<Pick<CaptionCue, 'text' | 'startFrame' | 'endFrame' | 'styleId' | 'animation'>>,
 ): ProjectDocument {
   const next = cloneProject(project);
   const cue = next.captions.cues.find((item) => item.id === cueId);
@@ -1713,6 +2560,10 @@ export function updateCaptionCue(
   if (patch.startFrame !== undefined) cue.startFrame = Math.max(0, Math.round(patch.startFrame));
   if (patch.endFrame !== undefined) cue.endFrame = Math.max(0, Math.round(patch.endFrame));
   if (patch.styleId !== undefined) cue.styleId = patch.styleId;
+  if (patch.animation !== undefined) {
+    if (patch.animation === 'none') delete cue.animation;
+    else cue.animation = patch.animation;
+  }
   if (cue.endFrame <= cue.startFrame) {
     throw new ProjectActionError('el subtítulo debe terminar después de empezar');
   }
@@ -1967,6 +2818,13 @@ export function updateCaptionStyle(
     fontSizePx: number;
     color: string;
     outlineColor: string;
+    backgroundColor: string;
+    bold: boolean;
+    italic: boolean;
+    borderStyle: 'outline' | 'box';
+    shadow: boolean;
+    depth3d: number;
+    depthColor: string;
     position: 'top' | 'center' | 'bottom';
   }>,
 ): ProjectDocument {
@@ -1989,6 +2847,25 @@ export function updateCaptionStyle(
       throw new ProjectActionError('el contorno debe ser un hex como #000000');
     }
     style.outlineColor = patch.outlineColor;
+  }
+  if (patch.backgroundColor !== undefined) {
+    if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(patch.backgroundColor)) {
+      throw new ProjectActionError('el fondo debe ser un hex como #0b0e13');
+    }
+    style.backgroundColor = patch.backgroundColor;
+  }
+  if (patch.bold !== undefined) style.bold = patch.bold;
+  if (patch.italic !== undefined) style.italic = patch.italic;
+  if (patch.borderStyle !== undefined) style.borderStyle = patch.borderStyle;
+  if (patch.shadow !== undefined) style.shadow = patch.shadow;
+  if (patch.depth3d !== undefined) {
+    style.depth3d = Math.max(0, Math.min(12, Math.round(patch.depth3d)));
+  }
+  if (patch.depthColor !== undefined) {
+    if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(patch.depthColor)) {
+      throw new ProjectActionError('el color 3D debe ser un hex como #f43f5e');
+    }
+    style.depthColor = patch.depthColor;
   }
   if (patch.position !== undefined) style.position = patch.position;
   touch(next);
@@ -2037,6 +2914,38 @@ export function addGeneratedNarration(
   }
   touch(next);
   return { project: next, clipId };
+}
+
+export function updateProjectLook(
+  project: ProjectDocument,
+  patch: Partial<ClipEffects> | null,
+): ProjectDocument {
+  const next = cloneProject(project);
+  if (patch === null) {
+    delete next.look;
+  } else {
+    const look: ClipEffects = { ...(next.look ?? {}) };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete look[key as keyof ClipEffects];
+      else (look as Record<string, unknown>)[key] = value;
+    }
+    if (Object.keys(look).length === 0) delete next.look;
+    else next.look = look;
+  }
+  touch(next);
+  return next;
+}
+
+/** Replaces the whole project look, used by presets so no stale fields survive. */
+export function setProjectLook(
+  project: ProjectDocument,
+  look: ClipEffects | null,
+): ProjectDocument {
+  const next = cloneProject(project);
+  if (look === null || Object.keys(look).length === 0) delete next.look;
+  else next.look = look;
+  touch(next);
+  return next;
 }
 
 export function updateProjectSettings(

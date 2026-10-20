@@ -13,6 +13,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   editor: 'editor',
   script: 'script',
   assets: 'assets',
+  download: 'download',
   convert: 'fit',
   learn: 'learn',
   mcp: 'plug',

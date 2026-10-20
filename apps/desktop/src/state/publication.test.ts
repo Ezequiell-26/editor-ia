@@ -118,4 +118,19 @@ describe('manifiesto de publicación', () => {
     expect(manifest.audit.score).toBeLessThan(100);
     expect(text).not.toMatch(/api[_-]?key|xi-api-key|authorization/i);
   });
+
+  it('sugiere título, descripción, hashtags, capítulos y encaje por plataforma', () => {
+    const manifest = buildPublicationManifest(projectWithIssues(), new Date(NOW));
+    const metadata = manifest.metadata;
+
+    expect(metadata.title).toBe('Hook');
+    expect(metadata.description).toContain('Texto de prueba.');
+    expect(metadata.hashtags.length).toBeGreaterThan(0);
+    expect(metadata.chapters).toEqual([{ startSeconds: 0, title: 'Hook' }]);
+    const youtube = metadata.platforms.find((platform) => platform.id === 'youtube');
+    const shorts = metadata.platforms.find((platform) => platform.id === 'shorts');
+    expect(youtube?.fits).toBe(true);
+    expect(shorts?.fits).toBe(false);
+    expect(shorts?.reason).toMatch(/9:16/);
+  });
 });

@@ -12,6 +12,7 @@ import {
   fpsOf,
   totalFrames,
 } from '../../state/project-actions';
+import { artifactPaths } from '../../state/flow';
 import { useProjectStore } from '../../state/project-store';
 import type { Asset } from '@editor-ia/project-schema';
 
@@ -132,24 +133,7 @@ function toolPayload(value: unknown): unknown {
   return value;
 }
 
-export function artifactPaths(value: unknown): string[] {
-  const payload = toolPayload(value);
-  if (!payload || typeof payload !== 'object') return [];
-  const record = payload as Record<string, unknown>;
-  const artifacts = record.artifacts;
-  if (!Array.isArray(artifacts)) return [];
-  return artifacts
-    .map((artifact) => {
-      if (typeof artifact === 'string') return artifact;
-      if (artifact && typeof artifact === 'object') {
-        const path = (artifact as { path?: unknown }).path;
-        return typeof path === 'string' ? path : null;
-      }
-      return null;
-    })
-    .filter((path): path is string => Boolean(path))
-    .slice(0, 20);
-}
+export { artifactPaths } from '../../state/flow';
 
 export function McpView() {
   const store = useProjectStore();

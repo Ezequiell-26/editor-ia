@@ -6,6 +6,7 @@ export type ViewId =
   | 'editor'
   | 'script'
   | 'assets'
+  | 'download'
   | 'convert'
   | 'learn'
   | 'mcp'
@@ -25,6 +26,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'editor', label: 'Editor', hint: 'Timeline, vista previa e inspector' },
   { id: 'script', label: 'Guion', hint: 'Asistente IA, escenas y narración' },
   { id: 'assets', label: 'Medios', hint: 'Importar, licencias y biblioteca' },
+  { id: 'download', label: 'Descargar', hint: 'Bajar videos, fotos y audio de la web hasta 8K y comprimirlos' },
   { id: 'convert', label: 'Convertir', hint: 'Convertir imagen, video y audio a formatos comunes' },
   { id: 'learn', label: 'Aprender', hint: 'Tutorial completo paso a paso y atajos' },
   { id: 'mcp', label: 'MCP', hint: 'Conectar servidores MCP locales y ejecutar sus herramientas' },

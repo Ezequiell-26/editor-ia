@@ -1,0 +1,220 @@
+															return false, 'using aigc transition'
+								 downgrade_109_to_108_digital_human_customize,
+								 downgrade_114_to_113_real_scene_digital_human,
+								 downgrade_121_to_120_digital_human_loopy,
+								 downgrade_121_to_120_effect_mask,
+								 downgrade_digital_human_credits,
+							 	 downgrade_114_to_113_super_resolution,
+						return false, 'use vimo curve_speed effect', '129.0.0', project
+						return false, 'use vimo mix_mode/text_shape/bloom effect', '129.0.0', project
+					local has_use_quick_eraser = matting['has_use_quick_eraser']
+					local source_platform = curve_speed['source_platform']
+					local strokes = matting['strokes']
+					return false, "Template use beauty face auto preset", '148.0.0', project
+					return false, "Use beauty auto preset", '132.0.0', project
+					return false, "Use beauty body auto preset", '148.0.0', project
+					return false, 'cover use text template', '131.0.0', project
+					return false, 'use vimo hsl effect', '127.0.0', project
+					return false, 'use vimo mask effect', '129.0.0', project
+					return false, 'use vimo smart_color_adjust/color_match/color_correct/handwrite_res effect', '127.0.0', project
+					return false, 'use vimo smart_relight effect', '127.0.0', project
+				    if text_templates ~= nil and #text_templates ~= 0 then
+				    local text_templates = draft_materials['text_templates']
+				if (effect['type'] ~= nil and effect['type'] == 'mix_mode') or (effect['type'] ~= nil and effect['type'] == 'text_shape') or (effect['type'] ~= nil and effect['type'] == 'bloom') then
+				if beauty_body ~= nil then
+				if beauty_face ~= nil and beauty_face['scene'] ~= nil and beauty_face['scene'] == 'template' then
+				if curve_speed ~= nil then
+				if matting ~= nil then
+				local auto_preset_id = effect['beauty_face_auto_preset_id']
+				local beauty_body = video['beauty_body_auto_preset']
+				local beauty_face = video['beauty_face_auto_preset']
+				local curve_speed = speed["curve_speed"]
+				local matting = video['matting']
+				local source_platform = mask['source_platform']
+				local source_platform = smart_relight['source_platform']
+				return false, "Use Deflicker", "58.0.0", project
+			if effect ~= nil and effect['type'] ~= nil and (effect['type'] == 'smart_color_adjust' or effect['type'] == 'color_match' or effect['type'] == 'color_correct' or effect['type'] == 'handwrite_res')then
+			if item ~= nil and item['type'] ~= nil and item['type'] == 'hsl' then
+			if mask ~= nil and mask['type'] ~= nil and mask['type'] == 'mask' then
+			if smart_relight ~= nil and smart_relight['type'] ~= nil and smart_relight['type'] == 'smart_relight' then
+			if speed ~= nil and speed['type'] ~= nil and speed['type'] == 'speed' then
+			local deflicker = video_algorithm["deflicker"]
+			local lyric_group_id = material_text_template['lyric_group_id']
+	local common_mask = materials['common_mask']
+	local hsl = materials['hsl']
+	local material_text_templates = materials['text_templates']
+	local smart_relights = materials['smart_relights']
+	local speeds = materials['speeds']
+                                                        return false, "segment contains disabled voice change", '53.0.0', project
+                                            return false, "Use common mask keyframe type", '125.0.0', project
+                                        elseif property_type == "KFTypeCommonMaskExpansion" then
+                                        elseif property_type == "KFTypeCommonMaskFeather" then
+                                        elseif property_type == "KFTypeCommonMaskPositionY" then
+                                        elseif property_type == "KFTypeCommonMaskRotation" then
+                                        elseif property_type == "KFTypeCommonMaskRoundCorner" then
+                                        elseif property_type == "KFTypeCommonMaskSizeHeight" then
+                                        elseif property_type == "KFTypeCommonMaskSizeWidth" then
+                                        if property_type == "KFTypeCommonMaskPositionX" then
+                                        if transition_prompts ~= nil and #transition_prompts > 0 then
+                                        local transition_prompts = adjust_config['transition_prompts']
+                                        return false, "Use mask feaure", '127.0.0', project
+                                        return false, 'Some text templates come with keyframe and cannot be downgraded.', '112.0.0', project
+                                        return false, 'Use Hsl keyframe', '125.0.0', project
+                                        return false, 'ai text template contains chinese', '110.0.0', project
+                                        return false, 'ai text template contains punctuation', '110.0.0', project
+                                        return false, 'using text_template_style_keyframe', '135.0.0', project
+                                    if property_type == 'KFTypeHslHueIntensity' or property_type == 'KFTypeHslSaturationIntensity' or property_type == 'KFTypeHslLightnessIntensity' then
+                                    if text_template_contains_chinese(textString) then
+                                    if text_template_contains_punctuation(textString) then
+                                    if type == 'BackgroundGamePlayAfterAIMatting' or type == 'BackgroundGamePlayAfterCustomMatting' or type == 'BackgroundGamePlayAfterColorMatting' then
+                                    local feather = mask["config"]["feather"]
+                                    return false, "Use text mask", '127.0.0', project
+                                    return false, "contains 3d text template", '64.0.0', project
+                                    return false, 'Lyrics apply caption template, could not be downgraded', '112.0.0', project
+                                    return false, 'New version of Text-Template could not be downgraded', '65.0.0', project
+                                    return false, 'New version of Text-Template could not be downgraded', '68.0.0', project
+                                    return false, 'The video uses the beat - matching function', '80.0.0', project
+                                    return false, 'ai text template changed font', '110.0.0', project
+                                    return false, 'cannot downgrade because of having splited KFTypeMaskPostion', '73.0.0', project
+                                    return false, 'global video beauty preset', '125.0.0', project
+                                    return false, 'used overlap transition', '70.0.0', project
+                                 downgrade_108_to_107_article_video_watermark,
+                                 downgrade_109_to_108_chroma_matting,
+                                 downgrade_110_to_109_text_template,
+                                 downgrade_112_to_111_digital_human_local_render,
+                                 downgrade_112_to_111_support_caption_templates,
+                                 downgrade_112_to_111_text_template,
+                                 downgrade_116_to_115_adjust_color_mask,
+                                 downgrade_116_to_115_beauty_preset,
+                                 downgrade_116_to_115_super_resolution,
+                                 downgrade_118_to_117_digital_human_mask,
+                                 downgrade_122_to_121_digital_human_customize_short,
+                                 downgrade_123_to_122_matting_postprocess,
+                                 downgrade_125_to_124_hsl_chroma,
+                                 downgrade_125_to_124_matting_opt,
+                                 downgrade_125_to_124_video_beauty_preset,
+                                 downgrade_125_to_124_video_mask,
+                                 downgrade_125_to_124_video_tracking_v3,
+                                downgrade_58_57_deflicker,
+                                downgrade_60_59_video_tracking,
+                                downgrade_65_64_beauty_item,
+                                downgrade_65_64_matting_stroke,
+                                downgrade_65_to_64_text_template,
+                                downgrade_68_to_67_text_template,
+                                downgrade_70_69_overlap_transition,
+                                downgrade_77_to_76_per_rendered_text_template,
+                                downgrade_79_78_digital_human,
+                                downgrade_79_to_78_text_template_break_up,
+                                downgrade_87_86_color_match,
+                                downgrade_93_to_92_text_template,
+                                downgrade_95_94_beauty20,
+                                downgrade_95_to_94_digital_human_voice_upgrade,
+                                if beat == material_ref then
+                                if is_segment_text_template(segment, text_templates) then
+                                if mask["config"] ~= nil and mask["config"]["feather"] ~= nil then
+                                if mask['resource_type'] ~= nil and mask['resource_type'] == "text" then
+                                if reverse == true then
+                                if templ_type == 'text_template_subtitle' or templ_type == 'text_template_lyrics' then
+                                local is_overlap = transition['is_overlap']
+                                local path = caption_template_info["path"]
+                                return false, "Use effect contour mask", '125.0.0', project
+                                return false, 'Apply caption template, could not be downgraded', '112.0.0', project
+                                return false, 'hdr display disabled', '46.0.0', project
+                                return false, 'hdr display not found', '46.0.0', project
+                                return false, 'use matting', '125.0.0', project
+                                return false, 'use transition in sub video track', '60.0.0', project
+                                return false, 'using subtitle_template with meta_type:text_template', '123.0.0', project
+                            for beat_index, beat in ipairs(beatList) do
+                            for i, fetch_resource in pairs(text_template_resources) do
+                            for index, transition in ipairs(transitions) do
+                            if caption_template_info ~= nil then
+                            if hdr_settings == nil then
+                            if mask ~= nil and mask['resource_type'] ~= nil and mask['resource_type'] == "contour" then
+                            if mask ~= nil then
+                            if segment ~= nil and text_templates ~= nil then
+                            if text_template_resource_type ~= nil and text_template_resource_type == "subtitle_template" then
+                            if transition['id'] == material_ref then
+                            local hdr_settings = segment['hdr_settings']
+                            local intensity = hdr_settings['intensity']
+                            local is_default, message = util.is_default_hdr_settings(path, mode, intensity, nits, draft_color_space)
+                            local mode = hdr_settings['mode']
+                            local nits = hdr_settings['nits']
+                            local path = caption_template_info["path"]
+                            local path = matting['path']
+                            local text_template_resource_type = text_template['text_template_resource_type']
+                            return false, "applied adjustment params in text animations", '73.0.0', project
+                            return false, "contains text_template", '50.0.0', project
+                            return false, "use video mask shadow segment", "153.0.0", project
+                            return false, "use video mask stroke segment", "153.0.0", project
+                            return false, "use vimo digital human background", '112.0.0', project
+                            return false, 'enable_matting_stroke', '129.0.0', project
+                            return false, 'use matting expansion', '123.0.0', project
+                            return false, 'use matting feather', '123.0.0', project
+                            return false, 'use matting reverse', '123.0.0', project
+                            return false, 'use vimo digital human mask', '118.0.0', project
+                            return false, 'using text_template_lyrics', '123.0.0', project
+                            return false, 'using text_template_subtitle', '123.0.0', project
+                        elseif type == 'text_template' then
+                        elseif type == 'text_template_lyrics' then
+                        for _, mask in ipairs(effect_masks) do
+                        for index, target in ipairs(text_templates) do
+                        for index, text in ipairs(text_template2) do
+                        for index, text_item in ipairs(text_templates) do
+                        for index, transition in ipairs(transitions) do
+                        if (aigc_type == nil or aigc_type ~= "ai_text_template") then
+                        if caption_template_info ~= nil then
+                        if enable_mask_shadow ~= nil and enable_mask_shadow then
+                        if enable_mask_stroke ~= nil and enable_mask_stroke then
+                        if enable_matting_stroke ~= nil and enable_matting_stroke ~= false then
+                        if matting['expansion'] ~= nil and matting['expansion'] ~= 0 then
+                        if matting['feather'] ~= nil and matting['feather'] ~= 0 then
+                        if matting['path'] ~= nil then
+                        if matting['reverse'] ~= nil and matting['reverse'] ~= false then
+                        if text_template_resources ~= nil then
+                        if transitions ~= nil then
+                        if type == 'text_template_subtitle' then
+                        local aigc_type = text_template['aigc_type']
+                        local caption_template_info = text["caption_template_info"]
+                        local enable_mask_shadow = segment["enable_mask_shadow"]
+                        local enable_mask_stroke = segment["enable_mask_stroke"]
+                        local enable_matting_stroke = matting['enable_matting_stroke']
+                        local source_platform = mask['source_platform']
+                        local text_template_resources = text_template['resources']
+                        local text_templates = materials2["text_templates"]
+                        local transitions = materials['transitions']
+                        return false, "Use effect masks", '121.0.0', project
+                        return false, "Use mask feaure", '127.0.0', project
+                        return false, "Use other_manual_beauty_smooth", '130.0.0', project
+                        return false, "Use photo digital human!", '113.0.0', project
+                        return false, "Use real scene digital human!", '118.0.0', project
+                        return false, "applied adjustment params in text animations", '73.0.0', project
+                        return false, "audio keyframes contains voice change of audio adjust params", '53.0.0', project
+                        return false, "use vimo pgc digital human", '112.0.0', project
+                        return false, "video keyframes contains voice change of audio adjust params", '53.0.0', project
+                        return false, 'Apply new caption template, could not be downgraded', '107.0.0', project
+                        return false, 'Cannot downgrade: project contains ai transition', '143.0.0', project
+                        return false, 'Cannot downgrade: project contains ai transition', '144.0.0', project
+                        return false, 'Cannot downgrade: project contains ai transition', '145.0.0', project
+                        return false, 'The speed - changing beat - matching gameplay is used', '80.0.0', project
+                        return false, 'Use digital human template', '128.0.0', project
+                        return false, 'Used beauty body preset', cur_version, project
+                        return false, 'Used beauty face preset', cur_version, project
+                        return false, 'ai text template', '93.0.0', project
+                        return false, 'beauty display disabled', '49.0.0', project
+                        return false, 'use audio to create digital human video', '121.0.0', project
+                        return false, 'use digital human model dressup', '139.0.0', project
+                        return false, 'used image with break up text templates', '79.0.0', project
+                        return false, 'used new beauty root pack', '88.0.0', project
+                        return false, 'used sticker with break up text templates', '79.0.0', project
+                        return false, 'used text with break up text templates', '79.0.0', project
+                     return false, "contain matting and has_use_quick_brush", '60.0.0', project
+                     return false, "contain matting strokes", '65.0.0', project
+                     return false, "contain matting", '54.0.0', project
+                    for index, templ in ipairs(text_templates) do
+                    if  aigc_type ~= nil and aigc_type == "ai_text_template" then
+                    if apply_type ~= "manual_beauty_smooth" then
+                    if digital_human['has_real_scene'] ~= nil and digital_human['has_real_scene'] == true then
+                    if digital_human_source == 'photo_pgc_vimo' or digital_human_source == 'photo_aigc_customize' or digital_human_source == 'photo_album_customize' then
+                    if flags ~= nil and BITS.bit.band(audio_keyframe_voice_change_flag, flags) ~= 0 then   -- 
+                    if flags ~= nil and BITS.bit.band(video_keyframe_voice_change_flag, flags) ~= 0 then   -- 
+                    if is_ai_transition ~= nil and is_ai_transition == true then

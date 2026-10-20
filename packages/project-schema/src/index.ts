@@ -8,16 +8,17 @@ export {
 } from './project.ts';
 export type { ProjectDocument, ProjectParseResult } from './project.ts';
 
-export { AssetSchema, AssetKindSchema, AssetStatusSchema, AssetRightsSchema } from './assets.ts';
-export type { Asset } from './assets.ts';
+export { AssetSchema, AssetKindSchema, AssetStatusSchema, AssetRightsSchema, AssetProxySchema } from './assets.ts';
+export type { Asset, AssetProxy } from './assets.ts';
 
 export {
   CaptionCueSchema,
   CaptionStyleSchema,
   CaptionsSchema,
   CaptionPositionSchema,
+  CaptionAnimationSchema,
 } from './captions.ts';
-export type { CaptionCue, CaptionWord, CaptionStyle } from './captions.ts';
+export type { CaptionCue, CaptionWord, CaptionStyle, CaptionAnimation } from './captions.ts';
 
 export {
   RenderProfileSchema,
@@ -61,19 +62,44 @@ export {
   TrackKindSchema,
   ClipKindSchema,
   ClipEffectsSchema,
+  CurvePointSchema,
+  ClipCurvesSchema,
+  CURVE_CHANNELS,
+  MAX_CURVE_POINTS,
   ClipMotionSchema,
   ClipTransformKeyframeSchema,
   ClipGainKeyframeSchema,
   ChromaKeySchema,
+  ClipTransitionSchema,
+  KeyframeEasingSchema,
+  ClipMaskSchema,
+  ClipStabilizationSchema,
+  BlendModeSchema,
+  ClipAnimationTypeSchema,
+  ClipAnimationSchema,
+  MAX_ANIMATION_FRAMES,
+  ClipMaskKeyframeSchema,
+  MAX_MASK_KEYFRAMES,
 } from './timeline.ts';
 export type {
   Track,
   Clip,
   ClipEffects,
+  CurvePoint,
+  CurveChannel,
+  ClipCurves,
   ClipMotion,
   ClipTransformKeyframe,
   ClipGainKeyframe,
   ChromaKey,
+  ClipTransition,
+  KeyframeEasing,
+  ClipMask,
+  ClipStabilization,
+  BlendMode,
+  ClipAnimationType,
+  ClipAnimation,
+  ClipMaskKeyframe,
 } from './timeline.ts';
 
 export {
@@ -83,8 +109,18 @@ export {
   keyframeFrameAt,
   sampleGainKeyframes,
   sampleTransformKeyframes,
+  sampleMaskKeyframes,
 } from './keyframes.ts';
+export type { SampledMask } from './keyframes.ts';
 export type { SampledTransform } from './keyframes.ts';
+
+export {
+  CURVE_IDENTITY,
+  curvePointsFor,
+  curveTableValues,
+  hasCustomCurves,
+  sampleCurvePoints,
+} from './curves.ts';
 
 export {
   EntityIdSchema,

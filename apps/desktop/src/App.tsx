@@ -11,6 +11,7 @@ import { EditorWorkspace } from './features/editor/EditorWorkspace';
 import { ScriptView } from './features/script/ScriptView';
 import { AssetsPanel } from './features/assets/AssetsPanel';
 import { ConvertView } from './features/convert/ConvertView';
+import { DownloadView } from './features/download/DownloadView';
 import { LearnView } from './features/learn/LearnView';
 import { McpView } from './features/mcp/McpView';
 import { SettingsHome } from './features/settings/SettingsHome';
@@ -176,6 +177,8 @@ function Shell() {
         return <ScriptView onNavigate={navigate} />;
       case 'assets':
         return <AssetsPanel onNavigate={navigate} />;
+      case 'download':
+        return <DownloadView onNavigate={navigate} />;
       case 'convert':
         return <ConvertView onNavigate={navigate} />;
       case 'learn':

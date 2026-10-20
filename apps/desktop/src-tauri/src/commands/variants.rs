@@ -75,6 +75,16 @@ fn relative_asset_paths(project: &Value) -> Result<Vec<String>, ProjectError> {
         }
         paths.push(relative.to_string());
     }
+    for relative in crate::media::project_lut_paths(project)? {
+        if !paths.iter().any(|path| path == &relative) {
+            paths.push(relative);
+        }
+    }
+    for relative in crate::media::project_proxy_paths(project)? {
+        if !paths.iter().any(|path| path == &relative) {
+            paths.push(relative);
+        }
+    }
     Ok(paths)
 }
 

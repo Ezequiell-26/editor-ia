@@ -10,6 +10,7 @@ import {
   type FactoryVariantResult,
 } from '../../state/batch-factory';
 import { useProjectStore } from '../../state/project-store';
+import { AutopilotPanel } from './AutopilotPanel';
 
 interface FactoryImage {
   readonly id: string;
@@ -275,15 +276,7 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
         </div>
       </div>
 
-      {images.length === 0 ? (
-        <div className="empty-state director-empty">
-          <strong>No hay imágenes listas en el proyecto.</strong>
-          <span>La fábrica reutiliza las imágenes confirmadas de Medios. Importá y confirmá al menos una.</span>
-          <button type="button" className="primary" onClick={() => onNavigate('assets')}>
-            Abrir Medios
-          </button>
-        </div>
-      ) : (
+      {(
         <div className="factory-layout">
           <div className="factory-main">
             <div className="card factory-brief">
@@ -343,35 +336,64 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
               </div>
             </div>
 
+            <AutopilotPanel
+              project={project}
+              service={store.service}
+              defaults={{
+                brief,
+                scenes,
+                language,
+                width: dimensions.width,
+                height: dimensions.height,
+                outputDir,
+                photoMotion,
+                transitionFrames,
+                renderVideo: renderVideos,
+                confirmRights,
+              }}
+              onOpenProject={(path) => store.openProjectAt(path)}
+              onNavigateEditor={() => onNavigate('editor')}
+              onNavigateMcp={() => onNavigate('mcp')}
+            />
+
             <div className="card">
               <div className="production-card-head">
                 <div>
                   <p className="eyebrow">Imágenes compartidas</p>
                   <h3>{chosenImages.length} de {images.length} seleccionadas</h3>
                 </div>
-                <button
-                  type="button"
-                  className="small ghost"
-                  onClick={() => setSelectedImages(new Set(images.map((image) => image.id)))}
-                >
-                  Seleccionar todas
-                </button>
+                {images.length > 0 ? (
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() => setSelectedImages(new Set(images.map((image) => image.id)))}
+                  >
+                    Seleccionar todas
+                  </button>
+                ) : null}
               </div>
-              <div className="factory-images">
-                {images.map((image) => (
-                  <label className="factory-image" key={image.id}>
-                    <input
-                      type="checkbox"
-                      checked={selectedImages.has(image.id)}
-                      onChange={() => toggleImage(image.id)}
-                    />
-                    <span>
-                      <strong>{image.label}</strong>
-                      <em>{image.width}×{image.height}</em>
-                    </span>
-                  </label>
-                ))}
-              </div>
+              {images.length === 0 ? (
+                <p className="fine-print">
+                  La fábrica clásica necesita imágenes. Importá y confirmá al menos una en Medios, o
+                  usá el autopiloto para generar los medios con Flow.
+                </p>
+              ) : (
+                <div className="factory-images">
+                  {images.map((image) => (
+                    <label className="factory-image" key={image.id}>
+                      <input
+                        type="checkbox"
+                        checked={selectedImages.has(image.id)}
+                        onChange={() => toggleImage(image.id)}
+                      />
+                      <span>
+                        <strong>{image.label}</strong>
+                        <em>{image.width}×{image.height}</em>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="card factory-output">

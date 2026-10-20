@@ -1,0 +1,1 @@
+{"error":"Analysis failed","code":"provider_timeout","category":"timeout","message":"Analysis took too long. Try a smaller request, then run `rea doctor` if it continues.","retryable":true,"remediation":{"action":"Analysis took too long. Try a smaller request, then run `rea doctor` if it continues."},"details":{"operation":"list_documents","timeout_ms":330000}}

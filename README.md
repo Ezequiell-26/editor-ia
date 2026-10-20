@@ -52,13 +52,16 @@ quedan en tu equipo; la nube no es obligatoria.
   una vez en esa ventana de Chrome; no se leen cookies ni credenciales.
   [Guía de integración](docs/integrations/GOOGLE-FLOW-MCP.md).
 - **UI de estudio profesional (CapCut/DaVinci)**: tema control-room oscuro con
-  acento menta, tipografía de display/texto y cifras monoespaciadas; timeline con
-  reglas mayores/menores, cabeceras de pista con mute/ocultar/bloquear, olas de
-  audio reales decodificadas del material, playhead con grip y guías de
-  composición seguras en la preview. El rail de medios tiene búsqueda, filtro por
-  tipo, duración y marca de “en timeline”; la barra de timeline se compacta a
-  iconos en ventanas angostas. La biblioteca también tiene búsqueda y filtro, y
-  el estado de guardado se muestra compacto con punto de fase.
+  acento menta, tipografía de display/texto y cifras monoespaciadas; el editor
+  ordena **medios a la izquierda, Inspector al centro con pestañas
+  Video/Audio/Velocidad/Color/Estilo/Todo, preview a la derecha y timeline
+  abajo**. La timeline tiene reglas mayores/menores, cabeceras de pista con
+  mute/ocultar/bloquear, olas de audio reales decodificadas del material,
+  playhead con grip y guías de composición seguras en la preview. El rail de
+  medios tiene búsqueda, filtro por tipo, duración y marca de “en timeline”; la
+  barra de timeline se compacta a iconos en ventanas angostas. La biblioteca
+  también tiene búsqueda y filtro, y el estado de guardado se muestra compacto
+  con punto de fase.
 - **Director automático local**: mide escenas, silencios, negros, frames
   congelados, loudness, piso de ruido y luminancia/saturación con FFmpeg;
   transcribe con Faster-Whisper y arma un plan explicable con cortes, limpieza
@@ -69,11 +72,23 @@ quedan en tu equipo; la nube no es obligatoria.
   que se calibra con los cambios que el usuario conserva y una puerta de
   calidad antes de exportar.
 - **Fábrica de contenido masivo**: un brief genera **N variantes** (1–10) con
-  guion propio, voz SAPI local forzada para no consumir créditos, imágenes
-  compartidas, Ken Burns, transiciones y subtítulos. Cada variante se escribe
-  como `.editoria.json` portable en una carpeta común con `media/` compartida;
-  opcionalmente renderiza un MP4 por variante de forma secuencial. No sobrescribe
-  variantes existentes y añade un sufijo único por corrida.
+  guion propio, voz SAPI local forzada para no consumir créditos, imágenes o
+  videos compartidos, Ken Burns, disolvencias y subtítulos. Cada variante se
+  escribe como `.editoria.json` portable en una carpeta común con `media/`
+  compartida; opcionalmente renderiza un MP4 por variante de forma secuencial. No
+  sobrescribe variantes existentes y añade un sufijo único por corrida.
+- **Autopiloto IA de punta a punta**: dentro de Fábrica, un trabajo encadena
+  guion → voz local → **una imagen o un video por escena con Flow (opcional)** →
+  importación con derechos → montaje con video/imagen por id de escena →
+  subtítulos y disolvencias → `.editoria.json` portable → MP4 verificado. La
+  cola queda en `localStorage`, sobrevive al reinicio, permite cancelar entre
+  etapas y **reanudar solo el render** sin volver a generar medios. La generación
+  con Flow exige autorización de créditos por trabajo y se detiene antes de
+  llamar al MCP si falta. Los videos generados más cortos que la narración se
+  estiran hasta 2× o se reemplazan por una imagen para no cortar la voz.
+- **Importar y exportar SRT/VTT**: pegá un archivo de subtítulos o exportá la
+  pista principal como SRT desde el Inspector; los tiempos se convierten al fps
+  del proyecto y los títulos se conservan.
 - **Subtítulos animados palabra por palabra**: la transcripción guarda los
   tiempos de cada palabra; la preview resalta la palabra activa y el render
   genera eventos ASS con el resaltado (karaoke) además del texto completo.
@@ -96,7 +111,7 @@ quedan en tu equipo; la nube no es obligatoria.
   declaradas por la persona. La biblioteca muestra miniaturas generadas con
   FFmpeg y permite montar clips o narrración.
 - **Timeline multipista en frames**: pistas de video, imagen, audio, narración,
-  subtítulos y gráficos; arrastrar, recortar, dividir, mover entre pistas
+  subtítulos y gráficos; arrastrar, recortar, dividir, copiar/pegar con Ctrl+C/Ctrl+V, borrar con ripple y mover entre pistas
   compatibles, zoom, playhead y eliminación. La transformación por clip incluye
   posición, escala, rotación, opacidad, **volteo horizontal/vertical** y presets
   de rotación 90/180/270°. Los solapamientos y las ventanas de
@@ -104,18 +119,84 @@ quedan en tu equipo; la nube no es obligatoria.
   0,1x–4x** con presets, conservación exacta de la ventana de origen y ripple de
   los clips siguientes en la misma pista.
 - **Color y efectos por clip** (video/imagen): brillo, contraste, saturación,
-  temperatura, **rotación de tono**, **curvas de color con presets** (contraste
+  temperatura, **ruedas de color RGB para sombras/medios/luces**, **HSL selectivo
+  por rangos**, **rotación de tono**, **curvas de color con presets** (contraste
   suave/medio/fuerte, vintage, cross-process, oscurecer, aclarar), viñeta,
   nitidez, desenfoque, blanco y negro, sepia y fades visuales de entrada/salida.
   **Looks rápidos** (Cálido, Frío, Cine, Vintage, B/N) aplican un punto de
   partida conservando los fades. Se editan en el Inspector y se renderizan con
   filtros FFmpeg; la preview es aproximada.
+- **Look del proyecto**: grade global (presets, brillo, contraste, saturación,
+  temperatura, tono, curvas, viñeta, nitidez, desenfoque, B/N, sepia y **LUT
+  `.cube`**) sobre el compuesto final, antes de subtítulos y títulos. No modifica
+  los clips y se guarda en el `.editoria.json` como raíz `look`.
+- **Menú contextual en la timeline**: clic derecho sobre un clip para dividir en
+  el playhead, duplicar, copiar y pegar, ir al inicio, eliminar o eliminar
+  cerrando el hueco. Navegable con flechas, Home, End y Escape.
+- **Keyframes de transformación, opacidad y volumen**: claves de escala,
+  desplazamiento, rotación, opacidad y ganancia por clip, con curvas de easing
+  (lineal, acelerar, desacelerar, suave, mantener), UI en el Inspector,
+  interpolación en la preview y render FFmpeg evaluado por frame: expresiones para
+  escala/rotación/desplazamiento/volumen y `sendcmd` para la opacidad (muestreada
+  por frame, hasta 300 pasos por clip).
+- **Velocidad y audio creativo**: **rampa de velocidad** de tres tramos y
+  **curva suave** de 6–16 tramos contiguos, ambas conservando duración y ventana
+  de origen; **reverse** de video/audio; y **efectos de voz** locales (grave,
+  aguda, robot, eco, cueva, radio/teléfono).
+- **Cortes al ritmo (beat sync)**: el Inspector de un clip de audio detecta los
+  golpes en la máquina (energía/flujo, sin red ni modelo) y muestra BPM, cantidad
+  de pulsos y confianza. “Cortar video al ritmo” divide la pista de video superior
+  en esos frames, con paso de 1/2/4/8 pulsos y guarda de velocidad 1×. Si el pulso
+  es irregular, lo dice en vez de inventar cortes.
+- **Transiciones de entrada**: disolvencia, fundido a negro y deslizamiento
+  horizontal, superpuestas al clip anterior sin cambiar la duración de la
+  timeline.
+- **Animaciones de entrada y salida**: por clip, con fundido o deslizamiento
+  (izquierda/derecha/arriba/abajo), duración en frames y presets Suave, Dinámica
+  y Deslizar. Se reproducen dentro del clip, no mueven a los vecinos y conviven
+  con Ken Burns, la transición y los keyframes.
+- **Proxies de edición**: un video se puede convertir a un proxy H.264/AAC de
+  hasta 854 px, guardado en `media/proxies`; la preview lo usa y el MP4 final se
+  renderiza desde el original.
+- **Freeze frame**: exporta el frame exacto del playhead a PNG, lo importa y lo
+  monta como capa de imagen de 2 s; se puede recortar o mover como cualquier clip.
+- **Estabilización local (vidstab)**: el Inspector de un video analiza el
+  movimiento de su ventana de origen con `vidstabdetect` (FFmpeg local, sin red)
+  y guarda un `.trf` en `media/stabilizers`; el render aplica
+  `vidstabtransform` antes que cualquier otro filtro visual, con suavizado
+  1–60 y recorte negro. El análisis y el render usan la misma ventana; si el
+  clip se recorta, se le cambia la velocidad, se invierte o tiene transición de
+  entrada, el render se niega en vez de desalinear la transformación. La preview
+  no simula la estabilización.
+- **Títulos animados y estilos de texto**: texto en una pista `Títulos` propia,
+  con negrita, itálica, contorno o caja con fondo, sombra, profundidad 3D,
+  presets Creador/Caja/Minimal/Grande/3D y animaciones fade/pop/subir.
+- **Biblioteca de títulos**: pestaña **Títulos** en el rail izquierdo con siete
+  plantillas (Impacto, 3D, Caja, Minimal, Noticias, Cita y Ticker), texto editable y
+  alta en el playhead con un estilo propio reutilizable. La preview muestra a la
+  vez los títulos y los subtítulos activos.
+- **Igualar color**: toma una imagen o video de referencia, muestrea el frame
+  actual y el primero de la referencia, normaliza el brillo y aplica ganancias
+  por canal con fuerza ajustable. La preview es aproximada.
+- **9 modos de mezcla** por clip (multiplicar, trama, superponer, luz suave,
+  oscurecer, aclarar, sobreexponer/subexponer color, luz fuerte) con preview
+  `mix-blend-mode` y render `blend` contra las capas inferiores.
+- **Máscaras**: rectángulo o elipse con centro, tamaño, rotación, feather e
+  inversión y keyframes de posición/tamaño/rotación/feather; preview aproximada
+  (SVG para rotación) y render por píxel con `geq`.
+- **LUT 3D `.cube`**: importación validada a `media/luts`, aplicada en el render
+  con `lut3d`. La preview no simula el LUT.
+- **Metadatos de publicación sugeridos**: título, descripción, hashtags,
+  capítulos por escena y encaje por plataforma (YouTube, Shorts, Reels, TikTok)
+  dentro del manifiesto local. No sube ni programa nada.
 - **Movimiento de cámara (Ken Burns)** por clip de video/imagen: zoom in, zoom
   out y paneos horizontales/verticales, con intensidad 2–50 %. El render usa
   `zoompan` y conserva la relación de aspecto; la preview lo aproxima.
-- **Montaje automático con movimiento y transiciones**: Producción y
-  “Auto-montar lote…” alternan presets de Ken Burns y agregan fades de entrada y
-  salida de 0–30 frames entre fotos, sin trabajo manual.
+- **Montaje automático con video, movimiento y disolvencias**: Producción y
+  “Auto-montar lote…” aceptan imágenes y videos listos, asignan un medio por
+  escena (por orden o similitud de prompt), recortan el video a la narración,
+  estiran tomas cortas hasta 2× y agregan Ken Burns y disolvencias de 0–30
+  frames. Los videos generados por Flow también entran al montaje.
 - **Vista previa sincronizada** con video, imágenes, audio, transformaciones,
   opacidad, efectos y subtítulos; el render final se hace con FFmpeg y la vista
   previa se declara aproximada.
@@ -209,21 +290,27 @@ quedan en tu equipo; la nube no es obligatoria.
 La auditoría de paridad con CapCut, Filmora y DaVinci Resolve está en
 [`docs/reference/EDITOR-PARITY-MATRIX-2026-10-19.md`](docs/reference/EDITOR-PARITY-MATRIX-2026-10-19.md):
 enumera qué se observó en los artefactos instalados (REA), qué se implementó y
-qué falta. **No se afirma paridad total**: son suites de años y esta versión
-cubre las primitivas de edición de esta pasada, no todos sus módulos.
+qué falta. El inventario medido de CapCut 9.4.0.4015 (184 tipos de keyframe y 52
+flags) está en
+[`docs/reference/CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md`](docs/reference/CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md).
+**No se afirma paridad total**: son suites de años y esta versión cubre las
+primitivas de edición de esta pasada, no todos sus módulos.
 
-- **Keyframes, speed ramps y transiciones solapadas**: la velocidad es uniforme
-  por clip y hay fades/Ken Burns; no hay curvas de velocidad, crossfade,
-  dip-to-color ni slide con dos clips activos a la vez. En el working tree existe
-  una **base de keyframes** (schema, sampler y acciones) con tests, pero todavía
-  no tiene UI ni render: no se cuenta como función disponible.
-- **Color avanzado y máscaras**: hay curvas por preset y rotación de tono; no hay
-  editor de curvas punto por punto, ruedas, qualifiers/HSL selectivo, LUTs `.cube`,
-  blend modes ni track matte. El chroma key clásico sí está.
+- **Keyframes incompletos y velocidad**: existen claves de
+  escala/posición/rotación/opacidad/ganancia con easing y render, una rampa de
+  velocidad de tres tramos, reverse y tres transiciones. Faltan curvas de
+  velocidad por frame (la curva suave es de tramos discretos), wipes adicionales
+  y motion
+  tracking. La velocidad uniforme por clip sigue disponible.
+- **Color avanzado y máscaras**: hay curvas por preset, rotación de tono y LUTs
+  `.cube`; no hay editor de curvas punto por punto, ruedas, qualifiers/HSL
+  selectivo, blend modes ni track matte. El chroma key clásico sí está.
 - **Audio suite**: hay EQ de 3 bandas, filtros, compresor, `afftdn` y loudness;
   no hay voice isolation por modelo; el ducking por sidechain sí está implementado.
-- **Bins, proxies, relink, multicam, motion tracking, estabilización y smart
-  reframe**: no existen. La detección de escenas y cortes del Director sí existe.
+- **Bins, proxies, relink, multicam, motion tracking y smart reframe**: no
+  existen. La detección de escenas y cortes del Director sí existe. La
+  estabilización local con vidstab ya está (sólo a 1×, sin reverse ni transición
+  de entrada), pero no hay motion tracking ni smart reframe.
 - **Remoción de fondo por IA, voice isolation por modelo y matting**: hay chroma
   key por color, `afftdn` y compresor; no hay segmentación de personas/objetos ni
   separación de voz con un modelo neuronal.
@@ -240,10 +327,12 @@ cubre las primitivas de edición de esta pasada, no todos sus módulos.
   señales de imagen; no “entiende” personas, objetos ni intención. Faster-Whisper
   sí se ejecuta localmente para transcribir. No hay alineación forzada
   palabra-imagen en la vista Producción.
-- **Generación de imágenes dentro de Editor IA**: el panel Flow MCP puede generar
-  una foto o un video por prompt y importarlo/montarlo; todavía no orquesta de
-  forma automática todos los prompts de un guion en una sola corrida. El flujo
-  manual por la extensión Flow Queue sigue disponible.
+- **Generación de imágenes dentro de Editor IA**: el autopiloto puede generar
+  una foto o un video por escena del guion, importarlos y montarlos en una sola
+  corrida con autorización de créditos. La generación real no se verificó en esta
+  máquina porque el Chrome dedicado no tenía sesión de Google ni créditos; el
+  flujo se probó con dobles del servicio. El panel manual y la extensión Flow
+  Queue siguen disponibles.
 - **Carga automática de referencias en Flow**: Flow abre un selector de archivos
   nativo que el content script no puede controlar sin permisos de depuración. La
   extensión permite declarar que las referencias ya se cargaron a mano.

@@ -6,6 +6,7 @@ export type IconName =
   | 'editor'
   | 'script'
   | 'assets'
+  | 'download'
   | 'settings'
   | 'undo'
   | 'redo'
@@ -85,6 +86,13 @@ const paths: Record<IconName, ReactNode> = {
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <circle cx="8.5" cy="9" r="1.5" />
       <path d="m4 18 5.5-5.5L14 17l3-3 3 3" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M4 19h16" />
     </>
   ),
   settings: (

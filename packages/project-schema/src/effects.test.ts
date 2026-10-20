@@ -60,4 +60,204 @@ describe('efectos de clip', () => {
     };
     expect(ClipSchema.safeParse(audio).success).toBe(false);
   });
+
+  it('acepta una disolvencia de entrada acotada al clip', () => {
+    const ok = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionIn: { type: 'dissolve', frames: 12 },
+    });
+    expect(ok.success).toBe(true);
+
+    const tooLong = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionIn: { type: 'dissolve', frames: 200 },
+    });
+    expect(tooLong.success).toBe(false);
+
+    const unknown = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionIn: { type: 'wipe', frames: 12 },
+    });
+    expect(unknown.success).toBe(false);
+  });
+
+  it('acepta animaciones de entrada y salida válidas y rechaza las inválidas', () => {
+    const ok = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      animationIn: { type: 'slide-left', durationFrames: 15 },
+      animationOut: { type: 'slide-right', durationFrames: 30 },
+    });
+    expect(ok.success).toBe(true);
+
+    const unknown = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      animationIn: { type: 'wipe', durationFrames: 15 },
+    });
+    expect(unknown.success).toBe(false);
+
+    const zero = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      animationIn: { type: 'fade', durationFrames: 0 },
+    });
+    expect(zero.success).toBe(false);
+
+    const tooLong = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      animationOut: { type: 'slide-up', durationFrames: 241 },
+    });
+    expect(tooLong.success).toBe(false);
+
+    const audio = ClipSchema.safeParse({
+      id: ID,
+      trackId: TRACK,
+      kind: 'audio',
+      source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 90 },
+      startFrame: 0,
+      durationFrames: 90,
+      animationIn: { type: 'fade', durationFrames: 12 },
+    });
+    expect(audio.success).toBe(false);
+  });
+
+  it('acepta ruedas de color dentro de rango', () => {
+    const ok = ClipSchema.safeParse(
+      imageClip({
+        lift: { r: 0.1, g: 0, b: -0.1 },
+        gamma: { r: 0.2, g: -0.1, b: 0 },
+        gain: { r: -0.2, g: 0.1, b: 0.2 },
+      }),
+    );
+    expect(ok.success).toBe(true);
+
+    const invalid = ClipSchema.safeParse(
+      imageClip({ lift: { r: 2, g: 0, b: 0 } }),
+    );
+    expect(invalid.success).toBe(false);
+  });
+
+  it('acepta modos de mezcla y rechaza nombres desconocidos', () => {
+    const clip = (blendMode: string) => ({ ...imageClip(undefined), blendMode });
+    expect(ClipSchema.safeParse(clip('screen')).success).toBe(true);
+    expect(ClipSchema.safeParse(clip('multiply')).success).toBe(true);
+    expect(ClipSchema.safeParse(clip('glow')).success).toBe(false);
+  });
+
+  it('acepta igualar color y acota las ganancias', () => {
+    expect(
+      ClipSchema.safeParse(
+        imageClip({
+          colorMatch: { r: 1.1, g: 0.95, b: 1.05, strength: 0.8 },
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ colorMatch: { r: 5, g: 1, b: 1, strength: 0.5 } }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('acepta HSL selectivo y valida los rangos', () => {    const ok = ClipSchema.safeParse(
+      imageClip({
+        hsl: { hue: 12, saturation: 0.2, intensity: -0.1, colors: ['r', 'y'] },
+      }),
+    );
+    expect(ok.success).toBe(true);
+
+    expect(
+      ClipSchema.safeParse(imageClip({ hsl: { hue: 400, saturation: 0, intensity: 0 } }))
+        .success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ hsl: { hue: 0, saturation: 0, intensity: 0, colors: [] } }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('acepta máscaras rectangulares y elípticas y valida sus límites', () => {    const rectangle = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      mask: { shape: 'rectangle', x: 0, y: 0, width: 0.6, height: 0.7, feather: 0.1 },
+    });
+    expect(rectangle.success).toBe(true);
+    const ellipse = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      mask: { shape: 'ellipse', x: 0.2, y: -0.1, width: 0.8, height: 0.5, invert: true },
+    });
+    expect(ellipse.success).toBe(true);
+    const rotated = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      mask: {
+        shape: 'ellipse',
+        x: 0,
+        y: 0,
+        width: 0.8,
+        height: 0.6,
+        rotationDeg: 45,
+      },
+    });
+    expect(rotated.success).toBe(true);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: {
+          shape: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 0.8,
+          height: 0.6,
+          rotationDeg: 200,
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: { shape: 'triangle', x: 0, y: 0, width: 1, height: 1 },
+      }).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: {
+          shape: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 0.8,
+          height: 0.6,
+          keyframes: [
+            { frame: 0, x: -0.2 },
+            { frame: 30, x: 0, rotationDeg: 45 },
+          ],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: {
+          shape: 'ellipse',
+          x: 0,
+          y: 0,
+          width: 0.8,
+          height: 0.6,
+          keyframes: [{ frame: 30 }, { frame: 10 }],
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: { shape: 'rectangle', x: 0, y: 0, width: 0, height: 1 },
+      }).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        kind: 'audio',
+        source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 90 },
+        mask: { shape: 'ellipse', x: 0, y: 0, width: 1, height: 1 },
+      }).success,
+    ).toBe(false);
+  });
 });

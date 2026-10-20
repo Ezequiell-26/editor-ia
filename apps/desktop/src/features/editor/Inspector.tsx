@@ -1,10 +1,22 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Asset, CaptionCue, ChromaKey, Clip, ClipEffects, ClipMotion, Scene, Track } from '@editor-ia/project-schema';
+import type { Asset, AssetProxy, BlendMode, CaptionCue, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, KeyframeEasing, Scene, Track } from '@editor-ia/project-schema';
 import { friendlyAssetLabel } from '../../state/asset-labels';
+import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import {
+  addAsset,
   addCaptionCue,
   addClipFromAsset,
+  addTitleCue,
+  importSubtitleCues,
   addTranscriptionCues,
+  applySpeedCurve,
+  applySpeedRamp,
+  captureTransformKeyframe,
+  clearGainKeyframes,
+  clearMaskKeyframes,
+  clearTransformKeyframes,
+  clipGainAtFrame,
+  clipTransformAtFrame,
   deleteCaptionCue,
   deleteClip,
   deleteTrack,
@@ -14,20 +26,32 @@ import {
   markAssetReady,
   moveClip,
   removeAsset,
+  removeGainKeyframe,
+  removeMaskKeyframe,
+  removeTransformKeyframe,
   setClipSpeed,
+  setClipStabilization,
+  setAssetProxy,
+  setProjectLook,
+  setGainKeyframe,
+  setMaskKeyframe,
+  setTransformKeyframe,
   splitClip,
   splitClipAtFrames,
+  splitTrackAtFrames,
   trimClip,
   updateAssetLabel,
   updateAudioMix,
   updateCaptionCue,
   updateCaptionStyle,
   updateClip,
+  updateProjectLook,
   updateProjectSettings,
   totalFrames,
   updateTrack,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
   FORMAT_PRESETS,
@@ -164,9 +188,17 @@ function TextAreaField({
   );
 }
 
-function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+function Section({
+  title,
+  children,
+  group,
+}: {
+  readonly title: string;
+  readonly children: ReactNode;
+  readonly group?: 'video' | 'audio' | 'speed' | 'animation' | 'color' | 'style';
+}) {
   return (
-    <section className="inspector-section">
+    <section className="inspector-section" data-group={group}>
       <h4>{title}</h4>
       {children}
     </section>
@@ -174,7 +206,13 @@ function Section({ title, children }: { readonly title: string; readonly childre
 }
 
 function clipKindLabel(kind: Clip['kind']): string {
-  return { video: 'Video', image: 'Imagen', audio: 'Audio', graphic: 'Gráfico' }[kind];
+  return {
+    video: 'Video',
+    image: 'Imagen',
+    audio: 'Audio',
+    graphic: 'Gráfico',
+    adjustment: 'Ajuste',
+  }[kind];
 }
 
 function trackKindLabel(kind: Track['kind']): string {
@@ -185,6 +223,7 @@ function trackKindLabel(kind: Track['kind']): string {
     narration: 'Narración',
     caption: 'Subtítulos',
     graphic: 'Gráficos',
+    adjustment: 'Ajustes',
   }[kind];
 }
 
@@ -252,18 +291,45 @@ const COLOR_LOOKS: readonly { readonly id: string; readonly label: string; reado
   },
 ];
 
+type ClipTab = 'video' | 'audio' | 'speed' | 'animation' | 'color' | 'style' | 'all';
+
 function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; project: ReturnType<typeof useProjectStore>['state']['project'] }) {
   const store = useProjectStore();
+  const [tab, setTab] = useState<ClipTab>(
+    clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video',
+  );
   const [sceneThreshold, setSceneThreshold] = useState(0.35);
   const [sceneCuts, setSceneCuts] = useState<number[]>([]);
   const [sceneBusy, setSceneBusy] = useState(false);
   const [transcribeBusy, setTranscribeBusy] = useState(false);
   const [transcribeInfo, setTranscribeInfo] = useState<string | null>(null);
+  const [selectedKeyframe, setSelectedKeyframe] = useState<number | null>(null);
+  const [rampFrom, setRampFrom] = useState(2);
+  const [rampTo, setRampTo] = useState(0.5);
+  const [curveSegments, setCurveSegments] = useState(8);
+  const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysis | null>(null);
+  const [beatBusy, setBeatBusy] = useState(false);
+  const [beatStride, setBeatStride] = useState(4);
+  const [beatInfo, setBeatInfo] = useState<string | null>(null);
+  const [freezeBusy, setFreezeBusy] = useState(false);
+  const [stabilizeBusy, setStabilizeBusy] = useState(false);
+  const [stabilizeSmoothing, setStabilizeSmoothing] = useState(10);
+  const [stabilizeInfo, setStabilizeInfo] = useState<string | null>(null);
+  const [matchRefId, setMatchRefId] = useState('');
+  const [matchStrength, setMatchStrength] = useState(0.75);
+  const [matchBusy, setMatchBusy] = useState(false);
   useEffect(() => {
     setSceneCuts([]);
     setSceneBusy(false);
     setTranscribeInfo(null);
-  }, [clip.id]);
+    setSelectedKeyframe(null);
+    setBeatAnalysis(null);
+    setBeatBusy(false);
+    setBeatInfo(null);
+    setStabilizeInfo(null);
+    setStabilizeBusy(false);
+    setTab(clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video');
+  }, [clip.id, clip.kind]);
   if (!project) return null;
   const fps = fpsOf(project);
   const source = clip.source;
@@ -271,6 +337,52 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
   const windowedSource = source.type === 'asset' && 'inFrame' in source ? source : undefined;
   const transform = clip.transform ?? {};
   const audio = clip.audio ?? {};
+  const transitionIn =
+    'transitionIn' in clip
+      ? (
+          clip as Clip & {
+            transitionIn?: {
+              type: 'dissolve' | 'fade-black' | 'slide-left' | 'slide-right';
+              frames: number;
+            };
+          }
+        ).transitionIn
+      : undefined;
+  const reverse =
+    'reverse' in clip ? Boolean((clip as Clip & { reverse?: boolean }).reverse) : false;
+  const mask =
+    'mask' in clip ? (clip as Clip & { mask?: ClipMask }).mask : undefined;
+  const blendMode =
+    'blendMode' in clip
+      ? (clip as Clip & { blendMode?: BlendMode }).blendMode
+      : undefined;
+  const animationClip = clip as Clip & {
+    animationIn?: ClipAnimation;
+    animationOut?: ClipAnimation;
+  };
+  const canAnimate = clip.kind === 'video' || clip.kind === 'image';
+  const animationIn = canAnimate ? animationClip.animationIn : undefined;
+  const animationOut = canAnimate ? animationClip.animationOut : undefined;
+  const animationMax = Math.max(1, Math.min(240, clip.durationFrames));
+  const localFrame = Math.max(
+    0,
+    Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
+  );
+  const maskKeyframe = mask?.keyframes?.find((keyframe) => keyframe.frame === localFrame);
+  const maskView = {
+    x: maskKeyframe?.x ?? mask?.x ?? 0,
+    y: maskKeyframe?.y ?? mask?.y ?? 0,
+    width: maskKeyframe?.width ?? mask?.width ?? 1,
+    height: maskKeyframe?.height ?? mask?.height ?? 1,
+    rotationDeg: maskKeyframe?.rotationDeg ?? mask?.rotationDeg ?? 0,
+    feather: maskKeyframe?.feather ?? mask?.feather ?? 0.08,
+  };
+  const transformKeyframes = transform.keyframes ?? [];
+  const gainKeyframes = audio.gainKeyframes ?? [];
+  const selectedTransformKeyframe =
+    selectedKeyframe === null
+      ? null
+      : transformKeyframes.find((keyframe) => keyframe.frame === selectedKeyframe) ?? null;
   const effects: ClipEffects = 'effects' in clip ? clip.effects ?? {} : {};
   const motion = 'motion' in clip ? clip.motion : undefined;
   const chromaKey = 'chromaKey' in clip ? clip.chromaKey : undefined;
@@ -291,11 +403,154 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       updateClip(current, clip.id, { audio: next as NonNullable<Clip['audio']> }),
     );
   }
+  function patchMask(patch: Partial<ClipMask>): void {
+    const animatable =
+      patch.x !== undefined ||
+      patch.y !== undefined ||
+      patch.width !== undefined ||
+      patch.height !== undefined ||
+      patch.rotationDeg !== undefined ||
+      patch.feather !== undefined;
+    if (maskKeyframe && animatable) {
+      store.update((current) =>
+        setMaskKeyframe(current, clip.id, localFrame, {
+          x: patch.x ?? maskKeyframe.x,
+          y: patch.y ?? maskKeyframe.y,
+          width: patch.width ?? maskKeyframe.width,
+          height: patch.height ?? maskKeyframe.height,
+          rotationDeg: patch.rotationDeg ?? maskKeyframe.rotationDeg,
+          feather: patch.feather ?? maskKeyframe.feather,
+          ...(maskKeyframe.easing ? { easing: maskKeyframe.easing } : {}),
+        }),
+      );
+      return;
+    }
+    const next: ClipMask = {
+      shape: mask?.shape ?? 'rectangle',
+      x: maskView.x,
+      y: maskView.y,
+      width: maskView.width,
+      height: maskView.height,
+      rotationDeg: maskView.rotationDeg,
+      feather: maskView.feather,
+      invert: mask?.invert ?? false,
+      ...(mask?.keyframes ? { keyframes: mask.keyframes } : {}),
+      ...patch,
+    };
+    store.update((current) => updateClip(current, clip.id, { mask: next }));
+  }
 
   const speedFactor =
     clip.kind === 'video' || clip.kind === 'audio'
       ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1)
       : 1;
+  async function freezeFrame(): Promise<void> {
+    if (
+      !project ||
+      clip.kind !== 'video' ||
+      !asset ||
+      asset.source.type !== 'local' ||
+      !windowedSource
+    ) {
+      return;
+    }
+    const localFrame = Math.max(
+      0,
+      Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
+    );
+    const seconds = (windowedSource.inFrame + localFrame * speedFactor) / fps;
+    setFreezeBusy(true);
+    try {
+      const frameAsset = await store.service.extractFreezeFrame({
+        path: asset.source.path,
+        seconds,
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+      });
+      if (!frameAsset) return;
+      const result = store.mutate((current) => {
+        let next = addAsset(current, frameAsset);
+        next = markAssetReady(next, frameAsset.id, 'allowed');
+        const ready = next.assets.find((item) => item.id === frameAsset.id);
+        if (!ready) throw new Error('el frame no quedó en la biblioteca');
+        const added = addClipFromAsset(next, ready, {
+          atFrame: store.state.playheadFrame,
+          durationFrames: Math.max(1, Math.round(2 * fps)),
+        });
+        return { project: added.project, clipId: added.clipId };
+      });
+      if (result) {
+        store.setSelection({ kind: 'clip', id: result.clipId });
+        store.setNotice('Frame congelado: capa de 2 s agregada en el playhead.');
+      }
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo congelar el frame',
+      );
+    } finally {
+      setFreezeBusy(false);
+    }
+  }
+  async function matchColor(): Promise<void> {
+    if (!project) return;
+    const reference = project.assets.find((item) => item.id === matchRefId);
+    if (
+      !reference ||
+      !asset ||
+      (reference.kind !== 'video' && reference.kind !== 'image') ||
+      (asset.kind !== 'video' && asset.kind !== 'image')
+    ) {
+      return;
+    }
+    let sourceSeconds = 0;
+    if (clip.kind === 'video' && windowedSource) {
+      const localFrame = Math.max(
+        0,
+        Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
+      );
+      sourceSeconds = (windowedSource.inFrame + localFrame * speedFactor) / fps;
+    }
+    setMatchBusy(true);
+    try {
+      const [source, target] = await Promise.all([
+        store.service.sampleAssetColor({
+          path: asset.source.path,
+          seconds: sourceSeconds,
+        }),
+        store.service.sampleAssetColor({
+          path: reference.source.path,
+          seconds: 0,
+        }),
+      ]);
+      const safe = (value: number): number => Math.max(4, value);
+      let r = target.r / safe(source.r);
+      let g = target.g / safe(source.g);
+      let b = target.b / safe(source.b);
+      const average = (r + g + b) / 3;
+      if (!Number.isFinite(average) || average < 0.02) {
+        throw new Error('los frames son demasiado oscuros para igualar el color');
+      }
+      r /= average;
+      g /= average;
+      b /= average;
+      const clamp = (value: number): number => Math.min(4, Math.max(0.25, value));
+      setEffect('colorMatch', {
+        r: clamp(r),
+        g: clamp(g),
+        b: clamp(b),
+        strength: matchStrength,
+      });
+      store.setNotice(
+        `Color igualado: ganancias R ${r.toFixed(2)} · G ${g.toFixed(2)} · B ${b.toFixed(2)}.`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo igualar el color',
+      );
+    } finally {
+      setMatchBusy(false);
+    }
+  }
   const sceneTimelineCuts =
     clip.kind === 'video' && windowedSource
       ? sceneCuts
@@ -373,10 +628,127 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       setTranscribeBusy(false);
     }
   }
+
+  async function analyzeBeats(): Promise<void> {
+    if (!asset) return;
+    const root = store.state.opened?.root ?? '';
+    const url = store.service.mediaUrl(root, asset.source.path);
+    setBeatBusy(true);
+    setBeatInfo(null);
+    try {
+      const decoded = await decodeAudioSamples(url);
+      if (!decoded) {
+        setBeatAnalysis(null);
+        setBeatInfo('No se pudo decodificar el audio del clip.');
+        return;
+      }
+      const analysis = detectBeats(decoded.samples, decoded.sampleRate);
+      setBeatAnalysis(analysis);
+      if (analysis.beatsSeconds.length === 0) {
+        setBeatInfo('Sin pulso claro: no se detectaron golpes.');
+      } else if (analysis.confidence < 0.4) {
+        setBeatInfo('Pulso irregular: revisá los cortes antes de exportar.');
+      }
+    } finally {
+      setBeatBusy(false);
+    }
+  }
+
+  function cutVideoToBeat(): void {
+    if (!project || !beatAnalysis) return;
+    const source = clip.source.type === 'asset' && 'inFrame' in clip.source ? clip.source : null;
+    if (!source) {
+      setBeatInfo('Este clip no tiene una ventana de origen.');
+      return;
+    }
+    const speedRatio = 'speed' in clip && clip.speed ? clip.speed.num / Math.max(1, clip.speed.den) : 1;
+    if (Math.abs(speedRatio - 1) > 0.001) {
+      setBeatInfo('Poné la velocidad del audio en 1× para cortar al ritmo.');
+      return;
+    }
+    const target = [...project.timeline.tracks]
+      .filter((item) => item.kind === 'video' && !item.locked)
+      .sort((a, b) => b.order - a.order)[0];
+    if (!target) {
+      setBeatInfo('No hay una pista de video desbloqueada para cortar.');
+      return;
+    }
+    const frames = planBeatCuts({
+      beatsSeconds: beatAnalysis.beatsSeconds,
+      fps,
+      audioInFrame: source.inFrame,
+      audioOutFrame: source.outFrame,
+      audioStartFrame: clip.startFrame,
+      speed: speedRatio,
+      stride: beatStride,
+      targetStartFrame: 0,
+      targetEndFrame: totalFrames(project),
+    });
+    if (frames.length === 0) {
+      setBeatInfo('Los pulsos no caen dentro de la pista de video.');
+      return;
+    }
+    let applied = false;
+    store.update((current) => {
+      const next = splitTrackAtFrames(current, target.id, frames);
+      applied = next !== null;
+      return next ?? current;
+    });
+    setBeatInfo(
+      applied
+        ? `Pista “${target.label}” cortada al ritmo: ${frames.length} cortes.`
+        : 'No se pudo cortar la pista.',
+    );
+  }
+
+  async function stabilizeClip(): Promise<void> {
+    if (clip.kind !== 'video' || !asset) return;
+    const windowed = clip.source.type === 'asset' && 'inFrame' in clip.source ? clip.source : null;
+    if (!windowed) return;
+    setStabilizeBusy(true);
+    setStabilizeInfo(null);
+    try {
+      const result = await store.service.analyzeStabilization(
+        asset.id,
+        windowed.inFrame,
+        windowed.outFrame,
+        stabilizeSmoothing,
+      );
+      store.update((current) =>
+        setClipStabilization(current, clip.id, {
+          smoothing: result.smoothing,
+          transformFile: result.path,
+          inFrame: result.inFrame,
+          outFrame: result.outFrame,
+        }),
+      );
+      store.setNotice(
+        `Estabilización analizada (suavizado ${result.smoothing}). Se hornea en el MP4; la preview no la simula.`,
+      );
+    } catch (error) {
+      setStabilizeInfo(
+        error instanceof Error ? error.message : 'no se pudo estabilizar el clip',
+      );
+    } finally {
+      setStabilizeBusy(false);
+    }
+  }
+
   const speed =
     clip.kind === 'video' || clip.kind === 'audio'
       ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1)
       : 1;
+  const currentStabilization = 'stabilization' in clip ? clip.stabilization : undefined;
+  const stabilizeBlocked =
+    clip.kind === 'video' &&
+    (Math.abs(speed - 1) > 0.001 ||
+      Boolean(reverse) ||
+      (transitionIn !== undefined && Object.keys(transitionIn).length > 0));
+  const stabilizeStale =
+    currentStabilization !== undefined &&
+    windowedSource !== undefined &&
+    (currentStabilization.inFrame !== windowedSource.inFrame ||
+      currentStabilization.outFrame !== windowedSource.outFrame);
   function setEffect<K extends keyof ClipEffects>(key: K, value: ClipEffects[K] | undefined): void {
     const nextEffects: ClipEffects = { ...effects };
     if (value === undefined) {
@@ -393,14 +765,60 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     if (effects.fadeOutFrames !== undefined) nextEffects.fadeOutFrames = effects.fadeOutFrames;
     store.update((current) => updateClip(current, clip.id, { effects: nextEffects }));
   }
+  function setWheel(
+    kind: 'lift' | 'gamma' | 'gain',
+    channel: 'r' | 'g' | 'b',
+    value: number,
+  ): void {
+    const current = effects[kind] ?? { r: 0, g: 0, b: 0 };
+    setEffect(kind, { ...current, [channel]: value });
+  }
+  function patchHsl(patch: Partial<NonNullable<ClipEffects['hsl']>>): void {
+    const current = effects.hsl ?? { hue: 0, saturation: 0, intensity: 0 };
+    setEffect('hsl', { ...current, ...patch });
+  }
   const compatibleTracks = project.timeline.tracks.filter((item) =>
     clip.kind === 'audio'
       ? item.kind === 'audio' || item.kind === 'narration'
       : item.kind === trackKind(clip),
   );
+  const matchReferences = project.assets.filter(
+    (item) =>
+      item.id !== asset?.id &&
+      item.status === 'ready' &&
+      (item.kind === 'video' || item.kind === 'image'),
+  );
+  const visual = clip.kind === 'video' || clip.kind === 'image';
+  const isAdjustment = clip.kind === 'adjustment';
+  const timed = clip.kind === 'video' || clip.kind === 'audio';
+  const tabs: { readonly id: ClipTab; readonly label: string }[] = [
+    ...(visual ? [{ id: 'video' as const, label: 'Video' }] : []),
+    ...(timed ? [{ id: 'audio' as const, label: 'Audio' }] : []),
+    ...(timed ? [{ id: 'speed' as const, label: 'Velocidad' }] : []),
+    ...(visual ? [{ id: 'animation' as const, label: 'Animación' }] : []),
+    ...(visual || isAdjustment
+      ? [{ id: 'color' as const, label: isAdjustment ? 'Ajuste' : 'Color' }]
+      : []),
+    ...(visual ? [{ id: 'style' as const, label: 'Estilo' }] : []),
+    { id: 'all', label: 'Todo' },
+  ];
 
   return (
-    <>
+    <div className="clip-inspector" data-tab={tab}>
+      <div className="inspector-tabs" role="tablist" aria-label="Propiedades del clip">
+        {tabs.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            className={tab === item.id ? 'active' : ''}
+            onClick={() => setTab(item.id)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
       <Section title="Clip">
         <TextField
           label="Nombre"
@@ -468,8 +886,12 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
           <p className="inspector-meta">
             Fuente: {asset ? friendlyAssetLabel(asset.label) : 'material ausente'} · imagen fija
           </p>
-        ) : (
+        ) : source.type === 'graphic' ? (
           <p className="inspector-meta">Fuente gráfica: {source.motionId}</p>
+        ) : (
+          <p className="inspector-meta">
+            Capa de ajuste · se aplica al compuesto dentro de su tramo
+          </p>
         )}
         <div className="actions compact">
           <button
@@ -504,7 +926,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </div>
       </Section>
 
-      <Section title="Transformación">
+      <Section title="Transformación" group="video">
         <div className="inspector-grid">
           <NumberField
             label="Desplaz. X"
@@ -564,6 +986,37 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             }
           />
         </div>
+        <label className="field">
+          <span>Mezcla</span>
+          <select
+            value={blendMode ?? 'normal'}
+            onChange={(event) =>
+              store.update((current) =>
+                updateClip(current, clip.id, {
+                  blendMode:
+                    event.target.value === 'normal'
+                      ? undefined
+                      : (event.target.value as BlendMode),
+                }),
+              )
+            }
+          >
+            <option value="normal">Normal</option>
+            <option value="multiply">Multiplicar</option>
+            <option value="screen">Trama / aclarar</option>
+            <option value="overlay">Superponer</option>
+            <option value="soft-light">Luz suave</option>
+            <option value="darken">Oscurecer</option>
+            <option value="lighten">Aclarar</option>
+            <option value="color-dodge">Sobreexponer color</option>
+            <option value="color-burn">Subexponer color</option>
+            <option value="hard-light">Luz fuerte</option>
+          </select>
+        </label>
+        <p className="fine-print">
+          La mezcla se calcula contra las capas inferiores. Rinde mejor cuando el clip llena el
+          cuadro; en la preview usa `mix-blend-mode` y en el MP4 `blend`.
+        </p>
         <div className="actions compact">
           <label className="check">
             <input
@@ -618,10 +1071,453 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             Limpiar transformación
           </button>
         </div>
+
+        {clip.kind === 'video' || clip.kind === 'image' ? (
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Keyframes de transformación</p>
+                <span className="fine-print">
+                  {transformKeyframes.length} clave(s) · playhead{' '}
+                  {formatTimecode(localFrame, fps)}
+                </span>
+              </div>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => {
+                    store.update((current) =>
+                      setTransformKeyframe(
+                        current,
+                        clip.id,
+                        localFrame,
+                        captureTransformKeyframe(clip, localFrame),
+                      ),
+                    );
+                    setSelectedKeyframe(localFrame);
+                  }}
+                >
+                  Fijar en playhead
+                </button>
+                <button
+                  type="button"
+                  className="small ghost"
+                  disabled={transformKeyframes.length === 0}
+                  onClick={() => {
+                    store.update((current) =>
+                      clearTransformKeyframes(current, clip.id, localFrame),
+                    );
+                    setSelectedKeyframe(null);
+                  }}
+                >
+                  Quitar animación
+                </button>
+              </div>
+            </div>
+            {transformKeyframes.length === 0 ? (
+              <p className="fine-print">
+                Fijá una clave, mové el playhead, cambiá escala/posición/opacidad y fijá otra. La
+                vista previa y el MP4 interpolan entre claves.
+              </p>
+            ) : (
+              <div className="keyframe-list">
+                {transformKeyframes.map((keyframe) => (
+                  <div
+                    key={keyframe.frame}
+                    className={`keyframe-row ${
+                      selectedKeyframe === keyframe.frame ? 'active' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() => setSelectedKeyframe(keyframe.frame)}
+                    >
+                      {formatTimecode(keyframe.frame, fps)}
+                    </button>
+                    <span className="fine-print">
+                      {[
+                        keyframe.offsetX !== undefined ? `X ${keyframe.offsetX}` : '',
+                        keyframe.offsetY !== undefined ? `Y ${keyframe.offsetY}` : '',
+                        keyframe.scale !== undefined ? `×${keyframe.scale.toFixed(2)}` : '',
+                        keyframe.rotationDeg !== undefined ? `${keyframe.rotationDeg}°` : '',
+                        keyframe.opacity !== undefined
+                          ? `α ${keyframe.opacity.toFixed(2)}`
+                          : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      aria-label={`Quitar clave en ${formatTimecode(keyframe.frame, fps)}`}
+                      onClick={() => {
+                        store.update((current) =>
+                          removeTransformKeyframe(current, clip.id, keyframe.frame),
+                        );
+                        if (selectedKeyframe === keyframe.frame) setSelectedKeyframe(null);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {selectedTransformKeyframe ? (
+              <div className="inspector-grid">
+                <NumberField
+                  label="KF desplaz. X"
+                  value={selectedTransformKeyframe.offsetX ?? 0}
+                  onCommit={(value) =>
+                    store.update((current) =>
+                      setTransformKeyframe(current, clip.id, selectedTransformKeyframe.frame, {
+                        offsetX: Math.round(value),
+                      }),
+                    )
+                  }
+                />
+                <NumberField
+                  label="KF desplaz. Y"
+                  value={selectedTransformKeyframe.offsetY ?? 0}
+                  onCommit={(value) =>
+                    store.update((current) =>
+                      setTransformKeyframe(current, clip.id, selectedTransformKeyframe.frame, {
+                        offsetY: Math.round(value),
+                      }),
+                    )
+                  }
+                />
+                <NumberField
+                  label="KF escala"
+                  value={selectedTransformKeyframe.scale ?? 1}
+                  min={0.5}
+                  max={4}
+                  step={0.05}
+                  onCommit={(value) =>
+                    store.update((current) =>
+                      setTransformKeyframe(current, clip.id, selectedTransformKeyframe.frame, {
+                        scale: value,
+                      }),
+                    )
+                  }
+                />
+                <NumberField
+                  label="KF rotación"
+                  value={selectedTransformKeyframe.rotationDeg ?? 0}
+                  min={-360}
+                  max={360}
+                  onCommit={(value) =>
+                    store.update((current) =>
+                      setTransformKeyframe(current, clip.id, selectedTransformKeyframe.frame, {
+                        rotationDeg: value,
+                      }),
+                    )
+                  }
+                />
+                <NumberField
+                  label="KF opacidad"
+                  value={selectedTransformKeyframe.opacity ?? 1}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onCommit={(value) =>
+                    store.update((current) =>
+                      setTransformKeyframe(current, clip.id, selectedTransformKeyframe.frame, {
+                        opacity: value,
+                      }),
+                    )
+                  }
+                />
+                <label className="field">
+                  <span>Curva</span>
+                  <select
+                    value={selectedTransformKeyframe.easing ?? 'linear'}
+                    onChange={(event) =>
+                      store.update((current) =>
+                        setTransformKeyframe(current, clip.id, selectedTransformKeyframe.frame, {
+                          easing: event.target.value as KeyframeEasing,
+                        }),
+                      )
+                    }
+                  >
+                    <option value="linear">Lineal</option>
+                    <option value="ease-in">Acelerar</option>
+                    <option value="ease-out">Desacelerar</option>
+                    <option value="ease-in-out">Suave</option>
+                    <option value="hold">Mantener</option>
+                  </select>
+                </label>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </Section>
 
+      {clip.kind === 'video' || clip.kind === 'image' ? (
+        <Section title="Transición de entrada" group="video">
+          <div className="inspector-grid">
+            <label className="field">
+              <span>Tipo</span>
+              <select
+                value={transitionIn?.type ?? 'none'}
+                onChange={(event) => {
+                  if (event.target.value === 'none') {
+                    store.update((current) =>
+                      updateClip(current, clip.id, { transitionIn: {} }),
+                    );
+                  } else {
+                    store.update((current) =>
+                      updateClip(current, clip.id, {
+                        transitionIn: {
+                          type: event.target.value as NonNullable<
+                            typeof transitionIn
+                          >['type'],
+                          frames: transitionIn?.frames ?? Math.min(12, clip.durationFrames),
+                        },
+                      }),
+                    );
+                  }
+                }}
+              >
+                <option value="none">Sin transición</option>
+                <option value="dissolve">Disolvencia</option>
+                <option value="fade-black">Fundido a negro</option>
+                <option value="slide-left">Deslizar desde la derecha</option>
+                <option value="slide-right">Deslizar desde la izquierda</option>
+              </select>
+            </label>
+            <NumberField
+              label="Duración (frames)"
+              value={transitionIn?.frames ?? 12}
+              min={1}
+              max={Math.min(120, clip.durationFrames)}
+              disabled={!transitionIn}
+              onCommit={(value) =>
+                store.update((current) =>
+                  updateClip(current, clip.id, {
+                    transitionIn: {
+                      type: transitionIn?.type ?? 'dissolve',
+                      frames: Math.max(
+                        1,
+                        Math.min(Math.min(120, clip.durationFrames), Math.round(value)),
+                      ),
+                    },
+                  }),
+                )
+              }
+            />
+          </div>
+          <p className="fine-print">
+            La disolvencia superpone el arranque de este clip al final del anterior. No cambia
+            la duración de la timeline y se hornea en el MP4; el primer clip no la muestra.
+          </p>
+        </Section>
+      ) : null}
+
+      {visual ? (
+        <Section title="Animación de entrada y salida" group="animation">
+          <div className="inspector-grid">
+            <label className="field">
+              <span>Entrada</span>
+              <select
+                value={animationIn?.type ?? 'none'}
+                onChange={(event) => {
+                  const type = event.target.value;
+                  if (type === 'none') {
+                    store.update((current) =>
+                      updateClip(current, clip.id, { animationIn: undefined }),
+                    );
+                  } else {
+                    store.update((current) =>
+                      updateClip(current, clip.id, {
+                        animationIn: {
+                          type: type as ClipAnimation['type'],
+                          durationFrames: Math.min(
+                            animationIn?.durationFrames ?? 15,
+                            animationMax,
+                          ),
+                        },
+                      }),
+                    );
+                  }
+                }}
+              >
+                <option value="none">Sin animación</option>
+                <option value="fade">Fundido</option>
+                <option value="slide-left">Deslizar a la izquierda</option>
+                <option value="slide-right">Deslizar a la derecha</option>
+                <option value="slide-up">Deslizar hacia arriba</option>
+                <option value="slide-down">Deslizar hacia abajo</option>
+              </select>
+            </label>
+            <NumberField
+              label="Duración entrada"
+              value={animationIn?.durationFrames ?? Math.min(15, animationMax)}
+              min={1}
+              max={animationMax}
+              disabled={!animationIn}
+              onCommit={(value) =>
+                animationIn
+                  ? store.update((current) =>
+                      updateClip(current, clip.id, {
+                        animationIn: {
+                          type: animationIn.type,
+                          durationFrames: Math.max(
+                            1,
+                            Math.min(animationMax, Math.round(value)),
+                          ),
+                        },
+                      }),
+                    )
+                  : undefined
+              }
+            />
+          </div>
+          <div className="inspector-grid">
+            <label className="field">
+              <span>Salida</span>
+              <select
+                value={animationOut?.type ?? 'none'}
+                onChange={(event) => {
+                  const type = event.target.value;
+                  if (type === 'none') {
+                    store.update((current) =>
+                      updateClip(current, clip.id, { animationOut: undefined }),
+                    );
+                  } else {
+                    store.update((current) =>
+                      updateClip(current, clip.id, {
+                        animationOut: {
+                          type: type as ClipAnimation['type'],
+                          durationFrames: Math.min(
+                            animationOut?.durationFrames ?? 15,
+                            animationMax,
+                          ),
+                        },
+                      }),
+                    );
+                  }
+                }}
+              >
+                <option value="none">Sin animación</option>
+                <option value="fade">Fundido</option>
+                <option value="slide-left">Deslizar a la izquierda</option>
+                <option value="slide-right">Deslizar a la derecha</option>
+                <option value="slide-up">Deslizar hacia arriba</option>
+                <option value="slide-down">Deslizar hacia abajo</option>
+              </select>
+            </label>
+            <NumberField
+              label="Duración salida"
+              value={animationOut?.durationFrames ?? Math.min(15, animationMax)}
+              min={1}
+              max={animationMax}
+              disabled={!animationOut}
+              onCommit={(value) =>
+                animationOut
+                  ? store.update((current) =>
+                      updateClip(current, clip.id, {
+                        animationOut: {
+                          type: animationOut.type,
+                          durationFrames: Math.max(
+                            1,
+                            Math.min(animationMax, Math.round(value)),
+                          ),
+                        },
+                      }),
+                    )
+                  : undefined
+              }
+            />
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                store.update((current) =>
+                  updateClip(current, clip.id, {
+                    animationIn: {
+                      type: 'fade',
+                      durationFrames: Math.min(12, animationMax),
+                    },
+                    animationOut: {
+                      type: 'fade',
+                      durationFrames: Math.min(12, animationMax),
+                    },
+                  }),
+                )
+              }
+            >
+              Suave
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                store.update((current) =>
+                  updateClip(current, clip.id, {
+                    animationIn: {
+                      type: 'slide-down',
+                      durationFrames: Math.min(10, animationMax),
+                    },
+                    animationOut: {
+                      type: 'slide-up',
+                      durationFrames: Math.min(10, animationMax),
+                    },
+                  }),
+                )
+              }
+            >
+              Dinámica
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                store.update((current) =>
+                  updateClip(current, clip.id, {
+                    animationIn: {
+                      type: 'slide-left',
+                      durationFrames: Math.min(12, animationMax),
+                    },
+                    animationOut: {
+                      type: 'slide-left',
+                      durationFrames: Math.min(12, animationMax),
+                    },
+                  }),
+                )
+              }
+            >
+              Deslizar
+            </button>
+            <button
+              type="button"
+              className="small ghost"
+              onClick={() =>
+                store.update((current) =>
+                  updateClip(current, clip.id, {
+                    animationIn: undefined,
+                    animationOut: undefined,
+                  }),
+                )
+              }
+            >
+              Quitar
+            </button>
+          </div>
+          <p className="fine-print">
+            Las animaciones se reproducen dentro del clip, no mueven a los vecinos ni cambian
+            la duración. Se combinan con el movimiento Ken Burns y con la transición de entrada.
+          </p>
+        </Section>
+      ) : null}
+
       {clip.kind === 'video' || clip.kind === 'audio' ? (
-        <Section title="Velocidad">
+        <Section title="Velocidad" group="speed">
           <div className="inspector-grid">
             <NumberField
               label="Velocidad (x)"
@@ -651,11 +1547,227 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             Cambiar la velocidad ajusta la duración del clip y desplaza los clips siguientes de la
             misma pista. La ventana de origen se ajusta para mantener frames enteros.
           </p>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={reverse}
+              onChange={(event) =>
+                store.update((current) =>
+                  updateClip(current, clip.id, { reverse: event.target.checked }),
+                )
+              }
+            />
+            <span>Reproducir al revés</span>
+          </label>
+          <p className="fine-print">
+            El video y su audio se invierten en el render con `reverse`/`areverse`. La preview
+            reproduce hacia adelante; verificá el MP4 antes de publicar.
+          </p>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Rampa de velocidad</p>
+                <span className="fine-print">3 tramos: rápido → lento o al revés</span>
+              </div>
+              <div className="actions compact">
+                <NumberField
+                  label="Desde (x)"
+                  value={rampFrom}
+                  min={0.1}
+                  max={4}
+                  step={0.05}
+                  onCommit={setRampFrom}
+                />
+                <NumberField
+                  label="Hasta (x)"
+                  value={rampTo}
+                  min={0.1}
+                  max={4}
+                  step={0.05}
+                  onCommit={setRampTo}
+                />
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => {
+                    const result = store.mutate((current) =>
+                      applySpeedRamp(current, clip.id, { from: rampFrom, to: rampTo }),
+                    );
+                    if (result) {
+                      store.setSelection({ kind: 'clip', id: result.clipIds[0]! });
+                      store.setNotice(
+                        `Rampa aplicada: ${result.speeds
+                          .map((value) => `${value.toFixed(2)}x`)
+                          .join(' → ')}.`,
+                      );
+                    }
+                  }}
+                >
+                  Aplicar rampa
+                </button>
+              </div>
+            </div>
+            <p className="fine-print">
+              Divide el clip en tres tramos contiguos que conservan la duración total y la
+              ventana de origen. Requiere un clip sin keyframes, Ken Burns ni reverse; podés
+              aplicar movimiento después, tramo por tramo.
+            </p>
+          </div>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Curva de velocidad</p>
+                <span className="fine-print">6–16 tramos suaves con extremos exactos</span>
+              </div>
+              <div className="actions compact">
+                <label className="field">
+                  <span>Tramos</span>
+                  <select
+                    value={curveSegments}
+                    onChange={(event) => setCurveSegments(Number(event.target.value))}
+                  >
+                    {[6, 8, 12, 16].map((value) => (
+                      <option key={value} value={value}>
+                        {value}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => {
+                    const result = store.mutate((current) =>
+                      applySpeedCurve(current, clip.id, {
+                        from: rampFrom,
+                        to: rampTo,
+                        segments: curveSegments,
+                      }),
+                    );
+                    if (result) {
+                      store.setSelection({ kind: 'clip', id: result.clipIds[0]! });
+                      store.setNotice(
+                        `Curva aplicada (${result.clipIds.length} tramos): ${result.speeds
+                          .map((value) => `${value.toFixed(2)}x`)
+                          .join(' → ')}.`,
+                      );
+                    }
+                  }}
+                >
+                  Curva suave
+                </button>
+              </div>
+            </div>
+            <p className="fine-print">
+              Usa las velocidades Desde/Hasta de la rampa y reparte el clip en tramos contiguos
+              con una curva suave. Conserva la duración total y la ventana; los tramos
+              intermedios absorben la diferencia. Requiere clip sin keyframes, Ken Burns ni
+              reverse.
+            </p>
+          </div>
+          {clip.kind === 'video' ? (
+            <div className="keyframe-panel">
+              <div className="production-card-head">
+                <div>
+                  <p className="eyebrow">Freeze frame</p>
+                  <span className="fine-print">Frame exacto del playhead como capa de 2 s</span>
+                </div>
+                <div className="actions compact">
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() => void freezeFrame()}
+                    disabled={
+                      freezeBusy ||
+                      !asset ||
+                      asset.kind !== 'video' ||
+                      asset.source.type !== 'local'
+                    }
+                  >
+                    {freezeBusy ? 'Congelando…' : 'Congelar frame'}
+                  </button>
+                </div>
+              </div>
+              <p className="fine-print">
+                Exporta el frame a PNG, lo importa a Medios y lo monta como imagen sobre el
+                playhead. Después ajustá su duración o posición en la timeline.
+              </p>
+            </div>
+          ) : null}
+        </Section>
+      ) : null}
+
+      {clip.kind === 'video' ? (
+        <Section title="Estabilización" group="video">
+          <div className="inspector-grid">
+            <NumberField
+              label="Suavizado (1–60)"
+              value={stabilizeSmoothing}
+              min={1}
+              max={60}
+              step={1}
+              onCommit={setStabilizeSmoothing}
+            />
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() => void stabilizeClip()}
+              disabled={
+                stabilizeBusy ||
+                stabilizeBlocked ||
+                !asset ||
+                asset.kind !== 'video' ||
+                asset.source.type !== 'local'
+              }
+            >
+              {stabilizeBusy
+                ? 'Analizando…'
+                : currentStabilization
+                  ? 'Reanalizar'
+                  : 'Analizar y aplicar'}
+            </button>
+            {currentStabilization ? (
+              <button
+                type="button"
+                className="small"
+                onClick={() => {
+                  store.update((current) =>
+                    setClipStabilization(current, clip.id, undefined),
+                  );
+                  setStabilizeInfo(null);
+                }}
+              >
+                Quitar
+              </button>
+            ) : null}
+          </div>
+          {currentStabilization ? (
+            <p className="fine-print">
+              Ventana {currentStabilization.inFrame}–{currentStabilization.outFrame} · suavizado{' '}
+              {currentStabilization.smoothing}.
+              {stabilizeStale
+                ? ' El recorte cambió: reanalizá para que la transformación coincida.'
+                : ''}
+            </p>
+          ) : null}
+          {stabilizeBlocked ? (
+            <p className="fine-print">
+              Volvé la velocidad a 1× y quitá el reverse y la transición de entrada: el análisis
+              se hace sobre la ventana exacta que renderiza FFmpeg.
+            </p>
+          ) : null}
+          {stabilizeInfo ? <p className="fine-print">{stabilizeInfo}</p> : null}
+          <p className="fine-print">
+            vidstab analiza el movimiento del tramo y el render lo compensa con recorte negro.
+            Se hornea en el MP4; la vista previa no la simula.
+          </p>
         </Section>
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'image' ? (
-        <Section title="Movimiento">
+        <Section title="Movimiento" group="video">
           <label className="field">
             <span>Movimiento de cámara</span>
             <select
@@ -724,7 +1836,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'image' ? (
-        <Section title="Fondo / chroma key">
+        <Section title="Fondo / chroma key" group="video">
           <div className="inspector-grid">
             <label className="field">
               <span>Color a remover</span>
@@ -802,7 +1914,183 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'image' ? (
-        <Section title="Color y efectos">
+        <Section title="Máscara" group="video">
+          <div className="inspector-grid">
+            <label className="field">
+              <span>Forma</span>
+              <select
+                value={mask?.shape ?? 'rectangle'}
+                onChange={(event) =>
+                  patchMask({ shape: event.target.value as ClipMask['shape'] })
+                }
+              >
+                <option value="rectangle">Rectángulo</option>
+                <option value="ellipse">Elipse</option>
+              </select>
+            </label>
+            <NumberField
+              label="Centro X"
+              value={maskView.x}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) => patchMask({ x: value })}
+            />
+            <NumberField
+              label="Centro Y"
+              value={maskView.y}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) => patchMask({ y: value })}
+            />
+            <NumberField
+              label="Ancho"
+              value={maskView.width}
+              min={0.05}
+              max={2}
+              step={0.05}
+              onCommit={(value) => patchMask({ width: value })}
+            />
+            <NumberField
+              label="Alto"
+              value={maskView.height}
+              min={0.05}
+              max={2}
+              step={0.05}
+              onCommit={(value) => patchMask({ height: value })}
+            />
+            <NumberField
+              label="Rotación (°)"
+              value={maskView.rotationDeg}
+              min={-180}
+              max={180}
+              step={1}
+              onCommit={(value) => patchMask({ rotationDeg: value })}
+            />
+            <NumberField
+              label="Feather"
+              value={maskView.feather}
+              min={0}
+              max={1}
+              step={0.02}
+              onCommit={(value) => patchMask({ feather: value })}
+            />
+          </div>
+          <div className="actions compact">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={mask?.invert ?? false}
+                onChange={(event) => patchMask({ invert: event.target.checked })}
+              />
+              <span>Invertir máscara</span>
+            </label>
+            <button
+              type="button"
+              className="small ghost"
+              disabled={!mask}
+              onClick={() =>
+                store.update((current) => updateClip(current, clip.id, { mask: undefined }))
+              }
+            >
+              Quitar máscara
+            </button>
+          </div>
+          {!mask ? (
+            <button type="button" className="small" onClick={() => patchMask({})}>
+              Crear máscara
+            </button>
+          ) : null}
+          <div className="inspector-meta">
+            {maskKeyframe
+              ? `Keyframe en ${formatTimecode(maskKeyframe.frame, fps)}`
+              : 'Sin keyframe en el playhead'}
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              disabled={!mask}
+              onClick={() =>
+                store.update((current) =>
+                  setMaskKeyframe(current, clip.id, localFrame, maskView),
+                )
+              }
+            >
+              {maskKeyframe ? 'Actualizar keyframe' : 'Capturar keyframe'}
+            </button>
+            <button
+              type="button"
+              className="small ghost"
+              disabled={!mask?.keyframes?.length}
+              onClick={() => {
+                store.update((current) => clearMaskKeyframes(current, clip.id));
+              }}
+            >
+              Quitar animación
+            </button>
+          </div>
+          {mask?.keyframes?.length ? (
+            <div className="keyframe-list">
+              {mask.keyframes.map((keyframe) => (
+                <div
+                  key={keyframe.frame}
+                  className={`keyframe-row ${
+                    keyframe.frame === localFrame ? 'active' : ''
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() => store.setPlayhead(clip.startFrame + keyframe.frame)}
+                  >
+                    {formatTimecode(keyframe.frame, fps)}
+                  </button>
+                  <span className="fine-print">
+                    {[
+                      `x ${(keyframe.x ?? maskView.x).toFixed(2)}`,
+                      `y ${(keyframe.y ?? maskView.y).toFixed(2)}`,
+                      `${(keyframe.width ?? maskView.width).toFixed(2)}×${(
+                        keyframe.height ?? maskView.height
+                      ).toFixed(2)}`,
+                      `${(keyframe.rotationDeg ?? maskView.rotationDeg).toFixed(0)}°`,
+                    ].join(' · ')}
+                  </span>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    aria-label={`Quitar keyframe de máscara en ${formatTimecode(
+                      keyframe.frame,
+                      fps,
+                    )}`}
+                    onClick={() =>
+                      store.update((current) =>
+                        removeMaskKeyframe(current, clip.id, keyframe.frame),
+                      )
+                    }
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <p className="fine-print">
+            Recorta la capa con una forma rectangular o elíptica, posición normalizada,
+            rotación y borde suave. Capturá una máscara en un frame, mové el playhead, cambiá
+            los valores y capturá otra: la preview y el MP4 interpolan entre keyframes. La
+            preview dibuja la rotación con un SVG y el MP4 aplica la máscara por píxel con
+            `geq`.
+          </p>
+        </Section>
+      ) : null}
+
+      {clip.kind === 'video' || clip.kind === 'image' ? (
+        <Section title="Estilo" group="style">
+          <p className="inspector-meta">
+            Punto de partida rápido para el look; conserva los fades del clip.
+          </p>
           <div className="look-presets" role="group" aria-label="Looks rápidos">
             <span className="appearance-label">Looks rápidos</span>
             {COLOR_LOOKS.map((look) => (
@@ -816,6 +2104,38 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               </button>
             ))}
           </div>
+        </Section>
+      ) : null}
+
+      {isAdjustment ? (
+        <Section title="Capa de ajuste" group="color">
+          <p className="inspector-meta">
+            {track.label} · {formatTimecode(clip.startFrame, fps)} →{' '}
+            {formatTimecode(clip.startFrame + clip.durationFrames, fps)}
+          </p>
+          <p className="fine-print">
+            El grade se aplica al compuesto final sólo dentro de este tramo. No modifica los
+            clips y no afecta subtítulos ni títulos. Movelo o recortalo en la timeline como
+            cualquier clip; el MP4 usa `enable='between(t, …)'`.
+          </p>
+          <div className="look-presets" role="group" aria-label="Looks rápidos para la capa de ajuste">
+            <span className="appearance-label">Looks rápidos</span>
+            {COLOR_LOOKS.map((look) => (
+              <button
+                key={look.id}
+                type="button"
+                className="look-chip"
+                onClick={() => applyLook({ ...look.effects })}
+              >
+                {look.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+
+      {clip.kind === 'video' || clip.kind === 'image' || isAdjustment ? (
+        <Section title="Color y efectos" group="color">
           <div className="inspector-grid">
             <NumberField
               label="Brillo"
@@ -903,21 +2223,200 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               step={1}
               onCommit={(value) => setEffect('blur', value)}
             />
-            <NumberField
-              label="Fade in (frames)"
-              value={effects.fadeInFrames ?? 0}
-              min={0}
-              max={clip.durationFrames}
-              onCommit={(value) => setEffect('fadeInFrames', Math.round(value))}
-            />
-            <NumberField
-              label="Fade out (frames)"
-              value={effects.fadeOutFrames ?? 0}
-              min={0}
-              max={clip.durationFrames}
-              onCommit={(value) => setEffect('fadeOutFrames', Math.round(value))}
-            />
+            {!isAdjustment ? (
+              <>
+                <NumberField
+                  label="Fade in (frames)"
+                  value={effects.fadeInFrames ?? 0}
+                  min={0}
+                  max={clip.durationFrames}
+                  onCommit={(value) => setEffect('fadeInFrames', Math.round(value))}
+                />
+                <NumberField
+                  label="Fade out (frames)"
+                  value={effects.fadeOutFrames ?? 0}
+                  min={0}
+                  max={clip.durationFrames}
+                  onCommit={(value) => setEffect('fadeOutFrames', Math.round(value))}
+                />
+              </>
+            ) : null}
           </div>
+          <div className="color-wheels">
+            {(
+              [
+                ['lift', 'Sombras'],
+                ['gamma', 'Medios'],
+                ['gain', 'Luces'],
+              ] as const
+            ).map(([kind, label]) => (
+              <fieldset className="color-wheel" key={kind}>
+                <legend>{label}</legend>
+                {(['r', 'g', 'b'] as const).map((channel) => (
+                  <NumberField
+                    key={channel}
+                    label={channel.toUpperCase()}
+                    value={effects[kind]?.[channel] ?? 0}
+                    min={-1}
+                    max={1}
+                    step={0.02}
+                    onCommit={(value) => setWheel(kind, channel, value)}
+                  />
+                ))}
+              </fieldset>
+            ))}
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small ghost"
+              onClick={() => {
+                setEffect('lift', undefined);
+                setEffect('gamma', undefined);
+                setEffect('gain', undefined);
+              }}
+            >
+              Neutralizar ruedas
+            </button>
+          </div>
+          <p className="fine-print">
+            Sombras y luces usan `colorbalance`; medios usa gamma en `eq`. La preview es
+            aproximada, el MP4 aplica los valores exactos.
+          </p>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">HSL selectivo</p>
+                <span className="fine-print">Tono, saturación e intensidad por rango</span>
+              </div>
+            </div>
+            <div className="inspector-grid">
+              <NumberField
+                label="Tono HSL"
+                value={effects.hsl?.hue ?? 0}
+                min={-180}
+                max={180}
+                onCommit={(value) => patchHsl({ hue: value })}
+              />
+              <NumberField
+                label="Saturación HSL"
+                value={effects.hsl?.saturation ?? 0}
+                min={-1}
+                max={1}
+                step={0.05}
+                onCommit={(value) => patchHsl({ saturation: value })}
+              />
+              <NumberField
+                label="Intensidad HSL"
+                value={effects.hsl?.intensity ?? 0}
+                min={-1}
+                max={1}
+                step={0.05}
+                onCommit={(value) => patchHsl({ intensity: value })}
+              />
+            </div>
+            <div className="color-range-list">
+              {(
+                [
+                  ['r', 'Rojos'],
+                  ['y', 'Amarillos'],
+                  ['g', 'Verdes'],
+                  ['c', 'Cianes'],
+                  ['b', 'Azules'],
+                  ['m', 'Magentas'],
+                ] as const
+              ).map(([key, label]) => {
+                const ranges = effects.hsl?.colors ?? ['r', 'y', 'g', 'c', 'b', 'm'];
+                return (
+                  <label className="check" key={key}>
+                    <input
+                      type="checkbox"
+                      checked={ranges.includes(key)}
+                      onChange={() => {
+                        const next = ranges.includes(key)
+                          ? ranges.filter((value) => value !== key)
+                          : [...ranges, key];
+                        if (next.length === 0) return;
+                        patchHsl({
+                          colors:
+                            next.length === 6
+                              ? undefined
+                              : (next as NonNullable<ClipEffects['hsl']>['colors']),
+                        });
+                      }}
+                    />
+                    <span>{label}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <p className="fine-print">
+              Usa `huesaturation` con lightness preservada. La selección de rangos se aplica en
+              el MP4; la preview aproxima el efecto sobre toda la imagen.
+            </p>
+          </div>
+          {!isAdjustment ? (
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Igualar color</p>
+                <span className="fine-print">Toma el color de otro material del proyecto</span>
+              </div>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => void matchColor()}
+                  disabled={matchBusy || !matchRefId || !asset}
+                >
+                  {matchBusy ? 'Muestreando…' : 'Igualar color'}
+                </button>
+              </div>
+            </div>
+            <div className="inspector-grid">
+              <label className="field">
+                <span>Referencia</span>
+                <select
+                  value={matchRefId}
+                  onChange={(event) => setMatchRefId(event.target.value)}
+                >
+                  <option value="">Elegí un material…</option>
+                  {matchReferences.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {friendlyAssetLabel(item.label)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <NumberField
+                label="Fuerza"
+                value={matchStrength}
+                min={0}
+                max={1}
+                step={0.05}
+                onCommit={setMatchStrength}
+              />
+            </div>
+            {effects.colorMatch ? (
+              <p className="fine-print">
+                Ganancias R {effects.colorMatch.r.toFixed(2)} · G{' '}
+                {effects.colorMatch.g.toFixed(2)} · B {effects.colorMatch.b.toFixed(2)} ·{' '}
+                <button
+                  type="button"
+                  className="small ghost"
+                  onClick={() => setEffect('colorMatch', undefined)}
+                >
+                  Quitar
+                </button>
+              </p>
+            ) : (
+              <p className="fine-print">
+                Muestrea 8×8 px del frame en el playhead y del primer frame de la referencia,
+                normaliza el brillo y aplica ganancias por canal. La preview es aproximada.
+              </p>
+            )}
+          </div>
+          ) : null}
           <div className="actions compact">
             <label className="check">
               <input
@@ -935,6 +2434,61 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               />
               <span>Sepia</span>
             </label>
+          </div>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">LUT 3D (.cube)</p>
+                <span className="fine-print">
+                  {effects.lutFile ? effects.lutFile : 'Sin LUT aplicado'}
+                </span>
+              </div>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        const lut = await store.service.importLut();
+                        if (!lut) return;
+                        store.update((current) =>
+                          updateClip(current, clip.id, {
+                            effects: { ...effects, lutFile: lut.path },
+                          }),
+                        );
+                        store.setNotice(`LUT importado: ${lut.name}`);
+                      } catch (error) {
+                        store.setNotice(
+                          error instanceof Error ? error.message : 'no se pudo importar el LUT',
+                        );
+                      }
+                    })();
+                  }}
+                >
+                  Cargar .cube
+                </button>
+                {effects.lutFile ? (
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() =>
+                      store.update((current) =>
+                        updateClip(current, clip.id, {
+                          effects: { ...effects, lutFile: undefined },
+                        }),
+                      )
+                    }
+                  >
+                    Quitar LUT
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <p className="fine-print">
+              El archivo se copia a `media/luts` del proyecto y FFmpeg lo aplica con `lut3d`
+              después del color. La preview no simula el LUT; revisá el MP4.
+            </p>
           </div>
           <div className="actions compact">
             <button
@@ -954,7 +2508,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       ) : null}
 
       {clip.kind === 'video' ? (
-        <Section title="Análisis de escenas">
+        <Section title="Análisis de escenas" group="video">
           <label className="field">
             <span>Sensibilidad al cambio de escena</span>
             <select
@@ -1003,7 +2557,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'audio' ? (
-        <Section title="Audio del clip">
+        <Section title="Audio del clip" group="audio">
           <div className="inspector-grid">
             <NumberField
               label="Ganancia (dB)"
@@ -1084,6 +2638,34 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               onCommit={(value) => patchAudio({ fadeOutFrames: Math.round(value) })}
             />
           </div>
+          <label className="field">
+            <span>Efecto de voz (render)</span>
+            <select
+              value={audio.voiceEffect ?? 'none'}
+              onChange={(event) =>
+                patchAudio({
+                  voiceEffect:
+                    event.target.value === 'none'
+                      ? undefined
+                      : (event.target.value as NonNullable<
+                          NonNullable<Clip['audio']>['voiceEffect']
+                        >),
+                })
+              }
+            >
+              <option value="none">Sin efecto</option>
+              <option value="deep">Voz grave</option>
+              <option value="chipmunk">Voz aguda</option>
+              <option value="robot">Robot</option>
+              <option value="echo">Eco</option>
+              <option value="cave">Cueva</option>
+              <option value="radio">Radio / teléfono</option>
+            </select>
+          </label>
+          <p className="fine-print">
+            El efecto se aplica en el render con filtros locales (`asetrate`, `aecho`, `vibrato`,
+            high/low-pass). La preview reproduce la voz original.
+          </p>
           <div className="actions compact">
             <label className="check">
               <input
@@ -1151,6 +2733,90 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               Limpiar audio
             </button>
           </div>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Automatización de volumen</p>
+                <span className="fine-print">
+                  {gainKeyframes.length} clave(s) · playhead {formatTimecode(localFrame, fps)}
+                </span>
+              </div>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() =>
+                    store.update((current) =>
+                      setGainKeyframe(
+                        current,
+                        clip.id,
+                        localFrame,
+                        clipGainAtFrame(clip, localFrame),
+                      ),
+                    )
+                  }
+                >
+                  Fijar en playhead
+                </button>
+                <button
+                  type="button"
+                  className="small ghost"
+                  disabled={gainKeyframes.length === 0}
+                  onClick={() => store.update((current) => clearGainKeyframes(current, clip.id))}
+                >
+                  Quitar animación
+                </button>
+              </div>
+            </div>
+            {gainKeyframes.length === 0 ? (
+              <p className="fine-print">
+                La ganancia sigue el valor estático. Fijá claves para subir o bajar el volumen
+                entre puntos; el render usa `volume` evaluado por frame.
+              </p>
+            ) : (
+              <div className="keyframe-list">
+                {gainKeyframes.map((keyframe) => (
+                  <div key={keyframe.frame} className="keyframe-row">
+                    <span className="fine-print">{formatTimecode(keyframe.frame, fps)}</span>
+                    <span className="fine-print">{keyframe.gainDb.toFixed(1)} dB</span>
+                    <select
+                      value={keyframe.easing ?? 'linear'}
+                      aria-label={`Curva de volumen en ${formatTimecode(keyframe.frame, fps)}`}
+                      onChange={(event) =>
+                        store.update((current) =>
+                          setGainKeyframe(
+                            current,
+                            clip.id,
+                            keyframe.frame,
+                            keyframe.gainDb,
+                            event.target.value as KeyframeEasing,
+                          ),
+                        )
+                      }
+                    >
+                      <option value="linear">Lineal</option>
+                      <option value="ease-in">Acelerar</option>
+                      <option value="ease-out">Desacelerar</option>
+                      <option value="ease-in-out">Suave</option>
+                      <option value="hold">Mantener</option>
+                    </select>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      aria-label={`Quitar clave de volumen en ${formatTimecode(keyframe.frame, fps)}`}
+                      onClick={() =>
+                        store.update((current) =>
+                          removeGainKeyframe(current, clip.id, keyframe.frame),
+                        )
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <p className="fine-print">
             Filtros y compresor se aplican en el render con FFmpeg. La reducción de ruido usa
             `afftdn` y conviene probarla en el MP4; no reemplaza un modelo de voice isolation.
@@ -1162,7 +2828,59 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
           </p>
         </Section>
       ) : null}
-    </>
+
+      {clip.kind === 'audio' ? (
+        <Section title="Ritmo" group="audio">
+          <p className="fine-print">
+            Analiza los golpes del audio en la máquina (sin red) y corta la pista de video en
+            esos frames. Es detección de energía, no un modelo de IA: si el pulso no es regular,
+            elegí un pulso de cada N.
+          </p>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() => void analyzeBeats()}
+              disabled={beatBusy || !asset}
+            >
+              {beatBusy ? 'Analizando…' : 'Analizar ritmo'}
+            </button>
+          </div>
+          {beatAnalysis ? (
+            <p className="fine-print">
+              ≈ {beatAnalysis.bpm} BPM · {beatAnalysis.beatsSeconds.length} pulsos · confianza{' '}
+              {Math.round(beatAnalysis.confidence * 100)}%
+            </p>
+          ) : null}
+          <div className="inspector-grid">
+            <label className="field">
+              <span>Cortar cada</span>
+              <select
+                value={beatStride}
+                onChange={(event) => setBeatStride(Number(event.target.value))}
+              >
+                {[1, 2, 4, 8].map((value) => (
+                  <option key={value} value={value}>
+                    {value} pulso{value === 1 ? '' : 's'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={cutVideoToBeat}
+              disabled={!beatAnalysis || beatAnalysis.beatsSeconds.length === 0 || beatBusy}
+            >
+              Cortar video al ritmo
+            </button>
+          </div>
+          {beatInfo ? <p className="fine-print">{beatInfo}</p> : null}
+        </Section>
+      ) : null}
+    </div>
   );
 }
 
@@ -1176,6 +2894,8 @@ function trackKind(clip: Clip): Track['kind'] {
       return 'audio';
     case 'graphic':
       return 'graphic';
+    case 'adjustment':
+      return 'adjustment';
   }
 }
 
@@ -1277,6 +2997,24 @@ function CueInspector({ cue }: { cue: CaptionCue }) {
           ))}
         </select>
       </label>
+      <label className="field">
+        <span>Animación</span>
+        <select
+          value={cue.animation ?? 'none'}
+          onChange={(event) =>
+            store.update((current) =>
+              updateCaptionCue(current, cue.id, {
+                animation: event.target.value as CaptionCue['animation'],
+              }),
+            )
+          }
+        >
+          <option value="none">Sin animación</option>
+          <option value="fade">Aparición suave</option>
+          <option value="pop">Pop</option>
+          <option value="slide-up">Subir</option>
+        </select>
+      </label>
       <div className="actions compact">
         <button
           type="button"
@@ -1295,66 +3033,122 @@ function CueInspector({ cue }: { cue: CaptionCue }) {
 
 function AssetInspector({ asset }: { asset: Asset }) {
   const store = useProjectStore();
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const proxy =
+    'proxy' in asset ? (asset as Asset & { proxy?: AssetProxy }).proxy : undefined;
+
+  async function createProxy(): Promise<void> {
+    setProxyBusy(true);
+    try {
+      const created = await store.service.createVideoProxy({ path: asset.source.path });
+      if (!created.path) throw new Error('el proxy no devolvió una ruta');
+      store.update((current) => setAssetProxy(current, asset.id, created));
+      store.setNotice(
+        `Proxy ${created.width}×${created.height} listo para la preview (${(
+          created.bytes / 1_000_000
+        ).toFixed(1)} MB).`,
+      );
+    } catch (error) {
+      store.setNotice(error instanceof Error ? error.message : 'no se pudo crear el proxy');
+    } finally {
+      setProxyBusy(false);
+    }
+  }
+
   return (
-    <Section title="Material">
-      <TextField
-        label="Nombre"
-        value={asset.label}
-        maxLength={200}
-        onCommit={(value) => store.update((current) => updateAssetLabel(current, asset.id, value))}
-      />
-      <p className="inspector-meta">
-        {assetKindLabel(asset.kind)} · {mediaInfo(asset)}
-      </p>
-      <p className="inspector-meta">
-        {asset.source.type === 'local' ? `local · ${asset.source.path}` : asset.source.type}
-      </p>
-      <p className="inspector-meta">
-        Licencia {asset.rights.license.id} · {asset.rights.license.commercialUse} ·{' '}
-        {assetStatusLabel(asset.status)}
-      </p>
-      {asset.status !== 'ready' ? (
-        <div className="actions compact">
-          <button
-            type="button"
-            className="small"
-            onClick={() => store.update((current) => markAssetReady(current, asset.id, 'allowed'))}
-          >
-            Uso permitido
-          </button>
-          <button
-            type="button"
-            className="small"
-            onClick={() => store.update((current) => markAssetReady(current, asset.id, 'requires-attribution'))}
-          >
-            Requiere atribución
-          </button>
-        </div>
-      ) : (
-        <div className="actions compact">
-          <button
-            type="button"
-            className="small"
-            disabled={asset.kind === 'font' || asset.kind === 'text'}
-            onClick={() => {
-              const result = store.mutate((current) =>
-                addClipFromAsset(current, asset, { atFrame: store.state.playheadFrame }),
-              );
-              if (result) store.setSelection({ kind: 'clip', id: result.clipId });
-            }}
-          >
-            Montar en playhead
-          </button>
-          <button
-            type="button"
-            className="small danger-ghost"
-            onClick={() => store.update((current) => removeAsset(current, asset.id))}
-          >
-            Quitar de la biblioteca
-          </button>
-        </div>
-      )}
-    </Section>
+    <>
+      <Section title="Material">
+        <TextField
+          label="Nombre"
+          value={asset.label}
+          maxLength={200}
+          onCommit={(value) => store.update((current) => updateAssetLabel(current, asset.id, value))}
+        />
+        <p className="inspector-meta">
+          {assetKindLabel(asset.kind)} · {mediaInfo(asset)}
+        </p>
+        <p className="inspector-meta">
+          {asset.source.type === 'local' ? `local · ${asset.source.path}` : asset.source.type}
+        </p>
+        <p className="inspector-meta">
+          Licencia {asset.rights.license.id} · {asset.rights.license.commercialUse} ·{' '}
+          {assetStatusLabel(asset.status)}
+        </p>
+        {asset.status !== 'ready' ? (
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() => store.update((current) => markAssetReady(current, asset.id, 'allowed'))}
+            >
+              Uso permitido
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() => store.update((current) => markAssetReady(current, asset.id, 'requires-attribution'))}
+            >
+              Requiere atribución
+            </button>
+          </div>
+        ) : (
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              disabled={asset.kind === 'font' || asset.kind === 'text'}
+              onClick={() => {
+                const result = store.mutate((current) =>
+                  addClipFromAsset(current, asset, { atFrame: store.state.playheadFrame }),
+                );
+                if (result) store.setSelection({ kind: 'clip', id: result.clipId });
+              }}
+            >
+              Montar en playhead
+            </button>
+            <button
+              type="button"
+              className="small danger-ghost"
+              onClick={() => store.update((current) => removeAsset(current, asset.id))}
+            >
+              Quitar de la biblioteca
+            </button>
+          </div>
+        )}
+      </Section>
+      {asset.kind === 'video' ? (
+        <Section title="Proxy de edición">
+          <p className="inspector-meta">
+            {proxy
+              ? `${proxy.width}×${proxy.height} · ${(proxy.bytes / 1_000_000).toFixed(1)} MB`
+              : 'Sin proxy; la preview usa el video original.'}
+          </p>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() => void createProxy()}
+              disabled={proxyBusy}
+            >
+              {proxyBusy ? 'Creando proxy…' : proxy ? 'Regenerar proxy' : 'Crear proxy'}
+            </button>
+            {proxy ? (
+              <button
+                type="button"
+                className="small ghost"
+                onClick={() => store.update((current) => setAssetProxy(current, asset.id, undefined))}
+              >
+                Quitar proxy
+              </button>
+            ) : null}
+          </div>
+          <p className="fine-print">
+            El proxy se usa sólo en la preview para aligerar la reproducción; el MP4 final se
+            renderiza siempre desde el archivo original.
+          </p>
+        </Section>
+      ) : null}
+    </>
   );
 }
 
@@ -1377,6 +3171,10 @@ function ProjectInspector() {
   const store = useProjectStore();
   const project = store.state.project;
   const [cueText, setCueText] = useState('');
+  const [titleText, setTitleText] = useState('');
+  const [subtitleIo, setSubtitleIo] = useState<'closed' | 'import' | 'export'>('closed');
+  const [subtitleDraft, setSubtitleDraft] = useState('');
+  const [subtitleWarnings, setSubtitleWarnings] = useState<string[]>([]);
   const currentFpsNum = project?.video.frameRate.num ?? 30;
   const currentFpsDen = project?.video.frameRate.den ?? 1;
   const currentFpsPreset = FPS_PRESETS.find(
@@ -1389,7 +3187,85 @@ function ProjectInspector() {
     setCustomFps(!FPS_PRESETS.some((preset) => preset.num === currentFpsNum && preset.den === currentFpsDen));
   }, [currentFpsNum, currentFpsDen]);
   if (!project) return null;
+  const activeProject = project;
   const fps = project.video.frameRate.num / project.video.frameRate.den;
+  const look = project.look ?? {};
+
+  function patchLook(patch: Partial<ClipEffects>): void {
+    store.update((current) => updateProjectLook(current, patch));
+  }
+
+  function exportSubtitles(): void {
+    const captionTracks = new Set(
+      activeProject.timeline.tracks
+        .filter((track) => track.kind === 'caption' && track.label !== 'Títulos')
+        .map((track) => track.id),
+    );
+    const cues = activeProject.captions.cues
+      .filter((cue) => captionTracks.has(cue.trackId))
+      .map((cue) => ({
+        startFrame: cue.startFrame,
+        endFrame: cue.endFrame,
+        text: cue.text,
+      }));
+    if (cues.length === 0) {
+      store.setNotice('No hay subtítulos en la pista principal para exportar.');
+      return;
+    }
+    setSubtitleDraft(serializeSrt(cues, fps));
+    setSubtitleWarnings([]);
+    setSubtitleIo('export');
+  }
+
+  async function copySubtitleDraft(): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(subtitleDraft);
+      store.setNotice('Subtítulos copiados al portapapeles.');
+    } catch {
+      store.setNotice('No se pudo copiar; seleccioná el texto y copialo manualmente.');
+    }
+  }
+
+  function downloadSubtitleDraft(): void {
+    const blob = new Blob([subtitleDraft], { type: 'application/x-subrip;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${activeProject.name.replace(/[^a-zA-Z0-9-_]+/g, '-') || 'subtitulos'}.srt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function importSubtitles(): void {
+    const parsed = parseSubtitles(subtitleDraft);
+    if (parsed.cues.length === 0) {
+      setSubtitleWarnings(
+        parsed.warnings.length > 0
+          ? parsed.warnings
+          : ['No se encontraron subtítulos válidos en el texto.'],
+      );
+      return;
+    }
+    if (
+      !window.confirm(
+        'Se reemplazarán los subtítulos de la pista principal. Los títulos se conservan. ¿Continuar?',
+      )
+    ) {
+      return;
+    }
+    const result = store.mutate((current) =>
+      importSubtitleCues(current, parsed.cues, { replace: true }),
+    );
+    if (result) {
+      store.setNotice(
+        `Importados ${result.added} subtítulos${result.skipped > 0 ? `; ${result.skipped} omitidos` : ''}.`,
+      );
+    }
+    setSubtitleWarnings(parsed.warnings);
+    setSubtitleDraft('');
+    setSubtitleIo('closed');
+  }
+
   const style = project.captions.styles[0];
   const ratio = aspectRatioOf(project.video.width, project.video.height);
   const formatPreset = FORMAT_PRESETS.find(
@@ -1532,6 +3408,201 @@ function ProjectInspector() {
           {formatTimecode(store.durationFrames, fps)} · {project.assets.length} medios ·{' '}
           {project.timeline.clips.length} clips · revisión {project.revision}
         </p>
+      </Section>
+
+      <Section title="Look del proyecto">
+        <p className="inspector-meta">
+          Color global sobre el compuesto final: se aplica después de mezclar las capas y antes
+          de subtítulos, títulos y guías. Cambiarlo no toca los clips.
+        </p>
+        <div className="look-presets" role="group" aria-label="Presets del look del proyecto">
+          <span className="appearance-label">Presets</span>
+          {COLOR_LOOKS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className="look-chip"
+              onClick={() =>
+                store.update((current) =>
+                  setProjectLook(
+                    current,
+                    Object.keys(item.effects).length === 0 ? null : { ...item.effects },
+                  ),
+                )
+              }
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <div className="inspector-grid">
+          <NumberField
+            label="Brillo"
+            value={look.brightness ?? 0}
+            min={-1}
+            max={1}
+            step={0.05}
+            onCommit={(value) => patchLook({ brightness: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Contraste"
+            value={look.contrast ?? 1}
+            min={0}
+            max={3}
+            step={0.05}
+            onCommit={(value) => patchLook({ contrast: value === 1 ? undefined : value })}
+          />
+          <NumberField
+            label="Saturación"
+            value={look.saturation ?? 1}
+            min={0}
+            max={3}
+            step={0.05}
+            onCommit={(value) => patchLook({ saturation: value === 1 ? undefined : value })}
+          />
+          <NumberField
+            label="Temperatura"
+            value={look.temperature ?? 0}
+            min={-1}
+            max={1}
+            step={0.05}
+            onCommit={(value) => patchLook({ temperature: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Rotación de tono (°)"
+            value={look.hueRotateDeg ?? 0}
+            min={-180}
+            max={180}
+            onCommit={(value) => patchLook({ hueRotateDeg: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Viñeta"
+            value={look.vignette ?? 0}
+            min={0}
+            max={1}
+            step={0.05}
+            onCommit={(value) => patchLook({ vignette: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Nitidez"
+            value={look.sharpen ?? 0}
+            min={0}
+            max={5}
+            step={0.1}
+            onCommit={(value) => patchLook({ sharpen: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Desenfoque (px)"
+            value={look.blur ?? 0}
+            min={0}
+            max={50}
+            onCommit={(value) => patchLook({ blur: value === 0 ? undefined : value })}
+          />
+          <label className="field">
+            <span>Curva de color</span>
+            <select
+              value={look.curvePreset ?? ''}
+              onChange={(event) =>
+                patchLook({
+                  curvePreset: event.target.value
+                    ? (event.target.value as NonNullable<ClipEffects['curvePreset']>)
+                    : undefined,
+                })
+              }
+            >
+              <option value="">Ninguna</option>
+              <option value="contrast-soft">Contraste suave</option>
+              <option value="contrast-medium">Contraste medio</option>
+              <option value="contrast-strong">Contraste fuerte</option>
+              <option value="vintage">Vintage</option>
+              <option value="cross-process">Cross process</option>
+              <option value="darker">Oscurecer</option>
+              <option value="lighter">Aclarar</option>
+            </select>
+          </label>
+        </div>
+        <div className="inspector-grid">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={look.grayscale ?? false}
+              onChange={(event) =>
+                patchLook({ grayscale: event.target.checked || undefined })
+              }
+            />
+            <span>Blanco y negro</span>
+          </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={look.sepia ?? false}
+              onChange={(event) => patchLook({ sepia: event.target.checked || undefined })}
+            />
+            <span>Sepia</span>
+          </label>
+        </div>
+        <div className="keyframe-panel">
+          <div className="production-card-head">
+            <div>
+              <p className="eyebrow">LUT 3D global (.cube)</p>
+              <span className="fine-print">
+                {look.lutFile ? look.lutFile : 'Sin LUT global'}
+              </span>
+            </div>
+            <div className="actions compact">
+              <button
+                type="button"
+                className="small"
+                onClick={() => {
+                  void (async () => {
+                    try {
+                      const lut = await store.service.importLut();
+                      if (!lut) return;
+                      store.update((current) =>
+                        updateProjectLook(current, { lutFile: lut.path }),
+                      );
+                      store.setNotice(`LUT global importado: ${lut.name}`);
+                    } catch (error) {
+                      store.setNotice(
+                        error instanceof Error ? error.message : 'no se pudo importar el LUT',
+                      );
+                    }
+                  })();
+                }}
+              >
+                Cargar .cube
+              </button>
+              {look.lutFile ? (
+                <button
+                  type="button"
+                  className="small ghost"
+                  onClick={() => patchLook({ lutFile: undefined })}
+                >
+                  Quitar LUT
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <p className="fine-print">
+            Se copia a `media/luts` del proyecto y FFmpeg lo aplica al final del grade global.
+            La preview no simula el LUT; revisá el MP4.
+          </p>
+        </div>
+        <div className="actions compact">
+          <button
+            type="button"
+            className="small ghost"
+            disabled={!project.look || Object.keys(look).length === 0}
+            onClick={() => store.update((current) => setProjectLook(current, null))}
+          >
+            Quitar look
+          </button>
+          <span className="inspector-meta">
+            {Object.keys(look).length === 0
+              ? 'Sin look global'
+              : `${Object.keys(look).length} ajustes activos`}
+          </span>
+        </div>
       </Section>
 
       <Section title="Audio del proyecto">
@@ -1805,7 +3876,129 @@ function ProjectInspector() {
             Agregar subtítulo
           </button>
         </div>
+        <div className="actions compact">
+          <input
+            value={titleText}
+            maxLength={500}
+            placeholder="Título centrado en el playhead"
+            onChange={(event) => setTitleText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && titleText.trim()) {
+                store.mutate((current) =>
+                  addTitleCue(current, {
+                    text: titleText,
+                    startFrame: store.state.playheadFrame,
+                    durationFrames: Math.round(3 * fps),
+                  }),
+                );
+                setTitleText('');
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="small"
+            disabled={!titleText.trim()}
+            onClick={() => {
+              store.mutate((current) =>
+                addTitleCue(current, {
+                  text: titleText,
+                  startFrame: store.state.playheadFrame,
+                  durationFrames: Math.round(3 * fps),
+                }),
+              );
+              setTitleText('');
+            }}
+          >
+            Agregar título
+          </button>
+        </div>
+        <p className="fine-print">
+          Los títulos usan una pista y un estilo propios (92 px, centrado) para no chocar con
+          los subtítulos. Se queman en el MP4 y se pueden editar como cualquier cue.
+        </p>
+        <div className="actions compact">
+          <button type="button" className="small" onClick={exportSubtitles}>
+            Exportar SRT
+          </button>
+          <button
+            type="button"
+            className="small ghost"
+            onClick={() => {
+              setSubtitleDraft('');
+              setSubtitleWarnings([]);
+              setSubtitleIo('import');
+            }}
+          >
+            Importar SRT/VTT
+          </button>
+        </div>
+        {subtitleIo !== 'closed' ? (
+          <div className="card subtitle-io">
+            <p className="eyebrow">
+              {subtitleIo === 'export' ? 'Exportar subtítulos' : 'Importar subtítulos'}
+            </p>
+            <label className="field">
+              <span>
+                {subtitleIo === 'export'
+                  ? 'SRT generado desde la pista principal'
+                  : 'Pegá el contenido SRT o VTT'}
+              </span>
+              <textarea
+                rows={9}
+                value={subtitleDraft}
+                readOnly={subtitleIo === 'export'}
+                placeholder="Ej.: 00:00:00,000 --> 00:00:02,000"
+                onChange={(event) => setSubtitleDraft(event.target.value)}
+              />
+            </label>
+            {subtitleWarnings.length > 0 ? (
+              <ul className="notice notice-warning">
+                {subtitleWarnings.slice(0, 6).map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="actions compact">
+              {subtitleIo === 'export' ? (
+                <>
+                  <button type="button" className="small" onClick={() => void copySubtitleDraft()}>
+                    Copiar
+                  </button>
+                  <button type="button" className="small" onClick={downloadSubtitleDraft}>
+                    Descargar .srt
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="small"
+                  disabled={!subtitleDraft.trim()}
+                  onClick={importSubtitles}
+                >
+                  Importar y reemplazar
+                </button>
+              )}
+              <button
+                type="button"
+                className="small ghost"
+                onClick={() => {
+                  setSubtitleIo('closed');
+                  setSubtitleWarnings([]);
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+            <p className="fine-print">
+              La importación reemplaza la pista principal, conserva los títulos y convierte
+              segundos a frames con el fps del proyecto. Las líneas con tiempos inválidos se
+              omiten y se informan.
+            </p>
+          </div>
+        ) : null}
         {style ? (
+          <>
           <div className="inspector-grid">
             <NumberField
               label="Tamaño"
@@ -1843,7 +4036,195 @@ function ProjectInspector() {
                 <option value="top">arriba</option>
               </select>
             </label>
+            <label className="field">
+              <span>Borde</span>
+              <select
+                value={style.borderStyle ?? 'outline'}
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateCaptionStyle(current, style.id, {
+                      borderStyle: event.target.value as 'outline' | 'box',
+                    }),
+                  )
+                }
+              >
+                <option value="outline">Contorno</option>
+                <option value="box">Caja</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Fondo de caja</span>
+              <input
+                type="color"
+                value={style.backgroundColor ?? '#0b0e13'}
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateCaptionStyle(current, style.id, {
+                      backgroundColor: event.target.value,
+                    }),
+                  )
+                }
+              />
+            </label>
           </div>
+          <div className="actions compact">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={style.bold ?? false}
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateCaptionStyle(current, style.id, { bold: event.target.checked }),
+                  )
+                }
+              />
+              <span>Negrita</span>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={style.italic ?? false}
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateCaptionStyle(current, style.id, { italic: event.target.checked }),
+                  )
+                }
+              />
+              <span>Itálica</span>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={style.shadow ?? false}
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateCaptionStyle(current, style.id, { shadow: event.target.checked }),
+                  )
+                }
+              />
+              <span>Sombra</span>
+            </label>
+          </div>
+          <div className="inspector-grid">
+            <NumberField
+              label="Profundidad 3D"
+              value={style.depth3d ?? 0}
+              min={0}
+              max={12}
+              onCommit={(value) =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, { depth3d: value }),
+                )
+              }
+            />
+            <label className="field">
+              <span>Color 3D</span>
+              <input
+                type="color"
+                value={style.depthColor ?? '#1f2937'}
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateCaptionStyle(current, style.id, {
+                      depthColor: event.target.value,
+                    }),
+                  )
+                }
+              />
+            </label>
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, {
+                    bold: true,
+                    italic: false,
+                    borderStyle: 'outline',
+                    fontSizePx: 64,
+                    color: '#ffffff',
+                    outlineColor: '#000000',
+                    position: 'center',
+                  }),
+                )
+              }
+            >
+              Creador
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, {
+                    bold: true,
+                    borderStyle: 'box',
+                    backgroundColor: '#0b0e13',
+                    fontSizePx: 56,
+                    color: '#ffffff',
+                    position: 'bottom',
+                  }),
+                )
+              }
+            >
+              Caja
+            </button>
+            <button
+              type="button"
+              className="small ghost"
+              onClick={() =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, {
+                    bold: false,
+                    borderStyle: 'outline',
+                    fontSizePx: 44,
+                    color: '#ffffff',
+                    outlineColor: '#000000',
+                    position: 'bottom',
+                  }),
+                )
+              }
+            >
+              Minimal
+            </button>
+            <button
+              type="button"
+              className="small ghost"
+              onClick={() =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, {
+                    bold: true,
+                    fontSizePx: 96,
+                    position: 'center',
+                  }),
+                )
+              }
+            >
+              Grande
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, {
+                    bold: true,
+                    borderStyle: 'outline',
+                    fontSizePx: 72,
+                    color: '#ffffff',
+                    outlineColor: '#000000',
+                    depth3d: 6,
+                    depthColor: '#f43f5e',
+                    position: 'center',
+                  }),
+                )
+              }
+            >
+              3D
+            </button>
+          </div>
+          </>
         ) : (
           <p className="fine-print">Todavía no hay un estilo de subtítulos; agregá uno creando un subtítulo.</p>
         )}

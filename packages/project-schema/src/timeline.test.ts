@@ -61,6 +61,48 @@ describe('TrackSchema', () => {
   });
 });
 
+describe('adjustment layers', () => {
+  const ADJUSTMENT_TRACK = '77777777-7777-4777-8777-777777777777';
+  const adjustmentTrack = {
+    id: ADJUSTMENT_TRACK,
+    kind: 'adjustment',
+    label: 'Ajustes',
+    order: 2,
+  };
+  const adjustmentClip = {
+    id: CLIP_B,
+    trackId: ADJUSTMENT_TRACK,
+    kind: 'adjustment',
+    label: 'Capa de ajuste',
+    startFrame: 15,
+    durationFrames: 60,
+    source: { type: 'adjustment' },
+    effects: { saturation: 1.1 },
+  };
+
+  it('accepts an adjustment clip on its own track', () => {
+    expect(TimelineSchema.safeParse({ tracks: [adjustmentTrack], clips: [adjustmentClip] }).success).toBe(true);
+  });
+
+  it('rejects an adjustment clip on a video track', () => {
+    expect(
+      TimelineSchema.safeParse({ tracks: [videoTrack()], clips: [adjustmentClip] }).success,
+    ).toBe(false);
+  });
+
+  it('rejects overlapping adjustment clips on the same track', () => {
+    expect(
+      TimelineSchema.safeParse({
+        tracks: [adjustmentTrack],
+        clips: [
+          adjustmentClip,
+          { ...adjustmentClip, id: CLIP_A, startFrame: 30 },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe('ClipSchema', () => {
   it('accepts a video clip whose duration matches its source window', () => {
     expect(ClipSchema.safeParse(videoClip()).success).toBe(true);
@@ -143,6 +185,29 @@ describe('ClipSchema', () => {
   it('rejects an asset reference on a graphic clip', () => {
     expect(
       ClipSchema.safeParse(videoClip({ kind: 'graphic' })).success,
+    ).toBe(false);
+  });
+
+  it('accepts a source-less adjustment clip with a grade', () => {
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          kind: 'adjustment',
+          source: { type: 'adjustment' },
+          effects: { contrast: 1.2, curvePreset: 'vintage' },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('rejects an adjustment clip that carries media', () => {
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          kind: 'adjustment',
+          source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 90 },
+        }),
+      ).success,
     ).toBe(false);
   });
 

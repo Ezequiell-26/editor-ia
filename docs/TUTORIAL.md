@@ -89,9 +89,11 @@ En **Producción**:
 3. Generá la voz de las escenas que falten.
 4. Pulsá **Generar video automático**.
 
-La app asigna imágenes por orden o similitud de prompt, usa la duración exacta de
-cada voz, crea subtítulos, alterna Ken Burns y agrega transiciones si se piden.
-El resultado queda como clips normales en la timeline y se puede editar.
+La app asigna imágenes **o videos generados** por orden o similitud de prompt,
+usa la duración exacta de cada voz, crea subtítulos, alterna Ken Burns y agrega
+disolvencias si se piden. Un video más corto que la narración se estira hasta 2×;
+si no alcanza, se usa una imagen de respaldo para no cortar la voz. El resultado
+queda como clips normales en la timeline y se puede editar.
 
 Si no hay voz, elegí cuántos segundos dura cada imagen. El montaje automático no
 finge alinear palabras con imágenes.
@@ -115,15 +117,25 @@ entrena una red neuronal ni usa datos de otras personas. Se puede restablecer.
 
 ## 8. Edición manual
 
-En **Editor**:
+En **Editor**, el layout sigue el flujo de un editor profesional: **medios a la
+izquierda, Inspector al centro, preview a la derecha y timeline abajo**. El
+Inspector del clip se organiza en pestañas **Video, Audio, Velocidad, Color,
+Estilo y Todo** (solo aparecen las que aplican al tipo de clip). La pestaña
+**Todo** muestra el inspector completo de una vez.
 
 - **Timeline**: varias pistas, arrastrar, recortar, dividir, mover entre pistas,
-  zoom, playhead y ripple.
+  zoom, playhead y ripple. Con **clic derecho en un clip** abrís acciones rápidas:
+  dividir, duplicar, copiar/pegar, ir al inicio, eliminar o eliminar cerrando el
+  hueco; el menú se maneja con flechas, Home, End y Escape.
 - **Velocidad**: 0,1×–4× uniforme por clip.
 - **Color y efectos**: brillo, contraste, saturación, temperatura, rotación de
-  tono, curvas por preset, viñeta, nitidez, desenfoque, blanco y negro, sepia y
-  fades. Los **Looks rápidos** (Cálido, Frío, Cine, Vintage, B/N) aplican un punto
-  de partida.
+  tono, curvas por preset, **ruedas RGB de sombras/medios/luces**, **HSL selectivo
+  por rangos de color**, viñeta, nitidez, desenfoque, blanco y negro, sepia y
+  fades. Los **Looks rápidos** (Cálido, Frío, Cine, Vintage, B/N) aplican un
+  punto de partida.
+- **Look del proyecto**: elegí un preset o ajustá el grade global en Proyecto →
+  Look del proyecto. Se aplica al compuesto final antes de subtítulos y títulos,
+  no toca los clips y se guarda con el proyecto; «Quitar look» lo limpia.
 - **Movimiento**: zoom in/out y paneos Ken Burns con intensidad.
 - **Audio por clip**: high/low-pass, EQ de tres bandas, compresor, de-esser,
   puerta de ruido, `afftdn`, ganancia, fades y presets Voz clara/Música.
@@ -132,6 +144,88 @@ En **Editor**:
 - **Chroma key**: color, similitud y mezcla, con presets verde/azul.
 - **Transformación**: posición, escala, rotación, opacidad, volteo H/V y presets
   de 90/180/270°.
+- **Keyframes de transformación**: fijá una clave en el playhead, mové el
+  playhead, cambiá escala/posición/rotación/opacidad y fijá otra. Cada clave
+  acepta una curva: lineal, acelerar, desacelerar, suave o mantener. La preview
+  interpola y el MP4 anima las cuatro propiedades: escala, desplazamiento y
+  rotación con expresiones FFmpeg por frame, y opacidad con comandos `sendcmd`
+  muestreados por frame. “Fijar en playhead” captura el estado actual (incluida
+  la escala estática) sin reiniciarlo.
+- **Automatización de volumen**: claves de ganancia por frame (hasta 96 por
+  clip), con las mismas curvas, evaluadas con `volume` en el render. Sirve para
+  ducking manual o subidas/bajadas dentro de una toma.
+- **Ritmo (beat sync)**: en un clip de audio, “Analizar ritmo” detecta los golpes
+  en la máquina y muestra BPM, cantidad de pulsos y confianza. Con “Cortar video
+  al ritmo” la pista de video superior se divide en esos frames; elegí 1, 2, 4 u 8
+  pulsos por corte. El audio debe estar a 1×. Si el pulso es irregular, la app lo
+  avisa en vez de inventar cortes.
+- **Rampa de velocidad**: elegí **Desde** y **Hasta** y pulsá **Aplicar rampa**.
+  Divide el clip en tres tramos contiguos que conservan la duración total y la
+  ventana de origen. Es una aproximación de tres pasos; requiere quitar keyframes
+  y Ken Burns del clip.
+- **Curva de velocidad**: con las mismas velocidades **Desde/Hasta**, elegí 6, 8,
+  12 o 16 tramos y pulsá **Curva suave**. El clip se reparte en tramos contiguos
+  con perfil suave, conservando duración y ventana; los tramos intermedios
+  absorben la diferencia y la app muestra las velocidades aplicadas.
+- **Copiar, pegar y ripple**: con un clip seleccionado usá **Copiar** y **Pegar**
+  (o Ctrl+C / Ctrl+V); el pegado cae en el primer hueco libre de la pista.
+  **Ripple** o Shift+Supr borra el clip y cierra el hueco en esa pista.
+- **Reverse**: activá **Reproducir al revés** para invertir video y audio en el
+  render (`reverse`/`areverse`). La preview reproduce hacia adelante.
+- **Disolvencia de entrada**: en un clip de video o imagen, elegí
+  **Transición de entrada** → disolvencia, fundido a negro o deslizamiento
+  horizontal, y los frames. Se superpone al clip anterior sin cambiar la duración
+  de la timeline; el primer clip no la muestra.
+- **Animación de entrada y salida**: en un clip visual, abrí **Animación**.
+  Elegí una animación de entrada y otra de salida (fundido, deslizar a la
+  izquierda/derecha/arriba/abajo), su duración en frames y un preset. Se
+  reproducen dentro del clip: no cambian la duración ni mueven a los vecinos, y
+  se suman a la transición, a Ken Burns y a los keyframes. El render las quema en
+  el MP4 y la preview las muestra al mover el playhead. Zoom y giro aún no están
+  disponibles como animación de clip.
+- **Títulos**: escribí el texto en **Subtítulos → Agregar título**. Se crea una
+  pista `Títulos` con estilo propio de 92 px centrado, separada de los subtítulos.
+  Cada cue acepta animación de aparición: fade, pop o subir.
+- **SRT/VTT**: en **Subtítulos**, usá **Exportar SRT** para copiar o descargar
+  la pista principal, o **Importar SRT/VTT** para pegar un archivo. La
+  importación reemplaza solo la pista principal, conserva los títulos y convierte
+  los tiempos al fps del proyecto.
+- **Plantillas de título**: en el rail izquierdo, pestaña **Títulos**, escribí
+  el texto y elegí una de las siete plantillas (Impacto, 3D, Caja, Minimal, Noticias,
+  Cita, Ticker). Se agrega en el playhead en una pista `Títulos` con su propio
+  estilo; después podés editarla, moverla o reutilizar el estilo.
+- **Proxies**: seleccioná un video en Medios y pulsá **Crear proxy** en el
+  Inspector. Se genera un MP4 liviano en `media/proxies`; la preview lo usa y el
+  render final sigue tomando el original. Podés quitarlo sin borrar el archivo.
+- **Estilos de texto**: en **Subtítulos**, el estilo activo acepta tamaño, color,
+  contorno o caja con fondo, negrita, itálica, sombra, **Profundidad 3D** y
+  presets **Creador / Caja / Minimal / Grande / 3D**. Los títulos usan una pista propia.
+- **Igualar color**: en **Color → Igualar color**, elegí otra imagen o video del
+  proyecto, ajustá la fuerza y pulsá **Igualar color**. Muestrea el frame del
+  playhead y el primer frame de la referencia y aplica ganancias por canal.
+- **Mezcla**: en **Transformación → Mezcla**, elegí multiplicar, trama,
+  superponer, luz suave, oscurecer, aclarar, sobreexponer/subexponer color o luz
+  fuerte. Rinde mejor con clips que llenan el cuadro; la preview usa
+  `mix-blend-mode` y el MP4 `blend`.
+- **Freeze frame**: en **Velocidad → Congelar frame**, el playhead se exporta a
+  PNG, se importa a Medios y se monta como capa de 2 s sobre el video. Ajustá su
+  duración o posición como cualquier clip.
+- **Estabilización**: en **Video → Estabilización**, elegí el suavizado (1–60) y
+  pulsá **Analizar y aplicar**. El análisis corre en tu máquina sobre la ventana
+  de origen del clip y guarda un `.trf` en `media/stabilizers`; el MP4 aplica
+  `vidstabtransform` antes del color y de las transformaciones. Si después
+  recortás la ventana, cambiás la velocidad, ponés reverse o agregás una
+  transición de entrada, la app avisa y el render se niega: reanalizá o quitá la
+  estabilización. La preview no la simula.
+- **Máscara**: en **Video → Máscara**, elegí rectángulo o elipse, centro, tamaño,
+  rotación, feather e inversión. Capturá una máscara en un frame, mové el
+  playhead, cambiá los valores y capturá otra para animarla; la preview
+  interpola y dibuja la rotación con un SVG, y el MP4 aplica la máscara por
+  píxel con `geq`.
+- **LUT 3D**: en **Color y efectos → LUT 3D**, cargá un `.cube`. Se copia a
+  `media/luts` y se aplica en el MP4 con `lut3d`; la preview no lo simula.
+- **Efecto de voz**: grave, aguda, robot, eco, cueva o radio/teléfono. Se aplica
+  en el render con filtros locales; la preview reproduce la voz original.
 - **Subtítulos**: estilos, edición de tiempos y texto; la transcripción local
   agrega palabras con tiempos y el render las resalta.
 - **Detección de escenas**: divide un video en varios clips en una acción.
@@ -150,6 +244,28 @@ En **Fábrica**:
 
 Cada variante tiene guion propio, voz local, subtítulos, movimiento y transiciones.
 Comparten `media/` y se escriben con un sufijo único para no sobrescribir nada.
+La fábrica clásica usa las imágenes seleccionadas; el autopiloto también acepta
+videos ya listos.
+
+### Autopiloto IA
+
+Dentro de Fábrica, el panel **Autopiloto IA** ejecuta el flujo completo con un
+solo botón:
+
+1. Guion con el proveedor configurado.
+2. Voz local por escena.
+3. Opcional: una imagen o un video **por escena** con el MCP de Google Flow,
+   usando el prompt visual del guion.
+4. Montaje automático con video o imagen por escena, subtítulos, Ken Burns y
+   disolvencias.
+5. Proyecto `.editoria.json` portable y MP4 verificado.
+
+La cola queda en `localStorage` y sobrevive al reinicio. Si el render falla, el
+proyecto escrito se conserva y aparece **Reanudar render** sin volver a gastar
+créditos. La generación con Flow exige marcar la autorización de créditos para
+ese trabajo; sin esa marca el autopiloto se detiene antes de llamar al MCP. Los
+medios generados se importan con derechos confirmados y se asignan a su escena
+por id, no por orden de archivo.
 
 ## 10. Exportar con el menor tamaño posible
 
@@ -205,7 +321,8 @@ Si el servidor **Google Flow** está configurado, la vista MCP muestra un panel
 para generar fotos o videos con tu propia cuenta. La primera vez hay que iniciar
 sesión manualmente en el Chrome dedicado (CDP 9333). Marcá la autorización de
 créditos, generá y después confirmá derechos para importar a Medios o montar en
-la timeline. La guía completa está en
+la timeline. El **Autopiloto IA** de Fábrica usa el mismo servidor para generar
+un medio por escena. La guía completa está en
 [`docs/integrations/GOOGLE-FLOW-MCP.md`](integrations/GOOGLE-FLOW-MCP.md).
 
 ## 13. Apariencia, perfil y ayuda
@@ -234,8 +351,23 @@ la timeline. La guía completa está en
 
 ## 15. Límites honestos
 
-No hay keyframes, speed ramps, transiciones solapadas, curvas/LUTs, máscaras,
-multicam, motion tracking, smart reframe ni matting por IA. La detección de
-retakes es heurística. La publicación en redes y la programación no están
-incluidas. El instalador no está firmado. MCP es local, por stdio, y todavía no se
-usa dentro del Director o del generador de guiones.
+Los keyframes cubren escala, desplazamiento, rotación, opacidad y ganancia, con
+curvas de easing. La rampa de velocidad es de **tres tramos**, no una curva
+continua. Las máscaras son rectángulo/elipse con rotación y keyframes de forma. El freeze
+frame se agrega como capa de 2 s, no dentro del clip original. Hay proxies para
+la preview, pero no multicam ni timelines anidados. La estabilización es vidstab
+local sobre la ventana del clip: exige 1×, sin reverse ni transición de entrada,
+y la preview no la muestra. No hay LUTs por marca con
+intensidad, smart relight, motion tracking, smart reframe ni matting por IA. Las
+transiciones son disolvencia, fundido a negro y deslizamiento, sin catálogo de
+wipes. No hay biblioteca de música/SFX/B-roll con licencia ni descarga de stock.
+La publicación en redes y la programación no están incluidas: solo se genera el
+manifiesto y los metadatos sugeridos. Flow requiere una sesión manual de Google
+y créditos; el puente se probó con dobles, no con una generación real en esta
+máquina. El instalador no está firmado. MCP es local, por stdio, y el Director
+todavía no llama herramientas MCP.
+
+REA 6.4.0 analizó el PE de CapCut 9.4 y extrajo **184 tipos de keyframe** y **52
+flags** de funciones. El inventario completo, con rutas, hashes y límites, está
+en
+[`docs/reference/CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md`](reference/CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md).

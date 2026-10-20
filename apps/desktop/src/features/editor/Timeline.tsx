@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { Asset, CaptionCue, Clip, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { peaksForWindow, useWaveform } from '../../hooks/useWaveform';
@@ -6,14 +14,18 @@ import { Icon } from '../../components/Icon';
 import { friendlyAssetLabel } from '../../state/asset-labels';
 import {
   ProjectActionError,
+  addAdjustmentLayer,
   addTrack,
   deleteCaptionCue,
   deleteClip,
+  duplicateClip,
   formatTimecode,
   fpsOf,
   moveClip,
+  pasteClip,
   splitClip,
   trimClip,
+  rippleDeleteClip,
   totalFrames,
   updateCaptionCue,
   updateTrack,
@@ -70,6 +82,7 @@ function ClipBlock({
   preview,
   onSelect,
   onDrag,
+  onContextMenu,
 }: {
   readonly clip: Clip;
   readonly track: Track;
@@ -78,6 +91,7 @@ function ClipBlock({
   readonly preview: Drag | null;
   readonly onSelect: () => void;
   readonly onDrag: (event: ReactPointerEvent, mode: 'move' | 'trim-start' | 'trim-end') => void;
+  readonly onContextMenu: (event: ReactMouseEvent) => void;
 }) {
   const store = useProjectStore();
   const project = store.state.project;
@@ -115,6 +129,7 @@ function ClipBlock({
         onSelect();
         if (!track.locked) onDrag(event, 'move');
       }}
+      onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
@@ -231,9 +246,17 @@ export function Timeline() {
   const [newTrackKind, setNewTrackKind] = useState<Track['kind']>('video');
   const [preview, setPreview] = useState<Drag | null>(null);
   const dragRef = useRef<Drag | null>(null);
+  const clipboardRef = useRef<Clip | null>(null);
+  const [clipboardReady, setClipboardReady] = useState(false);
   const latest = useRef({ project, pxPerFrame, store });
   latest.current = { project, pxPerFrame, store };
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<{
+    clipId: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const fps = project ? fpsOf(project) : 30;
   const duration = project ? Math.max(store.durationFrames, Math.round(fps * 4)) : 0;
@@ -250,6 +273,154 @@ export function Timeline() {
     store.state.selection.kind === 'clip' ? store.state.selection.id : null;
   const selectedCueId =
     store.state.selection.kind === 'cue' ? store.state.selection.id : null;
+
+  function copySelectedClip(): void {
+    const clip = project?.timeline.clips.find((item) => item.id === selectedClipId);
+    if (!clip) return;
+    clipboardRef.current = JSON.parse(JSON.stringify(clip)) as Clip;
+    setClipboardReady(true);
+    store.setNotice(`${clip.label ?? 'Clip'} copiado; usá Pegar para insertarlo.`);
+  }
+
+  function pasteCopiedClip(): void {
+    const clip = clipboardRef.current;
+    if (!clip) return;
+    const result = store.mutate((current) =>
+      pasteClip(current, clip, { startFrame: store.state.playheadFrame }),
+    );
+    if (result) {
+      store.setSelection({ kind: 'clip', id: result.clipId });
+      store.setNotice('Clip pegado en el primer hueco libre de la pista.');
+    }
+  }
+
+  function rippleDeleteSelected(): void {
+    if (!selectedClipId) return;
+    store.update((current) => rippleDeleteClip(current, selectedClipId));
+    store.setSelection({ kind: 'none' });
+    store.setNotice('Clip borrado y hueco cerrado en su pista.');
+  }
+
+  const contextClip =
+    contextMenu && project
+      ? project.timeline.clips.find((clip) => clip.id === contextMenu.clipId)
+      : undefined;
+  const contextLocked =
+    !contextClip ||
+    !project ||
+    project.timeline.tracks.find((track) => track.id === contextClip.trackId)?.locked === true;
+  const contextSplitAllowed =
+    contextClip !== undefined &&
+    !contextLocked &&
+    store.state.playheadFrame > contextClip.startFrame &&
+    store.state.playheadFrame < contextClip.startFrame + contextClip.durationFrames;
+
+  function openClipMenu(event: ReactMouseEvent, clip: Clip): void {
+    event.preventDefault();
+    event.stopPropagation();
+    store.setSelection({ kind: 'clip', id: clip.id });
+    setContextMenu({ clipId: clip.id, x: event.clientX, y: event.clientY });
+  }
+
+  function splitContextClip(): void {
+    if (!contextClip) return;
+    const clipId = contextClip.id;
+    let rightClipId: string | null = null;
+    store.update((current) => {
+      const result = splitClip(current, clipId, store.state.playheadFrame);
+      if (!result) return current;
+      rightClipId = result.rightClipId;
+      return result.project;
+    });
+    setContextMenu(null);
+    if (rightClipId) {
+      store.setSelection({ kind: 'clip', id: rightClipId });
+      store.setNotice('Clip dividido en el playhead.');
+    } else {
+      store.setNotice('Movés el playhead dentro del clip para dividirlo.');
+    }
+  }
+
+  function duplicateContextClip(): void {
+    if (!contextClip) return;
+    const clipId = contextClip.id;
+    let newClipId: string | null = null;
+    store.update((current) => {
+      const result = duplicateClip(current, clipId);
+      if (!result) return current;
+      newClipId = result.clipId;
+      return result.project;
+    });
+    setContextMenu(null);
+    if (newClipId) {
+      store.setSelection({ kind: 'clip', id: newClipId });
+      store.setNotice('Clip duplicado en el primer hueco libre.');
+    }
+  }
+
+  function deleteContextClip(): void {
+    if (!contextClip) return;
+    const clipId = contextClip.id;
+    let nextDuration = 0;
+    store.update((current) => {
+      const next = deleteClip(current, clipId);
+      nextDuration = totalFrames(next);
+      return next;
+    });
+    setContextMenu(null);
+    store.setSelection({ kind: 'none' });
+    store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+  }
+
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = (): void => setContextMenu(null);
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && contextMenuRef.current?.contains(event.target)) return;
+      setContextMenu(null);
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setContextMenu(null);
+    };
+    window.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    const frame = window.requestAnimationFrame(() => {
+      contextMenuRef.current
+        ?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')
+        ?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('pointerdown', onPointerDown);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      const command = event.ctrlKey || event.metaKey;
+      if (command && event.key.toLowerCase() === 'c' && selectedClipId) {
+        event.preventDefault();
+        copySelectedClip();
+      } else if (command && event.key.toLowerCase() === 'v' && clipboardRef.current) {
+        event.preventDefault();
+        pasteCopiedClip();
+      } else if (event.shiftKey && event.key === 'Delete' && selectedClipId) {
+        event.preventDefault();
+        rippleDeleteSelected();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [selectedClipId, project]);
 
   useEffect(() => {
     const onMove = (event: PointerEvent) => {
@@ -517,6 +688,15 @@ export function Timeline() {
     }
   }
 
+  function addAdjustmentLayerToTimeline(): void {
+    const result = store.mutate((current) =>
+      addAdjustmentLayer(current, store.state.playheadFrame),
+    );
+    if (result) {
+      store.setSelection({ kind: 'clip', id: result.clipId });
+    }
+  }
+
   const selectedClip = selectedClipId
     ? project.timeline.clips.find((clip) => clip.id === selectedClipId)
     : undefined;
@@ -566,6 +746,7 @@ export function Timeline() {
             <option value="narration">Narración</option>
             <option value="caption">Subtítulos</option>
             <option value="graphic">Gráficos</option>
+            <option value="adjustment">Ajustes</option>
           </select>
           <button
             type="button"
@@ -575,6 +756,16 @@ export function Timeline() {
           >
             <Icon name="plus" size={13} />
             <span className="tool-label">Agregar pista</span>
+          </button>
+          <button
+            type="button"
+            className="small icon-text"
+            aria-label="Agregar capa de ajuste en el playhead"
+            title="Grade sobre el compuesto dentro de su tramo"
+            onClick={addAdjustmentLayerToTimeline}
+          >
+            <Icon name="layers" size={13} />
+            <span className="tool-label">Capa de ajuste</span>
           </button>
         </div>
         <div className="timeline-tools">
@@ -616,6 +807,34 @@ export function Timeline() {
           >
             <Icon name="trash" size={13} />
             <span className="tool-label">Borrar clip</span>
+          </button>
+          <button
+            type="button"
+            className="small ghost"
+            aria-label="Copiar clip seleccionado"
+            disabled={!selectedClip}
+            onClick={copySelectedClip}
+          >
+            Copiar
+          </button>
+          <button
+            type="button"
+            className="small ghost"
+            aria-label="Pegar clip copiado en el playhead"
+            disabled={!clipboardReady}
+            onClick={pasteCopiedClip}
+          >
+            Pegar
+          </button>
+          <button
+            type="button"
+            className="small danger-ghost"
+            aria-label="Borrar clip y cerrar el hueco"
+            title="Borra el clip y mueve los siguientes para cerrar el hueco"
+            disabled={!selectedClip}
+            onClick={rippleDeleteSelected}
+          >
+            Ripple
           </button>
           <button
             type="button"
@@ -756,6 +975,7 @@ export function Timeline() {
                       preview={preview}
                       onSelect={() => store.setSelection({ kind: 'clip', id: clip.id })}
                       onDrag={(event, mode) => beginClipDrag(event, clip, mode)}
+                      onContextMenu={(event) => openClipMenu(event, clip)}
                     />
                   ))}
                   {trackCues.map((cue) => (
@@ -786,6 +1006,122 @@ export function Timeline() {
           >
             <span className="playhead-grip" />
           </div>
+
+          {contextMenu && contextClip ? (
+            <div
+              ref={contextMenuRef}
+              className="timeline-menu"
+              role="menu"
+              aria-label={`Acciones para ${contextClip.label ?? 'el clip'}`}
+              style={{
+                left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 244)),
+                top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 300)),
+              }}
+              onContextMenu={(event) => event.preventDefault()}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setContextMenu(null);
+                  return;
+                }
+                if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+                event.preventDefault();
+                const items = Array.from(
+                  event.currentTarget.querySelectorAll<HTMLButtonElement>(
+                    '[role="menuitem"]:not(:disabled)',
+                  ),
+                );
+                if (items.length === 0) return;
+                if (event.key === 'Home') {
+                  items[0]?.focus();
+                  return;
+                }
+                if (event.key === 'End') {
+                  items[items.length - 1]?.focus();
+                  return;
+                }
+                const current = items.indexOf(document.activeElement as HTMLButtonElement);
+                const step = event.key === 'ArrowDown' ? 1 : -1;
+                items[(current + step + items.length) % items.length]?.focus();
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!contextSplitAllowed}
+                onClick={splitContextClip}
+              >
+                <span>Dividir en el playhead</span>
+                <span className="timeline-menu-hint">Playhead</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={contextLocked}
+                onClick={duplicateContextClip}
+              >
+                <span>Duplicar</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  copySelectedClip();
+                  setContextMenu(null);
+                }}
+              >
+                <span>Copiar</span>
+                <span className="timeline-menu-hint">Ctrl+C</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={!clipboardReady}
+                onClick={() => {
+                  pasteCopiedClip();
+                  setContextMenu(null);
+                }}
+              >
+                <span>Pegar en el playhead</span>
+                <span className="timeline-menu-hint">Ctrl+V</span>
+              </button>
+              <div className="timeline-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  store.setPlayhead(contextClip.startFrame);
+                  setContextMenu(null);
+                }}
+              >
+                <span>Ir al inicio del clip</span>
+              </button>
+              <div className="timeline-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                className="danger"
+                disabled={contextLocked}
+                onClick={deleteContextClip}
+              >
+                <span>Eliminar clip</span>
+                <span className="timeline-menu-hint">Supr</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="danger"
+                disabled={contextLocked}
+                onClick={() => {
+                  rippleDeleteSelected();
+                  setContextMenu(null);
+                }}
+              >
+                <span>Eliminar y cerrar hueco</span>
+                <span className="timeline-menu-hint">Shift+Supr</span>
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

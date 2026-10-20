@@ -50,6 +50,7 @@ describe('shell de Editor IA', () => {
       'Editor',
       'Guion',
       'Medios',
+      'Descargar',
       'Convertir',
       'Aprender',
       'MCP',
@@ -72,6 +73,23 @@ describe('shell de Editor IA', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Ajustes' }));
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Apariencia'));
+  });
+
+  it('abre el descargador, analiza una URL y la importa con el servicio simulado', async () => {
+    renderApp();
+    await createProject('Obra descarga');
+    nav('Descargar');
+    const main = screen.getByRole('main');
+    expect(main.textContent).toContain('Motor de descargas');
+    const url = within(main).getByRole('textbox', { name: /URL para descargar/i });
+    fireEvent.change(url, { target: { value: 'https://example.com/video' } });
+    fireEvent.click(within(main).getByRole('button', { name: /Analizar/i }));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Video de prueba'));
+    expect(screen.getByRole('main').textContent).toContain('4320p · 8K');
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tengo derechos/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Descargar e importar/i }));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Ver 1 archivo(s) en Medios'));
+    expect(screen.getByRole('main').textContent).toContain('video.mp4');
   });
 
   it('sin runtime nativo avisa y deshabilita la creación', () => {

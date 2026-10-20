@@ -21,9 +21,26 @@ export interface PublicationAudit {
   readonly issues: string[];
 }
 
+export interface PublicationMetadata {
+  readonly title: string;
+  readonly description: string;
+  readonly hashtags: readonly string[];
+  readonly chapters: readonly {
+    readonly startSeconds: number;
+    readonly title: string;
+  }[];
+  readonly platforms: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly fits: boolean;
+    readonly reason: string;
+  }[];
+}
+
 export interface PublicationManifest {
   readonly schema: 'editor-ia.publication-manifest.v1';
   readonly generatedAt: string;
+  readonly metadata: PublicationMetadata;
   readonly project: {
     readonly id: string;
     readonly name: string;
@@ -75,6 +92,91 @@ function duplicateHashes(project: ProjectDocument): Map<string, number> {
     counts.set(hash, (counts.get(hash) ?? 0) + 1);
   }
   return counts;
+}
+
+const META_STOP_WORDS = new Set([
+  'como', 'para', 'sobre', 'desde', 'entre', 'hasta', 'cuando', 'donde', 'porque',
+  'este', 'esta', 'estos', 'estas', 'todo', 'toda', 'todos', 'todas', 'más', 'mas',
+  'con', 'sin', 'que', 'los', 'las', 'del', 'una', 'unos', 'unas', 'por', 'sus',
+  'the', 'and', 'with', 'from', 'that', 'this', 'your', 'their', 'video', 'escena',
+]);
+
+/** Deterministic SEO copy so a batch can be reviewed before publishing by hand. */
+export function buildPublicationMetadata(project: ProjectDocument): PublicationMetadata {
+  const scenes = [...project.scenes].sort((a, b) => a.order - b.order);
+  const title = (scenes[0]?.title?.trim() || project.name).slice(0, 100);
+  const spoken = scenes
+    .map((scene) => scene.narration.text?.trim() ?? '')
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' ');
+  const description = `${spoken || project.name} Mirá el video completo y contanos qué te pareció.`
+    .replace(/\s+/g, ' ')
+    .slice(0, 480);
+  const words = `${project.name} ${scenes.map((scene) => scene.title).join(' ')}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= 4 && !META_STOP_WORDS.has(word));
+  const hashtags = [...new Set(words)]
+    .slice(0, 8)
+    .map((word) => `#${word}`)
+    .slice(0, 8);
+
+  const fps = Math.max(1, project.video.frameRate.num / Math.max(1, project.video.frameRate.den));
+  let cursor = 0;
+  const chapters = scenes.map((scene) => {
+    const chapter = { startSeconds: Math.round(cursor / fps), title: scene.title };
+    const clip = project.timeline.clips.find((item) => scene.clipIds.includes(item.id));
+    cursor += clip?.durationFrames ?? scene.narration.estimatedDurationFrames ?? 0;
+    return chapter;
+  });
+
+  const durationSeconds = totalProjectDuration(project) / fps;
+  const vertical = project.video.height > project.video.width;
+  const platforms = [
+    {
+      id: 'youtube',
+      label: 'YouTube',
+      fits: !vertical,
+      reason: vertical
+        ? 'YouTube largo espera horizontal; usá Shorts o reencuadrá.'
+        : 'Formato horizontal listo para YouTube.',
+    },
+    {
+      id: 'shorts',
+      label: 'YouTube Shorts',
+      fits: vertical && durationSeconds <= 60,
+      reason: vertical
+        ? durationSeconds <= 60
+          ? 'Vertical y dentro de 60 s.'
+          : `Dura ${durationSeconds.toFixed(0)} s; Shorts corta a 60 s.`
+        : 'Shorts necesita 9:16.',
+    },
+    {
+      id: 'reels',
+      label: 'Instagram Reels',
+      fits: vertical && durationSeconds <= 90,
+      reason: vertical
+        ? durationSeconds <= 90
+          ? 'Vertical y dentro de 90 s.'
+          : `Dura ${durationSeconds.toFixed(0)} s; Reels corta a 90 s.`
+        : 'Reels necesita 9:16.',
+    },
+    {
+      id: 'tiktok',
+      label: 'TikTok',
+      fits: vertical && durationSeconds <= 180,
+      reason: vertical
+        ? durationSeconds <= 180
+          ? 'Vertical y dentro de 3 minutos.'
+          : `Dura ${durationSeconds.toFixed(0)} s; TikTok corta a 3 min.`
+        : 'TikTok prioriza 9:16.',
+    },
+  ];
+
+  return { title, description, hashtags, chapters, platforms };
 }
 
 /** Deterministic readiness score for publishing the current project. */
@@ -141,6 +243,7 @@ export function buildPublicationManifest(
   return {
     schema: 'editor-ia.publication-manifest.v1',
     generatedAt: now.toISOString(),
+    metadata: buildPublicationMetadata(project),
     project: {
       id: project.id,
       name: project.name,

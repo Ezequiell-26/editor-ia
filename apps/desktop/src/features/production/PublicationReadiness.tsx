@@ -1,16 +1,38 @@
 import { useMemo, useState } from 'react';
 import { basename } from '../../lib/format';
 import { useProjectStore } from '../../state/project-store';
-import { auditPublication, buildPublicationManifest } from '../../state/publication';
+import {
+  auditPublication,
+  buildPublicationManifest,
+  buildPublicationMetadata,
+} from '../../state/publication';
 
 export function PublicationReadiness() {
   const store = useProjectStore();
   const project = store.state.project;
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const audit = useMemo(() => (project ? auditPublication(project) : null), [project]);
+  const metadata = useMemo(
+    () => (project ? buildPublicationMetadata(project) : null),
+    [project],
+  );
 
   if (!project || !audit) return null;
   const snapshot = project;
+
+  async function copyMetadata(): Promise<void> {
+    if (!metadata) return;
+    const text = `${metadata.title}\n\n${metadata.description}\n\n${metadata.hashtags.join(' ')}`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      store.setNotice('Metadatos copiados al portapapeles.');
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      store.setNotice('No se pudo copiar; seleccioná el texto a mano.');
+    }
+  }
 
   const rows = [
     {
@@ -108,6 +130,45 @@ export function PublicationReadiness() {
           {audit.issues.map((issue) => (
             <p key={issue}>{issue}</p>
           ))}
+        </div>
+      ) : null}
+      {metadata ? (
+        <div className="publication-meta">
+          <div className="production-card-head">
+            <div>
+              <p className="eyebrow">Metadatos sugeridos</p>
+              <h3>{metadata.title}</h3>
+            </div>
+            <button type="button" className="small ghost" onClick={() => void copyMetadata()}>
+              {copied ? 'Copiado' : 'Copiar texto'}
+            </button>
+          </div>
+          <p>{metadata.description}</p>
+          <div className="publication-hashtags">
+            {metadata.hashtags.map((hashtag) => (
+              <code key={hashtag}>{hashtag}</code>
+            ))}
+          </div>
+          <ul className="publication-platforms">
+            {metadata.platforms.map((platform) => (
+              <li key={platform.id} className={platform.fits ? 'ok' : 'warn'}>
+                <strong>{platform.label}</strong>
+                <span>{platform.reason}</span>
+              </li>
+            ))}
+          </ul>
+          {metadata.chapters.length > 0 ? (
+            <details>
+              <summary>Capítulos ({metadata.chapters.length})</summary>
+              <ul className="publication-chapters">
+                {metadata.chapters.map((chapter) => (
+                  <li key={`${chapter.startSeconds}-${chapter.title}`}>
+                    <code>{chapter.startSeconds}s</code> {chapter.title}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
         </div>
       ) : null}
       <div className="actions">

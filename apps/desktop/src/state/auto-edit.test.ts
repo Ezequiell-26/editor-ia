@@ -146,7 +146,7 @@ describe('montaje automático', () => {
       replaceTimeline: true,
     });
 
-    expect(result.plan.scenes.map((scene) => scene.imageId)).toEqual([only.id, only.id]);
+    expect(result.plan.scenes.map((scene) => scene.mediaId)).toEqual([only.id, only.id]);
     expect(result.plan.warnings.join(' ')).toMatch(/repit/i);
     expect(result.plan.scenes.map((scene) => scene.audioId)).toEqual([undefined, undefined]);
   });
@@ -177,8 +177,8 @@ describe('montaje automático', () => {
       replaceTimeline: true,
     });
 
-    expect(result.plan.scenes[0]?.imageId).toBe(lighthouse.id);
-    expect(result.plan.scenes[1]?.imageId).toBe(forest.id);
+    expect(result.plan.scenes[0]?.mediaId).toBe(lighthouse.id);
+    expect(result.plan.scenes[1]?.mediaId).toBe(forest.id);
   });
 
   it('parte subtítulos largos en cues contiguos sin perder frames', () => {
@@ -391,22 +391,72 @@ describe('preparar montaje con audio existente sin derechos', () => {
 });
 
 
-describe('aviso de videos no montados', () => {
-  it('avisa cuando hay videos listos que el montaje automático no usa', () => {
-    const imageAsset = image('001-faro');
+describe('videos generados en el montaje automático', () => {
+  it('monta un video cuando cubre la narración y lo recorta a la escena', () => {
     const videoAsset = video();
-    let project = addAsset(addAsset(base(), imageAsset), videoAsset);
-    const scene = withScene(project, 'Faro', 'Narración.', 'Nota.');
+    let project = addAsset(base(), videoAsset);
+    const scene = withScene(project, 'Faro', 'Narración del faro.', 'Un faro al atardecer.');
     project = scene.project;
+    const narration = audio(90);
+    project = attachNarrationAsset(addAsset(project, narration), scene.sceneId, narration.id);
+
+    const result = buildAutoEdit(project, {
+      assignment: 'order',
+      includeCaptions: true,
+      replaceTimeline: true,
+    });
+    const next = validated(result.project);
+    const clip = next.timeline.clips.find((item) => item.kind === 'video');
+
+    expect(clip?.startFrame).toBe(0);
+    expect(clip?.durationFrames).toBe(90);
+    expect(result.plan.scenes[0]?.mediaKind).toBe('video');
+    expect(result.plan.scenes[0]?.mediaId).toBe(videoAsset.id);
+    expect(result.plan.warnings.join(' ')).not.toMatch(/sólo usa imágenes/i);
+  });
+
+  it('estira un video más corto en vez de cortar la narración', () => {
+    const videoAsset = video();
+    let project = addAsset(base(), videoAsset);
+    const scene = withScene(project, 'Faro', 'Narración larga.', 'Un faro al atardecer.');
+    project = scene.project;
+    const narration = audio(240);
+    project = attachNarrationAsset(addAsset(project, narration), scene.sceneId, narration.id);
 
     const result = buildAutoEdit(project, {
       assignment: 'order',
       includeCaptions: false,
       replaceTimeline: true,
     });
+    const next = validated(result.project);
+    const clip = next.timeline.clips.find((item) => item.kind === 'video');
 
-    expect(result.plan.warnings.join(' ')).toMatch(/video/i);
-    expect(result.plan.scenes).toHaveLength(1);
+    expect(clip?.durationFrames).toBe(240);
+    expect(clip && 'speed' in clip ? clip.speed : undefined).toEqual({ num: 5, den: 8 });
+    expect(next.timeline.clips.find((item) => item.kind === 'audio')?.durationFrames).toBe(240);
+  });
+
+  it('reemplaza por imagen un video demasiado corto para la narración', () => {
+    const videoAsset = { ...video(), label: '001-clip.mp4' } as Asset;
+    const imageAsset = { ...image('002-faro'), label: '002-faro.png' } as Asset;
+    let project = addAsset(addAsset(base(), videoAsset), imageAsset);
+    const scene = withScene(project, 'Faro', 'Narración muy larga.', 'Un faro al atardecer.');
+    project = scene.project;
+    const narration = audio(400);
+    project = attachNarrationAsset(addAsset(project, narration), scene.sceneId, narration.id);
+
+    const result = buildAutoEdit(project, {
+      assignment: 'order',
+      includeCaptions: false,
+      replaceTimeline: true,
+    });
+    const next = validated(result.project);
+    const clip = next.timeline.clips.find((item) => item.kind === 'image');
+
+    expect(result.plan.scenes[0]?.mediaKind).toBe('image');
+    expect(result.plan.scenes[0]?.mediaId).toBe(imageAsset.id);
+    expect(clip?.durationFrames).toBe(400);
+    expect(result.plan.warnings.join(' ')).toMatch(/demasiado corto/i);
   });
 });
 
@@ -437,7 +487,7 @@ describe('movimiento y transiciones automáticas', () => {
     return project;
   }
 
-  it('aplica movimiento Ken Burns alternado y fundidos de transición', () => {
+  it('aplica movimiento Ken Burns y disolvencia entre escenas', () => {
     const result = buildAutoEdit(twoScenes(), {
       assignment: 'order',
       includeCaptions: false,
@@ -454,12 +504,10 @@ describe('movimiento y transiciones automáticas', () => {
       { type: 'zoom-in', intensity: 0.12 },
       { type: 'zoom-out', intensity: 0.12 },
     ]);
-    expect(
-      imageClips.map((clip) => [clip.effects?.fadeInFrames, clip.effects?.fadeOutFrames]),
-    ).toEqual([
-      [12, 12],
-      [12, 12],
-    ]);
+    expect(imageClips[0]?.effects).toEqual({ fadeInFrames: 12 });
+    expect(imageClips[1]?.effects).toEqual({ fadeOutFrames: 12 });
+    expect(imageClips[0]?.transitionIn).toBeUndefined();
+    expect(imageClips[1]?.transitionIn).toEqual({ type: 'dissolve', frames: 12 });
   });
 
   it('deja las fotos quietas cuando se pide none y transición cero', () => {
@@ -475,6 +523,7 @@ describe('movimiento y transiciones automáticas', () => {
 
     expect(imageClips.every((clip) => clip.motion === undefined)).toBe(true);
     expect(imageClips.every((clip) => clip.effects === undefined)).toBe(true);
+    expect(imageClips.every((clip) => !('transitionIn' in clip))).toBe(true);
   });
 });
 

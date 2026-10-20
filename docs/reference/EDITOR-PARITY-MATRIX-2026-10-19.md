@@ -98,6 +98,40 @@ audio, herramientas IA, track matte y auto color. Fuentes:
   high/low-pass, EQ de 3 bandas, compresor, `afftdn`, `loudnorm` -14 LUFS y
   `chromakey`; FFmpeg 9.0.1 completó y FFprobe verificó 320×180 y 2 s.
 
+## Addendum verificado al 2026-10-20 (pases 17–18)
+
+Esta lista prevalece sobre las filas de la matriz que quedaron desactualizadas.
+Se apoya en la suite completa de tests (512 Vitest; 112 Rust + 2 ignorados),
+typecheck, build de Vite y renders FFmpeg en vivo.
+
+**Agregado y verificado**
+
+- **Look global del proyecto** (`look` en la raíz del `.editoria.json`): presets,
+  brillo, contraste, saturación, temperatura, tono, curvas, viñeta, nitidez,
+  desenfoque, B/N, sepia y **LUT `.cube` global**; preview sobre el compuesto y
+  render antes de ASS. Los LUT por clip ya existían.
+- **Menú contextual de timeline** accesible con teclado: dividir, duplicar,
+  copiar/pegar, ir al inicio, eliminar y ripple delete.
+- **Texto 3D** por extrusión de sombras ASS, con color de profundidad y preview.
+- **Importación/exportación SRT/VTT** por pegado y descarga; subtítulos
+  automáticos y animaciones de subtítulo.
+- **Máscaras** rectangulares/elípticas con rotación, feather, inversión y
+  keyframes interpolados en preview y render.
+- **Transiciones** dissolve/fade/slide, animaciones de entrada/salida, Ken Burns,
+  rampas y curvas de velocidad, freeze, estabilización, chroma key y suite de
+  audio/loudness.
+
+**Sigue faltando para paridad completa**
+
+- Capas de ajuste y ajustes por tramo sobre la timeline.
+- LUT skin; highlight/shadow/fade por separado (el `.cube` está por clip y en el
+  look global).
+- Smart reframe, matting IA, beauty, super resolution e interpolación.
+- Multicam, timelines anidadas y grupos; slip/slide/roll completos.
+- Bins con búsqueda/favoritos y selector nativo de archivo SRT.
+- Stock/música con licencias y publicación programada a redes.
+- Texto con forma, letras/lyrics y keyframes de estilo.
+
 ## Matriz de paridad
 
 Leyenda: **Sí** = existe y está probado; **Parcial** = existe una parte;
@@ -112,8 +146,9 @@ Leyenda: **Sí** = existe y está probado; **Parcial** = existe una parte;
 | Timeline | Multipista, trim, split, move, zoom, playhead | **Sí** |
 | Timeline | Ripple/roll/slip/slide, snapping magnético, grupos, nesting | **Parcial**: ripple al cambiar velocidad; sin snapping ni grupos |
 | Timeline | Velocidad uniforme y ripples | **Sí** (esta pasada) |
-| Timeline | Speed ramps por keyframes, freeze frames | **No** |
-| Timeline | Keyframes de transformación/opacidad/volumen | **No** |
+| Timeline | Speed ramps por keyframes, freeze frames | **Parcial**: rampa de 3 tramos, curva suave de 6–16 tramos y freeze frame; sin curva por keyframe ni función continua por frame |
+| Timeline | Keyframes de transformación/opacidad/volumen | **Sí**: escala, desplazamiento, rotación, opacidad y ganancia con UI y render (2026-10-20) |
+| Timeline | Beat sync: cortar el video al pulso de la música | **Sí**: detección local por energía y UI en el Inspector del audio (2026-10-20) |
 | Timeline | Transiciones reales (crossfade, dip, slide, etc.) | **Parcial**: fades de entrada/salida y transición automática entre fotos; sin crossfade solapado |
 | Timeline | Movimiento automático de fotos (Ken Burns) | **Sí** (esta pasada) |
 | Timeline | Auto-montaje con movimiento y transiciones | **Sí** (esta pasada) |
@@ -124,7 +159,7 @@ Leyenda: **Sí** = existe y está probado; **Parcial** = existe una parte;
 | Video | Curvas, ruedas primarias/log, HSL, qualifiers, LUTs | **No** |
 | Video | Blend modes, máscaras, track matte | **No** |
 | Video | Chroma key, matting/background removal | **Parcial**: chroma key por color; sin matting/segmentación IA |
-| Video | Motion tracking, estabilización, smart reframe | **No** |
+| Video | Motion tracking, estabilización, smart reframe | **Parcial**: estabilización local con `vidstab` en clips a 1× sin reverse ni transición de entrada; sin motion tracking ni smart reframe (2026-10-20) |
 | Video | Efectos/transiciones de biblioteca, stickers, títulos | **Parcial**: subtítulos; sin biblioteca de efectos |
 | Audio | Ganancia, fades, mezcla, tracks de narración | **Sí** |
 | Audio | Ducking automático | **Parcial**: el esquema lo declara; falta flujo de UI/render completo |
@@ -318,3 +353,234 @@ Keyframes, speed ramps, transiciones solapadas, máscaras/blend modes, LUTs
 `.cube`, qualifiers/scopes, texto/títulos, smart reframe por IA, proxies,
 multicam, HDR y presets sociales. Este addendum no cambia la conclusión: no hay
 paridad total.
+
+## Addendum 2026-10-20 (pase 19)
+
+**Implementado y verificado**
+
+- **Montaje automático con video generado**: el pool incluye imágenes y videos
+  listos. Un video que cubre la narración se recorta a la duración de la escena;
+  uno más corto se estira hasta 2× (`setClipSpeed`) y, si no alcanza, se usa una
+  imagen de respaldo con aviso. `mediaByScene` fija un medio por id de escena para
+  los artefactos de Flow. Tests: 17 de auto-edit.
+- **Keyframes**: UI en el Inspector para escala, desplazamiento, rotación,
+  opacidad y ganancia; preview interpolada; render FFmpeg con expresiones por
+  frame (`scale` con `eval=frame`, `overlay` con `x/y` en tiempo global, `rotate`
+  con `angle`, `volume` con `eval=frame`) y `sendcmd` por frame para la opacidad
+  (hasta 300 pasos por clip).
+- **Disolvencia de entrada** por clip de video/imagen: schema, UI y render con
+  solapamiento temporal sin cambiar la duración de la timeline; el primer clip
+  no la muestra. Verificada en un render real de 2,5 s.
+- **Títulos**: pista `Títulos` separada, estilo de 92 px centrado y cue editable.
+- **Autopiloto IA**: brief → guion → voz local → Flow opcional por escena →
+  importación con derechos → montaje → `.editoria.json` → MP4, con cola
+  persistente, autorización de créditos por trabajo y reanudación sólo del
+  render. Tests: 7 del motor + 2 del panel.
+- **Metadatos de publicación**: título, descripción, hashtags, capítulos y
+  encaje por plataforma dentro del manifiesto local.
+
+**Sigue faltando**
+
+Curva de velocidad por keyframe (la curva suave es de tramos), wipes/dip-to-color, LUTs `.cube`, máscaras/blend
+modes, qualifiers/scopes, multicam, HDR, smart reframe por IA, matting/remoción
+de fondo, biblioteca de música/SFX/B-roll con licencia, publicación o
+programación en redes, proxies y relink. La generación real con Flow no se
+verificó: el Chrome dedicado no tenía sesión de Google ni créditos. Evidencia REA
+de este pase en [`REA-APP-ANALYSIS-2026-10-20.md`](REA-APP-ANALYSIS-2026-10-20.md).
+
+## Addendum 2026-10-20 — opacidad animada de punta a punta
+
+**Evidencia REA de esta pasada**
+
+- **CapCut 9.4.0.4015**: el artefacto instalado trae
+  `Resources/DefaultAdjustBundle/fade` (ajuste de fundido) y `opacity` en shaders
+  del mismo bundle (`FC/AF_DL/effects/LumiLayer`, `AmazingFeature_vignetting`).
+  Se leyó el inventario y los shaders; la app no se ejecutó.
+- **DaVinci Resolve 21.1.1.10**: se abrió `D:\BMDDavUI.dll` con REA
+  (`sha256 86a2f6277e1c80937d5260fe105f71c18e77e4737d4f7cb647775a05b8194fc1`).
+  `search_strings` volvió a fallar con `-32603`, así que no se agregan cadenas
+  nuevas y se reutiliza la evidencia previa de keyframes.
+- **Filmora**: no instalado; solo documentación pública ya citada.
+
+**Implementado**
+
+- Keyframes de **opacidad** con UI (campo “KF opacidad”), captura del valor
+  vigente al fijar una clave y render real. FFmpeg no acepta expresiones en
+  `colorchannelmixer=aa` (medido: `Undefined constant or missing '(' in 'T'`), así
+  que el render emite `colorchannelmixer@kfN=aa=<inicial>` + `sendcmd` con una
+  muestra por frame (máximo 300 pasos), desplazada por el solape de la
+  disolvencia.
+- “Fijar en playhead” captura la escala uniforme y la opacidad vigentes; antes
+  forzaba escala 1 y podía reiniciar una toma ya escalada.
+
+**Verificación medida**
+
+- `npm test`: **466 tests en 45 archivos**, verde.
+- `node scripts/rust-env.mjs -- cargo test --workspace`: **97 passed, 0 failed,
+  1 ignored** (el live), medido al cierre de la pasada; otro pase concurrente
+  seguía sumando tests. `cargo fmt --all -- --check` limpio para los archivos de
+  esta pasada; el chequeo global quedó señalando un bloque `slide-left` ajeno en
+  `ffmpeg.rs` que no se reformateó.
+- Render live (`EDITOR_IA_RUN_RENDER_TESTS=1`): 320×180, 2,5 s, **78.115 bytes**,
+  FFprobe OK; luminancia YAVG **48,43** (t=0,6 s, opacidad ≈20 %) → **84,09**
+  (t=2,1 s, ≈90 %). A 2,3 s baja a 30 por el fade-out del propio clip, no por la
+  opacidad.
+
+**No verificado**
+
+- La captura de opacidad desde la UI no se probó a mano en la app release: solo
+  tests de acciones, de render y el render live.
+- La opacidad se hornea por frame en CPU; no hay aceleración por GPU.
+
+
+## Addendum 2026-10-20 — beat sync local
+
+**Evidencia REA**
+
+- CapCut 9.4.0.4015 trae en sus traducciones instaladas (`Resources/po/en.po` y
+  `es-LA.po`) las cadenas **`add_beat`** (“Add beat”), **`auto_beat`**
+  (“Auto beat”), **`beat_sync_videos`** y **`match_video_to_music_beat`**
+  (“Match up your video to the beat of the music”). Es superficie de producto
+  observada en el artefacto; no se infirió su algoritmo ni se copió código.
+- DaVinci y Filmora no aportaron evidencia nueva en esta pasada; rige lo ya
+  auditado en este documento.
+
+**Implementado**
+
+- Detección local de pulso en [`state/beat-sync.ts`](../../apps/desktop/src/state/beat-sync.ts):
+  energía por ventanas de 20 ms con hop de 10 ms, flujo positivo, umbral
+  adaptativo (±0,75 s), picos con intervalo mínimo de 120 ms, BPM por mediana y
+  confianza por regularidad. Sin red, sin modelo y sin subir audio.
+- Acción **`splitTrackAtFrames`**: divide todos los clips de una pista en los
+  frames indicados y respeta pistas bloqueadas.
+- Panel **Ritmo** en el Inspector del clip de audio: analizar, BPM/pulsos/confianza,
+  paso de 1/2/4/8 pulsos y “Cortar video al ritmo” sobre la pista de video
+  superior. Guardas: audio a 1×, pista desbloqueada y pulsos dentro del rango.
+
+**Verificación medida**
+
+- `npm test`: **478 tests**, verde. `node scripts/rust-env.mjs -- cargo test
+  --workspace`: **98 passed, 0 failed, 1 ignored**; `cargo fmt --all -- --check`
+  limpio.
+- Detector sobre un WAV real generado con FFmpeg (click de 1 kHz a 120 BPM,
+  48 kHz, 4 s): **120 BPM, 7 pulsos, confianza 1,00**.
+- Tests sintéticos: 120 y 90 BPM, silencio, señal corta, mapeo con ventana de
+  origen y posición en la timeline, stride, velocidad 2× y hueco mínimo.
+
+**No verificado**
+
+- El panel no se probó a mano en la app release: sólo tests y la corrida del
+  detector sobre el WAV real.
+- No detecta compases ni downbeats (no marca el “1” del compás); no hay
+  marcadores de ritmo en la timeline, sólo cortes.
+
+## Addendum 2026-10-20 — curva de velocidad suave
+
+**Evidencia REA**
+
+- CapCut 9.4.0.4015 ya tiene su inventario auditado en
+  [`CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md`](CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md);
+  no se agregó evidencia nueva en esta pasada ni se infirió su algoritmo.
+- DaVinci y Filmora: rige lo ya auditado; Filmora sigue sin binario local.
+
+**Implementado**
+
+- Acción `applySpeedCurve` en `state/project-actions.ts`: reparte un clip de
+  video/audio en N tramos contiguos (3–24; la UI ofrece 6/8/12/16) con perfil
+  smoothstep, extremos exactos Desde/Hasta y los tramos intermedios desplazados
+  para que la ventana de origen siga sumando. Conserva duración total y ventana,
+  reasigna ids en las escenas y limpia fades de frontera; ahora comparte el
+  ensamblado con la rampa de tres tramos.
+- Panel **Curva de velocidad** en el Inspector con selector de tramos; reutiliza
+  Desde/Hasta y muestra las velocidades aplicadas en el aviso.
+- Sin cambios de formato (`speed` por clip ya existía); el JSON Schema se
+  regeneró porque estaba desincronizado por el lote concurrente.
+
+**Verificación medida**
+
+- `npm run typecheck` limpio; `npm test`: **487 tests en 46 archivos**, verde.
+- `cargo test --workspace`: **102 passed, 0 failed, 1 ignored**; `cargo fmt
+  --all -- --check` limpio.
+- Tests nuevos: 6 tramos sobre un clip de 300 frames conservan duración 300 y
+  ventana 300, con tramos contiguos en timeline y origen, primer tramo 1,00x y
+  último 0,25x; rechaza extremos iguales, menos de 3 tramos y clips con
+  keyframes.
+
+**No verificado**
+
+- Sin render live: la curva reutiliza el `speed` por clip que el render ya
+  aplica y no se tocó el grafo FFmpeg.
+- No hay curva por keyframe ni función continua por frame: es una aproximación
+  de N tramos discretos.
+
+## Addendum 2026-10-20 — estabilización local con vidstab
+
+**Evidencia REA (artefactos instalados, lectura)**
+
+- `D:\Resolve.exe`: coincidencias de cadenas `stabilization`,
+  `StabilizationDialog`, `Stabilize` (búsqueda acotada con `grep -a`, primeras
+  coincidencias). `D:\DaVinciPanels.dll`: `STABILIZER`, `Stabilizer`,
+  `STABILIZE`. Resolve declara la función en su UI; **no** se infiere su
+  algoritmo ni se copió código.
+- `CapCut.exe` 9.4.0.4015 no devolvió coincidencias para
+  `stabiliz|anti-shake|deshake`; su UI vive en bundles, así que el resultado
+  **no** prueba ausencia.
+- Filmora sigue sin binario local; no se usa como evidencia binaria.
+- FFmpeg 9.0.1: `vidstabdetect`/`vidstabtransform` ejecutados de verdad. En una
+  prueba con un clip sintético de 200×112 a 30 fps (1,5 s, movimiento
+  oscilante), `vidstabdetect` escribió un `.trf` de **8.688 bytes**. La primera
+  corrida con el path absoluto sin comillas falló con
+  `No option name near '...'`: el `:` del disco dentro de `-vf` necesita la
+  forma citada `'C\:/...'` (la misma que ya usaba `lut3d`). Por eso el análisis
+  corre con `current_dir` en `media/stabilizers` y escribe un nombre de archivo
+  desnudo; el render usa la ruta citada.
+
+**Implementado**
+
+- Esquema `ClipStabilizationSchema` (`smoothing` 1–60, `transformFile`,
+  `inFrame`, `outFrame`, ventana no vacía) en clips de video; exportado en
+  `packages/project-schema`.
+- Acción `setClipStabilization` (aplicar/quitar, suavizado redondeado y
+  acotado); tests de esquema y acción.
+- Comando Rust `analyze_stabilization`: valida sesión, asset de video listo,
+  ventana y fps del proyecto, crea `media/stabilizers`, ejecuta
+  `vidstabdetect=shakiness=5:accuracy=15` sobre la **misma** ventana `-ss/-t`
+  que usará el render, limpia el `.trf` si FFmpeg falla y devuelve la ruta
+  relativa. Registrado en Tauri y expuesto en `project-service`.
+- Render: `vidstabtransform=input='...':smoothing=N:crop=black` se inserta
+  inmediatamente después de `[i:v]`, antes de color, transformaciones y LUT.
+  El render **se niega** (INVALID_PROJECT) si la ventana guardada no coincide
+  con el recorte actual, si hay velocidad ≠ 1×, reverse o transición de
+  entrada; si falta el `.trf`, devuelve NOT_FOUND con “volvé a analizarla”.
+- UI: sección **Estabilización** en el Inspector de video (suavizado, analizar
+  y aplicar, quitar, aviso de ventana obsoleta y de bloqueos).
+- Guardar como copia los `.trf` referenciados junto con assets, LUTs y proxies
+  (`project_stabilization_paths`), con test propio que además rechaza rutas que
+  escapan de la raíz.
+- Preview: no simula la estabilización; se declara en la UI.
+
+**Verificación medida (2026-10-20)**
+
+- `npm run typecheck` limpio.
+- `npm test`: **503 tests en 48 archivos**, verde al cierre (incluye 5 tests de
+  una pasada concurrente de subtítulos). `npm run verify` completo
+  (typecheck + Vitest + 31 Flow Queue + 10 Web TTS), verde.
+- `node scripts/rust-env.mjs -- cargo test --workspace`: **107 passed, 0
+  failed, 2 ignored**; `cargo fmt --all -- --check` limpio.
+- Render live ignorado ejecutado con `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test
+  render_live_stabilization -- --ignored --nocapture`: **21.205 bytes,
+  200×112, 1,500 s**, FFprobe verificado, con `vidstabdetect` real y
+  `vidstabtransform` en el grafo.
+- Tests nuevos: 5 de esquema, 3 de acción, 5 de render/validación/Save As en Rust y 1
+  render live ignorado.
+
+**No verificado**
+
+- La sección de UI no se recorrió a mano en la app release ni en dev; la
+  evidencia es typecheck + tests de acción/servicio + render Rust.
+- No hay motion tracking ni smart reframe; no se estabiliza automáticamente en
+  auto-montaje, fábrica ni autopiloto.
+- La estabilización no se aplica a clips recortados después del análisis, con
+  velocidad, reverse o transición: hay que reanalizar o quitarla.
+- No se probaron rutas de proyecto con apóstrofos u otros caracteres especiales
+  en el archivo `.trf`; el nombre generado es un UUID.

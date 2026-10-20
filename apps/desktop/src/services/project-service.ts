@@ -177,6 +177,19 @@ export interface McpCallResult {
   readonly elapsedMs: number;
 }
 
+export interface ProxyInfo {
+  readonly path: string;
+  readonly width: number;
+  readonly height: number;
+  readonly bytes: number;
+}
+
+export interface SampledColor {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+}
+
 export interface AssetFileInfo {
   readonly path: string;
   readonly exists: boolean;
@@ -194,6 +207,13 @@ export interface SceneDetection {
   readonly fpsNum: number;
   readonly fpsDen: number;
   readonly threshold: number;
+}
+
+export interface StabilizationAnalysis {
+  readonly path: string;
+  readonly smoothing: number;
+  readonly inFrame: number;
+  readonly outFrame: number;
 }
 
 export interface AnalysisRange {
@@ -287,6 +307,68 @@ export interface TranscriptionResult {
   readonly segments: readonly TranscriptionSegment[];
 }
 
+export interface DownloaderStatus {
+  readonly available: boolean;
+  readonly version: string | null;
+  readonly path: string | null;
+  readonly managed: boolean;
+  readonly canInstall: boolean;
+  readonly hint: string | null;
+}
+
+export interface DownloadQuality {
+  readonly height: number;
+  readonly label: string;
+  readonly width: number | null;
+  readonly fps: number | null;
+  readonly ext: string | null;
+  readonly vcodec: string | null;
+  readonly filesize: number | null;
+}
+
+export interface DownloadProbe {
+  readonly url: string;
+  readonly title: string;
+  readonly uploader: string | null;
+  readonly durationSeconds: number | null;
+  readonly thumbnail: string | null;
+  readonly kind: 'video' | 'image' | 'audio' | 'gallery';
+  readonly entryCount: number;
+  readonly maxHeight: number | null;
+  readonly estimatedBytes: number | null;
+  readonly qualities: readonly DownloadQuality[];
+}
+
+export interface DownloadRequest {
+  readonly url: string;
+  readonly maxHeight?: number | null;
+  readonly compression: 'none' | 'high' | 'balanced' | 'compact';
+  readonly codec: 'h265' | 'h264';
+  readonly kind: DownloadProbe['kind'];
+  readonly playlist?: boolean;
+}
+
+export interface DownloadedFile {
+  readonly path: string;
+  readonly name: string;
+  readonly bytes: number;
+  readonly kind: 'video' | 'image' | 'audio' | 'other';
+}
+
+export interface DownloadOutcome {
+  readonly runId: string;
+  readonly directory: string;
+  readonly files: readonly DownloadedFile[];
+  readonly compressed: boolean;
+  readonly warnings: readonly string[];
+}
+
+export interface DownloadProgressEvent {
+  readonly stage: 'engine' | 'probing' | 'downloading' | 'compressing' | 'done';
+  readonly percent: number | null;
+  readonly message: string;
+}
+
 export type NativeInvoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;
 
 export interface DesktopService {
@@ -307,9 +389,27 @@ export interface DesktopService {
     confirmRights?: boolean;
     provider?: string;
   }): Promise<ImportOutcome>;
+  importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
+  extractFreezeFrame(input: {
+    readonly path: string;
+    readonly seconds: number;
+    readonly fpsNum: number;
+    readonly fpsDen: number;
+  }): Promise<Asset | null>;
+  createVideoProxy(input: { readonly path: string }): Promise<ProxyInfo>;
+  sampleAssetColor(input: {
+    readonly path: string;
+    readonly seconds: number;
+  }): Promise<SampledColor>;
   mediaThumbnail(path: string, isImage: boolean): Promise<string>;
   checkAssetFiles(paths: string[]): Promise<AssetFileInfo[]>;
   detectScenes(assetId: string, threshold: number): Promise<SceneDetection>;
+  analyzeStabilization(
+    assetId: string,
+    inFrame: number,
+    outFrame: number,
+    smoothing: number,
+  ): Promise<StabilizationAnalysis>;
   analyzeMedia(
     assetId: string,
     sceneThreshold?: number,
@@ -317,6 +417,12 @@ export interface DesktopService {
     minSilenceSeconds?: number,
   ): Promise<MediaAnalysis>;
   convertMedia(request: ConversionRequest): Promise<ConversionResult>;
+  downloaderStatus(): Promise<DownloaderStatus>;
+  installDownloader(): Promise<DownloaderStatus>;
+  probeDownload(url: string): Promise<DownloadProbe>;
+  downloadMedia(request: DownloadRequest): Promise<DownloadOutcome>;
+  cleanupDownload(runId: string): Promise<void>;
+  onDownloadProgress(handler: (event: DownloadProgressEvent) => void): Promise<UnlistenFn>;
   listMcpServers(): Promise<McpServerConfig[]>;
   saveMcpServer(input: McpServerInput): Promise<McpServerConfig>;
   deleteMcpServer(id: string): Promise<void>;
@@ -398,11 +504,21 @@ export const PROJECT_COMMANDS = {
   close: 'close_project',
   importAssets: 'import_assets',
   importMediaPaths: 'import_media_paths',
+  importLut: 'import_lut',
+  extractFreezeFrame: 'extract_freeze_frame',
+  createVideoProxy: 'create_video_proxy',
+  sampleAssetColor: 'sample_asset_color',
   thumbnail: 'media_thumbnail',
   checkAssets: 'check_asset_files',
   detectScenes: 'detect_scenes',
+  analyzeStabilization: 'analyze_stabilization',
   analyzeMedia: 'analyze_media',
   convertMedia: 'convert_media',
+  downloaderStatus: 'downloader_status',
+  installDownloader: 'install_downloader',
+  probeDownload: 'probe_download',
+  downloadMedia: 'download_media',
+  cleanupDownload: 'cleanup_download',
   listMcpServers: 'list_mcp_servers',
   saveMcpServer: 'save_mcp_server',
   deleteMcpServer: 'delete_mcp_server',
@@ -670,6 +786,50 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
           : [],
       };
     },
+    async importLut() {
+      const raw = await call(PROJECT_COMMANDS.importLut);
+      if (!raw || typeof raw !== 'object') return null;
+      const record = raw as { path?: unknown; name?: unknown };
+      if (typeof record.path !== 'string' || !record.path) return null;
+      return {
+        path: record.path,
+        name: typeof record.name === 'string' ? record.name : 'LUT',
+      };
+    },
+    async extractFreezeFrame(input) {
+      const raw = await call(PROJECT_COMMANDS.extractFreezeFrame, {
+        path: input.path,
+        seconds: input.seconds,
+        fpsNum: input.fpsNum,
+        fpsDen: input.fpsDen,
+      });
+      const asset = parseAssets([raw])[0];
+      return asset ?? null;
+    },
+    async createVideoProxy(input) {
+      const raw = await call(PROJECT_COMMANDS.createVideoProxy, {
+        path: input.path,
+      });
+      const record = (raw ?? {}) as Record<string, unknown>;
+      return {
+        path: typeof record.path === 'string' ? record.path : '',
+        width: typeof record.width === 'number' ? record.width : 0,
+        height: typeof record.height === 'number' ? record.height : 0,
+        bytes: typeof record.bytes === 'number' ? record.bytes : 0,
+      };
+    },
+    async sampleAssetColor(input) {
+      const raw = await call(PROJECT_COMMANDS.sampleAssetColor, {
+        path: input.path,
+        seconds: input.seconds,
+      });
+      const record = (raw ?? {}) as Record<string, unknown>;
+      return {
+        r: typeof record.r === 'number' ? record.r : 0,
+        g: typeof record.g === 'number' ? record.g : 0,
+        b: typeof record.b === 'number' ? record.b : 0,
+      };
+    },
     async mediaThumbnail(path, isImage) {
       const raw = await call(PROJECT_COMMANDS.thumbnail, { path, isImage });
       if (typeof raw !== 'string') {
@@ -687,6 +847,14 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         threshold,
       })) as SceneDetection;
     },
+    async analyzeStabilization(assetId, inFrame, outFrame, smoothing) {
+      return (await call(PROJECT_COMMANDS.analyzeStabilization, {
+        assetId,
+        inFrame,
+        outFrame,
+        smoothing,
+      })) as StabilizationAnalysis;
+    },
     async analyzeMedia(assetId, sceneThreshold, silenceDb, minSilenceSeconds) {
       return (await call(PROJECT_COMMANDS.analyzeMedia, {
         assetId,
@@ -703,6 +871,24 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         quality: request.quality ?? null,
         maxWidth: request.maxWidth ?? null,
       })) as ConversionResult;
+    },
+    async downloaderStatus() {
+      return (await call(PROJECT_COMMANDS.downloaderStatus)) as DownloaderStatus;
+    },
+    async installDownloader() {
+      return (await call(PROJECT_COMMANDS.installDownloader)) as DownloaderStatus;
+    },
+    async probeDownload(url) {
+      return (await call(PROJECT_COMMANDS.probeDownload, { url })) as DownloadProbe;
+    },
+    async downloadMedia(request) {
+      return (await call(PROJECT_COMMANDS.downloadMedia, { request })) as DownloadOutcome;
+    },
+    async cleanupDownload(runId) {
+      await call(PROJECT_COMMANDS.cleanupDownload, { runId });
+    },
+    async onDownloadProgress(handler) {
+      return listen<DownloadProgressEvent>('download-progress', (event) => handler(event.payload));
     },
     async listMcpServers() {
       const raw = await call(PROJECT_COMMANDS.listMcpServers);
@@ -880,11 +1066,29 @@ function createUnavailableService(): DesktopService {
     closeProject: async () => unavailable(),
     importAssets: async () => unavailable(),
     importMediaPaths: async () => unavailable(),
+    importLut: async () => unavailable(),
+    extractFreezeFrame: async () => unavailable(),
+    createVideoProxy: async () => unavailable(),
+    sampleAssetColor: async () => unavailable(),
     mediaThumbnail: async () => unavailable(),
     checkAssetFiles: async () => unavailable(),
     detectScenes: async () => unavailable(),
+    analyzeStabilization: async () => unavailable(),
     analyzeMedia: async () => unavailable(),
     convertMedia: async () => unavailable(),
+    downloaderStatus: async () => ({
+      available: false,
+      version: null,
+      path: null,
+      managed: false,
+      canInstall: false,
+      hint: NATIVE_UNAVAILABLE_REASON,
+    }),
+    installDownloader: async () => unavailable(),
+    probeDownload: async () => unavailable(),
+    downloadMedia: async () => unavailable(),
+    cleanupDownload: async () => unavailable(),
+    onDownloadProgress: async () => () => {},
     listMcpServers: async () => unavailable(),
     saveMcpServer: async () => unavailable(),
     deleteMcpServer: async () => unavailable(),

@@ -1465,6 +1465,189 @@
   }
 }
 
+/* Autopiloto */
+
+.autopilot {
+  display: grid;
+  gap: 12px;
+}
+
+.autopilot-media,
+.autopilot-flow {
+  display: grid;
+  gap: 8px;
+}
+
+.autopilot-media-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  max-height: 138px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.autopilot-media-list .check {
+  margin: 0;
+}
+
+.autopilot-media-list code {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.autopilot-flow {
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px;
+}
+
+.autopilot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.autopilot-credits {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.autopilot-rights {
+  display: grid;
+  gap: 6px;
+  border-top: 1px dashed var(--color-border);
+  padding-top: 10px;
+}
+
+.autopilot-rights .check {
+  margin: 0;
+}
+
+.autopilot-jobs {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+}
+
+.autopilot-jobs > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.autopilot-job {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-panel);
+}
+
+.autopilot-job.done {
+  border-color: color-mix(in srgb, var(--color-success) 55%, var(--color-border));
+}
+
+.autopilot-job.error {
+  border-color: color-mix(in srgb, var(--color-danger) 50%, var(--color-border));
+}
+
+.autopilot-job-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.autopilot-job-head strong {
+  display: block;
+  font-size: 12px;
+}
+
+.autopilot-job-head span {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.autopilot-progress {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--color-border);
+  overflow: hidden;
+}
+
+.autopilot-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width 240ms ease;
+}
+
+.autopilot-error {
+  color: var(--color-danger);
+}
+
+.autopilot-log {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.autopilot-log .warn {
+  color: var(--color-warning);
+}
+
+.autopilot-log .error {
+  color: var(--color-danger);
+}
+
+.keyframe-panel {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.keyframe-list {
+  display: grid;
+  gap: 4px;
+  max-height: 190px;
+  overflow: auto;
+}
+
+.keyframe-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1, 4px);
+}
+
+.keyframe-row.active {
+  border-color: var(--color-border-strong);
+  background: var(--color-panel-2);
+}
+
+.keyframe-row .fine-print {
+  flex: 1;
+  margin: 0;
+}
+
 /* Fábrica empty state */
 
 .factory-empty {
