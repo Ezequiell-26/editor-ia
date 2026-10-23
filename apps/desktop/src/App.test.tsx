@@ -455,6 +455,28 @@ describe('shell de Editor IA', () => {
     expect(main.textContent).toMatch(/Faltan escenas de guion/i);
   });
 
+  it('importa una timeline EDL en Producción y agrega el medio al proyecto', async () => {
+    const service = renderApp();
+    await createProject('Timeline importada');
+    nav('Producción');
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('Timeline de otra app'));
+    fireEvent.click(
+      within(main).getByLabelText(/Confirmo que tengo derechos para importar/i),
+    );
+    fireEvent.click(
+      within(main).getByRole('button', { name: /Elegir EDL\/OTIO\/FCPXML/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('EDL · 1 clips'),
+    );
+    expect(service.calls.timelineImports).toBe(1);
+    nav('Medios');
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('Toma importada'),
+    );
+  });
+
   it('Medios muestra la biblioteca vacía y el consentimiento de derechos', async () => {
     renderApp();
     await createProject('Obra medios');

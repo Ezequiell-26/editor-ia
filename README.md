@@ -2253,3 +2253,27 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   tiempo real; el frame nativo se pide bajo demanda. La rotación/SAR usan el
   camino FFmpeg, y el seek de `video-rs` empieza en el keyframe anterior y avanza
   hasta el timestamp pedido. El modo 1:1 no compone otras pistas ni subtítulos.
+
+## Importación de timelines EDL/OTIO/FCPXML (2026-10-23)
+
+- **UI**: en **Producción → Publicación** hay un bloque **Timeline de otra app**
+  con confirmación de derechos y **Elegir EDL/OTIO/FCPXML…**. Crea pistas
+  nuevas, agrega los assets a Medios y deja el resultado listo para el editor
+  con undo. También permite **Abrir editor**.
+- **Qué importa**: eventos CMX 3600 (cortes, ventanas de origen y récord), OTIO
+  `Timeline/Track/Clip/Gap` y FCPXML 1.11 (asset, `media-rep`, spine, gap y
+  clip). Convierte los tiempos al fps del proyecto, resuelve rutas relativas
+  contra la raíz del proyecto y la carpeta de la timeline, reutiliza assets ya
+  presentes por ruta canónica y copia los medios nuevos con el importador de
+  Medios y provenance `timeline-import`.
+- **Límites honestos**: transiciones, efectos, wipes, clips conectados y stacks
+  anidados no se representan; se avisan y se importan como cortes o se omiten.
+  El EDL no declara fps (se usa el del proyecto) y el drop-frame se interpreta
+  como NDF. Los medios que no se encuentran se omiten con un aviso. Una timeline
+  puede referenciar archivos absolutos: importá sólo archivos de fuentes
+  confiables porque esos medios se copian al proyecto. Límites: 1.000 clips,
+  200 medios y 64 pistas por importación.
+- **Medición**: `cargo test -p editor-ia-desktop`: **236 passed, 0 failed, 15
+  ignored**; los tests live de EDL y OTIO/FCPXML con video real (160×90,
+  ffprobe y copia a `media/`) pasaron **2/2**. Frontend **871/871 en 98
+  archivos**, typecheck limpio y Playwright **11/11**.

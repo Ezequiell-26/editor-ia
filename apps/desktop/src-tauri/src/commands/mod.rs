@@ -57,6 +57,7 @@ pub mod shorts;
 pub mod subtitles;
 pub mod system;
 pub mod thumbnail;
+pub mod timeline_import;
 pub mod transcribe;
 pub mod upscale;
 pub mod variants;

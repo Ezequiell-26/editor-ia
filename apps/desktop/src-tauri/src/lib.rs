@@ -219,6 +219,8 @@ pub fn run() {
             commands::fcpxml::export_fcpxml,
             commands::otio::export_otio,
             commands::edl::export_edl,
+            commands::timeline_import::choose_timeline_file,
+            commands::timeline_import::import_timeline,
             commands::color_lut::export_look_lut,
             commands::filmcraft_scopes::analyze_scopes_frame,
             commands::preview_frame::render_preview_frame,

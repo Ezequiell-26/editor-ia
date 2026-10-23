@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { basename } from '../../lib/format';
+import type { TimelineImportResult } from '../../services/project-service';
+import { addAsset } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import {
   auditPublication,
@@ -23,6 +25,11 @@ export function PublicationReadiness({
   const [otioPath, setOtioPath] = useState<string | null>(null);
   const [fcpxmlPath, setFcpxmlPath] = useState<string | null>(null);
   const [interchangeWarnings, setInterchangeWarnings] = useState<readonly string[]>([]);
+  const [importRights, setImportRights] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<TimelineImportResult | null>(null);
+  const [importWarnings, setImportWarnings] = useState<readonly string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const audit = useMemo(() => (project ? auditPublication(project) : null), [project]);
   const metadata = useMemo(
     () => (project ? buildPublicationMetadata(project) : null),
@@ -178,6 +185,52 @@ export function PublicationReadiness({
     }
   }
 
+  async function importTimelineFile(): Promise<void> {
+    if (!importRights) {
+      setImportError('Confirmá que tenés derechos para importar los medios de la timeline.');
+      return;
+    }
+    setImportBusy(true);
+    setImportError(null);
+    setImportResult(null);
+    setImportWarnings([]);
+    try {
+      const path = await store.service.chooseTimelineFile();
+      if (!path) return;
+      const result = await store.service.importTimeline({
+        project: snapshot,
+        path,
+        confirmRights: true,
+      });
+      const ok = store.mutate(
+        (current) => {
+          let next = current;
+          for (const asset of result.assets) {
+            next = addAsset(next, asset);
+          }
+          next.timeline.tracks.push(...result.tracks);
+          next.timeline.clips.push(...result.clips);
+          next.revision += 1;
+          next.updatedAt = new Date().toISOString();
+          return { project: next };
+        },
+        { notice: `Timeline ${result.format.toUpperCase()} importada: ${result.importedClips} clip(s).` },
+      );
+      if (!ok) {
+        setImportError('La timeline importada no deja el proyecto en un estado válido.');
+        return;
+      }
+      setImportResult(result);
+      setImportWarnings(result.warnings);
+    } catch (error) {
+      setImportError(
+        error instanceof Error ? error.message : 'no se pudo importar la timeline',
+      );
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   return (
     <article className="card" id="prod-publication">
       <div className="production-card-head">
@@ -322,6 +375,64 @@ export function PublicationReadiness({
           ))}
         </ul>
       ) : null}
+      <div className="interchange-import">
+        <div className="production-card-head">
+          <div>
+            <p className="eyebrow">Importar</p>
+            <h3>Timeline de otra app</h3>
+          </div>
+          <span className="fine-print">EDL · OTIO · FCPXML</span>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={importRights}
+            disabled={importBusy}
+            onChange={(event) => setImportRights(event.target.checked)}
+          />
+          <span>Confirmo que tengo derechos para importar los medios referenciados.</span>
+        </label>
+        <div className="actions">
+          <button
+            type="button"
+            className="ghost"
+            disabled={!importRights || importBusy}
+            onClick={() => void importTimelineFile()}
+            title="Importa pistas y cortes; copia los medios al proyecto"
+          >
+            {importBusy ? 'Importando…' : 'Elegir EDL/OTIO/FCPXML…'}
+          </button>
+          {importResult && onNavigate ? (
+            <button type="button" className="ghost" onClick={() => onNavigate('editor')}>
+              Abrir editor
+            </button>
+          ) : null}
+        </div>
+        <p className="fine-print">
+          Crea pistas nuevas y copia los medios referenciados al proyecto. Las
+          transiciones, efectos y clips conectados que el formato no conserva se
+          avisan. Importá timelines de fuentes confiables.
+        </p>
+        {importResult ? (
+          <p className="compress-numbers">
+            {importResult.format.toUpperCase()} · {importResult.importedClips} clips ·{' '}
+            {importResult.newAssets} medio(s) nuevos · {importResult.reusedAssets}{' '}
+            reutilizado(s)
+          </p>
+        ) : null}
+        {importWarnings.length > 0 ? (
+          <ul className="fine-print">
+            {importWarnings.slice(0, 6).map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
+          </ul>
+        ) : null}
+        {importError ? (
+          <p className="notice notice-warning" role="alert">
+            {importError}
+          </p>
+        ) : null}
+      </div>
       <p className="fine-print">
         El manifiesto incluye hashes, licencias, procedencia y variantes. No publica en redes ni
         sube nada: es un registro local para auditoría, créditos y monetización. Verificá los

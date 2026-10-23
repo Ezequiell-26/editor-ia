@@ -106,6 +106,21 @@ queda como clips normales en la timeline y se puede editar.
 Si no hay voz, elegí cuántos segundos dura cada imagen. El montaje automático no
 finge alinear palabras con imágenes.
 
+### Importar una timeline de otra app
+
+En **Producción → Publicación**, dentro de **Timeline de otra app**:
+
+1. Confirmá que tenés derechos para importar los medios referenciados.
+2. Pulsá **Elegir EDL/OTIO/FCPXML…** y elegí el archivo.
+
+La app crea pistas nuevas, conserva cortes, offsets y ventanas de origen, copia
+los medios al proyecto y reutiliza los que ya estaban importados. Podés abrir el
+editor desde el mismo bloque. Las transiciones, efectos y clips conectados que
+el formato no conserva se muestran como avisos; no se inventan. Los tiempos se
+convierten al fps del proyecto y los medios que no se encuentran se omiten con
+un aviso. Importá timelines de fuentes confiables: los archivos referenciados se
+copian a la carpeta `media` del proyecto.
+
 ## 7. Director automático para material existente
 
 En **Director**:

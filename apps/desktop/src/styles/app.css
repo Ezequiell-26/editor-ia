@@ -5622,6 +5622,18 @@ textarea {
   color: var(--color-text-muted);
 }
 
+.interchange-import {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.interchange-import .check {
+  margin: 0;
+}
+
 .publication-meta {
   display: grid;
   gap: 10px;

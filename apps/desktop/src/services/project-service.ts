@@ -1,6 +1,13 @@
 import { convertFileSrc, invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { AssetSchema, parseProject, type Asset, type ProjectDocument } from '@editor-ia/project-schema';
+import {
+  AssetSchema,
+  parseProject,
+  type Asset,
+  type Clip,
+  type ProjectDocument,
+  type Track,
+} from '@editor-ia/project-schema';
 
 /**
  * The UI's only door to the native side.
@@ -557,6 +564,24 @@ export interface EdlResult {
   readonly warnings: readonly string[];
 }
 
+export interface TimelineImportRequest {
+  readonly project: unknown;
+  readonly path: string;
+  readonly confirmRights: boolean;
+}
+
+export interface TimelineImportResult {
+  readonly format: 'edl' | 'otio' | 'fcpxml';
+  readonly path: string;
+  readonly assets: readonly Asset[];
+  readonly tracks: readonly Track[];
+  readonly clips: readonly Clip[];
+  readonly warnings: readonly string[];
+  readonly importedClips: number;
+  readonly newAssets: number;
+  readonly reusedAssets: number;
+}
+
 export interface LookLutRequest {
   readonly outputDir: string;
   readonly title?: string;
@@ -1003,6 +1028,7 @@ export interface DesktopService {
   }): Promise<ImportOutcome>;
   importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
   chooseSubtitleFile(): Promise<PickedSubtitleFile | null>;
+  chooseTimelineFile(): Promise<string | null>;
   extractFreezeFrame(input: {
     readonly path: string;
     readonly seconds: number;
@@ -1182,6 +1208,7 @@ export interface DesktopService {
   exportEdl(request: EdlRequest): Promise<EdlResult>;
   exportOtio(request: OtioRequest): Promise<OtioResult>;
   exportFcpxml(request: FcpxmlRequest): Promise<FcpxmlResult>;
+  importTimeline(request: TimelineImportRequest): Promise<TimelineImportResult>;
   translateSubtitles(request: TranslateSubtitlesRequest): Promise<TranslatedTexts>;
   saveLocalizedSubtitle(
     request: SaveLocalizedSubtitleRequest,
@@ -1218,6 +1245,7 @@ export const PROJECT_COMMANDS = {
   importMediaPaths: 'import_media_paths',
   importLut: 'import_lut',
   chooseSubtitleFile: 'choose_subtitle_file',
+  chooseTimelineFile: 'choose_timeline_file',
   extractFreezeFrame: 'extract_freeze_frame',
   createVideoProxy: 'create_video_proxy',
   sampleAssetColor: 'sample_asset_color',
@@ -1267,6 +1295,7 @@ export const PROJECT_COMMANDS = {
   exportEdl: 'export_edl',
   exportOtio: 'export_otio',
   exportFcpxml: 'export_fcpxml',
+  importTimeline: 'import_timeline',
   translateSubtitles: 'translate_subtitles',
   saveLocalizedSubtitle: 'save_localized_subtitle',
   synthesizeDub: 'synthesize_dub',
@@ -1692,6 +1721,11 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         request,
       })) as FcpxmlResult;
     },
+    async importTimeline(request) {
+      return (await call(PROJECT_COMMANDS.importTimeline, {
+        request,
+      })) as TimelineImportResult;
+    },
     async translateSubtitles(request) {
       return (await call(PROJECT_COMMANDS.translateSubtitles, {
         request,
@@ -1744,6 +1778,10 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         name: typeof record.name === 'string' ? record.name : 'subtitulos.srt',
         text: record.text,
       };
+    },
+    async chooseTimelineFile() {
+      const raw = await call(PROJECT_COMMANDS.chooseTimelineFile);
+      return typeof raw === 'string' ? raw : null;
     },
     async extractFreezeFrame(input) {
       const raw = await call(PROJECT_COMMANDS.extractFreezeFrame, {
@@ -2127,6 +2165,7 @@ function createUnavailableService(): DesktopService {
     importMediaPaths: async () => unavailable(),
     importLut: async () => unavailable(),
     chooseSubtitleFile: async () => unavailable(),
+    chooseTimelineFile: async () => unavailable(),
     extractFreezeFrame: async () => unavailable(),
     createVideoProxy: async () => unavailable(),
     sampleAssetColor: async () => unavailable(),
@@ -2187,6 +2226,7 @@ function createUnavailableService(): DesktopService {
     exportEdl: async () => unavailable(),
     exportOtio: async () => unavailable(),
     exportFcpxml: async () => unavailable(),
+    importTimeline: async () => unavailable(),
     translateSubtitles: async () => unavailable(),
     saveLocalizedSubtitle: async () => unavailable(),
     synthesizeDub: async () => unavailable(),

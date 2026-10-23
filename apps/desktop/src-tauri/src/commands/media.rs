@@ -153,7 +153,7 @@ pub async fn import_media_paths(
     Ok(outcome)
 }
 
-fn confirm_generated_rights(asset: &mut Value, provider: Option<&str>) {
+pub(crate) fn confirm_generated_rights(asset: &mut Value, provider: Option<&str>) {
     asset["status"] = json!("ready");
     if let Some(rights) = asset.get_mut("rights").and_then(Value::as_object_mut) {
         rights.insert(

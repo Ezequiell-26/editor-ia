@@ -77,6 +77,7 @@ export interface FakeService extends DesktopService {
     open: number;
     save: number;
     import: number;
+    timelineImports: number;
     render: number;
     compressAny: number;
     destination: string | null;
@@ -117,6 +118,7 @@ export function createFakeService(): FakeService {
     open: 0,
     save: 0,
     import: 0,
+    timelineImports: 0,
     render: 0,
     compressAny: 0,
     destination: null as string | null,
@@ -220,6 +222,9 @@ export function createFakeService(): FakeService {
         name: 'demo.srt',
         text: '1\n00:00:00,000 --> 00:00:02,000\nHola subtítulo\n',
       };
+    },
+    async chooseTimelineFile() {
+      return 'C:\\demo\\timeline.edl';
     },
     async downloaderStatus() {
       return {
@@ -828,6 +833,51 @@ export function createFakeService(): FakeService {
     },
     async exportFcpxml(request) {
       return { path: `${request.outputDir}\timeline.fcpxml`, bytes: 3072, clips: 3, warnings: [] };
+    },
+    async importTimeline(request) {
+      calls.timelineImports += 1;
+      const asset = readyAsset({
+        id: newId(),
+        label: 'Toma importada',
+        source: { type: 'local', path: 'media/toma.mp4' },
+      });
+      const trackId = newId();
+      return {
+        format: 'edl',
+        path: request.path,
+        assets: [asset],
+        tracks: [
+          {
+            id: trackId,
+            kind: 'video' as const,
+            label: 'V1 · EDL',
+            order: 0,
+            muted: false,
+            hidden: false,
+            locked: false,
+          },
+        ],
+        clips: [
+          {
+            id: newId(),
+            trackId,
+            label: 'Toma importada',
+            startFrame: 0,
+            durationFrames: 60,
+            kind: 'video' as const,
+            source: {
+              type: 'asset' as const,
+              assetId: asset.id,
+              inFrame: 0,
+              outFrame: 60,
+            },
+          },
+        ],
+        warnings: [],
+        importedClips: 1,
+        newAssets: 1,
+        reusedAssets: 0,
+      };
     },
     async generateVideoEffect(request) {
       void request;
