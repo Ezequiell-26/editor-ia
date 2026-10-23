@@ -28,7 +28,6 @@ test('la barra lateral navega por todas las vistas', async ({ page }) => {
     'Medios',
     'Descargar',
     'Aprender',
-    'Ajustes',
   ];
   for (const label of views) {
     await page.locator(`.sidebar button[aria-label="${label}"]`).click();
@@ -39,6 +38,13 @@ test('la barra lateral navega por todas las vistas', async ({ page }) => {
     // Cada vista renderiza contenido propio.
     await expect(page.locator('main.content')).not.toBeEmpty();
   }
+
+  // Ajustes no es una vista: abre su propia ventana y no cambia el rail.
+  await page.locator('.sidebar button[aria-label="Ajustes"]').click();
+  await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeVisible();
+  await expect(page.locator('main.content')).not.toBeEmpty();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeHidden();
 });
 
 test('los iconos del rail quedan centrados', async ({ page }) => {

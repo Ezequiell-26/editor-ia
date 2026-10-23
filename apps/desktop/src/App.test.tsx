@@ -107,10 +107,9 @@ describe('shell de Editor IA', () => {
     await waitFor(() => expect(service.calls.open).toBe(1));
     fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Ajustes' }));
-    await waitFor(
-      () => expect(screen.getByRole('main').textContent).toContain('Apariencia'),
-      { timeout: 5000 },
-    );
+    // Ajustes se abre como ventana flotante, no como vista de `main`.
+    const dialog = await screen.findByRole('dialog', { name: 'Configuración' }, { timeout: 5000 });
+    await waitFor(() => expect(dialog.textContent).toContain('Apariencia'), { timeout: 5000 });
   });
 
   it('empaqueta el proyecto desde Archivo y avisa dónde quedó el ZIP', async () => {
@@ -466,20 +465,34 @@ describe('shell de Editor IA', () => {
     expect(within(main).getByRole('button', { name: /Importar medios/i })).toBeTruthy();
   });
 
-  it('Ajustes lista las herramientas detectadas y el alcance real', async () => {
+  it('Ajustes abre una ventana aparte con todas las secciones', async () => {
     renderApp();
     nav('Ajustes');
-    const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('FFmpeg'));
-    expect(main.textContent).toMatch(/Render MP4 H\.264\/AAC/);
-    expect(main.textContent).toMatch(/Remotion queda fuera/i);
-    expect(main.textContent).toMatch(/Administrador de credenciales de Windows/i);
-    const sections = within(main).getByRole('navigation', { name: /Secciones de Ajustes/i });
+    const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
+    await waitFor(() => expect(dialog.textContent).toContain('FFmpeg'));
+    expect(dialog.textContent).toMatch(/Render MP4 H\.264\/AAC/);
+    expect(dialog.textContent).toMatch(/Remotion queda fuera/i);
+    expect(dialog.textContent).toMatch(/Administrador de credenciales de Windows/i);
+    const sections = within(dialog).getByRole('navigation', { name: /Secciones de Ajustes/i });
     expect(within(sections).getByRole('button', { name: /Apariencia/ })).toBeTruthy();
     const tools = within(sections).getByRole('button', { name: /Herramientas/ });
     fireEvent.click(tools);
     expect(tools.getAttribute('aria-current')).toBe('location');
-    expect(within(main).getByRole('heading', { name: 'Herramientas', level: 2 })).toBeTruthy();
+    expect(within(dialog).getByRole('heading', { name: 'Herramientas', level: 2 })).toBeTruthy();
+  });
+
+  it('la ventana de Ajustes se cierra con Escape sin cambiar la vista de fondo', async () => {
+    renderApp();
+    nav('Inicio');
+    const main = screen.getByRole('main');
+    expect(main.textContent).toContain('Ruta de producción');
+    nav('Ajustes');
+    const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
+    expect(dialog).toBeTruthy();
+    // El fondo sigue en Inicio: Ajustes no reemplaza la vista.
+    expect(screen.getByRole('main').textContent).toContain('Ruta de producción');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Configuración' })).toBeNull());
   });
 
   it('Cumplimiento muestra reglas por red y audita el proyecto', async () => {

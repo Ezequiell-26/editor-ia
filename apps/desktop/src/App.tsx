@@ -4,6 +4,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { AppShell } from './components/AppShell';
 import { CommandPalette } from './components/CommandPalette';
+import { SettingsWindow } from './components/SettingsWindow';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { buildCommands } from './app/commands';
 import { NAV_VIEWS, type ViewId } from './app/navigation';
@@ -218,7 +219,12 @@ interface ShellProps {
 }
 
 function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
-  const [activeId, setActiveId] = useState<ViewId>(initialView);
+  // Ajustes es una ventana flotante, no una vista: si se entra directo a ella
+  // desde el inicio, el fondo muestra Inicio y la ventana aparece encima.
+  const [activeId, setActiveId] = useState<ViewId>(
+    initialView === 'settings' ? 'home' : initialView,
+  );
+  const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const store = useProjectStore();
   const { mode: experienceMode } = useExperienceMode();
@@ -289,6 +295,10 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   }, []);
 
   const navigate = useCallback((id: ViewId) => {
+    if (id === 'settings') {
+      setSettingsOpen(true);
+      return;
+    }
     setActiveId(id);
   }, []);
 
@@ -622,6 +632,11 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         }
       />
       <WelcomeDialog onNavigate={navigate} />
+      {settingsOpen && (
+        <SettingsWindow onClose={() => setSettingsOpen(false)}>
+          <SettingsHome />
+        </SettingsWindow>
+      )}
       {paletteOpen && (
         <CommandPalette
           commands={commandList}

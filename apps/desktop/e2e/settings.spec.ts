@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { enterApp } from './helpers';
+import { enterApp, enterSettings } from './helpers';
 
 test.beforeEach(async ({ page }) => {
-  await enterApp(page);
-  await expect(page.locator('.settings-shell')).toBeVisible();
+  await enterSettings(page);
+  await expect(page.locator('.settings-window .settings-shell')).toBeVisible();
 });
 
 test('el panel de apariencia aplica el color en vivo', async ({ page }) => {
@@ -29,8 +29,8 @@ test('el panel de apariencia aplica el color en vivo', async ({ page }) => {
     getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
   );
   await page.reload();
-  await enterApp(page);
-  await expect(page.locator('.settings-shell')).toBeVisible();
+  await enterSettings(page);
+  await expect(page.locator('.settings-window .settings-shell')).toBeVisible();
   const afterReload = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
   );

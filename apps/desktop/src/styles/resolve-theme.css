@@ -1836,11 +1836,14 @@ tr:hover td {
   transition: background 0.1s ease, color 0.1s ease !important;
 }
 
+/* La sección activa se marca con color y una regla fina a la izquierda, no
+ * con un bloque de fondo: la ventana de Configuración se lee como una lista. */
 .settings-nav button[aria-current='location'],
 .settings-nav > button.active {
-  background: #35536e !important;
-  border-color: var(--color-accent-strong) !important;
+  background: transparent !important;
+  border-color: transparent !important;
   color: var(--color-text) !important;
+  box-shadow: inset 2px 0 0 var(--color-accent) !important;
 }
 
 .settings-section-icon {
