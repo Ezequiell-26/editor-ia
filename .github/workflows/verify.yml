@@ -51,6 +51,9 @@ jobs:
       - name: Prepara FFmpeg dev y libclang para video-rs
         run: bash scripts/ci-ffmpeg-dev.sh
 
+      - name: Prepara recursos empaquetados (FFmpeg, yt-dlp, ONNX)
+        run: bash scripts/ci-bundle-resources.sh
+
       - name: Typecheck estricto y toda la suite
         run: npm run verify
 
