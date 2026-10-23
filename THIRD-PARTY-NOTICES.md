@@ -38,14 +38,21 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 
 | Herramienta | Licencia | Uso |
 | --- | --- | --- |
-| FFmpeg / FFprobe | LGPL-2.1-or-later o GPL según la compilación elegida | Render, medición y conversión; se invocan como proceso separado |
+| FFmpeg / FFprobe | LGPL-2.1-or-later o GPL según la compilación elegida | Render, medición y conversión; el ejecutable se invoca como proceso separado |
+| DLLs FFmpeg shared | LGPL-2.1-or-later | Decodificación nativa del monitor 1:1; se enlazan dinámicamente |
 | yt-dlp | Unlicense | Descarga de contenido público |
 | Faster-Whisper | MIT | Transcripción local |
 | Windows SAPI | Componente del sistema operativo | Voz local por PowerShell |
 
-Editor IA no enlaza FFmpeg: lo ejecuta como proceso externo y el usuario elige
-qué compilación instalar. Si redistribuís una compilación GPL de FFmpeg junto con
-la app, las obligaciones de esa licencia recaen sobre esa distribución.
+El render usa `ffmpeg.exe`/`ffprobe.exe` estáticos como proceso externo. Las
+DLLs compartidas LGPL sí se enlazan dinámicamente para `video-rs`; se
+distribuyen sin modificar, con este aviso y el código fuente en
+https://github.com/FFmpeg/FFmpeg (tag `n9.0`). El instalador también incluye el
+build estático GPL de gyan.dev; el código fuente correspondiente está en
+https://www.gyan.dev/ffmpeg/builds/ y https://github.com/FFmpeg/FFmpeg. Para
+cumplir la GPL al redistribuir ese ejecutable, el distribuidor debe ofrecer el
+código fuente correspondiente o una oferta escrita válida. x264/x265 no se
+enlazan al binario de Editor IA: quedan dentro del proceso externo.
 
 ## Texto de la licencia MIT
 

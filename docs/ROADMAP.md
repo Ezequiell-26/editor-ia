@@ -23,6 +23,13 @@ siempre como **proceso externo** (x264/x265 son GPL: jamás como biblioteca).
 IA tienen licencias propias: se verifica cada uno antes de incluirlo, no se
 asume la del repositorio de código.
 
+> **Excepción pendiente de revisión legal (2026-10-23):** el monitor 1:1
+> enlaza dinámicamente las DLLs FFmpeg **LGPL shared** mediante `video-rs`.
+> No se considera aprobado para la edición comercial hasta revisar las
+> obligaciones LGPL (aviso, fuente y posibilidad de reemplazo). Si la revisión
+> no lo autoriza, la alternativa es desactivar el decodificador nativo y volver
+> al frame por FFmpeg CLI. x264/x265 siguen fuera del binario.
+
 ## Fase 1 — Comparador antes/después
 
 **Estado: terminada y verificada (2026-10-22).**
