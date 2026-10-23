@@ -50,7 +50,7 @@ pub struct TranscriptionResult {
     pub segments: Vec<TranscriptionSegment>,
 }
 
-fn resolve_python() -> Option<PathBuf> {
+pub(crate) fn resolve_python() -> Option<PathBuf> {
     if let Some(value) = std::env::var_os("EDITORIA_WHISPER_PYTHON") {
         let path = PathBuf::from(value);
         if path.is_file() {
@@ -62,10 +62,13 @@ fn resolve_python() -> Option<PathBuf> {
         return Some(known);
     }
     for candidate in ["python", "python3"] {
-        if Command::new(candidate)
+        let mut probe = Command::new(candidate);
+        probe
             .arg("--version")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::null());
+        crate::commands::hide_console(&mut probe);
+        if probe
             .status()
             .map(|status| status.success())
             .unwrap_or(false)

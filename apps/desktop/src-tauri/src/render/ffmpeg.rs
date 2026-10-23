@@ -121,6 +121,14 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
             "esta versión exporta H.264/H.265; el perfil pide otro códec",
         ));
     }
+    // libx264 rechaza anchos/altos de más de 16 384; libx265 sí acepta 32K.
+    // Se avisa antes de lanzar FFmpeg para no perder el render.
+    if video_codec == "h264" && (width > 16_384 || height > 16_384) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "H.264 no admite más de 16 384 px por lado; para 32K elegí H.265",
+        ));
+    }
     if audio_codec != "aac" {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
@@ -350,6 +358,30 @@ fn overlay_x_expression(
     )
 }
 
+fn overlay_y_expression(
+    clip: &Value,
+    start_seconds: f64,
+    lead_seconds: f64,
+    offset_y: &str,
+    animation_y: Option<&str>,
+) -> String {
+    let base = format!("(H-overlay_h)/2+({offset_y})");
+    let base = match animation_y {
+        Some(term) => format!("({base})+({term})"),
+        None => base,
+    };
+    let transition = clip["transitionIn"]["type"].as_str().unwrap_or("");
+    if lead_seconds <= 0.001 || (transition != "slide-up" && transition != "slide-down") {
+        return base;
+    }
+    let from = (start_seconds - lead_seconds).max(0.0);
+    // slide-up entra desde abajo y sube; slide-down entra desde arriba.
+    let direction = if transition == "slide-up" { "H" } else { "-H" };
+    format!(
+        "if(lt(t,{start_seconds:.6}),({base})+({direction})*(1-((t-{from:.6})/{lead_seconds:.6})),({base}))"
+    )
+}
+
 fn animation_duration_seconds(animation: &Value, clip_seconds: f64, fps: f64) -> Option<f64> {
     let kind = animation["type"].as_str()?.trim();
     if kind.is_empty() {
@@ -468,15 +500,108 @@ fn lut_filter(path: &Path) -> String {
     format!("lut3d=file='{escaped}'")
 }
 
-/// Appends `lut3d` to an already-built visual chain, just before its output
-/// label. Keeping it out of `visual_filter` avoids threading a path through
-/// every filter unit test.
-fn with_lut(chain: String, index: usize, lut: &Path) -> String {
-    let label = format!("[v{index}]");
-    match chain.rfind(&label) {
-        Some(position) => format!("{},{}[v{}]", &chain[..position], lut_filter(lut), index),
-        None => chain,
+/// Applies an optional mix between the original chain and its LUT-graded
+/// branch. A full-intensity LUT stays a single appended filter; partial
+/// intensity splits the stream and blends both branches with the same alpha
+/// so the grade keeps the clip's masks and opacity untouched.
+pub(crate) fn apply_lut_to_chain(chain: String, label: &str, lut: &Path, intensity: f64) -> String {
+    let intensity = if intensity.is_finite() {
+        intensity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let output = format!("[{label}]");
+    if intensity <= 0.001 {
+        return chain;
     }
+    if intensity >= 0.999 {
+        return match chain.rfind(&output) {
+            Some(position) => format!("{},{}[{}]", &chain[..position], lut_filter(lut), label),
+            None => chain,
+        };
+    }
+    let Some(prefix) = chain.strip_suffix(&output) else {
+        return chain;
+    };
+    // `blend` weights the first input, so the original keeps 1 - intensity.
+    let opacity = 1.0 - intensity;
+    format!(
+        "{prefix},format=rgba,split=2[{label}src][{label}lut];\
+         [{label}lut]{}[{label}graded];\
+         [{label}src][{label}graded]blend=all_mode=normal:all_opacity={opacity:.4}[{label}]",
+        lut_filter(lut)
+    )
+}
+
+/// Adjustment layers only exist inside their timeline window. The LUT branch
+/// can keep running, but the blend that mixes it is gated so outside the
+/// window the first (original) input passes through.
+fn apply_lut_to_chain_gated(
+    chain: String,
+    label: &str,
+    lut: &Path,
+    intensity: f64,
+    enable: Option<(f64, f64)>,
+) -> String {
+    let Some((start, end)) = enable else {
+        return apply_lut_to_chain(chain, label, lut, intensity);
+    };
+    let intensity = if intensity.is_finite() {
+        intensity.clamp(0.0, 1.0)
+    } else {
+        1.0
+    };
+    let output = format!("[{label}]");
+    let Some(prefix) = chain.strip_suffix(&output) else {
+        return chain;
+    };
+    let gate = format!(":enable='between(t,{start:.6},{end:.6})'");
+    if intensity <= 0.001 {
+        return chain;
+    }
+    if intensity >= 0.999 {
+        return format!("{prefix},{}{gate}[{label}]", lut_filter(lut));
+    }
+    let opacity = 1.0 - intensity;
+    format!(
+        "{prefix},format=rgba,split=2[{label}src][{label}lut];\
+         [{label}lut]{}[{label}graded];\
+         [{label}src][{label}graded]blend=all_mode=normal:all_opacity={opacity:.4}{gate}[{label}]",
+        lut_filter(lut)
+    )
+}
+
+/// Resolves the LUT path and its 0..1 intensity from a grade object.
+pub(crate) fn effects_lut(
+    effects: &Value,
+    root: &Path,
+) -> Result<Option<(PathBuf, f64)>, ProjectError> {
+    let Some(relative) = effects["lutFile"]
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    let path = resolve_inside_root(root, relative)?;
+    let intensity = number(effects, "lutIntensity")
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    if intensity <= 0.001 {
+        return Ok(None);
+    }
+    Ok(Some((path, intensity)))
+}
+
+/// Returns the same grade without its LUT, so the LUT can be mixed after the
+/// color chain instead of being baked in at full strength.
+fn without_lut(effects: &Value) -> Value {
+    let mut grade = effects.clone();
+    if let Some(object) = grade.as_object_mut() {
+        object.remove("lutFile");
+        object.remove("lutIntensity");
+    }
+    grade
 }
 
 fn stabilization_filter(path: &Path, smoothing: u32) -> String {
@@ -668,7 +793,7 @@ fn opacity_commands(
 /// never eats more than half of the clip.
 fn transition_lead_seconds(clip: &Value, fps: f64, clip_seconds: f64, start_seconds: f64) -> f64 {
     let kind = clip["kind"].as_str().unwrap_or("");
-    if kind != "video" && kind != "image" {
+    if kind != "video" && kind != "image" && kind != "freeze" {
         return 0.0;
     }
     let frames = clip["transitionIn"]["frames"].as_f64().unwrap_or(0.0);
@@ -703,7 +828,10 @@ fn even_fit(width: u64, height: u64, max_width: u64, max_height: u64) -> (u32, u
 fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<String> {
     let mask = &clip["mask"];
     let shape = mask["shape"].as_str()?;
-    if shape != "rectangle" && shape != "ellipse" {
+    if !matches!(
+        shape,
+        "rectangle" | "ellipse" | "diamond" | "triangle" | "rounded"
+    ) {
         return None;
     }
     let keyframes = mask["keyframes"]
@@ -763,11 +891,37 @@ fn mask_filter(clip: &Value, fps: f64, lead_seconds: f64) -> Option<String> {
     };
     let feather_expr = format!("max(({feather}),0.0001)");
     let soft = |value: &str| format!("max(0,min(1,(1-abs({value}))/{feather_expr}))");
-    let coverage = if shape == "ellipse" {
-        let radius = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
-        format!("max(0,min(1,(1-({radius}))/{feather_expr}))")
-    } else {
-        format!("({})*({})", soft(&nx), soft(&ny))
+    let coverage = match shape {
+        "ellipse" => {
+            let radius = format!("sqrt(({nx})*({nx})+({ny})*({ny}))");
+            format!("max(0,min(1,(1-({radius}))/{feather_expr}))")
+        }
+        "diamond" => {
+            let distance = format!("abs({nx})+abs({ny})");
+            format!("max(0,min(1,(1-({distance}))/{feather_expr}))")
+        }
+        "triangle" => {
+            // Triángulo con vértice arriba: ancho permitido = v, donde v va de
+            // 0 en el vértice a 1 en la base. El borde superior también se
+            // suaviza para que el vértice no quede duro.
+            let v = format!("max(0,min(1,(({ny})+1)/2))");
+            let inside = format!("(({v})-abs({nx}))");
+            format!(
+                "max(0,min(1,({inside})/{feather_expr}))*max(0,min(1,({v})/{feather_expr}))*max(0,min(1,(1-({v}))/{feather_expr}))"
+            )
+        }
+        "rounded" => {
+            // SDF de una caja redondeada: los centros de esquina quedan en
+            // 1-radio y el borde exterior sigue en 1. Radio fijo de 0.25.
+            let radius = 0.25;
+            let qx = format!("(abs({nx})-{:.6})", 1.0 - radius);
+            let qy = format!("(abs({ny})-{:.6})", 1.0 - radius);
+            let outside = format!("sqrt(pow(max({qx},0),2)+pow(max({qy},0),2))");
+            let inside = format!("min(max({qx},{qy}),0)");
+            let distance = format!("(({outside})+({inside})-{radius:.6})");
+            format!("max(0,min(1,(-({distance}))/{feather_expr}))")
+        }
+        _ => format!("({})*({})", soft(&nx), soft(&ny)),
     };
     let alpha = if invert {
         format!("(1-({coverage}))")
@@ -822,6 +976,36 @@ fn custom_curves_filter(effects: &Value) -> Option<String> {
     }
 }
 
+/// Builds a master tone curve for shadows, highlights and a filmic fade. The
+/// points are fixed and every value is clamped, so no user text reaches the
+/// filter syntax. Applied before any creative curve or preset.
+fn tone_curve_filter(effects: &Value) -> Option<String> {
+    let shadows = number(effects, "shadows").unwrap_or(0.0).clamp(-1.0, 1.0);
+    let highlights = number(effects, "highlights")
+        .unwrap_or(0.0)
+        .clamp(-1.0, 1.0);
+    let fade = number(effects, "fade").unwrap_or(0.0).clamp(0.0, 1.0);
+    if shadows.abs() <= 0.001 && highlights.abs() <= 0.001 && fade <= 0.001 {
+        return None;
+    }
+    let points = [
+        (0.0, (fade * 0.10).clamp(0.0, 1.0)),
+        (0.25, (0.25 + shadows * 0.12 + fade * 0.05).clamp(0.0, 1.0)),
+        (0.5, (0.5 + fade * 0.02).clamp(0.0, 1.0)),
+        (
+            0.75,
+            (0.75 + highlights * 0.12 - fade * 0.02).clamp(0.0, 1.0),
+        ),
+        (1.0, (1.0 - fade * 0.05).clamp(0.0, 1.0)),
+    ];
+    let formatted = points
+        .iter()
+        .map(|(x, y)| format!("{x:.4}/{y:.4}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some(format!("curves=master='{formatted}'"))
+}
+
 /// Builds the FFmpeg chain for a grade. `enable` is appended to every filter so
 /// an adjustment layer only exists inside its timeline window.
 fn grade_filters(
@@ -843,6 +1027,8 @@ fn grade_filters(
     let lift = &effects["lift"];
     let gamma = &effects["gamma"];
     let gain = &effects["gain"];
+    // Cuarta rueda de Primaries (DaVinci): balance de medios tonos.
+    let offset = &effects["offset"];
     let lift_rgb = [
         number(lift, "r").unwrap_or(0.0).clamp(-1.0, 1.0),
         number(lift, "g").unwrap_or(0.0).clamp(-1.0, 1.0),
@@ -858,7 +1044,12 @@ fn grade_filters(
         number(gain, "g").unwrap_or(0.0).clamp(-1.0, 1.0),
         number(gain, "b").unwrap_or(0.0).clamp(-1.0, 1.0),
     ];
-    let mut filters: Vec<String> = Vec::new();
+    let offset_rgb = [
+        number(offset, "r").unwrap_or(0.0).clamp(-1.0, 1.0),
+        number(offset, "g").unwrap_or(0.0).clamp(-1.0, 1.0),
+        number(offset, "b").unwrap_or(0.0).clamp(-1.0, 1.0),
+    ];
+    let mut filters = Vec::new();
     if brightness.abs() > 0.001
         || (contrast - 1.0).abs() > 0.001
         || (saturation - 1.0).abs() > 0.001
@@ -879,10 +1070,19 @@ fn grade_filters(
     }
     if lift_rgb.iter().any(|value| value.abs() > 0.001)
         || gain_rgb.iter().any(|value| value.abs() > 0.001)
+        || offset_rgb.iter().any(|value| value.abs() > 0.001)
     {
         filters.push(format!(
-            "colorbalance=rs={:.4}:gs={:.4}:bs={:.4}:rh={:.4}:gh={:.4}:bh={:.4}",
-            lift_rgb[0], lift_rgb[1], lift_rgb[2], gain_rgb[0], gain_rgb[1], gain_rgb[2]
+            "colorbalance=rs={:.4}:gs={:.4}:bs={:.4}:rm={:.4}:gm={:.4}:bm={:.4}:rh={:.4}:gh={:.4}:bh={:.4}",
+            lift_rgb[0],
+            lift_rgb[1],
+            lift_rgb[2],
+            offset_rgb[0],
+            offset_rgb[1],
+            offset_rgb[2],
+            gain_rgb[0],
+            gain_rgb[1],
+            gain_rgb[2]
         ));
     }
     if temperature.abs() > 0.001 {
@@ -897,6 +1097,9 @@ fn grade_filters(
         .clamp(-180.0, 180.0);
     if hue_rotate.abs() > 0.01 {
         filters.push(format!("hue=h={hue_rotate:.2}"));
+    }
+    if let Some(tone) = tone_curve_filter(effects) {
+        filters.push(tone);
     }
     if let Some(custom) = custom_curves_filter(effects) {
         filters.push(custom);
@@ -937,6 +1140,20 @@ fn grade_filters(
         let divisor = (5.0 - vignette * 4.0).max(1.0);
         filters.push(format!("vignette=PI/{divisor:.3}"));
     }
+    if let Some(lens) = effects
+        .get("lensCorrection")
+        .filter(|value| value.is_object())
+    {
+        let k1 = number(lens, "k1").unwrap_or(0.0).clamp(-1.0, 1.0);
+        let k2 = number(lens, "k2").unwrap_or(0.0).clamp(-1.0, 1.0);
+        if k1.abs() > 0.0001 || k2.abs() > 0.0001 {
+            let cx = number(lens, "cx").unwrap_or(0.5).clamp(0.0, 1.0);
+            let cy = number(lens, "cy").unwrap_or(0.5).clamp(0.0, 1.0);
+            filters.push(format!(
+                "lenscorrection=k1={k1:.4}:k2={k2:.4}:cx={cx:.3}:cy={cy:.3}:i=bilinear"
+            ));
+        }
+    }
     if let Some(relative) = effects["lutFile"]
         .as_str()
         .map(str::trim)
@@ -956,7 +1173,7 @@ fn grade_filters(
 /// Project-wide grade applied to the final composite, after every clip and
 /// before captions. The same fields as a clip look, minus clip-only animation.
 fn project_look_filters(project: &Value, root: &Path) -> Result<Vec<String>, ProjectError> {
-    grade_filters(&project["look"], root, None)
+    grade_filters(&without_lut(&project["look"]), root, None)
 }
 
 /// Grade owned by a source-less adjustment clip. It targets the final composite
@@ -967,10 +1184,14 @@ fn adjustment_filters(
     start_seconds: f64,
     end_seconds: f64,
 ) -> Result<Vec<String>, ProjectError> {
-    grade_filters(&clip["effects"], root, Some((start_seconds, end_seconds)))
+    grade_filters(
+        &without_lut(&clip["effects"]),
+        root,
+        Some((start_seconds, end_seconds)),
+    )
 }
 
-fn visual_filter(
+pub(crate) fn visual_filter(
     input_index: usize,
     clip: &Value,
     asset: &Value,
@@ -1138,6 +1359,8 @@ fn visual_filter(
     let lift = &effects["lift"];
     let gamma = &effects["gamma"];
     let gain = &effects["gain"];
+    // Cuarta rueda de Primaries (DaVinci): balance de medios tonos.
+    let offset = &effects["offset"];
     let lift_rgb = [
         number(lift, "r").unwrap_or(0.0).clamp(-1.0, 1.0),
         number(lift, "g").unwrap_or(0.0).clamp(-1.0, 1.0),
@@ -1152,6 +1375,11 @@ fn visual_filter(
         number(gain, "r").unwrap_or(0.0).clamp(-1.0, 1.0),
         number(gain, "g").unwrap_or(0.0).clamp(-1.0, 1.0),
         number(gain, "b").unwrap_or(0.0).clamp(-1.0, 1.0),
+    ];
+    let offset_rgb = [
+        number(offset, "r").unwrap_or(0.0).clamp(-1.0, 1.0),
+        number(offset, "g").unwrap_or(0.0).clamp(-1.0, 1.0),
+        number(offset, "b").unwrap_or(0.0).clamp(-1.0, 1.0),
     ];
     let gamma_active = gamma_rgb.iter().any(|value| value.abs() > 0.001);
     if brightness.abs() > 0.001
@@ -1174,10 +1402,19 @@ fn visual_filter(
     }
     if lift_rgb.iter().any(|value| value.abs() > 0.001)
         || gain_rgb.iter().any(|value| value.abs() > 0.001)
+        || offset_rgb.iter().any(|value| value.abs() > 0.001)
     {
         filters.push(format!(
-            "colorbalance=rs={:.4}:gs={:.4}:bs={:.4}:rh={:.4}:gh={:.4}:bh={:.4}",
-            lift_rgb[0], lift_rgb[1], lift_rgb[2], gain_rgb[0], gain_rgb[1], gain_rgb[2]
+            "colorbalance=rs={:.4}:gs={:.4}:bs={:.4}:rm={:.4}:gm={:.4}:bm={:.4}:rh={:.4}:gh={:.4}:bh={:.4}",
+            lift_rgb[0],
+            lift_rgb[1],
+            lift_rgb[2],
+            offset_rgb[0],
+            offset_rgb[1],
+            offset_rgb[2],
+            gain_rgb[0],
+            gain_rgb[1],
+            gain_rgb[2]
         ));
     }
     if temperature.abs() > 0.001 {
@@ -1227,6 +1464,9 @@ fn visual_filter(
             filters.push(format!("colorchannelmixer=rr={r:.4}:gg={g:.4}:bb={b:.4}"));
         }
     }
+    if let Some(tone) = tone_curve_filter(effects) {
+        filters.push(tone);
+    }
     let curve = effects["curvePreset"].as_str().unwrap_or("");
     let curve_preset = match curve {
         "contrast-soft" => Some("linear_contrast"),
@@ -1262,6 +1502,42 @@ fn visual_filter(
         let divisor = (5.0 - vignette * 4.0).max(1.0);
         filters.push(format!("vignette=PI/{divisor:.3}"));
     }
+    if let Some(lens) = effects
+        .get("lensCorrection")
+        .filter(|value| value.is_object())
+    {
+        let k1 = number(lens, "k1").unwrap_or(0.0).clamp(-1.0, 1.0);
+        let k2 = number(lens, "k2").unwrap_or(0.0).clamp(-1.0, 1.0);
+        if k1.abs() > 0.0001 || k2.abs() > 0.0001 {
+            let cx = number(lens, "cx").unwrap_or(0.5).clamp(0.0, 1.0);
+            let cy = number(lens, "cy").unwrap_or(0.5).clamp(0.0, 1.0);
+            filters.push(format!(
+                "lenscorrection=k1={k1:.4}:k2={k2:.4}:cx={cx:.3}:cy={cy:.3}:i=bilinear"
+            ));
+        }
+    }
+    if let Some(relight) = effects.get("relight").filter(|value| value.is_object()) {
+        let strength = number(relight, "strength").unwrap_or(0.0).clamp(-1.0, 1.0);
+        let warmth = number(relight, "warmth").unwrap_or(0.0).clamp(-1.0, 1.0);
+        if strength.abs() > 0.0001 || warmth.abs() > 0.0001 {
+            let x = number(relight, "x").unwrap_or(0.0).clamp(-1.0, 1.0);
+            let y = number(relight, "y").unwrap_or(0.0).clamp(-1.0, 1.0);
+            let radius = number(relight, "radius").unwrap_or(0.45).clamp(0.02, 1.0);
+            let feather = number(relight, "feather").unwrap_or(0.35).clamp(0.01, 1.0);
+            let dx = format!("((X/W)-0.5-({x:.4}))");
+            let dy = format!("((Y/H)-0.5-({y:.4}))");
+            let distance = format!("sqrt(({dx})*({dx})+({dy})*({dy}))");
+            let edge = format!("({radius:.4}*{feather:.4})");
+            let weight = format!("max(0,min(1,(({radius:.4})-({distance}))/{edge}))");
+            let smooth = format!("(({weight})*({weight})*(3-2*({weight})))");
+            let gain = strength * 92.0;
+            let warm = warmth * 42.0;
+            filters.push("format=rgba".to_owned());
+            filters.push(format!(
+                "geq=r='clip(r(X,Y)+({gain:.3})*({smooth})+({warm:.3})*({smooth}),0,255)':g='clip(g(X,Y)+({gain:.3})*({smooth}),0,255)':b='clip(b(X,Y)+({gain:.3})*({smooth})-({warm:.3})*({smooth}),0,255)':a='alpha(X,Y)'"
+            ));
+        }
+    }
 
     if !is_image && speed_num != speed_den {
         filters.push(format!(
@@ -1294,6 +1570,7 @@ fn visual_filter(
         match clip["transitionIn"]["type"].as_str().unwrap_or("") {
             "dissolve" => filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1")),
             "fade-black" => filters.push(format!("fade=t=in:st=0:d={lead:.3}")),
+            "fade-white" => filters.push(format!("fade=t=in:st=0:d={lead:.3}:color=white")),
             _ => {}
         }
     }
@@ -1614,6 +1891,9 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
     let mut visual_clips: Vec<&Value> = clips
         .iter()
         .filter(|clip| {
+            if clip["enabled"].as_bool() == Some(false) {
+                return false;
+            }
             let track_id = clip["trackId"].as_str().unwrap_or("");
             track_info
                 .get(track_id)
@@ -1672,14 +1952,9 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         let relative = asset["source"]["path"].as_str().unwrap_or("");
         let path = resolve_inside_root(input.root, relative)?;
         ensure_asset_unchanged(asset, &path)?;
-        let lut_path = clip["effects"]["lutFile"]
-            .as_str()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(|relative| resolve_inside_root(input.root, relative))
-            .transpose()?;
+        let clip_lut = effects_lut(&clip["effects"], input.root)?;
         let stabilization = resolve_stabilization(clip, input.root)?;
-        let is_image = kind == "image";
+        let is_image = kind == "image" || kind == "freeze";
         let speed = clip["speed"].clone();
         let speed_num = speed["num"].as_u64().unwrap_or(1) as u32;
         let speed_den = speed["den"].as_u64().unwrap_or(1) as u32;
@@ -1751,10 +2026,10 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
             let chain = filters[position].clone();
             filters[position] = with_stabilization(chain, index, transform, *smoothing);
         }
-        if let Some(lut) = lut_path {
+        if let Some((lut, intensity)) = clip_lut {
             let position = filters.len() - 1;
             let chain = filters[position].clone();
-            filters[position] = with_lut(chain, index, &lut);
+            filters[position] = apply_lut_to_chain(chain, &format!("v{index}"), &lut, intensity);
         }
         let transform = &clip["transform"];
         let offset_x = offset_expression(clip, "offsetX", start_seconds, project_fps)
@@ -1781,10 +2056,13 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
             ),
             None => overlay_x_expression(clip, start_seconds, lead_seconds, &offset_x),
         };
-        let overlay_y = match animation_y {
-            Some(term) => format!("(H-overlay_h)/2+({offset_y})+({term})"),
-            None => format!("(H-overlay_h)/2+({offset_y})"),
-        };
+        let overlay_y = overlay_y_expression(
+            clip,
+            start_seconds,
+            lead_seconds,
+            &offset_y,
+            animation_y.as_deref(),
+        );
         if let (Some(mode), Some(layer)) = (blend, layer_index) {
             filters.push(format!(
                 "[{layer}:v]format=rgba,setpts=PTS-STARTPTS[layer{index}]"
@@ -1815,7 +2093,7 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
                 .entry(asset_id.to_owned())
                 .or_insert_with(|| has_audio_stream(input.ffprobe, &path))
         };
-        if has_audio && !muted {
+        if has_audio && !muted && clip["audio"]["muted"].as_bool() != Some(true) {
             filters.push(audio_filter(
                 index,
                 profile,
@@ -1837,6 +2115,9 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
     let mut adjustment_clips: Vec<&Value> = clips
         .iter()
         .filter(|clip| {
+            if clip["enabled"].as_bool() == Some(false) {
+                return false;
+            }
             let track_id = clip["trackId"].as_str().unwrap_or("");
             track_info
                 .get(track_id)
@@ -1861,17 +2142,36 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
             start_seconds,
             start_seconds + clip_seconds,
         )?;
-        if grade.is_empty() {
+        let lut = effects_lut(&clip["effects"], input.root)?;
+        if grade.is_empty() && lut.is_none() {
             continue;
         }
         let next_label = format!("adj{}", index);
-        filters.push(format!("[{base_label}]{}[{next_label}]", grade.join(",")));
+        let grade_chain = if grade.is_empty() {
+            "null".to_owned()
+        } else {
+            grade.join(",")
+        };
+        let mut chain = format!("[{base_label}]{grade_chain}[{next_label}]");
+        if let Some((lut, intensity)) = lut {
+            chain = apply_lut_to_chain_gated(
+                chain,
+                &next_label,
+                &lut,
+                intensity,
+                Some((start_seconds, start_seconds + clip_seconds)),
+            );
+        }
+        filters.push(chain);
         base_label = next_label;
     }
 
     let audio_clips: Vec<&Value> = clips
         .iter()
         .filter(|clip| {
+            if clip["enabled"].as_bool() == Some(false) {
+                return false;
+            }
             let track_id = clip["trackId"].as_str().unwrap_or("");
             track_info
                 .get(track_id)
@@ -1902,6 +2202,9 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         let start_seconds = clip["startFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
         let clip_seconds = clip["durationFrames"].as_u64().unwrap_or(0) as f64 / project_fps;
         if clip_seconds <= 0.0 {
+            continue;
+        }
+        if clip["audio"]["muted"].as_bool() == Some(true) {
             continue;
         }
         let speed = clip["speed"].clone();
@@ -2060,10 +2363,20 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         String::new()
     };
     let look_filters = project_look_filters(project, input.root)?;
-    let graded_label = if look_filters.is_empty() {
+    let look_lut = effects_lut(&project["look"], input.root)?;
+    let graded_label = if look_filters.is_empty() && look_lut.is_none() {
         base_label.clone()
     } else {
-        filters.push(format!("[{base_label}]{}[look]", look_filters.join(",")));
+        let grade_chain = if look_filters.is_empty() {
+            "null".to_owned()
+        } else {
+            look_filters.join(",")
+        };
+        let mut chain = format!("[{base_label}]{grade_chain}[look]");
+        if let Some((lut, intensity)) = look_lut {
+            chain = apply_lut_to_chain(chain, "look", &lut, intensity);
+        }
+        filters.push(chain);
         "look".to_owned()
     };
     if ass.is_empty() {
@@ -2394,6 +2707,9 @@ mod tests {
                 "blur": 2.0,
                 "sepia": true,
                 "hueRotateDeg": 25,
+                "shadows": 0.2,
+                "highlights": -0.3,
+                "fade": 0.1,
                 "curvePreset": "vintage",
                 "fadeInFrames": 15,
                 "fadeOutFrames": 30,
@@ -2401,7 +2717,9 @@ mod tests {
                 "gamma": { "r": 0.1, "g": 0.0, "b": -0.05 },
                 "gain": { "r": 0.08, "g": 0.0, "b": -0.03 },
                 "hsl": { "hue": 8, "saturation": 0.1, "intensity": 0.05, "colors": ["r", "y"] },
-                "colorMatch": { "r": 1.1, "g": 1.0, "b": 0.95, "strength": 0.8 }
+                "colorMatch": { "r": 1.1, "g": 1.0, "b": 0.95, "strength": 0.8 },
+                "lensCorrection": { "k1": -0.12, "k2": 0.04, "cx": 0.5, "cy": 0.5 },
+                "relight": { "x": 0.0, "y": -0.1, "radius": 0.45, "strength": 0.4, "warmth": 0.2, "feather": 0.35 }
             }
         });
         let filter = visual_filter(
@@ -2421,8 +2739,13 @@ mod tests {
         assert!(filter.contains("gblur=sigma=2.000"));
         assert!(filter.contains("unsharp=5:5:1.000"));
         assert!(filter.contains("vignette=PI/"));
+        assert!(filter.contains("lenscorrection=k1=-0.1200:k2=0.0400:cx=0.500:cy=0.500:i=bilinear"));
+        assert!(filter.contains("geq=r='clip(r(X,Y)+"));
+        assert!(filter.contains(":a='alpha(X,Y)'"));
         assert!(filter.contains("colorchannelmixer=rr=0.393"));
         assert!(filter.contains("hue=h=25.00"));
+        assert!(filter.contains("curves=master='0.0000/0.0100"));
+        assert!(filter.contains("0.7500/0.7120"));
         assert!(filter.contains("curves=preset=vintage"));
         assert!(filter.contains("gamma_r="));
         assert!(filter.contains("colorbalance=rs="));
@@ -2431,6 +2754,36 @@ mod tests {
         assert!(filter.contains("colorchannelmixer=rr="));
         assert!(filter.contains("fade=t=in:st=0"));
         assert!(filter.contains("fade=t=out"));
+    }
+
+    #[test]
+    fn offset_wheel_maps_to_colorbalance_mids() {
+        let profile = profile();
+        let clip = serde_json::json!({
+            "assetId": "a1",
+            "effects": {
+                "lift": { "r": 0.0, "g": 0.0, "b": 0.0 },
+                "offset": { "r": 0.10, "g": -0.20, "b": 0.05 }
+            }
+        });
+        let filter = visual_filter(
+            0,
+            &clip,
+            &serde_json::json!({}),
+            &profile,
+            3.0,
+            0.0,
+            0.0,
+            1,
+            1,
+            false,
+        );
+        assert!(
+            filter.contains(
+                "colorbalance=rs=0.0000:gs=0.0000:bs=0.0000:rm=0.1000:gm=-0.2000:bm=0.0500"
+            ),
+            "la rueda Offset debe mapear a los mids de colorbalance: {filter}"
+        );
     }
 
     #[test]
@@ -2444,6 +2797,9 @@ mod tests {
                 "vignette": 0.3,
                 "sharpen": 1.2,
                 "curvePreset": "contrast-strong",
+                "shadows": -0.2,
+                "highlights": 0.3,
+                "fade": 0.1,
                 "grayscale": true
             }
         });
@@ -2452,6 +2808,7 @@ mod tests {
         let joined = filters.join(",");
         assert!(joined.contains("eq=brightness=0.1500:contrast=1.2000:saturation=1.3000"));
         assert!(joined.contains("colorbalance=rs=0.1000:bs=-0.1000"));
+        assert!(joined.contains("curves=master='"));
         assert!(joined.contains("curves=preset=strong_contrast"));
         assert!(joined.contains("unsharp=5:5:1.200"));
         assert!(joined.contains("vignette=PI/"));
@@ -2471,13 +2828,14 @@ mod tests {
         let root = std::env::temp_dir().join(format!("editor-ia-look-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(root.join("media/luts")).unwrap();
         std::fs::write(root.join("media/luts/x.cube"), b"LUT_3D_SIZE 2\n").unwrap();
-        let project = serde_json::json!({ "look": { "lutFile": "media/luts/x.cube" } });
-        let filters = project_look_filters(&project, &root).unwrap();
-        assert!(filters
-            .iter()
-            .any(|filter| filter.contains("lut3d=file=") && filter.contains("x.cube")));
+        let project = serde_json::json!({
+            "look": { "lutFile": "media/luts/x.cube", "lutIntensity": 0.4 }
+        });
+        let (path, intensity) = effects_lut(&project["look"], &root).unwrap().unwrap();
+        assert!(path.ends_with("x.cube"));
+        assert!((intensity - 0.4).abs() < 1e-9);
         let escaping = serde_json::json!({ "look": { "lutFile": "../x.cube" } });
-        assert!(project_look_filters(&escaping, &root).is_err());
+        assert!(effects_lut(&escaping["look"], &root).is_err());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -2537,6 +2895,172 @@ mod tests {
     }
 
     #[test]
+    fn muted_clip_audio_leaves_the_mix() {
+        let root = std::env::temp_dir().join(format!("editor-ia-mute-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let plan_for = |project: &Value| {
+            build_plan(BuildPlanInput {
+                project,
+                root: &root,
+                profile: &profile(),
+                output_path: &root.join("salida.mp4"),
+                include_captions: false,
+                temp_dir: &temp,
+                ffprobe: Path::new("ffprobe"),
+            })
+            .expect("el plan debería construirse")
+        };
+        let mut project = project();
+        project["timeline"]["clips"][1]["audio"] = serde_json::json!({ "muted": true });
+        assert_eq!(
+            project["timeline"]["clips"][1]["id"],
+            serde_json::json!("c2")
+        );
+        assert_eq!(
+            project["timeline"]["clips"][1]["audio"]["muted"],
+            serde_json::json!(true)
+        );
+        let muted = plan_for(&project);
+        let muted_args = muted.args.join(" ");
+        let muted_graph = muted
+            .args
+            .iter()
+            .find(|arg| arg.contains("[aout]"))
+            .expect("falta el grafo de audio");
+        assert!(
+            muted_args.contains("anullsrc"),
+            "el clip mudo debería dejar sólo el silencio: {muted_args}"
+        );
+        assert!(
+            !muted_graph.contains("amix"),
+            "el clip mudo no debería entrar al mix: {muted_graph}"
+        );
+
+        project["timeline"]["clips"][1]["audio"] = serde_json::json!({ "gainDb": -3 });
+        let sounding = plan_for(&project);
+        let sounding_graph = sounding
+            .args
+            .iter()
+            .find(|arg| arg.contains("[aout]"))
+            .expect("falta el grafo de audio");
+        assert!(
+            sounding_graph.contains("volume=-3.00dB"),
+            "sin mute el audio debería conservar su ganancia: {sounding_graph}"
+        );
+        assert!(
+            !muted_graph.contains("volume=-3.00dB"),
+            "el mute no debería dejar pasar la ganancia del clip: {muted_graph}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn disabled_clips_are_skipped_by_the_render_graph() {
+        let mut project = project();
+        project["timeline"]["clips"][0]["enabled"] = serde_json::json!(false);
+        let root = std::env::temp_dir().join(format!("editor-ia-off-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let plan = build_plan(BuildPlanInput {
+            project: &project,
+            root: &root,
+            profile: &profile(),
+            output_path: &root.join("salida.mp4"),
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: Path::new("ffprobe"),
+        })
+        .expect("el plan con clip desactivado debería construirse");
+        let joined = plan.args.join(" ");
+        assert!(
+            !joined.contains("media/video.mp4"),
+            "el clip desactivado no debería entrar como input: {joined}"
+        );
+        assert!(plan.args.iter().any(|arg| arg.contains("[aout]")));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn freeze_clips_render_as_looped_stills_inside_the_video_track() {
+        let mut project = project();
+        project["timeline"]["clips"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "freeze1", "trackId": "v1", "kind": "freeze",
+                "label": "Congelado", "startFrame": 30, "durationFrames": 30,
+                "source": { "type": "asset", "assetId": "asset3" },
+                "transitionIn": { "type": "dissolve", "frames": 6 },
+                "effects": { "brightness": 0.1, "saturation": 1.1 }
+            }));
+        project["assets"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "asset3", "status": "ready",
+                "rights": { "license": { "commercialUse": "allowed" } },
+                "source": { "path": "media/frame.png" }
+            }));
+        let root = std::env::temp_dir().join(format!("editor-ia-freeze-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        std::fs::write(media.join("frame.png"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let plan = build_plan(BuildPlanInput {
+            project: &project,
+            root: &root,
+            profile: &profile(),
+            output_path: &root.join("salida.mp4"),
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: Path::new("ffprobe"),
+        })
+        .expect("el plan con freeze debería construirse");
+        let freeze_index = plan
+            .args
+            .iter()
+            .position(|arg| arg.ends_with("frame.png"))
+            .expect("el PNG del freeze no entró como input");
+        assert_eq!(plan.args[freeze_index - 7], "-loop");
+        assert_eq!(plan.args[freeze_index - 6], "1");
+        let graph = plan
+            .args
+            .iter()
+            .find(|arg| arg.contains("brightness=0.1000"))
+            .expect("falta el filtro del freeze");
+        assert!(graph.contains("saturation=1.1000"));
+        assert!(
+            graph.contains("between(t,0.800000,2.000000)"),
+            "el freeze no respeta el solape de entrada: {graph}"
+        );
+        assert_eq!(
+            transition_lead_seconds(
+                &serde_json::json!({
+                    "kind": "freeze",
+                    "transitionIn": { "type": "dissolve", "frames": 6 }
+                }),
+                30.0,
+                1.0,
+                1.0
+            ),
+            0.2
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn hidden_adjustment_layers_do_not_grade_the_composite() {
         let project = project_with_adjustment(true);
         let root = std::env::temp_dir().join(format!("editor-ia-adj-{}", uuid::Uuid::new_v4()));
@@ -2565,6 +3089,27 @@ mod tests {
         assert!(!graph.contains("contrast=1.3000"));
         assert!(!graph.contains("curves=preset=vintage"));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn tone_curve_is_neutral_when_unset_and_clamps_values() {
+        assert!(tone_curve_filter(&serde_json::json!({})).is_none());
+        assert!(tone_curve_filter(&serde_json::json!({
+            "shadows": 0.0,
+            "highlights": 0.0,
+            "fade": 0.0
+        }))
+        .is_none());
+        let curve = tone_curve_filter(&serde_json::json!({
+            "shadows": 2,
+            "highlights": -2,
+            "fade": 2
+        }))
+        .expect("la curva de tono debería existir");
+        assert!(curve.contains("0.0000/0.1000"));
+        assert!(curve.contains("0.2500/0.4200"));
+        assert!(curve.contains("0.7500/0.6100"));
+        assert!(curve.contains("1.0000/0.9500"));
     }
 
     #[test]
@@ -2800,6 +3345,21 @@ mod tests {
         let mut unknown = value;
         unknown["videoPreset"] = serde_json::json!("turbo");
         assert!(parse_profile(&unknown).is_err());
+
+        let h264_32k = serde_json::json!({
+            "id": "p",
+            "name": "32K H.264",
+            "resolution": { "width": 32_768, "height": 4_320 },
+            "frameRate": { "num": 120, "den": 1 },
+            "bitrate": { "mode": "crf", "crf": 22 },
+            "qualityGate": { "minOutputBytes": 1 }
+        });
+        assert!(parse_profile(&h264_32k).is_err());
+        let mut h265_32k = h264_32k;
+        h265_32k["videoCodec"] = serde_json::json!("h265");
+        let parsed = parse_profile(&h265_32k).expect("H.265 acepta 32K");
+        assert_eq!(parsed.width, 32_768);
+        assert_eq!(parsed.fps(), 120.0);
     }
 
     #[test]
@@ -2925,18 +3485,97 @@ mod tests {
         assert!(fade_filter.contains("fade=t=in:st=0:d=0.200"));
         assert!(!fade_filter.contains("alpha=1"));
 
+        let white = serde_json::json!({ "transitionIn": { "type": "fade-white", "frames": 6 } });
+        let white_filter = visual_filter(
+            0,
+            &white,
+            &serde_json::json!({}),
+            &profile(),
+            2.0,
+            0.2,
+            0.0,
+            1,
+            1,
+            true,
+        );
+        assert!(white_filter.contains("color=white"));
+
         let slide = serde_json::json!({ "transitionIn": { "type": "slide-left", "frames": 6 } });
         let x = overlay_x_expression(&slide, 2.0, 0.2, "0.000");
         assert!(x.contains("+(W)*(1-"));
         assert!(x.contains("if(lt(t,2.000000)"));
+
+        let up = serde_json::json!({ "transitionIn": { "type": "slide-up", "frames": 6 } });
+        let y = overlay_y_expression(&up, 2.0, 0.2, "0.000", None);
+        assert!(y.contains("+(H)*(1-"));
+        assert!(y.contains("if(lt(t,2.000000)"));
+        let down = serde_json::json!({ "transitionIn": { "type": "slide-down", "frames": 6 } });
+        let y_down = overlay_y_expression(&down, 2.0, 0.2, "0.000", None);
+        assert!(y_down.contains("+(-H)*(1-"));
     }
 
     #[test]
     fn lut_is_appended_before_the_output_label() {
         let chain = "[0:v]fps=30,format=rgba[v0]".to_owned();
-        let with = with_lut(chain, 0, Path::new("C:/obra/media/luts/x.cube"));
+        let with = apply_lut_to_chain(chain, "v0", Path::new("C:/obra/media/luts/x.cube"), 1.0);
         assert!(with.ends_with("[v0]"));
         assert!(with.contains("lut3d=file='C\\:/obra/media/luts/x.cube'"));
+    }
+
+    #[test]
+    fn partial_lut_intensity_mixes_original_and_graded() {
+        let chain = "[0:v]fps=30,format=rgba[v0]".to_owned();
+        let mixed = apply_lut_to_chain(chain, "v0", Path::new("C:/obra/media/luts/x.cube"), 0.35);
+        assert!(mixed.ends_with("[v0]"));
+        assert!(mixed.contains(",format=rgba,split=2[v0src][v0lut]"));
+        assert!(!mixed.contains("rgbaformat"));
+        assert!(mixed.contains("[v0lut]lut3d=file='C\\:/obra/media/luts/x.cube'[v0graded]"));
+        // FFmpeg's blend opacity is the weight of the first input, so an
+        // intensity of 0.35 keeps 65% of the original and 35% of the LUT.
+        assert!(mixed.contains("[v0src][v0graded]blend=all_mode=normal:all_opacity=0.6500[v0]"));
+        assert!(!mixed.contains(",lut3d=file="));
+    }
+
+    #[test]
+    fn adjustment_lut_blend_is_gated_to_its_window() {
+        let chain = "[base0]null[adj0]".to_owned();
+        let gated = apply_lut_to_chain_gated(
+            chain,
+            "adj0",
+            Path::new("C:/obra/media/luts/x.cube"),
+            0.5,
+            Some((1.0, 2.5)),
+        );
+        assert!(gated.contains(",format=rgba,split=2[adj0src][adj0lut]"));
+        assert!(gated.contains(
+            "blend=all_mode=normal:all_opacity=0.5000:enable='between(t,1.000000,2.500000)'[adj0]"
+        ));
+        let full = apply_lut_to_chain_gated(
+            "[base0]eq=contrast=1.1[adj0]".to_owned(),
+            "adj0",
+            Path::new("C:/obra/media/luts/x.cube"),
+            1.0,
+            Some((1.0, 2.5)),
+        );
+        assert!(full.contains("eq=contrast=1.1,lut3d=file="));
+        assert!(full.contains(":enable='between(t,1.000000,2.500000)'[adj0]"));
+        assert!(!full.contains("blend="));
+    }
+
+    #[test]
+    fn full_and_zero_lut_intensity_avoid_the_blend_graph() {
+        let chain = "[0:v]fps=30,format=rgba[v0]".to_owned();
+        let full = apply_lut_to_chain(
+            chain.clone(),
+            "v0",
+            Path::new("C:/obra/media/luts/x.cube"),
+            1.0,
+        );
+        assert!(full.ends_with("[v0]"));
+        assert!(full.contains(",lut3d=file='C\\:/obra/media/luts/x.cube'[v0]"));
+        assert!(!full.contains("blend="));
+        let zero = apply_lut_to_chain(chain, "v0", Path::new("C:/obra/media/luts/x.cube"), 0.0);
+        assert_eq!(zero, "[0:v]fps=30,format=rgba[v0]");
     }
 
     #[test]
@@ -3025,6 +3664,37 @@ mod tests {
             true,
         );
         assert!(!none.contains("geq="));
+    }
+
+    #[test]
+    fn extra_mask_shapes_reach_the_alpha_expression() {
+        let diamond = serde_json::json!({
+            "mask": { "shape": "diamond", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "feather": 0.1 }
+        });
+        let diamond_chain =
+            mask_filter(&diamond, 30.0, 0.0).expect("la máscara diamante debe generarse");
+        assert!(diamond_chain.contains("abs("));
+        assert!(diamond_chain.contains("geq=r='r(X,Y)'"));
+
+        let triangle = serde_json::json!({
+            "mask": { "shape": "triangle", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "feather": 0.1 }
+        });
+        let triangle_chain =
+            mask_filter(&triangle, 30.0, 0.0).expect("la máscara triángulo debe generarse");
+        assert!(triangle_chain.contains("max(0,min(1,"));
+
+        let rounded = serde_json::json!({
+            "mask": { "shape": "rounded", "x": 0, "y": 0, "width": 0.8, "height": 0.8, "feather": 0.1 }
+        });
+        let rounded_chain =
+            mask_filter(&rounded, 30.0, 0.0).expect("la máscara redondeada debe generarse");
+        assert!(rounded_chain.contains("pow("));
+        assert!(rounded_chain.contains("sqrt("));
+
+        let unknown = serde_json::json!({
+            "mask": { "shape": "heart", "x": 0, "y": 0, "width": 1, "height": 1 }
+        });
+        assert!(mask_filter(&unknown, 30.0, 0.0).is_none());
     }
 
     #[test]
@@ -3524,6 +4194,108 @@ mod tests {
     /// Real end-to-end render. It is ignored by default because it needs
     /// FFmpeg/FFprobe and writes a temporary MP4. Run it explicitly with:
     /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test render_live -- --ignored`.
+    /// Live freeze: generates a clip, extracts a PNG and renders the video plus
+    /// the 2 s still through `build_plan`. Ignored by default; run with
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test render_live_freeze -- --ignored`.
+    #[test]
+    #[ignore]
+    fn render_live_freeze_produces_a_verified_mp4() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_freeze omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editor-ia-freeze-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let video_path = media.join("video.mp4");
+        let frame_path = media.join("frame.png");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner".to_string(),
+                "-y".into(),
+                "-f".into(),
+                "lavfi".into(),
+                "-i".into(),
+                "testsrc=size=320x180:rate=30:duration=1".into(),
+                "-pix_fmt".into(),
+                "yuv420p".into(),
+                path_to_string(&video_path),
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success(), "no se pudo generar el video base");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner".to_string(),
+                "-y".into(),
+                "-ss".into(),
+                "0.5".into(),
+                "-i".into(),
+                path_to_string(&video_path),
+                "-frames:v".into(),
+                "1".into(),
+                path_to_string(&frame_path),
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success(), "no se pudo extraer el frame");
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+            "timeline": {
+                "tracks": [{ "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false }],
+                "clips": [
+                    { "id": "c1", "trackId": "v1", "kind": "video", "startFrame": 0, "durationFrames": 30, "source": { "type": "asset", "assetId": "asset1", "inFrame": 0, "outFrame": 30 } },
+                    { "id": "f1", "trackId": "v1", "kind": "freeze", "label": "Congelado", "startFrame": 30, "durationFrames": 30, "source": { "type": "asset", "assetId": "asset2" }, "effects": { "saturation": 1.1 }, "transitionIn": { "type": "dissolve", "frames": 6 } }
+                ]
+            },
+            "assets": [
+                { "id": "asset1", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/video.mp4" }, "media": { "durationFrames": 30 } },
+                { "id": "asset2", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/frame.png" } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let output = root.join("out.mp4");
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let plan = build_plan(BuildPlanInput {
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+        })
+        .expect("el plan con freeze debería construirse");
+        let verification = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render real del freeze debería verificarse");
+        eprintln!(
+            "freeze render: {} bytes, {}x{}, {:.3}s",
+            verification.output_bytes,
+            verification.width,
+            verification.height,
+            verification.duration_seconds
+        );
+        assert!(output.is_file());
+        assert!(verification.output_bytes > 1_000);
+        assert_eq!(verification.width, 320);
+        assert_eq!(verification.height, 180);
+        assert!(
+            (verification.duration_seconds - 2.0).abs() < 0.4,
+            "duración inesperada: {}",
+            verification.duration_seconds
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     #[ignore]
     fn render_live_pipeline_produces_a_verified_mp4() {
@@ -3591,9 +4363,9 @@ mod tests {
                     { "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "kind": "adjustment", "label": "Ajustes", "order": 3, "hidden": false, "muted": false }
                 ],
                 "clips": [
-                    { "id": "44444444-4444-4444-8444-444444444444", "trackId": "11111111-1111-4111-8111-111111111111", "kind": "video", "label": "Toma", "startFrame": 15, "durationFrames": 60, "source": { "type": "asset", "assetId": "55555555-5555-4555-8555-555555555555", "inFrame": 0, "outFrame": 60 }, "motion": { "type": "zoom-in", "intensity": 0.15 }, "reverse": true, "transitionIn": { "type": "dissolve", "frames": 6 }, "transform": { "keyframes": [{ "frame": 0, "scale": 1.0, "offsetX": 0, "rotationDeg": 0, "opacity": 0.2, "easing": "ease-in" }, { "frame": 30, "scale": 1.25, "offsetX": 20, "rotationDeg": 3, "opacity": 0.6, "easing": "ease-out" }, { "frame": 59, "scale": 1.05, "offsetX": -10, "rotationDeg": 0, "opacity": 1.0 }] }, "effects": { "fadeInFrames": 6, "fadeOutFrames": 6, "lutFile": "media/identity.cube", "lift": { "r": 0.05, "g": 0, "b": 0.08 }, "gamma": { "r": 0.1, "g": 0, "b": -0.05 }, "gain": { "r": 0.08, "g": 0, "b": -0.03 }, "hsl": { "hue": 8, "saturation": 0.1, "intensity": 0.04, "colors": ["r", "y"] }, "colorMatch": { "r": 1.08, "g": 1.0, "b": 0.96, "strength": 0.7 } }, "chromaKey": { "color": "#00ff00", "similarity": 0.2, "blend": 0.1 }, "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.82, "height": 0.92, "rotationDeg": 25, "feather": 0.18, "invert": false, "keyframes": [{ "frame": 0, "x": -0.15 }, { "frame": 30, "x": 0 }, { "frame": 59, "x": 0.15 }] }, "animationIn": { "type": "slide-down", "durationFrames": 12 }, "animationOut": { "type": "fade", "durationFrames": 12 }, "blendMode": "screen" },
+                    { "id": "44444444-4444-4444-8444-444444444444", "trackId": "11111111-1111-4111-8111-111111111111", "kind": "video", "label": "Toma", "startFrame": 15, "durationFrames": 60, "source": { "type": "asset", "assetId": "55555555-5555-4555-8555-555555555555", "inFrame": 0, "outFrame": 60 }, "motion": { "type": "zoom-in", "intensity": 0.15 }, "reverse": true, "transitionIn": { "type": "dissolve", "frames": 6 }, "transform": { "keyframes": [{ "frame": 0, "scale": 1.0, "offsetX": 0, "rotationDeg": 0, "opacity": 0.2, "easing": "ease-in" }, { "frame": 30, "scale": 1.25, "offsetX": 20, "rotationDeg": 3, "opacity": 0.6, "easing": "ease-out" }, { "frame": 59, "scale": 1.05, "offsetX": -10, "rotationDeg": 0, "opacity": 1.0 }] }, "effects": { "fadeInFrames": 6, "fadeOutFrames": 6, "lutFile": "media/identity.cube", "lift": { "r": 0.05, "g": 0, "b": 0.08 }, "gamma": { "r": 0.1, "g": 0, "b": -0.05 }, "gain": { "r": 0.08, "g": 0, "b": -0.03 }, "hsl": { "hue": 8, "saturation": 0.1, "intensity": 0.04, "colors": ["r", "y"] }, "colorMatch": { "r": 1.08, "g": 1.0, "b": 0.96, "strength": 0.7 }, "shadows": 0.1, "highlights": -0.1, "fade": 0.05 }, "chromaKey": { "color": "#00ff00", "similarity": 0.2, "blend": 0.1 }, "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.82, "height": 0.92, "rotationDeg": 25, "feather": 0.18, "invert": false, "keyframes": [{ "frame": 0, "x": -0.15 }, { "frame": 30, "x": 0 }, { "frame": 59, "x": 0.15 }] }, "animationIn": { "type": "slide-down", "durationFrames": 12 }, "animationOut": { "type": "fade", "durationFrames": 12 }, "blendMode": "screen" },
                     { "id": "66666666-6666-4666-8666-666666666666", "trackId": "22222222-2222-4222-8222-222222222222", "kind": "audio", "label": "Voz", "startFrame": 0, "durationFrames": 60, "reverse": true, "source": { "type": "asset", "assetId": "77777777-7777-4777-8777-777777777777", "inFrame": 0, "outFrame": 60 }, "audio": { "gainDb": -3, "highPassHz": 80, "lowPassHz": 12000, "eqMidDb": 3, "compressor": true, "deesser": true, "gateDb": -38, "denoise": 0.1, "voiceEffect": "radio", "gainKeyframes": [{ "frame": 0, "gainDb": -3, "easing": "ease-in" }, { "frame": 30, "gainDb": -12 }, { "frame": 59, "gainDb": -3 }] } },
-                    { "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "trackId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "kind": "adjustment", "label": "Look del tramo", "startFrame": 0, "durationFrames": 75, "source": { "type": "adjustment" }, "effects": { "contrast": 1.08, "lutFile": "media/identity.cube" } }
+                    { "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "trackId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "kind": "adjustment", "label": "Look del tramo", "startFrame": 0, "durationFrames": 75, "source": { "type": "adjustment" }, "effects": { "contrast": 1.08, "curvePreset": "contrast-soft", "lutFile": "media/identity.cube" } }
                 ]
             },
             "assets": [
@@ -3602,7 +4374,7 @@ mod tests {
             ],
             "captions": {
                 "styles": [{ "id": "88888888-8888-4888-8888-888888888888", "name": "Principal", "fontFamily": "Arial", "fontSizePx": 30, "color": "#ffffff", "outlineColor": "#000000", "position": "bottom", "bold": true, "borderStyle": "outline", "depth3d": 5, "depthColor": "#f43f5e" }],
-                "cues": [{ "id": "99999999-9999-4999-8999-999999999999", "trackId": "33333333-3333-4333-8333-333333333333", "styleId": "88888888-8888-4888-8888-888888888888", "text": "Hola desde Editor IA", "startFrame": 6, "endFrame": 50, "animation": "pop" }]
+                "cues": [{ "id": "99999999-9999-4999-8999-999999999999", "trackId": "33333333-3333-4333-8333-333333333333", "styleId": "88888888-8888-4888-8888-888888888888", "text": "Hola desde Editor IA", "startFrame": 6, "endFrame": 50, "words": [{ "text": "Hola", "startFrame": 6, "endFrame": 18 }, { "text": "desde", "startFrame": 18, "endFrame": 30 }, { "text": "Editor", "startFrame": 30, "endFrame": 42 }, { "text": "IA", "startFrame": 42, "endFrame": 50 }], "wordReveal": true, "animation": "pop" }, { "id": "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa", "trackId": "33333333-3333-4333-8333-333333333333", "styleId": "88888888-8888-4888-8888-888888888888", "text": "Título animado", "startFrame": 52, "endFrame": 74, "motion": { "preset": "slide-left", "keyframes": [{ "frame": 0, "x": -0.8, "scale": 0.85, "rotationDeg": -8, "opacity": 0 }, { "frame": 22, "x": 0, "scale": 1, "rotationDeg": 0, "opacity": 1 }] } }]
             },
             "audio": { "master": { "gainDb": 0 }, "loudnessTarget": { "platform": "youtube", "integratedLufs": -14, "truePeakDb": -1.5, "toleranceDb": 1.5 } }
         });

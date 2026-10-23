@@ -10,6 +10,21 @@ import {
   fpsOf,
   updateAudioMix,
 } from '../../state/project-actions';
+import {
+  clearSettled,
+  enqueueProfiles,
+  loadRenderQueue,
+  markDone,
+  markFailed,
+  markRunning,
+  nextPending,
+  queueFileName,
+  removeEntry,
+  retryEntry,
+  saveRenderQueue,
+  summarizeQueue,
+  type RenderQueue,
+} from '../../state/render-queue';
 import { useProjectStore } from '../../state/project-store';
 import { recordDirectorOutcome } from '../../state/editor-memory';
 import { evaluateProjectQuality } from '../../state/quality';
@@ -62,8 +77,17 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const [batchProfiles, setBatchProfiles] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  // La cola sobrevive al cierre del diálogo: se hidrata en el primer render
+  // (no en un efecto) y se persiste en cada cambio. Hidratar en un efecto
+  // dejaría un render con la cola vacía que pisaría lo guardado.
+  const [queue, setQueue] = useState<RenderQueue>(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return [];
+    return loadRenderQueue(window.localStorage);
+  });
+  const [queueBusy, setQueueBusy] = useState(false);
   const jobRef = useRef<string | null>(null);
   const batchResolverRef = useRef<((event: RenderFinishedEvent) => void) | null>(null);
+  const folderRef = useRef<string | null>(null);
   jobRef.current = jobId;
 
   useEffect(() => {
@@ -81,9 +105,89 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     setBatchProfiles(new Set(profiles.map((profile) => profile.id)));
     setBatchResults([]);
     setBatchBusy(false);
+    folderRef.current = null;
     // Only reset when the dialog opens, not on every project render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // La cola se persiste en cada cambio para que un cierre abrupto no pierda
+  // los pendientes; la hidratación ya ocurrió en el estado inicial.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    saveRenderQueue(window.localStorage, queue);
+  }, [queue]);
+
+  // Runner de la cola: toma el primer pendiente y lo drena de a uno. El guardia
+  // de `queueBusy` evita arrancar dos renders si el efecto se reejecuta por un
+  // cambio de estado mientras el render sigue en curso.
+  useEffect(() => {
+    if (!open || !store.service.available || queueBusy) return;
+    const entry = nextPending(queue);
+    if (!entry) return;
+    const currentProject = store.state.project;
+    if (!currentProject) return;
+    setQueueBusy(true);
+    void (async () => {
+      try {
+        const saved = await store.saveNow();
+        if (!saved) {
+          setQueue((current) => markFailed(current, entry.id, 'no se pudo guardar el proyecto'));
+          return;
+        }
+        let folder = folderRef.current;
+        if (!folder) {
+          folder = await store.service.chooseExportDirectory();
+          if (!folder) {
+            // Sin carpeta no se puede continuar: se saca la entrada para no
+            // dejar la cola colgada pidiendo un diálogo en cada reapertura.
+            setQueue((current) => removeEntry(current, entry.id));
+            return;
+          }
+          folderRef.current = folder;
+        }
+        setQueue((current) => markRunning(current, entry.id));
+        const outputPath = joinOutputPath(folder, queueFileName(currentProject.name, entry.profileName));
+        const started = await store.service.startRenderTo(
+          entry.profileId,
+          outputPath,
+          entry.includeCaptions,
+        );
+        if (!started) {
+          setQueue((current) => markFailed(current, entry.id, 'el render no se inició'));
+          return;
+        }
+        jobRef.current = started.jobId;
+        setJobId(started.jobId);
+        setProgress({
+          jobId: started.jobId,
+          percent: 0,
+          processedSeconds: 0,
+          totalSeconds: store.durationFrames / fpsOf(currentProject),
+          phase: `cola · ${entry.profileName}`,
+        });
+        const event = await waitForJob(started.jobId);
+        setQueue((current) =>
+          event.status === 'completed'
+            ? markDone(current, entry.id, event.outputPath ?? outputPath)
+            : markFailed(current, entry.id, event.message ?? event.status),
+        );
+        jobRef.current = null;
+        setJobId(null);
+        setProgress(null);
+      } catch (cause) {
+        setQueue((current) =>
+          markFailed(current, entry.id, cause instanceof Error ? cause.message : 'el render falló'),
+        );
+        jobRef.current = null;
+        setJobId(null);
+        setProgress(null);
+      } finally {
+        setQueueBusy(false);
+      }
+    })();
+    // `waitForJob` y `fpsOf` son estables durante la vida del componente.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, queue, queueBusy, store]);
 
   useEffect(() => {
     if (!open || !store.service.available) return;
@@ -154,7 +258,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
   const profiles = project.renderProfiles;
   const selected = profiles.find((profile) => profile.id === profileId) ?? profiles[0];
-  const running = Boolean(jobId) || starting || batchBusy;
+  const running = Boolean(jobId) || starting || batchBusy || queueBusy;
   const fps = fpsOf(project);
   const selectedBatchProfiles = profiles.filter((profile) => batchProfiles.has(profile.id));
   const compression = selected ? compressionPresetOf(selected) : 'custom';
@@ -551,6 +655,99 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     ))}
                   </ul>
                 ) : null}
+              </div>
+
+              <div className="batch-export">
+                <p className="eyebrow">Cola de entregas</p>
+                <p className="fine-print">
+                  Encolá perfiles y se renderizan en orden con el diálogo abierto. La cola queda
+                  guardada en este equipo: si cerrás la app, lo pendiente se reanuda al volver.
+                </p>
+                <div className="actions compact">
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() =>
+                      setQueue((current) =>
+                        enqueueProfiles(current, selected ? [selected] : [], includeCaptions),
+                      )
+                    }
+                    disabled={running || !selected}
+                  >
+                    Encolar perfil seleccionado
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() =>
+                      setQueue((current) =>
+                        enqueueProfiles(current, selectedBatchProfiles, includeCaptions),
+                      )
+                    }
+                    disabled={running || selectedBatchProfiles.length === 0}
+                  >
+                    Encolar variantes del lote ({selectedBatchProfiles.length})
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() => setQueue(clearSettled)}
+                    disabled={
+                      running ||
+                      !queue.some((entry) => entry.status === 'done' || entry.status === 'error')
+                    }
+                  >
+                    Limpiar terminadas
+                  </button>
+                </div>
+                {queue.length > 0 ? (
+                  <ul className="batch-results">
+                    {queue.map((entry) => (
+                      <li key={entry.id} className={entry.status}>
+                        <strong>{entry.profileName}</strong>
+                        <span>
+                          {entry.status === 'pending'
+                            ? 'En cola'
+                            : entry.status === 'running'
+                              ? 'Renderizando…'
+                              : entry.status === 'done'
+                                ? `OK · ${basename(entry.outputPath ?? '')}`
+                                : `Falló · ${entry.message ?? 'error'}`}
+                        </span>
+                        {entry.status === 'error' || entry.status === 'done' ? (
+                          <button
+                            type="button"
+                            className="small"
+                            onClick={() => setQueue((current) => retryEntry(current, entry.id))}
+                            disabled={running}
+                          >
+                            Reintentar
+                          </button>
+                        ) : null}
+                        {entry.status !== 'running' ? (
+                          <button
+                            type="button"
+                            className="small"
+                            onClick={() => setQueue((current) => removeEntry(current, entry.id))}
+                            disabled={running}
+                          >
+                            Quitar
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {(() => {
+                  const summary = summarizeQueue(queue);
+                  if (summary.pending + summary.running === 0) return null;
+                  return (
+                    <p className="fine-print">
+                      {summary.pending} en cola · {summary.running} en curso · {summary.done} listos ·{' '}
+                      {summary.error} con error
+                    </p>
+                  );
+                })()}
               </div>
 
               {progress ? (

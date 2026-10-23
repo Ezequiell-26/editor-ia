@@ -39,7 +39,7 @@
         "width": {
           "type": "integer",
           "exclusiveMinimum": 0,
-          "maximum": 16384
+          "maximum": 32768
         },
         "height": {
           "$ref": "#/properties/video/properties/width"
@@ -129,6 +129,21 @@
           "minimum": -1,
           "maximum": 1
         },
+        "shadows": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "highlights": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "fade": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "lift": {
           "type": "object",
           "properties": {
@@ -182,6 +197,32 @@
           "additionalProperties": false
         },
         "gain": {
+          "type": "object",
+          "properties": {
+            "r": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "g": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "b": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "r",
+            "g",
+            "b"
+          ],
+          "additionalProperties": false
+        },
+        "offset": {
           "type": "object",
           "properties": {
             "r": {
@@ -286,6 +327,79 @@
           "minimum": 0,
           "maximum": 1
         },
+        "lensCorrection": {
+          "type": "object",
+          "properties": {
+            "k1": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "k2": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "cx": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "cy": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "k1",
+            "k2"
+          ],
+          "additionalProperties": false
+        },
+        "relight": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "y": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "radius": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1
+            },
+            "strength": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "warmth": {
+              "type": "number",
+              "minimum": -1,
+              "maximum": 1
+            },
+            "feather": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "radius",
+            "strength",
+            "warmth"
+          ],
+          "additionalProperties": false
+        },
         "sharpen": {
           "type": "number",
           "minimum": 0,
@@ -328,12 +442,10 @@
                 "type": "object",
                 "properties": {
                   "x": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 1
+                    "$ref": "#/properties/look/properties/fade"
                   },
                   "y": {
-                    "$ref": "#/properties/look/properties/curves/properties/master/items/properties/x"
+                    "$ref": "#/properties/look/properties/fade"
                   }
                 },
                 "required": [
@@ -361,6 +473,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500
+        },
+        "lutIntensity": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         },
         "fadeInFrames": {
           "type": "integer",
@@ -622,6 +739,23 @@
                 ],
                 "additionalProperties": false
               },
+              "favorite": {
+                "type": "boolean"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 24
+                },
+                "maxItems": 8
+              },
+              "bin": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
               "kind": {
                 "type": "string",
                 "const": "video"
@@ -711,6 +845,15 @@
               "rights": {
                 "$ref": "#/properties/assets/items/anyOf/0/properties/rights"
               },
+              "favorite": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/favorite"
+              },
+              "tags": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/tags"
+              },
+              "bin": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/bin"
+              },
               "kind": {
                 "type": "string",
                 "const": "image"
@@ -762,6 +905,15 @@
               },
               "rights": {
                 "$ref": "#/properties/assets/items/anyOf/0/properties/rights"
+              },
+              "favorite": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/favorite"
+              },
+              "tags": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/tags"
+              },
+              "bin": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/bin"
               },
               "kind": {
                 "type": "string",
@@ -823,6 +975,15 @@
               "rights": {
                 "$ref": "#/properties/assets/items/anyOf/0/properties/rights"
               },
+              "favorite": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/favorite"
+              },
+              "tags": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/tags"
+              },
+              "bin": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/bin"
+              },
               "kind": {
                 "type": "string",
                 "const": "font"
@@ -858,6 +1019,15 @@
               },
               "rights": {
                 "$ref": "#/properties/assets/items/anyOf/0/properties/rights"
+              },
+              "favorite": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/favorite"
+              },
+              "tags": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/tags"
+              },
+              "bin": {
+                "$ref": "#/properties/assets/items/anyOf/0/properties/bin"
               },
               "kind": {
                 "type": "string",
@@ -958,6 +1128,22 @@
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
                   },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "colorTag": {
+                    "type": "string",
+                    "enum": [
+                      "rose",
+                      "orange",
+                      "amber",
+                      "green",
+                      "teal",
+                      "blue",
+                      "violet",
+                      "slate"
+                    ]
+                  },
                   "transform": {
                     "type": "object",
                     "properties": {
@@ -987,7 +1173,7 @@
                         "maximum": 360
                       },
                       "opacity": {
-                        "$ref": "#/properties/look/properties/curves/properties/master/items/properties/x"
+                        "$ref": "#/properties/look/properties/fade"
                       },
                       "flipH": {
                         "type": "boolean"
@@ -1024,7 +1210,7 @@
                               "maximum": 360
                             },
                             "opacity": {
-                              "$ref": "#/properties/look/properties/curves/properties/master/items/properties/x"
+                              "$ref": "#/properties/look/properties/fade"
                             },
                             "easing": {
                               "type": "string",
@@ -1055,6 +1241,9 @@
                         "type": "number",
                         "minimum": -60,
                         "maximum": 12
+                      },
+                      "muted": {
+                        "type": "boolean"
                       },
                       "fadeInFrames": {
                         "$ref": "#/properties/look/properties/fadeInFrames"
@@ -1236,7 +1425,10 @@
                         "type": "string",
                         "enum": [
                           "rectangle",
-                          "ellipse"
+                          "ellipse",
+                          "diamond",
+                          "triangle",
+                          "rounded"
                         ]
                       },
                       "x": {
@@ -1384,8 +1576,11 @@
                         "enum": [
                           "dissolve",
                           "fade-black",
+                          "fade-white",
                           "slide-left",
-                          "slide-right"
+                          "slide-right",
+                          "slide-up",
+                          "slide-down"
                         ]
                       },
                       "frames": {
@@ -1457,6 +1652,12 @@
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
                   },
+                  "enabled": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/enabled"
+                  },
+                  "colorTag": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/colorTag"
+                  },
                   "transform": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform"
                   },
@@ -1504,6 +1705,12 @@
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
+                  },
+                  "enabled": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/enabled"
+                  },
+                  "colorTag": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/colorTag"
                   },
                   "transform": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform"
@@ -1585,6 +1792,12 @@
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
                   },
+                  "enabled": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/enabled"
+                  },
+                  "colorTag": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/colorTag"
+                  },
                   "transform": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform"
                   },
@@ -1640,6 +1853,84 @@
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
+                  },
+                  "enabled": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/enabled"
+                  },
+                  "colorTag": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/colorTag"
+                  },
+                  "transform": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform"
+                  },
+                  "audio": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "const": "freeze"
+                  },
+                  "source": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/2/properties/source"
+                  },
+                  "effects": {
+                    "$ref": "#/properties/look"
+                  },
+                  "motion": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/motion"
+                  },
+                  "chromaKey": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/chromaKey"
+                  },
+                  "mask": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/mask"
+                  },
+                  "blendMode": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/blendMode"
+                  },
+                  "transitionIn": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transitionIn"
+                  },
+                  "animationIn": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/animationIn"
+                  },
+                  "animationOut": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/animationIn"
+                  }
+                },
+                "required": [
+                  "id",
+                  "trackId",
+                  "startFrame",
+                  "durationFrames",
+                  "kind",
+                  "source"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/properties/id"
+                  },
+                  "trackId": {
+                    "$ref": "#/properties/id"
+                  },
+                  "label": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
+                  },
+                  "startFrame": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                  },
+                  "durationFrames": {
+                    "$ref": "#/properties/look/properties/fadeInFrames"
+                  },
+                  "enabled": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/enabled"
+                  },
+                  "colorTag": {
+                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/colorTag"
                   },
                   "transform": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform"
@@ -1821,6 +2112,9 @@
                   "additionalProperties": false
                 }
               },
+              "wordReveal": {
+                "type": "boolean"
+              },
               "animation": {
                 "type": "string",
                 "enum": [
@@ -1829,6 +2123,65 @@
                   "pop",
                   "slide-up"
                 ]
+              },
+              "motion": {
+                "type": "object",
+                "properties": {
+                  "preset": {
+                    "type": "string",
+                    "enum": [
+                      "fade",
+                      "zoom",
+                      "slide-left",
+                      "slide-right",
+                      "zoom-out"
+                    ]
+                  },
+                  "keyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "frame": {
+                          "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                        },
+                        "x": {
+                          "type": "number",
+                          "minimum": -1,
+                          "maximum": 1
+                        },
+                        "y": {
+                          "type": "number",
+                          "minimum": -1,
+                          "maximum": 1
+                        },
+                        "scale": {
+                          "type": "number",
+                          "minimum": 0.2,
+                          "maximum": 4
+                        },
+                        "rotationDeg": {
+                          "type": "number",
+                          "minimum": -180,
+                          "maximum": 180
+                        },
+                        "opacity": {
+                          "$ref": "#/properties/look/properties/fade"
+                        }
+                      },
+                      "required": [
+                        "frame"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                },
+                "required": [
+                  "keyframes"
+                ],
+                "additionalProperties": false
               }
             },
             "required": [
@@ -1986,6 +2339,47 @@
         ],
         "additionalProperties": false
       }
+    },
+    "markers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/properties/id"
+          },
+          "frame": {
+            "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+          },
+          "endFrame": {
+            "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "mint",
+              "amber",
+              "rose",
+              "blue",
+              "violet",
+              "slate"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "frame",
+          "label"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 200,
+      "default": []
     },
     "audio": {
       "type": "object",

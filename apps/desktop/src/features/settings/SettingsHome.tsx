@@ -1,12 +1,135 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type {
   ProviderInfo,
   SystemInfo,
 } from '../../services/project-service';
 import { providerUrlProblem } from '../../services/project-service';
+import { Icon, type IconName } from '../../components/Icon';
 import { useProjectStore } from '../../state/project-store';
 import { AudioProviderCard } from './AudioProviderCard';
+import { CapabilitiesCard } from './CapabilitiesCard';
 import { AppearanceCard } from './AppearanceCard';
+import { BackupCard } from './BackupCard';
+import { EditorPreferencesCard } from './EditorPreferencesCard';
+import { ShortcutsCard } from './ShortcutsCard';
+
+type SettingsSectionId =
+  | 'apariencia'
+  | 'editor'
+  | 'atajos'
+  | 'ia'
+  | 'voz'
+  | 'herramientas'
+  | 'datos'
+  | 'alcance';
+
+interface SettingsSectionInfo {
+  readonly id: SettingsSectionId;
+  readonly label: string;
+  readonly hint: string;
+  readonly icon: IconName;
+  readonly blurb: string;
+}
+
+const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
+  {
+    id: 'apariencia',
+    label: 'Apariencia',
+    hint: 'Tema, tipografía y densidad',
+    icon: 'palette',
+    blurb: 'Definí cómo se ve el editor. Los cambios se aplican al instante y quedan sólo en este equipo.',
+  },
+  {
+    id: 'editor',
+    label: 'Editor',
+    hint: 'Guardado, timeline y reproducción',
+    icon: 'grid',
+    blurb: 'Cómo responde el editor: autoguardado, historial, zoom inicial, imán y qué se dibuja sobre los clips.',
+  },
+  {
+    id: 'atajos',
+    label: 'Atajos',
+    hint: 'Teclado y comandos',
+    icon: 'keyboard',
+    blurb: 'Todos los atajos de teclado disponibles. Usá Ctrl+K para abrir la paleta de comandos en cualquier momento.',
+  },
+  {
+    id: 'ia',
+    label: 'Inteligencia artificial',
+    hint: 'Guiones, escenas y proveedor',
+    icon: 'sparkles',
+    blurb: 'Elegí el modelo que escribe guiones y escenas. Podés usar un endpoint local o el simulador sin red.',
+  },
+  {
+    id: 'voz',
+    label: 'Voz y audio',
+    hint: 'Narración y automatización',
+    icon: 'audio',
+    blurb: 'Configurá la voz de las narraciones y el puente para generar audio en webs externas.',
+  },
+  {
+    id: 'herramientas',
+    label: 'Herramientas',
+    hint: 'FFmpeg, FFprobe y diagnóstico',
+    icon: 'plug',
+    blurb: 'La app mide, previsualiza y exporta con herramientas locales. Acá ves qué encontró y podés corregirlo.',
+  },
+  {
+    id: 'datos',
+    label: 'Datos locales',
+    hint: 'Rutas, caché y credenciales',
+    icon: 'save',
+    blurb: 'Tus proyectos, medios y claves viven en este equipo. Revisá dónde se guarda cada cosa.',
+  },
+  {
+    id: 'alcance',
+    label: 'Alcance',
+    hint: 'Qué hace y qué no',
+    icon: 'info',
+    blurb: 'Un resumen honesto de las capacidades actuales para que sepas con qué contás.',
+  },
+];
+
+/**
+ * Busca la sección por id en lugar de por posición: agregar una sección nueva
+ * no obliga a renumerar las demás.
+ */
+function sectionById(id: SettingsSectionId): SettingsSectionInfo {
+  const found = SETTINGS_SECTIONS.find((section) => section.id === id);
+  if (!found) {
+    throw new Error(`sección de ajustes desconocida: ${id}`);
+  }
+  return found;
+}
+
+function SettingsSection({
+  section,
+  active,
+  children,
+}: {
+  readonly section: SettingsSectionInfo;
+  readonly active: boolean;
+  readonly children: ReactNode;
+}) {  return (
+    <section
+      id={`settings-${section.id}`}
+      className="settings-section"
+      aria-labelledby={`settings-${section.id}-title`}
+      hidden={!active}
+    >
+      <header className="settings-section-head">
+        <span className="settings-section-icon" aria-hidden="true">
+          <Icon name={section.icon} size={15} />
+        </span>
+        <div>
+          <h2 id={`settings-${section.id}-title`}>{section.label}</h2>
+          <p>{section.blurb}</p>
+        </div>
+      </header>
+      <div className="settings-section-body">{children}</div>
+    </section>
+  );
+}
 
 function VersionLine({ label, info }: { readonly label: string; readonly info: SystemInfo['ffmpeg'] }) {
   return (
@@ -30,7 +153,14 @@ export function SettingsHome() {
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [toolBusy, setToolBusy] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>('apariencia');
 
+  // Antes las secciones se apilaban y un IntersectionObserver marcaba la activa.
+  // Ahora se muestra una sola por vez dentro de un panel compacto: sin scroll
+  // largo, sin observador y sin recalcular posiciones en cada scroll.
+  function goToSection(id: SettingsSectionId): void {
+    setActiveSection(id);
+  }
   useEffect(() => {
     if (!store.service.available) return;
     let active = true;
@@ -135,26 +265,57 @@ export function SettingsHome() {
 
   return (
     <section className="view settings-view">
-      <div className="view-head">
-        <div>
-          <p className="eyebrow">Configuración</p>
-          <h2>Ajustes</h2>
-          <p className="view-summary">
-            Apariencia, proveedor de IA, herramientas de render, servidores MCP y almacenamiento.
-            Ninguna clave se guarda en el proyecto, en el navegador ni en los logs.
-          </p>
-        </div>
-      </div>
+      <div className="settings-shell">
+        <nav className="settings-nav" aria-label="Secciones de Ajustes">
+          <div className="settings-nav-head">
+            <span className="settings-nav-kicker">Preferencias locales</span>
+            <strong>Ajustes</strong>
+            <small>Se guardan en este equipo</small>
+          </div>
+          {SETTINGS_SECTIONS.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              className={activeSection === section.id ? 'active' : undefined}
+              aria-current={activeSection === section.id ? 'location' : undefined}
+              onClick={() => goToSection(section.id)}
+            >
+              <span className="settings-nav-icon" aria-hidden="true">
+                <Icon name={section.icon} size={14} />
+              </span>
+              <span className="settings-nav-copy">
+                <strong>{section.label}</strong>
+                <small>{section.hint}</small>
+              </span>
+            </button>
+          ))}
+          <div className="settings-nav-foot">
+            <Icon name="shield" size={11} />
+            <span>Claves en el almacén de Windows</span>
+          </div>
+        </nav>
 
-      {!store.service.available ? (
-        <p className="notice notice-warning">{store.service.unavailableReason}</p>
-      ) : null}
+        <div className="settings-content">
+          {!store.service.available ? (
+            <p className="notice notice-warning">{store.service.unavailableReason}</p>
+          ) : null}
 
-      <div className="settings-grid">
-        <AppearanceCard />
+          <SettingsSection section={sectionById('apariencia')} active={activeSection === 'apariencia'}>
+            <AppearanceCard />
+          </SettingsSection>
 
-        <article className="card">
-          <p className="eyebrow">Proveedor de IA</p>
+          <SettingsSection section={sectionById('editor')} active={activeSection === 'editor'}>
+            <EditorPreferencesCard />
+          </SettingsSection>
+
+          <SettingsSection section={sectionById('atajos')} active={activeSection === 'atajos'}>
+            <ShortcutsCard />
+          </SettingsSection>
+
+          <SettingsSection section={sectionById('ia')} active={activeSection === 'ia'}>
+            <CapabilitiesCard />
+            <article className="card">
+              <p className="eyebrow">Modelo de texto</p>
           <h3>Texto para guiones y escenas</h3>
           <p className="muted">
             Compatible con la API de chat de OpenAI: OpenAI, un endpoint local (Ollama, LM Studio,
@@ -222,13 +383,16 @@ export function SettingsHome() {
             {provider?.keyringAvailable
               ? 'Almacén de Windows disponible. La clave se lee sólo al hacer una llamada.'
               : 'El almacén de credenciales no respondió; las claves no se guardarán hasta que esté disponible.'}
-          </p>
-        </article>
+              </p>
+            </article>
+          </SettingsSection>
 
-        <AudioProviderCard />
+          <SettingsSection section={sectionById('voz')} active={activeSection === 'voz'}>
+            <div className="settings-cards two">
+              <AudioProviderCard />
 
-        <article className="card">
-          <p className="eyebrow">Automatización web</p>
+              <article className="card">
+                <p className="eyebrow">Automatización web</p>
           <h3>Web TTS Bridge</h3>
           <p className="muted">
             Extensión companion de Chrome para webs de voz: pide permiso por sitio, escribe el
@@ -257,16 +421,34 @@ export function SettingsHome() {
               Ver extensión en GitHub
             </button>
           </div>
-        </article>
+              </article>
+            </div>
+          </SettingsSection>
 
-        <article className="card">
-          <p className="eyebrow">Herramientas</p>
-          <h3>FFmpeg, FFprobe y voz</h3>
+          <SettingsSection section={sectionById('herramientas')} active={activeSection === 'herramientas'}>
+            <article className="card">
+              <p className="eyebrow">Diagnóstico local</p>
+              <h3>FFmpeg, FFprobe y voz</h3>
           {system ? (
             <div className="tool-list">
               <VersionLine label="FFmpeg" info={system.ffmpeg} />
               <VersionLine label="FFprobe" info={system.ffprobe} />
               <VersionLine label="Windows PowerShell (SAPI)" info={system.powershell} />
+              <div className={system.hardware.h264 ? 'tool-line ready' : 'tool-line'}>
+                <div>
+                  <strong>Aceleración por hardware</strong>
+                  <span>
+                    {system.hardware.h264
+                      ? `${system.hardware.h264} · proxies con GPU`
+                      : 'sólo software (libx264)'}
+                  </span>
+                </div>
+                <p className="tool-path">
+                  {system.hardware.h264
+                    ? 'Los proxies se generan con la GPU: la vista previa carga más rápido.'
+                    : 'Sin encoder de video por hardware: los proxies usan la CPU.'}
+                </p>
+              </div>
             </div>
           ) : (
             <p className="empty-inline">Sin lectura de capacidades todavía.</p>
@@ -282,15 +464,17 @@ export function SettingsHome() {
               {toolBusy === 'refresh' ? 'Leyendo…' : 'Volver a detectar'}
             </button>
           </div>
-          <p className="fine-print">
-            Sin FFmpeg no hay miniaturas ni exportación. Sin FFprobe no se importa material medido
-            ni se verifica un render.
-          </p>
-        </article>
+              <p className="fine-print">
+                Sin FFmpeg no hay miniaturas ni exportación. Sin FFprobe no se importa material
+                medido ni se verifica un render.
+              </p>
+            </article>
+          </SettingsSection>
 
-        <article className="card">
-          <p className="eyebrow">Datos locales</p>
-          <h3>Almacenamiento</h3>
+          <SettingsSection section={sectionById('datos')} active={activeSection === 'datos'}>
+            <article className="card">
+              <p className="eyebrow">Almacenamiento</p>
+              <h3>Dónde vive cada cosa</h3>
           <dl className="data-list">
             <div>
               <dt>Versión</dt>
@@ -314,28 +498,35 @@ export function SettingsHome() {
               Limpiar caché de render
             </button>
           </div>
-          <p className="fine-print">
-            Los proyectos y los medios viven en la carpeta que elegís al crear o abrir. Los
-            recientes se guardan sólo en este equipo. Las claves viven en el Administrador de
-            credenciales de Windows, nunca en estos archivos.
-          </p>
-        </article>
+              <p className="fine-print">
+                Los proyectos y los medios viven en la carpeta que elegís al crear o abrir. Los
+                recientes se guardan sólo en este equipo. Las claves viven en el Administrador de
+                credenciales de Windows, nunca en estos archivos.
+              </p>
+            </article>
 
-        <article className="card">
-          <p className="eyebrow">Alcance</p>
-          <h3>Qué hace y qué no</h3>
-          <ul className="scope-list">
+            <BackupCard />
+          </SettingsSection>
+
+          <SettingsSection section={sectionById('alcance')} active={activeSection === 'alcance'}>
+            <article className="card">
+              <p className="eyebrow">Capacidades</p>
+              <h3>Qué hace y qué no</h3>
+              <ul className="scope-list">
             <li>Render MP4 H.264/AAC con libx264 y verificación FFprobe.</li>
             <li>Timeline multipista en frames, trims, splits y subtítulos ASS.</li>
             <li>Guiones por proveedor compatible o simulador; TTS local con SAPI.</li>
             <li>Voz por ElevenLabs (API oficial, consume créditos) o web externa manual.</li>
             <li>Servidores MCP locales por stdio: listar y ejecutar herramientas.</li>
+            <li>Preferencias del editor y respaldo local de la configuración en JSON.</li>
             <li>Manifiesto local de publicación con hashes, licencias y procedencia.</li>
             <li>No publica en redes ni descarga stock sin procedencia.</li>
             <li>Remotion queda fuera hasta validar su licencia comercial.</li>
             <li>Los clips gráficos se rechazan en render hasta tener motor propio.</li>
           </ul>
-        </article>
+            </article>
+          </SettingsSection>
+        </div>
       </div>
     </section>
   );

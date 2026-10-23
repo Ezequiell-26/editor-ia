@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import type { Asset, BlendMode, CaptionCue, Clip, ClipEffects, ClipMask, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { sampleMaskKeyframes } from '@editor-ia/project-schema';
-import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame } from '../../state/project-actions';
+import { captionMotionAt } from '../../state/caption-motion';
+import { cueWordsAt } from '../../state/subtitles';
+import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
+import { FORMAT_PRESETS } from '../../state/video-format';
 import { useProjectStore } from '../../state/project-store';
+import { loadEditorPreferences } from '../../state/editor-preferences';
 import { Icon } from '../../components/Icon';
+import { ScopesPanel } from './ScopesPanel';
+import type { PreviewFrameResult } from '../../services/project-service';
 
 function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, { width: number; height: number }] {
   const ref = useRef<T | null>(null);
@@ -31,6 +37,31 @@ function volumeFromDb(gainDb: number | undefined): number {
   return Math.min(1, Math.max(0, 10 ** (db / 20)));
 }
 
+function maskPolygon(
+  mask: ClipMask,
+  centerX: number,
+  centerY: number,
+  radiusX: number,
+  radiusY: number,
+): Array<readonly [number, number]> {
+  if (mask.shape === 'diamond') {
+    return [
+      [centerX, centerY - radiusY],
+      [centerX + radiusX, centerY],
+      [centerX, centerY + radiusY],
+      [centerX - radiusX, centerY],
+    ];
+  }
+  if (mask.shape === 'triangle') {
+    return [
+      [centerX, centerY - radiusY],
+      [centerX + radiusX, centerY + radiusY],
+      [centerX - radiusX, centerY + radiusY],
+    ];
+  }
+  return [];
+}
+
 function maskClipPath(mask: ClipMask): string {
   const clamp = (value: number): number => Math.max(0, Math.min(100, value));
   const centerX = clamp(50 + mask.x * 50);
@@ -40,11 +71,27 @@ function maskClipPath(mask: ClipMask): string {
       mask.height * 50,
     )}% at ${centerX}% ${centerY}%)`;
   }
-  const left = clamp(centerX - mask.width * 50);
-  const top = clamp(centerY - mask.height * 50);
-  const right = clamp(100 - (centerX + mask.width * 50));
-  const bottom = clamp(100 - (centerY + mask.height * 50));
-  return `inset(${top}% ${right}% ${bottom}% ${left}%)`;
+  if (mask.shape === 'rectangle' || mask.shape === 'rounded') {
+    const left = clamp(centerX - mask.width * 50);
+    const top = clamp(centerY - mask.height * 50);
+    const right = clamp(100 - (centerX + mask.width * 50));
+    const bottom = clamp(100 - (centerY + mask.height * 50));
+    const round =
+      mask.shape === 'rounded'
+        ? ` round ${clamp(mask.width * 12.5)}% / ${clamp(mask.height * 12.5)}%`
+        : '';
+    return `inset(${top}% ${right}% ${bottom}% ${left}%${round})`;
+  }
+  const points = maskPolygon(
+    mask,
+    centerX,
+    centerY,
+    mask.width * 50,
+    mask.height * 50,
+  )
+    .map(([x, y]) => `${clamp(x)}% ${clamp(y)}%`)
+    .join(', ');
+  return `polygon(${points})`;
 }
 
 /**
@@ -61,10 +108,23 @@ function maskImage(mask: ClipMask): string | undefined {
   const radiusY = mask.height * 50;
   const feather = Math.max(0.001, mask.feather) * 14;
   const fill = mask.invert ? 'black' : 'white';
+  const transform = `rotate(${rotation} ${centerX} ${centerY})`;
   const shape =
     mask.shape === 'ellipse'
-      ? `<ellipse cx="${centerX}" cy="${centerY}" rx="${radiusX}" ry="${radiusY}" fill="${fill}" transform="rotate(${rotation} ${centerX} ${centerY})" filter="url(#soft)"/>`
-      : `<rect x="${centerX - radiusX}" y="${centerY - radiusY}" width="${radiusX * 2}" height="${radiusY * 2}" fill="${fill}" transform="rotate(${rotation} ${centerX} ${centerY})" filter="url(#soft)"/>`;
+      ? `<ellipse cx="${centerX}" cy="${centerY}" rx="${radiusX}" ry="${radiusY}" fill="${fill}" transform="${transform}" filter="url(#soft)"/>`
+      : mask.shape === 'rectangle'
+        ? `<rect x="${centerX - radiusX}" y="${centerY - radiusY}" width="${radiusX * 2}" height="${radiusY * 2}" fill="${fill}" transform="${transform}" filter="url(#soft)"/>`
+        : mask.shape === 'rounded'
+          ? `<rect x="${centerX - radiusX}" y="${centerY - radiusY}" width="${radiusX * 2}" height="${radiusY * 2}" rx="${radiusX * 0.25}" ry="${radiusY * 0.25}" fill="${fill}" transform="${transform}" filter="url(#soft)"/>`
+          : `<polygon points="${maskPolygon(
+            mask,
+            centerX,
+            centerY,
+            radiusX,
+            radiusY,
+          )
+            .map(([x, y]) => `${x},${y}`)
+            .join(' ')}" fill="${fill}" transform="${transform}" filter="url(#soft)"/>`;
   const backdrop = mask.invert ? '<rect width="100" height="100" fill="white"/>' : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><defs><filter id="soft" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="${feather.toFixed(2)}"/></filter></defs>${backdrop}${shape}</svg>`;
   return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
@@ -220,6 +280,20 @@ function effectsToCss(effects: ClipEffects | undefined): CSSProperties {
   if (effects.temperature !== undefined && effects.temperature > 0) {
     filters.push(`sepia(${Math.min(0.35, effects.temperature * 0.35)})`);
   }
+  if (effects.shadows !== undefined && Math.abs(effects.shadows) > 0.001) {
+    filters.push(
+      `brightness(${Math.max(0.5, Math.min(1.5, 1 + effects.shadows * 0.06))})`,
+    );
+  }
+  if (effects.highlights !== undefined && Math.abs(effects.highlights) > 0.001) {
+    filters.push(
+      `contrast(${Math.max(0.5, Math.min(1.5, 1 + effects.highlights * 0.12))})`,
+    );
+  }
+  if (effects.fade !== undefined && effects.fade > 0.001) {
+    filters.push(`contrast(${Math.max(0.5, 1 - effects.fade * 0.12)})`);
+    filters.push(`brightness(${1 + effects.fade * 0.04})`);
+  }
   const lift = effects.lift ?? { r: 0, g: 0, b: 0 };
   const gamma = effects.gamma ?? { r: 0, g: 0, b: 0 };
   const gain = effects.gain ?? { r: 0, g: 0, b: 0 };
@@ -312,7 +386,7 @@ function VideoLayer({
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
-  const volume = muted
+  const volume = muted || clip.audio?.muted === true
     ? 0
     : volumeFromDb(
         clipGainAtFrame(
@@ -357,6 +431,7 @@ function VideoLayer({
       ref={ref}
       className="preview-media"
       src={url}
+      crossOrigin="anonymous"
       style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
       muted={muted}
       playsInline
@@ -390,6 +465,7 @@ function ImageLayer({
     <img
       className="preview-media"
       src={url}
+      crossOrigin="anonymous"
       alt={clip.label ?? 'Imagen de la timeline'}
       style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
     />
@@ -449,12 +525,15 @@ function AudioLayer({
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
   const url = asset ? store.service.mediaUrl(root, asset.source.path) : '';
-  const volume = volumeFromDb(
-    clipGainAtFrame(
-      clip,
-      Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
-    ),
-  );
+  const volume =
+    clip.audio?.muted === true
+      ? 0
+      : volumeFromDb(
+          clipGainAtFrame(
+            clip,
+            Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
+          ),
+        );
 
   useEffect(() => {
     const audio = ref.current;
@@ -518,7 +597,15 @@ function CaptionOverlay({
         const position = style?.position ?? 'bottom';
         const boxed = style?.borderStyle === 'box';
         const background = style?.backgroundColor ?? (boxed ? outline : undefined);
-        const hasWords = cue.words !== undefined && cue.words.length > 1;
+        const revealWords =
+          cue.wordReveal === true &&
+          cue.words !== undefined &&
+          cue.words.length > 0;
+        const visibleWords = cueWordsAt(cue, playheadFrame);
+        const hasWords = revealWords
+          ? visibleWords.length > 0
+          : cue.words !== undefined && cue.words.length > 1;
+        if (revealWords && visibleWords.length === 0) return null;
         const depth =
           style && style.borderStyle !== 'box'
             ? Math.max(0, Math.min(12, style.depth3d ?? 0))
@@ -541,6 +628,14 @@ function CaptionOverlay({
             ? { background, padding: '0.06em 0.28em', borderRadius: '0.12em' }
             : {}),
         };
+        const motion =
+          cue.words && cue.words.length > 0
+            ? null
+            : captionMotionAt(cue, playheadFrame);
+        if (motion) {
+          spanStyle.transform = `translate(${motion.x * 50}%, ${motion.y * 50}%) scale(${motion.scale}) rotate(${motion.rotationDeg}deg)`;
+          spanStyle.opacity = motion.opacity;
+        }
         return (
           <div
             key={cue.id}
@@ -550,14 +645,16 @@ function CaptionOverlay({
           >
             {hasWords ? (
               <span className="caption-words" style={spanStyle}>
-                {cue.words!.map((word, wordIndex) => {
-                  const highlighted =
-                    playheadFrame >= word.startFrame && playheadFrame < word.endFrame;
+                {visibleWords.map((word, wordIndex) => {
+                  const highlighted = revealWords
+                    ? wordIndex === visibleWords.length - 1
+                    : playheadFrame >= word.startFrame &&
+                      playheadFrame < word.endFrame;
                   return (
                     <span
                       key={`${word.startFrame}-${wordIndex}`}
                       className={highlighted ? 'caption-word active' : 'caption-word'}
-                      style={{ color: highlighted ? '#5eead4' : color }}
+                      style={{ color: highlighted ? '#6fa8dc' : color }}
                     >
                       {word.text}{' '}
                     </span>
@@ -578,11 +675,30 @@ export function Preview() {
   const store = useProjectStore();
   const project = store.state.project;
   const [stageRef, stageSize] = useElementSize<HTMLDivElement>();
-  const [showGuides, setShowGuides] = useState(false);
+  // Las guías arrancan según Ajustes → Editor; el botón de la vista previa
+  // sigue mandando durante la sesión.
+  const [showGuides, setShowGuides] = useState(() => loadEditorPreferences().safeMargins);
+  const [showScopes, setShowScopes] = useState(false);
   const [compare, setCompare] = useState(false);
+  const [realFrame, setRealFrame] = useState<PreviewFrameResult | null>(null);
+  const [realFrameBusy, setRealFrameBusy] = useState(false);
+  const [monitorZoom, setMonitorZoom] = useState(1);
+  const [monitorPan, setMonitorPan] = useState({ x: 0, y: 0 });
+  const [panning, setPanning] = useState(false);
+  const [pixelPerfect, setPixelPerfect] = useState(false);
   const fps = project ? fpsOf(project) : 30;
   const playhead = store.state.playheadFrame;
   const playing = store.state.playing;
+
+  useEffect(() => {
+    setRealFrame(null);
+    setPixelPerfect(false);
+  }, [playhead, project?.id]);
+
+  useEffect(() => {
+    setMonitorZoom(1);
+    setMonitorPan({ x: 0, y: 0 });
+  }, [project?.id, project?.video.width, project?.video.height]);
 
   const visualClips = useMemo(() => {
     if (!project) return [];
@@ -591,6 +707,7 @@ export function Preview() {
         const track = trackById(project, clip.trackId);
         if (!track || track.hidden) return false;
         if (!['video', 'image', 'graphic'].includes(track.kind)) return false;
+        if (clip.enabled === false) return false;
         return playhead >= clip.startFrame && playhead < clip.startFrame + clip.durationFrames;
       })
       .sort((a, b) => {
@@ -606,6 +723,7 @@ export function Preview() {
       const track = trackById(project, clip.trackId);
       if (!track || track.muted) return false;
       if (!['audio', 'narration'].includes(track.kind)) return false;
+      if (clip.enabled === false) return false;
       return playhead >= clip.startFrame && playhead < clip.startFrame + clip.durationFrames;
     });
   }, [playhead, project]);
@@ -615,6 +733,7 @@ export function Preview() {
     return project.timeline.clips
       .filter((clip): clip is Extract<Clip, { kind: 'adjustment' }> => {
         if (clip.kind !== 'adjustment') return false;
+        if (clip.enabled === false) return false;
         const track = trackById(project, clip.trackId);
         if (!track || track.hidden) return false;
         return (
@@ -662,9 +781,84 @@ export function Preview() {
           filter: [adjustmentFilter, lookFilter].filter(Boolean).join(' '),
         };
 
+  const currentRatioPreset = FORMAT_PRESETS.find(
+    (p) => p.width === project.video.width && p.height === project.video.height,
+  );
+
+  function handleRatioChange(presetId: string): void {
+    const target = FORMAT_PRESETS.find((p) => p.id === presetId);
+    if (!target) return;
+    store.update((current) =>
+      updateProjectSettings(current, {
+        width: target.width,
+        height: target.height,
+      }),
+    );
+    store.setNotice(`Formato cambiado a ${target.label} (${target.width}×${target.height}).`);
+  }
+
+  function toggleFullscreen(): void {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    } else {
+      el.requestFullscreen().catch(() => {});
+    }
+  }
+
+  function changeZoom(delta: number): void {
+    setMonitorZoom((current) => {
+      const next = Math.max(0.5, Math.min(3, Math.round((current + delta) * 10) / 10));
+      if (next === 1) setMonitorPan({ x: 0, y: 0 });
+      return next;
+    });
+  }
+
+  async function renderRealFrame(native = false): Promise<PreviewFrameResult | null> {
+    const target = visualClips[visualClips.length - 1];
+    if (!project || !target || realFrameBusy) return null;
+    setRealFrameBusy(true);
+    try {
+      const result = await store.service.renderPreviewFrame({
+        project,
+        clipId: target.id,
+        frame: playhead,
+        native,
+      });
+      setRealFrame(result);
+      return result;
+    } catch (failure) {
+      store.setNotice(
+        failure instanceof Error
+          ? failure.message
+          : 'no se pudo renderizar el frame real',
+      );
+      return null;
+    } finally {
+      setRealFrameBusy(false);
+    }
+  }
+
+  async function showPixelPerfect(): Promise<void> {
+    if (!project) return;
+    if (pixelPerfect) {
+      setPixelPerfect(false);
+      return;
+    }
+    // El modo 1:1 inspecciona píxeles del medio: si el frame visible se
+    // renderizó al tamaño del lienzo, se pide de nuevo a resolución nativa.
+    const frame =
+      realFrame?.native === true ? realFrame : await renderRealFrame(true);
+    if (!frame) return;
+    setPixelPerfect(true);
+    setMonitorZoom(1);
+    setMonitorPan({ x: 0, y: 0 });
+  }
+
   return (
     <div
-      className="preview-stage"
+      className={`preview-stage${pixelPerfect ? ' pixel-perfect' : ''}`}
       data-compare={compare ? 'true' : undefined}
       ref={stageRef}
     >
@@ -676,6 +870,14 @@ export function Preview() {
         <span className="preview-hud-chip preview-hud-render" title="El render final usa FFmpeg">
           Vista previa aproximada
         </span>
+        {pixelPerfect && realFrame ? (
+          <span
+            className="preview-hud-chip strong"
+            title={`Frame decodificado con ${realFrame.decoder === 'video-rs' ? 'video-rs en proceso' : 'FFmpeg'}`}
+          >
+            1:1 {realFrame.native ? 'nativo' : ''} · {realFrame.width}×{realFrame.height}
+          </span>
+        ) : null}
         {usingProxy ? (
           <span className="preview-hud-chip proxy" title="La preview usa un proxy; el MP4 usa el original">
             PROXY
@@ -683,6 +885,22 @@ export function Preview() {
         ) : null}
       </div>
       <div className="preview-tools">
+        <select
+          className="preview-ratio-select"
+          value={currentRatioPreset?.id ?? 'custom'}
+          onChange={(e) => handleRatioChange(e.target.value)}
+          title="Relación de aspecto (16:9, 9:16 vertical TikTok, 1:1, etc.)"
+          aria-label="Relación de aspecto"
+        >
+          {FORMAT_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>
+              {preset.label.split(' ')[0]} ({preset.width > preset.height ? '16:9' : preset.width < preset.height ? '9:16' : '1:1'})
+            </option>
+          ))}
+          {!currentRatioPreset && (
+            <option value="custom">Personalizado ({project.video.width}×{project.video.height})</option>
+          )}
+        </select>
         <button
           type="button"
           className={compare ? 'preview-tool active' : 'preview-tool'}
@@ -696,6 +914,18 @@ export function Preview() {
         </button>
         <button
           type="button"
+          className={realFrame ? 'preview-tool active' : 'preview-tool'}
+          aria-pressed={Boolean(realFrame)}
+          aria-label="Frame real del clip activo"
+          title="Renderiza el clip activo con FFmpeg y sus efectos; no incluye otras pistas ni subtítulos"
+          onClick={() => void renderRealFrame()}
+          disabled={realFrameBusy || visualClips.length === 0}
+        >
+          <Icon name="sparkles" size={13} />
+          <span>{realFrameBusy ? 'Render…' : 'Frame real'}</span>
+        </button>
+        <button
+          type="button"
           className={showGuides ? 'preview-tool active' : 'preview-tool'}
           aria-pressed={showGuides}
           aria-label="Guías de composición"
@@ -705,15 +935,122 @@ export function Preview() {
           <Icon name="grid" size={13} />
           <span>Guías</span>
         </button>
+        <button
+          type="button"
+          className={showScopes ? 'preview-tool active' : 'preview-tool'}
+          aria-pressed={showScopes}
+          aria-label="Scopes de color"
+          title="Onda, vectorscopio e histograma del clip visual activo"
+          onClick={() => setShowScopes((value) => !value)}
+        >
+          <Icon name="palette" size={13} />
+          <span>Scopes</span>
+        </button>
+        <button
+          type="button"
+          className={pixelPerfect ? 'preview-tool active' : 'preview-tool'}
+          aria-pressed={pixelPerfect}
+          aria-label="Monitor 1:1 en píxeles"
+          title="Decodifica el frame a la resolución nativa del medio (video-rs, con FFmpeg de respaldo) y lo muestra 1:1 con scroll"
+          onClick={() => void showPixelPerfect()}
+          disabled={realFrameBusy}
+        >
+          <span>1:1</span>
+        </button>
+        <button
+          type="button"
+          className="preview-tool"
+          aria-label="Alejar monitor"
+          title="Alejar monitor"
+          onClick={() => changeZoom(-0.5)}
+          disabled={pixelPerfect || monitorZoom <= 0.5}
+        >
+          <Icon name="minus" size={13} />
+        </button>
+        <button
+          type="button"
+          className="preview-tool"
+          aria-label="Ajustar monitor al 100 %"
+          title="Ajustar monitor al 100 %"
+          onClick={() => {
+            setPixelPerfect(false);
+            setMonitorZoom(1);
+            setMonitorPan({ x: 0, y: 0 });
+          }}
+        >
+          <span>{Math.round(monitorZoom * 100)}%</span>
+        </button>
+        <button
+          type="button"
+          className="preview-tool"
+          aria-label="Acercar monitor"
+          title="Acercar monitor"
+          onClick={() => changeZoom(0.5)}
+          disabled={pixelPerfect || monitorZoom >= 3}
+        >
+          <Icon name="plus" size={13} />
+        </button>
+        <button
+          type="button"
+          className="preview-tool"
+          aria-label="Pantalla completa"
+          title="Pantalla completa"
+          onClick={toggleFullscreen}
+        >
+          <Icon name="fullscreen" size={13} />
+          <span>Pantalla</span>
+        </button>
       </div>
+      {showScopes ? (
+        <ScopesPanel
+          stageRef={stageRef}
+          realFramePath={realFrame?.path ?? null}
+          analyzeScopes={(path) => store.service.analyzeScopesFrame({ path })}
+          onClose={() => setShowScopes(false)}
+        />
+      ) : null}
       <div
-        className="preview-canvas"
+        className={`preview-canvas${monitorZoom !== 1 ? ' zoomed' : ''}${panning ? ' panning' : ''}`}
         style={{
-          width: frameWidth > 0 ? frameWidth : '100%',
-          height: frameHeight > 0 ? frameHeight : undefined,
+          width: pixelPerfect
+            ? (realFrame?.width ?? project.video.width)
+            : frameWidth > 0
+              ? frameWidth
+              : '100%',
+          height: pixelPerfect
+            ? (realFrame?.height ?? project.video.height)
+            : frameHeight > 0
+              ? frameHeight
+              : undefined,
           aspectRatio: `${project.video.width} / ${project.video.height}`,
           backgroundColor: project.video.backgroundColor ?? '#0b0e13',
+          transform: pixelPerfect
+            ? undefined
+            : `scale(${monitorZoom}) translate(${monitorPan.x}px, ${monitorPan.y}px)`,
+          cursor:
+            !pixelPerfect && monitorZoom !== 1
+              ? panning
+                ? 'grabbing'
+                : 'grab'
+              : undefined,
         }}
+        onPointerDown={(event) => {
+          if (pixelPerfect || monitorZoom === 1) return;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setPanning(true);
+        }}
+        onPointerMove={(event) => {
+          if (!panning) return;
+          setMonitorPan((current) => ({
+            x: current.x + event.movementX / monitorZoom,
+            y: current.y + event.movementY / monitorZoom,
+          }));
+        }}
+        onPointerUp={(event) => {
+          setPanning(false);
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }}
+        onPointerCancel={() => setPanning(false)}
       >
         <div className="preview-look" style={previewStyle}>
           {visualClips.map((clip) => {
@@ -732,7 +1069,7 @@ export function Preview() {
                 />
               );
             }
-            if (clip.kind === 'image') {
+            if (clip.kind === 'image' || clip.kind === 'freeze') {
               return (
                 <ImageLayer
                   key={clip.id}
@@ -760,6 +1097,34 @@ export function Preview() {
           />
         ))}
         <CaptionOverlay project={project} playheadFrame={playhead} previewWidth={frameWidth} />
+        {realFrame ? (
+          <div className="preview-real-frame-wrap">
+            <img
+              src={store.service.absoluteFileUrl(realFrame.path)}
+              alt={`Frame real de ${realFrame.clipLabel}`}
+            />
+            <span
+              className="preview-real-frame-badge"
+              title={
+                realFrame.native
+                  ? 'Resolución nativa del medio, con efectos y LUT aplicados'
+                  : 'Resolución del lienzo del proyecto'
+              }
+            >
+              {realFrame.decoder === 'video-rs' ? 'video-rs' : 'FFmpeg'}
+              {realFrame.native ? ' nativo' : ''} · {realFrame.clipLabel} ·{' '}
+              {realFrame.width}×{realFrame.height}
+            </span>
+            <button
+              type="button"
+              className="preview-real-frame-close"
+              aria-label="Cerrar frame real"
+              onClick={() => setRealFrame(null)}
+            >
+              ×
+            </button>
+          </div>
+        ) : null}
         {showGuides ? (
           <div className="safe-guides" aria-hidden="true">
             <span className="safe-action" />

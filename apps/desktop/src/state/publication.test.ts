@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject, parseProject, type Asset, type ProjectDocument } from '@editor-ia/project-schema';
+import { addMarker } from './markers';
 import { addAsset, addScene, ensureDelivery, newId } from './project-actions';
-import { auditPublication, buildPublicationManifest } from './publication';
+import {
+  auditPublication,
+  buildPublicationManifest,
+  buildPublicationMetadata,
+} from './publication';
 
 const NOW = '2026-10-19T00:00:00.000Z';
 
@@ -132,5 +137,17 @@ describe('manifiesto de publicación', () => {
     expect(youtube?.fits).toBe(true);
     expect(shorts?.fits).toBe(false);
     expect(shorts?.reason).toMatch(/9:16/);
+  });
+
+  it('usa los marcadores como capítulos cuando el proyecto los tiene', () => {
+    let project = validated(ensureDelivery(createEmptyProject('Capítulos', NOW)));
+    project = addMarker(project, 0, { label: 'Hook' }).project;
+    project = addMarker(project, 90, { label: 'Cierre' }).project;
+    project = validated(project);
+
+    expect(buildPublicationMetadata(project).chapters).toEqual([
+      { startSeconds: 0, title: 'Hook' },
+      { startSeconds: 3, title: 'Cierre' },
+    ]);
   });
 });

@@ -1,10 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyProject, parseProject } from '@editor-ia/project-schema';
+import {
+  createEmptyProject,
+  parseProject,
+  type CaptionCue,
+} from '@editor-ia/project-schema';
 import { ensureDelivery } from './project-actions';
 import { importSubtitleCues } from './project-actions';
-import { parseSubtitles, serializeSrt } from './subtitles';
+import {
+  cueWordsAt,
+  parseSubtitles,
+  serializeSrt,
+  serializeSrtSeconds,
+  serializeVttSeconds,
+} from './subtitles';
 
 const NOW = '2026-10-20T00:00:00.000Z';
+
+describe('revelado por palabra', () => {
+  const cue = {
+    id: '11111111-1111-4111-8111-111111111111',
+    trackId: '22222222-2222-4222-8222-222222222222',
+    text: 'Hola mundo',
+    language: 'es',
+    startFrame: 0,
+    endFrame: 30,
+    wordReveal: true,
+    words: [
+      { text: 'Hola', startFrame: 0, endFrame: 10 },
+      { text: 'mundo', startFrame: 15, endFrame: 30 },
+    ],
+  } as CaptionCue;
+
+  it('crece con el playhead y devuelve todas sin reveal', () => {
+    expect(cueWordsAt(cue, 0).map((word) => word.text)).toEqual(['Hola']);
+    expect(cueWordsAt(cue, 12).map((word) => word.text)).toEqual(['Hola']);
+    expect(cueWordsAt(cue, 15).map((word) => word.text)).toEqual(['Hola', 'mundo']);
+    expect(cueWordsAt({ ...cue, wordReveal: false }, 0)).toHaveLength(2);
+  });
+});
 
 describe('SRT/VTT', () => {
   it('parsea SRT con BOM, CRLF, varias líneas y etiquetas', () => {
@@ -29,6 +62,59 @@ describe('SRT/VTT', () => {
       { startSeconds: 1, endSeconds: 3.5, text: 'Hola' },
       { startSeconds: 4, endSeconds: 5, text: 'Chau' },
     ]);
+  });
+
+  it('importa ASS con estilos y saltos de línea sin perder el texto', () => {
+    const ass = [
+      '[Script Info]',
+      'ScriptType: v4.00+',
+      '',
+      '[V4+ Styles]',
+      'Format: Name, Fontname',
+      'Style: Default,Arial',
+      '',
+      '[Events]',
+      'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: 0,0:00:00.50,0:00:02.00,Default,,0,0,0,,{\\pos(960,540)}Hola y bienvenidos\\Nal canal',
+      'Dialogue: 0,0:00:03.00,0:00:04.25,Default,,0,0,0,,Adiós',
+      '',
+    ].join('\n');
+    const parsed = parseSubtitles(ass);
+
+    expect(parsed.format).toBe('ass');
+    expect(parsed.warnings).toEqual([]);
+    expect(parsed.cues).toEqual([
+      { startSeconds: 0.5, endSeconds: 2, text: 'Hola y bienvenidos al canal' },
+      { startSeconds: 3, endSeconds: 4.25, text: 'Adiós' },
+    ]);
+  });
+
+  it('distingue SSA de ASS por la cabecera', () => {
+    const ssa = [
+      '[Script Info]',
+      'ScriptType: v4.00',
+      '',
+      '[V4 Styles]',
+      'Format: Name, Fontname',
+      'Style: Default,Arial',
+      '',
+      '[Events]',
+      'Format: Marked, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text',
+      'Dialogue: Marked=0,0:00:01.00,0:00:02.00,Default,,0,0,0,,Hola',
+      '',
+    ].join('\n');
+    const parsed = parseSubtitles(ssa);
+    expect(parsed.format).toBe('ssa');
+    expect(parsed.cues).toEqual([{ startSeconds: 1, endSeconds: 2, text: 'Hola' }]);
+  });
+
+  it('avisa cuando un ASS no tiene diálogos utilizables', () => {
+    const parsed = parseSubtitles(
+      '[Script Info]\nScriptType: v4.00+\n\n[Events]\nDialogue: 0,0:00:05.00,0:00:04.00,Default,,0,0,0,,Al revés\n',
+    );
+    expect(parsed.format).toBe('ass');
+    expect(parsed.cues).toHaveLength(0);
+    expect(parsed.warnings.length).toBeGreaterThan(0);
   });
 
   it('omite bloques inválidos y avisa sin romper', () => {
@@ -76,5 +162,33 @@ describe('SRT/VTT', () => {
     );
     expect(remaining).toHaveLength(1);
     expect(remaining[0]?.text).toBe('Solo');
+  });
+});
+
+describe('serialización para localización', () => {
+  const cues = [
+    { startSeconds: 2.5, endSeconds: 4, text: ' Dos ' },
+    { startSeconds: 0, endSeconds: 1.25, text: 'Uno' },
+    { startSeconds: 4, endSeconds: 4, text: 'Inválido' },
+  ];
+
+  it('ordena y serializa SRT desde segundos', () => {
+    const srt = serializeSrtSeconds(cues);
+    expect(srt).toContain('1\n00:00:00,000 --> 00:00:01,250\nUno');
+    expect(srt).toContain('2\n00:00:02,500 --> 00:00:04,000\nDos');
+    expect(srt).not.toContain('Inválido');
+    expect(parseSubtitles(srt).cues).toHaveLength(2);
+  });
+
+  it('serializa VTT con cabecera y punto decimal', () => {
+    const vtt = serializeVttSeconds(cues);
+    expect(vtt.startsWith('WEBVTT\n\n')).toBe(true);
+    expect(vtt).toContain('00:00:02.500 --> 00:00:04.000');
+    expect(parseSubtitles(vtt).cues.map((cue) => cue.text)).toEqual(['Uno', 'Dos']);
+  });
+
+  it('devuelve un documento válido aunque no haya cues', () => {
+    expect(serializeSrtSeconds([])).toBe('');
+    expect(serializeVttSeconds([])).toBe('WEBVTT\n\n');
   });
 });

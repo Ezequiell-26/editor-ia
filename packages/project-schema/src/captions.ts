@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EntityIdSchema, LanguageTagSchema } from './primitives.ts';
+import { EntityIdSchema, LanguageTagSchema, UnitIntervalSchema } from './primitives.ts';
 import { FrameSchema } from './time.ts';
 
 /**
@@ -50,6 +50,40 @@ export const CaptionAnimationSchema = z.enum([
 ]);
 export type CaptionAnimation = z.infer<typeof CaptionAnimationSchema>;
 
+export const CAPTION_MOTION_PRESETS = [
+  'fade',
+  'zoom',
+  'slide-left',
+  'slide-right',
+  'zoom-out',
+] as const;
+export const CaptionMotionPresetSchema = z.enum(CAPTION_MOTION_PRESETS);
+export type CaptionMotionPreset = z.infer<typeof CaptionMotionPresetSchema>;
+
+/**
+ * Two keyframes at the cue level: the first must sit at frame 0 and the second
+ * inside the cue. Position is normalized to the frame; scale is uniform.
+ */
+export const CaptionMotionKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    x: z.number().gte(-1).lte(1).optional(),
+    y: z.number().gte(-1).lte(1).optional(),
+    scale: z.number().gte(0.2).lte(4).optional(),
+    rotationDeg: z.number().gte(-180).lte(180).optional(),
+    opacity: UnitIntervalSchema.optional(),
+  })
+  .strict();
+export type CaptionMotionKeyframe = z.infer<typeof CaptionMotionKeyframeSchema>;
+
+export const CaptionMotionSchema = z
+  .object({
+    preset: CaptionMotionPresetSchema.optional(),
+    keyframes: z.array(CaptionMotionKeyframeSchema).length(2),
+  })
+  .strict();
+export type CaptionMotion = z.infer<typeof CaptionMotionSchema>;
+
 export const CaptionCueSchema = z
   .object({
     id: EntityIdSchema,
@@ -60,7 +94,9 @@ export const CaptionCueSchema = z
     startFrame: FrameSchema,
     endFrame: FrameSchema,
     words: z.array(CaptionWordSchema).optional(),
+    wordReveal: z.boolean().optional(),
     animation: CaptionAnimationSchema.optional(),
+    motion: CaptionMotionSchema.optional(),
   })
   .strict()
   .superRefine((item, ctx) => {
@@ -70,6 +106,54 @@ export const CaptionCueSchema = z
         path: ['endFrame'],
         message: 'a caption cue must end after it starts',
       });
+    }
+    if (item.motion) {
+      const from = item.motion.keyframes[0];
+      const to = item.motion.keyframes[1];
+      if (!from || !to) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['motion', 'keyframes'],
+          message: 'a caption motion needs exactly two keyframes',
+        });
+        return;
+      }
+      if (from.frame !== 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['motion', 'keyframes', 0, 'frame'],
+          message: 'the first motion keyframe must sit at frame 0',
+        });
+      }
+      if (to.frame <= from.frame) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['motion', 'keyframes', 1, 'frame'],
+          message: 'motion keyframes must be strictly increasing',
+        });
+      }
+      if (to.frame > item.endFrame - item.startFrame) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['motion', 'keyframes', 1, 'frame'],
+          message: 'the last motion keyframe must fall inside the cue',
+        });
+      }
+      const animatesSomething = item.motion.keyframes.some(
+        (keyframe) =>
+          keyframe.x !== undefined ||
+          keyframe.y !== undefined ||
+          keyframe.scale !== undefined ||
+          keyframe.rotationDeg !== undefined ||
+          keyframe.opacity !== undefined,
+      );
+      if (!animatesSomething) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['motion'],
+          message: 'a caption motion must animate at least one property',
+        });
+      }
     }
   });
 

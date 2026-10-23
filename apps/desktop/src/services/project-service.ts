@@ -45,6 +45,7 @@ export interface SystemInfo {
   readonly ffmpeg: ExecutableInfo;
   readonly ffprobe: ExecutableInfo;
   readonly powershell: ExecutableInfo;
+  readonly hardware: HardwareEncoders;
   readonly configDir: string;
   readonly cacheDir: string;
 }
@@ -75,6 +76,20 @@ export interface ScriptPlan {
   readonly simulated: boolean;
   readonly costDisclosed: boolean;
   readonly costApproved: boolean;
+}
+
+export interface EffectRequest {
+  readonly prompt: string;
+  readonly approvedCost?: boolean;
+}
+
+export interface EffectRecipe {
+  readonly name: string;
+  readonly description: string;
+  readonly effects: Record<string, unknown>;
+  readonly providerId: string;
+  readonly model: string;
+  readonly simulated: boolean;
 }
 
 export interface GenerateScriptRequest {
@@ -177,6 +192,19 @@ export interface McpCallResult {
   readonly elapsedMs: number;
 }
 
+/**
+ * Sesión MCP viva. Un servidor que maneja un navegador conserva ahí su estado
+ * (página abierta, perfil, cookies) entre llamadas; `idleMs` dice cuánto hace
+ * que no se usa y el proceso se cierra solo a los 10 minutos.
+ */
+export interface McpSessionInfo {
+  readonly serverId: string;
+  readonly pid: number;
+  readonly calls: number;
+  readonly startedAtMs: number;
+  readonly idleMs: number;
+}
+
 export interface ProxyInfo {
   readonly path: string;
   readonly width: number;
@@ -249,12 +277,33 @@ export type ConversionTarget =
   | 'png'
   | 'jpg'
   | 'webp'
+  | 'bmp'
+  | 'tiff'
   | 'mp4'
+  | 'mkv'
   | 'webm'
   | 'mov'
+  | 'avi'
+  | 'flv'
+  | 'ts'
   | 'gif'
+  | 'hevc'
   | 'mp3'
-  | 'wav';
+  | 'wav'
+  | 'm4a'
+  | 'aac'
+  | 'ogg'
+  | 'opus'
+  | 'flac';
+
+/** Automático (GPU si existe), hardware forzado o software. */
+export type EncoderPreference = 'auto' | 'hardware' | 'software';
+
+export interface EnhanceOptions {
+  readonly denoise?: boolean;
+  readonly sharpen?: boolean;
+  readonly normalizeAudio?: boolean;
+}
 
 export interface ConversionRequest {
   readonly assetId: string;
@@ -262,6 +311,481 @@ export interface ConversionRequest {
   readonly outputDir: string;
   readonly quality?: number;
   readonly maxWidth?: number;
+  readonly encoder?: EncoderPreference;
+  readonly enhance?: EnhanceOptions;
+}
+
+/** Resultado del sondeo completo de un archivo (inspector de medios). */
+export interface MediaProbe {
+  readonly path: string;
+  readonly bytes: number;
+  readonly durationSeconds: number | null;
+  readonly formatName: string;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly videoCodec: string | null;
+  readonly audioCodec: string | null;
+}
+
+/** Compresión de un archivo suelto del disco, sin proyecto abierto. */
+export interface CompressAnyRequest {
+  readonly inputPath: string;
+  readonly outputDir: string;
+  /** mp4, mkv o hevc. */
+  readonly target: 'mp4' | 'mkv' | 'hevc';
+  /** quality o size. */
+  readonly mode: 'quality' | 'size';
+  readonly quality?: number;
+  readonly targetMegabytes?: number;
+  readonly maxWidth?: number;
+  readonly audioKbps?: number;
+}
+
+/** Un modelo de IA local: peso, licencia y estado de descarga. */
+export interface ModelInfo {
+  readonly id: string;
+  readonly capability: string;
+  readonly purpose: string;
+  readonly bytes: number;
+  readonly downloaded: boolean;
+  readonly license: { readonly id: string; readonly detail: string; readonly url: string };
+  readonly sourceUrl: string;
+}
+
+/** Una capacidad de la app y sus backends, con estado medido. */
+export interface CapabilityInfo {
+  readonly id: string;
+  readonly label: string;
+  readonly purpose: string;
+  readonly backends: readonly {
+    readonly id: string;
+    readonly kind: string;
+    readonly detail: string;
+    readonly available: boolean;
+    readonly reason: string | null;
+  }[];
+  readonly available: boolean;
+}
+
+export interface VisualEffectParameter {
+  readonly key: string;
+  readonly label: string;
+  readonly min: number;
+  readonly max: number;
+  readonly default: number;
+  readonly unit: string;
+}
+
+export interface VisualEffectSpec {
+  readonly id: string;
+  readonly label: string;
+  readonly category: string;
+  readonly description: string;
+  readonly filters: readonly string[];
+  readonly available: boolean;
+  readonly parameters: readonly VisualEffectParameter[];
+}
+
+export interface VisualPresetSpec {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly settings: Record<string, unknown>;
+}
+
+export interface VisualTransitionSpec {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly defaultFrames: number;
+  readonly maxFrames: number;
+  readonly overlapsPrevious: boolean;
+  readonly available: boolean;
+}
+
+export interface VisualFilterSupport {
+  readonly name: string;
+  readonly label: string;
+  readonly available: boolean;
+}
+
+export interface VisualCatalog {
+  readonly ffmpegAvailable: boolean;
+  readonly effects: readonly VisualEffectSpec[];
+  readonly presets: readonly VisualPresetSpec[];
+  readonly transitions: readonly VisualTransitionSpec[];
+  readonly filters: readonly VisualFilterSupport[];
+}
+
+export interface VisualFinding {
+  readonly severity: 'error' | 'warning' | 'info' | string;
+  readonly code: string;
+  readonly message: string;
+  readonly clipId: string | null;
+  readonly clipLabel: string | null;
+}
+
+export interface VisualAudit {
+  readonly clipsScanned: number;
+  readonly transitions: number;
+  readonly effectsClips: number;
+  readonly findings: readonly VisualFinding[];
+}
+
+/** Resultado del upscale ×4. */
+export interface UpscaleResult {
+  readonly path: string;
+  readonly inputWidth: number;
+  readonly inputHeight: number;
+  readonly outputWidth: number;
+  readonly outputHeight: number;
+  readonly tiles: number;
+}
+
+/** Resultado de quitar el fondo de una imagen. */
+export interface BackgroundRemoval {
+  readonly path: string;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Modo y preajuste de Denoise Studio. */
+export type DenoiseMode = 'video' | 'image';
+export type DenoisePreset = 'fast' | 'balanced' | 'quality';
+
+/** Pedido de reducción de ruido de imagen o video. */
+export interface DenoiseRequest {
+  readonly inputPath: string;
+  readonly outputDir?: string | null;
+  readonly mode: DenoiseMode;
+  readonly preset: DenoisePreset;
+  readonly strength?: number;
+  readonly temporal?: boolean;
+  readonly preserveDetail?: boolean;
+}
+
+/** Resultado del render de Denoise Studio. */
+export interface DenoiseResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly sourceBytes: number;
+  readonly filter: string;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly durationSeconds: number | null;
+}
+
+/** Progreso en vivo del render de denoise. */
+export interface DenoiseProgress {
+  readonly percent: number;
+}
+
+export type DialoguePreset = 'dialogo' | 'voz' | 'podcast' | 'suave';
+
+/** Mejora de voz con la cadena DSP local de FilmCraft. */
+export interface DialogueRequest {
+  readonly inputPath: string;
+  readonly outputDir?: string | null;
+  readonly preset?: DialoguePreset;
+}
+
+export interface DialogueResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly durationSeconds: number;
+  readonly preset: string;
+  readonly effects: readonly string[];
+}
+
+export interface DialogueProgress {
+  readonly percent: number;
+  readonly stage: string;
+}
+
+/** Exportación de una miniatura compuesta en el canvas. */
+export interface ThumbnailExportRequest {
+  readonly dataUrl: string;
+  readonly outputDir: string;
+  readonly fileName?: string;
+}
+
+export interface ThumbnailExportResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface BestFrameRequest {
+  readonly path: string;
+}
+
+export interface FcpxmlRequest {
+  readonly project: unknown;
+  readonly outputDir: string;
+}
+
+export interface FcpxmlResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly clips: number;
+  readonly warnings: readonly string[];
+}
+
+export interface OtioRequest {
+  readonly project: unknown;
+  readonly outputDir: string;
+}
+
+export interface OtioResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly tracks: number;
+  readonly clips: number;
+  readonly warnings: readonly string[];
+}
+
+export interface EdlRequest {
+  readonly project: unknown;
+  readonly outputDir: string;
+}
+
+export interface EdlResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly events: number;
+  readonly warnings: readonly string[];
+}
+
+export interface LookLutRequest {
+  readonly outputDir: string;
+  readonly title?: string;
+  readonly effects: unknown;
+}
+
+export interface LookLutResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly size: number;
+}
+
+export interface ScopeGrid {
+  readonly columns: number;
+  readonly rows: number;
+  readonly data: readonly number[];
+}
+
+export interface ScopeFrameResult {
+  readonly width: number;
+  readonly height: number;
+  readonly samples: number;
+  readonly waveform: ScopeGrid;
+  readonly vectorscope: ScopeGrid;
+  readonly histogram: readonly [readonly number[], readonly number[], readonly number[]];
+  readonly histogramY: readonly number[];
+  readonly meanCbCr: readonly [number, number];
+}
+
+export interface PreviewFrameRequest {
+  readonly project: unknown;
+  readonly clipId: string;
+  readonly frame: number;
+  /** Pide el PNG a la resolución nativa del medio, no a la del lienzo. */
+  readonly native?: boolean;
+}
+
+export interface PreviewFrameResult {
+  readonly path: string;
+  readonly width: number;
+  readonly height: number;
+  readonly frame: number;
+  readonly timeSeconds: number;
+  readonly clipId: string;
+  readonly clipLabel: string;
+  readonly native: boolean;
+  readonly decoder: 'video-rs' | 'ffmpeg';
+}
+
+export interface BestThumbnailFrame {
+  readonly path: string;
+  readonly score: number;
+  readonly timeSeconds: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** Traducción de un lote acotado de subtítulos con el proveedor configurado. */
+export interface TranslateSubtitlesRequest {
+  readonly texts: readonly string[];
+  readonly sourceLanguage: string;
+  readonly targetLanguage: string;
+  readonly glossary?: string;
+  readonly approvedCost?: boolean;
+}
+
+export interface TranslatedTexts {
+  readonly texts: string[];
+  readonly providerId: string;
+  readonly model: string;
+  readonly simulated: boolean;
+}
+
+export interface SaveLocalizedSubtitleRequest {
+  readonly content: string;
+  readonly outputDir: string;
+  readonly baseName: string;
+  readonly language: string;
+  readonly format: 'srt' | 'vtt';
+}
+
+export interface SaveLocalizedSubtitleResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly format: string;
+  readonly language: string;
+}
+
+export interface DubCue {
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  readonly text: string;
+}
+
+export interface SynthesizeDubRequest {
+  readonly path: string;
+  readonly outputDir: string;
+  readonly language: string;
+  readonly voice?: string;
+  readonly cues: readonly DubCue[];
+  readonly endSeconds?: number;
+  readonly bedVolume?: number;
+}
+
+export interface DubResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds: number;
+  readonly language: string;
+  readonly voice: string;
+  readonly cues: number;
+  readonly replacedOriginalAudio: boolean;
+  readonly originalAudioVolume: number;
+  readonly warnings: readonly string[];
+}
+
+export interface DubProgress {
+  readonly percent: number;
+}
+
+export type CloneEngine = 'xtts' | 'gpt-sovits';
+
+export interface CloneVoiceRequest {
+  readonly text: string;
+  readonly referencePath: string;
+  readonly engineUrl: string;
+  readonly engine?: CloneEngine;
+  readonly language: string;
+  readonly promptText?: string;
+  readonly apiKey?: string;
+}
+
+export interface CloneVoiceResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly durationSeconds: number;
+  readonly language: string;
+  readonly engine: string;
+  readonly referenceSha256: string;
+}
+
+export interface CloneProgress {
+  readonly percent: number;
+  readonly stage?: string;
+}
+
+export interface LipSyncRequest {
+  readonly videoPath: string;
+  readonly audioPath: string;
+  readonly outputDir: string;
+  readonly engineUrl: string;
+  readonly engine?: string;
+  readonly apiKey?: string;
+}
+
+export interface LipSyncResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds: number;
+  readonly engine: string;
+}
+
+export interface LipSyncProgress {
+  readonly percent: number;
+  readonly stage?: string;
+}
+
+/** Exporta un rango de un asset como MP4 vertical 1080×1920. */
+export interface ExportShortRequest {
+  readonly path: string;
+  readonly outputDir: string;
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  readonly label?: string;
+  readonly smartReframe?: boolean;
+}
+
+export interface ExportShortResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds: number;
+  readonly reframe: string;
+  readonly facesDetected: number;
+}
+
+export interface FaceTrackRequest {
+  readonly path: string;
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+}
+
+export interface FaceSample {
+  readonly time: number;
+  readonly centerX: number;
+  readonly centerY: number;
+  readonly size: number;
+}
+
+export interface FaceTrackPoint {
+  readonly time: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface FaceTrackResult {
+  readonly model: string;
+  readonly durationSeconds: number;
+  readonly detections: number;
+  readonly samples: readonly FaceSample[];
+  readonly track: readonly FaceTrackPoint[];
+  readonly scaledWidth: number;
+  readonly scaledHeight: number;
+  readonly xExpression: string;
+  readonly yExpression: string;
+}
+
+export interface ShortProgress {
+  readonly percent: number;
+}
+
+/** Progreso en vivo de una compresión. */
+export interface CompressProgress {
+  readonly percent: number;
 }
 
 export interface ConversionResult {
@@ -269,6 +793,64 @@ export interface ConversionResult {
   readonly bytes: number;
   readonly durationSeconds: number | null;
   readonly formatName: string;
+  /** Tamaño del archivo de origen: con `bytes` da el ahorro logrado. */
+  readonly sourceBytes: number;
+  /** Encoder de video realmente usado (libx264, h264_nvenc, …). */
+  readonly encoder: string;
+}
+
+export interface CompressRequest {
+  readonly assetId: string;
+  readonly outputDir: string;
+  readonly target: 'mp4' | 'mkv' | 'hevc';
+  /** `quality` usa CRF; `size` apunta a un tamaño en megabytes. */
+  readonly mode: 'quality' | 'size';
+  readonly quality?: number;
+  readonly targetMegabytes?: number;
+  readonly maxWidth?: number;
+  readonly audioKbps?: number;
+  readonly encoder?: EncoderPreference;
+  readonly enhance?: EnhanceOptions;
+}
+
+export interface BatchConversionItem {
+  readonly assetId: string;
+  readonly label: string;
+  readonly ok: boolean;
+  readonly path?: string;
+  readonly bytes?: number;
+  readonly sourceBytes: number;
+  readonly durationSeconds?: number | null;
+  readonly formatName?: string;
+  readonly encoder?: string;
+  readonly message?: string;
+}
+
+export interface ConvertProgress {
+  readonly index: number;
+  readonly total: number;
+  readonly label: string;
+  readonly phase: 'start' | 'done';
+  readonly ok: boolean;
+}
+
+export interface ToolResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly message: string;
+}
+
+export interface AudioPeaks {
+  readonly assetId: string;
+  readonly durationSeconds: number;
+  readonly buckets: number;
+  readonly peaks: readonly { readonly min: number; readonly max: number }[];
+}
+
+export interface HardwareEncoders {
+  readonly h264: string | null;
+  readonly hevc: string | null;
+  readonly checked: boolean;
 }
 
 export interface VariantWritten {
@@ -346,6 +928,14 @@ export interface DownloadRequest {
   readonly codec: 'h265' | 'h264';
   readonly kind: DownloadProbe['kind'];
   readonly playlist?: boolean;
+  readonly cookiesFile?: string | null;
+  readonly format?: 'mp4' | 'mkv' | 'webm' | 'mp3' | 'm4a';
+  /** Save permanently to Descargas/Videos descargados/<platform>. */
+  readonly saveToDownloads?: boolean;
+  /** `best`, `worst`, or `height` when maxHeight carries the exact cap. */
+  readonly quality?: 'best' | 'worst' | 'height';
+  /** Absolute folder chosen by the person; defaults to Downloads/Videos descargados. */
+  readonly destinationRoot?: string | null;
 }
 
 export interface DownloadedFile {
@@ -369,7 +959,27 @@ export interface DownloadProgressEvent {
   readonly message: string;
 }
 
+export interface DownloaderBridgeInfo {
+  readonly port: number;
+  readonly token: string;
+  readonly downloadsDir: string;
+  readonly running: boolean;
+}
+
+export interface ExtensionInstallStatus {
+  readonly available: boolean;
+  readonly prepared: boolean;
+  readonly sourcePath: string | null;
+  readonly preparedPath: string | null;
+  readonly hint: string | null;
+}
+
 export type NativeInvoke = (command: string, args: Record<string, unknown>) => Promise<unknown>;
+
+export interface PickedSubtitleFile {
+  readonly name: string;
+  readonly text: string;
+}
 
 export interface DesktopService {
   readonly available: boolean;
@@ -380,6 +990,8 @@ export interface DesktopService {
   adoptProject(path: string): Promise<OpenedProject>;
   saveProject(project: ProjectDocument): Promise<OpenedProject>;
   saveProjectAs(project: ProjectDocument): Promise<OpenedProject | null>;
+  /** Save the delivery `.zip` built by the interface. Null means cancelled. */
+  saveDeliveryPackage(bytes: Uint8Array, fileName: string): Promise<string | null>;
   closeProject(): Promise<void>;
   importAssets(fpsNum: number, fpsDen: number): Promise<ImportOutcome | null>;
   importMediaPaths(input: {
@@ -390,6 +1002,7 @@ export interface DesktopService {
     provider?: string;
   }): Promise<ImportOutcome>;
   importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
+  chooseSubtitleFile(): Promise<PickedSubtitleFile | null>;
   extractFreezeFrame(input: {
     readonly path: string;
     readonly seconds: number;
@@ -417,17 +1030,60 @@ export interface DesktopService {
     minSilenceSeconds?: number,
   ): Promise<MediaAnalysis>;
   convertMedia(request: ConversionRequest): Promise<ConversionResult>;
+  convertMediaBatch(
+    assetIds: readonly string[],
+    target: ConversionTarget,
+    outputDir: string,
+    quality?: number,
+    maxWidth?: number,
+    encoder?: EncoderPreference,
+    enhance?: EnhanceOptions,
+  ): Promise<BatchConversionItem[]>;
+  compressMedia(request: CompressRequest): Promise<ConversionResult>;
+  onConvertProgress(handler: (event: ConvertProgress) => void): Promise<UnlistenFn>;
+  mergeVideos(assetIds: string[], outputDir: string): Promise<ToolResult>;
+  trimVideo(
+    assetId: string,
+    startSeconds: number,
+    endSeconds: number,
+    outputDir: string,
+  ): Promise<ToolResult>;
+  watermarkVideo(
+    assetId: string,
+    text: string,
+    position: string,
+    outputDir: string,
+  ): Promise<ToolResult>;
+  setMetadata(
+    assetId: string,
+    title: string,
+    artist: string,
+    comment: string,
+    outputDir: string,
+  ): Promise<ToolResult>;
+  audioPeaks(assetId: string, buckets?: number): Promise<AudioPeaks>;
+  hardwareEncoders(): Promise<HardwareEncoders>;
   downloaderStatus(): Promise<DownloaderStatus>;
+  downloaderBridgeInfo(): Promise<DownloaderBridgeInfo>;
   installDownloader(): Promise<DownloaderStatus>;
-  probeDownload(url: string): Promise<DownloadProbe>;
+  chooseDownloadDirectory(): Promise<string | null>;
+  extensionStatus(): Promise<ExtensionInstallStatus>;
+  prepareExtension(): Promise<ExtensionInstallStatus>;
+  probeDownload(url: string, cookiesFile?: string | null): Promise<DownloadProbe>;
+  chooseCookiesFile(): Promise<string | null>;
   downloadMedia(request: DownloadRequest): Promise<DownloadOutcome>;
   cleanupDownload(runId: string): Promise<void>;
   onDownloadProgress(handler: (event: DownloadProgressEvent) => void): Promise<UnlistenFn>;
+  fetchPlatformRules(): Promise<unknown>;
   listMcpServers(): Promise<McpServerConfig[]>;
   saveMcpServer(input: McpServerInput): Promise<McpServerConfig>;
   deleteMcpServer(id: string): Promise<void>;
   probeMcpServer(id: string): Promise<McpProbeResult>;
   callMcpTool(id: string, tool: string, args: unknown): Promise<McpCallResult>;
+  /** Cierra la sesión viva de un servidor y devuelve si había una abierta. */
+  closeMcpSession(id: string): Promise<boolean>;
+  /** Sesiones vivas ahora mismo. */
+  mcpSessionStatus(): Promise<McpSessionInfo[]>;
   writeProjectVariant(input: {
     directory: string;
     fileName: string;
@@ -470,6 +1126,7 @@ export interface DesktopService {
   openExternalUrl(url: string): Promise<void>;
   savePublicationManifest(manifest: unknown): Promise<string | null>;
   generateScript(request: GenerateScriptRequest): Promise<ScriptPlan>;
+  generateVideoEffect(request: EffectRequest): Promise<EffectRecipe>;
   listVoices(): Promise<VoiceInfo[]>;
   synthesizeNarration(input: {
     text: string;
@@ -491,6 +1148,60 @@ export interface DesktopService {
   onRenderProgress(handler: (event: RenderProgressEvent) => void): Promise<UnlistenFn>;
   onRenderFinished(handler: (event: RenderFinishedEvent) => void): Promise<UnlistenFn>;
   mediaUrl(root: string, relativePath: string): string;
+  /** Selector nativo de imágenes sueltas (comparador antes/después). */
+  chooseImageFile(title?: string): Promise<string | null>;
+  /** Selector nativo de videos sueltos (compresión, inspección). */
+  chooseVideoFile(title?: string): Promise<string | null>;
+  /** Selector nativo de audio suelto (voz, transcripción, análisis). */
+  chooseAudioFile(title?: string): Promise<string | null>;
+  /** Selector nativo de carpeta, sin proyecto abierto. */
+  chooseDownloadDirectory(): Promise<string | null>;
+  /** Inspección completa por contenido: acepta cualquier archivo que FFmpeg lea. */
+  probeMediaFile(path: string): Promise<MediaProbe>;
+  /** Comprime un archivo suelto del disco y devuelve el antes/después de bytes. */
+  compressAnyFile(request: CompressAnyRequest): Promise<ConversionResult>;
+  /** Progreso porcentual de la compresión en curso. */
+  onCompressProgress(handler: (event: CompressProgress) => void): Promise<UnlistenFn>;
+  listModels(): Promise<ModelInfo[]>;
+  downloadModel(id: string): Promise<ModelInfo>;
+  deleteModel(id: string): Promise<boolean>;
+  listCapabilities(): Promise<CapabilityInfo[]>;
+  listVisualCatalog(): Promise<VisualCatalog>;
+  auditVisuals(project: unknown): Promise<VisualAudit>;
+  removeBackground(inputPath: string): Promise<BackgroundRemoval>;
+  upscaleImage(inputPath: string): Promise<UpscaleResult>;
+  denoiseMedia(request: DenoiseRequest): Promise<DenoiseResult>;
+  onDenoiseProgress(handler: (event: DenoiseProgress) => void): Promise<UnlistenFn>;
+  enhanceDialogue(request: DialogueRequest): Promise<DialogueResult>;
+  onDialogueProgress(handler: (event: DialogueProgress) => void): Promise<UnlistenFn>;
+  saveThumbnail(request: ThumbnailExportRequest): Promise<ThumbnailExportResult>;
+  pickThumbnailFrames(request: BestFrameRequest): Promise<readonly BestThumbnailFrame[]>;
+  renderPreviewFrame(request: PreviewFrameRequest): Promise<PreviewFrameResult>;
+  analyzeScopesFrame(request: { readonly path: string }): Promise<ScopeFrameResult>;
+  exportLookLut(request: LookLutRequest): Promise<LookLutResult>;
+  exportEdl(request: EdlRequest): Promise<EdlResult>;
+  exportOtio(request: OtioRequest): Promise<OtioResult>;
+  exportFcpxml(request: FcpxmlRequest): Promise<FcpxmlResult>;
+  translateSubtitles(request: TranslateSubtitlesRequest): Promise<TranslatedTexts>;
+  saveLocalizedSubtitle(
+    request: SaveLocalizedSubtitleRequest,
+  ): Promise<SaveLocalizedSubtitleResult>;
+  synthesizeDub(request: SynthesizeDubRequest): Promise<DubResult>;
+  onDubProgress(handler: (event: DubProgress) => void): Promise<UnlistenFn>;
+  cloneVoice(request: CloneVoiceRequest): Promise<CloneVoiceResult>;
+  onCloneProgress(handler: (event: CloneProgress) => void): Promise<UnlistenFn>;
+  lipSync(request: LipSyncRequest): Promise<LipSyncResult>;
+  onLipSyncProgress(handler: (event: LipSyncProgress) => void): Promise<UnlistenFn>;
+  exportShort(request: ExportShortRequest): Promise<ExportShortResult>;
+  onShortProgress(handler: (event: ShortProgress) => void): Promise<UnlistenFn>;
+  analyzeFaceTrack(request: FaceTrackRequest): Promise<FaceTrackResult>;
+  /**
+   * Mide VMAF entre el original y el comprimido (0–100). `null` si el build de
+   * FFmpeg no trae libvmaf: la UI lo muestra como no disponible.
+   */
+  measureVmaf(original: string, compressed: string): Promise<number | null>;
+  /** Convierte una ruta absoluta en URL cargable. Vacía fuera de la app nativa. */
+  absoluteFileUrl(path: string): string;
   joinPath(root: string, relativePath: string): string;
 }
 
@@ -501,10 +1212,12 @@ export const PROJECT_COMMANDS = {
   adopt: 'adopt_project',
   save: 'save_project',
   saveAs: 'save_project_as',
+  saveDeliveryPackage: 'save_delivery_package',
   close: 'close_project',
   importAssets: 'import_assets',
   importMediaPaths: 'import_media_paths',
   importLut: 'import_lut',
+  chooseSubtitleFile: 'choose_subtitle_file',
   extractFreezeFrame: 'extract_freeze_frame',
   createVideoProxy: 'create_video_proxy',
   sampleAssetColor: 'sample_asset_color',
@@ -514,16 +1227,63 @@ export const PROJECT_COMMANDS = {
   analyzeStabilization: 'analyze_stabilization',
   analyzeMedia: 'analyze_media',
   convertMedia: 'convert_media',
+  convertMediaBatch: 'convert_media_batch',
+  compressMedia: 'compress_media',
+  mergeVideos: 'merge_videos',
+  trimVideo: 'trim_video',
+  watermarkVideo: 'watermark_video',
+  setMetadata: 'set_metadata',
+  audioPeaks: 'audio_peaks',
+  hardwareEncoders: 'hardware_encoders',
   downloaderStatus: 'downloader_status',
+  downloaderBridgeInfo: 'downloader_bridge_info',
   installDownloader: 'install_downloader',
+  chooseDownloadDirectory: 'choose_download_directory',
+  extensionStatus: 'extension_status',
+  prepareExtension: 'prepare_extension',
   probeDownload: 'probe_download',
+  chooseCookiesFile: 'choose_cookies_file',
+  chooseImageFile: 'choose_image_file',
+  chooseVideoFile: 'choose_video_file',
+  chooseAudioFile: 'choose_audio_file',
+  probeMediaFile: 'probe_any_file',
+  compressAnyFile: 'compress_any_file',
+  measureVmaf: 'measure_vmaf',
+  listModels: 'list_models',
+  downloadModel: 'download_model',
+  deleteModel: 'delete_model',
+  listCapabilities: 'list_capabilities',
+  listVisualCatalog: 'list_visual_catalog',
+  auditVisuals: 'audit_visuals',
+  removeBackground: 'remove_background',
+  upscaleImage: 'upscale_image',
+  denoiseMedia: 'denoise_media',
+  enhanceDialogue: 'enhance_dialogue',
+  saveThumbnail: 'save_thumbnail',
+  pickThumbnailFrames: 'pick_thumbnail_frames',
+  renderPreviewFrame: 'render_preview_frame',
+  analyzeScopesFrame: 'analyze_scopes_frame',
+  exportLookLut: 'export_look_lut',
+  exportEdl: 'export_edl',
+  exportOtio: 'export_otio',
+  exportFcpxml: 'export_fcpxml',
+  translateSubtitles: 'translate_subtitles',
+  saveLocalizedSubtitle: 'save_localized_subtitle',
+  synthesizeDub: 'synthesize_dub',
+  cloneVoice: 'clone_voice',
+  lipSync: 'lip_sync',
+  exportShort: 'export_short',
+  analyzeFaceTrack: 'analyze_face_track',
   downloadMedia: 'download_media',
   cleanupDownload: 'cleanup_download',
+  fetchPlatformRules: 'fetch_platform_rules',
   listMcpServers: 'list_mcp_servers',
   saveMcpServer: 'save_mcp_server',
   deleteMcpServer: 'delete_mcp_server',
   probeMcpServer: 'probe_mcp_server',
   callMcpTool: 'call_mcp_tool',
+  closeMcpSession: 'close_mcp_session',
+  mcpSessionStatus: 'mcp_session_status',
   writeProjectVariant: 'write_project_variant',
   renderProjectVariant: 'render_project_variant',
   loadDirectorMemory: 'load_director_memory',
@@ -541,6 +1301,7 @@ export const PROJECT_COMMANDS = {
   openExternalUrl: 'open_external_url',
   savePublicationManifest: 'save_publication_manifest',
   generateScript: 'generate_script',
+  generateVideoEffect: 'generate_video_effect',
   listVoices: 'list_voices',
   synthesizeNarration: 'synthesize_narration',
   startRender: 'start_render',
@@ -754,6 +1515,13 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async saveProjectAs(project) {
       return requireOpened(await call(PROJECT_COMMANDS.saveAs, { project }));
     },
+    async saveDeliveryPackage(bytes, fileName) {
+      const raw = await call(PROJECT_COMMANDS.saveDeliveryPackage, {
+        bytesBase64: bytesToBase64(bytes),
+        fileName,
+      });
+      return typeof raw === 'string' ? raw : null;
+    },
     async closeProject() {
       await call(PROJECT_COMMANDS.close);
     },
@@ -794,6 +1562,187 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
       return {
         path: record.path,
         name: typeof record.name === 'string' ? record.name : 'LUT',
+      };
+    },
+    async chooseImageFile(title) {
+      const raw = await call(PROJECT_COMMANDS.chooseImageFile, {
+        title: title ?? null,
+      });
+      return typeof raw === 'string' && raw ? raw : null;
+    },
+    absoluteFileUrl(path) {
+      if (!path) return '';
+      if (!detectNativeRuntime()) return '';
+      try {
+        return convertFileSrc(path);
+      } catch {
+        return '';
+      }
+    },
+    async chooseVideoFile(title) {
+      const raw = await call(PROJECT_COMMANDS.chooseVideoFile, { title: title ?? null });
+      return typeof raw === 'string' && raw ? raw : null;
+    },
+    async chooseAudioFile(title) {
+      const raw = await call(PROJECT_COMMANDS.chooseAudioFile, { title: title ?? null });
+      return typeof raw === 'string' && raw ? raw : null;
+    },
+    async chooseDownloadDirectory() {
+      const raw = await call(PROJECT_COMMANDS.chooseDownloadDirectory);
+      return typeof raw === 'string' && raw ? raw : null;
+    },
+    async probeMediaFile(path) {
+      return (await call(PROJECT_COMMANDS.probeMediaFile, { path })) as MediaProbe;
+    },
+    async compressAnyFile(request) {
+      return (await call(PROJECT_COMMANDS.compressAnyFile, {
+        request,
+      })) as ConversionResult;
+    },
+    async onCompressProgress(handler) {
+      return listen<CompressProgress>('compress-progress', (event) => handler(event.payload));
+    },
+    async measureVmaf(original, compressed) {
+      const raw = await call(PROJECT_COMMANDS.measureVmaf, { original, compressed });
+      return typeof raw === 'number' ? raw : null;
+    },
+    async listModels() {
+      return (await call(PROJECT_COMMANDS.listModels)) as ModelInfo[];
+    },
+    async downloadModel(id) {
+      return (await call(PROJECT_COMMANDS.downloadModel, { id })) as ModelInfo;
+    },
+    async deleteModel(id) {
+      return (await call(PROJECT_COMMANDS.deleteModel, { id })) === true;
+    },
+    async listCapabilities() {
+      return (await call(PROJECT_COMMANDS.listCapabilities)) as CapabilityInfo[];
+    },
+    async listVisualCatalog() {
+      return (await call(PROJECT_COMMANDS.listVisualCatalog)) as VisualCatalog;
+    },
+    async auditVisuals(project) {
+      return (await call(PROJECT_COMMANDS.auditVisuals, { project })) as VisualAudit;
+    },
+    async removeBackground(inputPath) {
+      return (await call(PROJECT_COMMANDS.removeBackground, {
+        inputPath,
+      })) as BackgroundRemoval;
+    },
+    async upscaleImage(inputPath) {
+      return (await call(PROJECT_COMMANDS.upscaleImage, {
+        inputPath,
+      })) as UpscaleResult;
+    },
+    async denoiseMedia(request) {
+      return (await call(PROJECT_COMMANDS.denoiseMedia, {
+        request,
+      })) as DenoiseResult;
+    },
+    async onDenoiseProgress(handler) {
+      return listen<DenoiseProgress>('denoise-progress', (event) => handler(event.payload));
+    },
+    async enhanceDialogue(request) {
+      return (await call(PROJECT_COMMANDS.enhanceDialogue, {
+        request,
+      })) as DialogueResult;
+    },
+    async onDialogueProgress(handler) {
+      return listen<DialogueProgress>('dialogue-progress', (event) =>
+        handler(event.payload),
+      );
+    },
+    async saveThumbnail(request) {
+      return (await call(PROJECT_COMMANDS.saveThumbnail, {
+        request,
+      })) as ThumbnailExportResult;
+    },
+    async pickThumbnailFrames(request) {
+      return (await call(PROJECT_COMMANDS.pickThumbnailFrames, {
+        request,
+      })) as BestThumbnailFrame[];
+    },
+    async renderPreviewFrame(request) {
+      return (await call(PROJECT_COMMANDS.renderPreviewFrame, {
+        request,
+      })) as PreviewFrameResult;
+    },
+    async analyzeScopesFrame(request) {
+      return (await call(PROJECT_COMMANDS.analyzeScopesFrame, {
+        request,
+      })) as ScopeFrameResult;
+    },
+    async exportLookLut(request) {
+      return (await call(PROJECT_COMMANDS.exportLookLut, {
+        request,
+      })) as LookLutResult;
+    },
+    async exportEdl(request) {
+      return (await call(PROJECT_COMMANDS.exportEdl, {
+        request,
+      })) as EdlResult;
+    },
+    async exportOtio(request) {
+      return (await call(PROJECT_COMMANDS.exportOtio, {
+        request,
+      })) as OtioResult;
+    },
+    async exportFcpxml(request) {
+      return (await call(PROJECT_COMMANDS.exportFcpxml, {
+        request,
+      })) as FcpxmlResult;
+    },
+    async translateSubtitles(request) {
+      return (await call(PROJECT_COMMANDS.translateSubtitles, {
+        request,
+      })) as TranslatedTexts;
+    },
+    async saveLocalizedSubtitle(request) {
+      return (await call(PROJECT_COMMANDS.saveLocalizedSubtitle, {
+        request,
+      })) as SaveLocalizedSubtitleResult;
+    },
+    async synthesizeDub(request) {
+      return (await call(PROJECT_COMMANDS.synthesizeDub, {
+        request,
+      })) as DubResult;
+    },
+    async onDubProgress(handler) {
+      return listen<DubProgress>('dub-progress', (event) => handler(event.payload));
+    },
+    async cloneVoice(request) {
+      return (await call(PROJECT_COMMANDS.cloneVoice, { request })) as CloneVoiceResult;
+    },
+    async onCloneProgress(handler) {
+      return listen<CloneProgress>('clone-progress', (event) => handler(event.payload));
+    },
+    async lipSync(request) {
+      return (await call(PROJECT_COMMANDS.lipSync, { request })) as LipSyncResult;
+    },
+    async onLipSyncProgress(handler) {
+      return listen<LipSyncProgress>('lipsync-progress', (event) => handler(event.payload));
+    },
+    async exportShort(request) {
+      return (await call(PROJECT_COMMANDS.exportShort, {
+        request,
+      })) as ExportShortResult;
+    },
+    async onShortProgress(handler) {
+      return listen<ShortProgress>('short-progress', (event) => handler(event.payload));
+    },
+    async analyzeFaceTrack(request) {
+      return (await call(PROJECT_COMMANDS.analyzeFaceTrack, {
+        request,
+      })) as FaceTrackResult;
+    },
+    async chooseSubtitleFile() {
+      const raw = await call(PROJECT_COMMANDS.chooseSubtitleFile);
+      if (!raw || typeof raw !== 'object') return null;
+      const record = raw as { name?: unknown; text?: unknown };
+      if (typeof record.text !== 'string') return null;
+      return {
+        name: typeof record.name === 'string' ? record.name : 'subtitulos.srt',
+        text: record.text,
       };
     },
     async extractFreezeFrame(input) {
@@ -870,16 +1819,99 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         outputDir: request.outputDir,
         quality: request.quality ?? null,
         maxWidth: request.maxWidth ?? null,
+        encoder: request.encoder ?? null,
+        enhance: request.enhance ?? null,
       })) as ConversionResult;
+    },
+    async convertMediaBatch(assetIds, target, outputDir, quality, maxWidth, encoder, enhance) {
+      return (await call(PROJECT_COMMANDS.convertMediaBatch, {
+        assetIds: [...assetIds],
+        target,
+        outputDir,
+        quality: quality ?? null,
+        maxWidth: maxWidth ?? null,
+        encoder: encoder ?? null,
+        enhance: enhance ?? null,
+      })) as BatchConversionItem[];
+    },
+    async compressMedia(request) {
+      return (await call(PROJECT_COMMANDS.compressMedia, {
+        assetId: request.assetId,
+        outputDir: request.outputDir,
+        target: request.target,
+        mode: request.mode,
+        quality: request.quality ?? null,
+        targetMegabytes: request.targetMegabytes ?? null,
+        maxWidth: request.maxWidth ?? null,
+        audioKbps: request.audioKbps ?? null,
+        encoder: request.encoder ?? null,
+        enhance: request.enhance ?? null,
+      })) as ConversionResult;
+    },
+    async mergeVideos(assetIds, outputDir) {
+      return (await call(PROJECT_COMMANDS.mergeVideos, {
+        assetIds,
+        outputDir,
+      })) as ToolResult;
+    },
+    async trimVideo(assetId, startSeconds, endSeconds, outputDir) {
+      return (await call(PROJECT_COMMANDS.trimVideo, {
+        assetId,
+        startSeconds,
+        endSeconds,
+        outputDir,
+      })) as ToolResult;
+    },
+    async watermarkVideo(assetId, text, position, outputDir) {
+      return (await call(PROJECT_COMMANDS.watermarkVideo, {
+        assetId,
+        text,
+        position,
+        outputDir,
+      })) as ToolResult;
+    },
+    async setMetadata(assetId, title, artist, comment, outputDir) {
+      return (await call(PROJECT_COMMANDS.setMetadata, {
+        assetId,
+        title,
+        artist,
+        comment,
+        outputDir,
+      })) as ToolResult;
+    },
+    async audioPeaks(assetId, buckets) {
+      return (await call(PROJECT_COMMANDS.audioPeaks, {
+        assetId,
+        buckets: buckets ?? 600,
+      })) as AudioPeaks;
+    },
+    async hardwareEncoders() {
+      return (await call(PROJECT_COMMANDS.hardwareEncoders)) as HardwareEncoders;
     },
     async downloaderStatus() {
       return (await call(PROJECT_COMMANDS.downloaderStatus)) as DownloaderStatus;
     },
+    async downloaderBridgeInfo() {
+      return (await call(PROJECT_COMMANDS.downloaderBridgeInfo)) as DownloaderBridgeInfo;
+    },
     async installDownloader() {
       return (await call(PROJECT_COMMANDS.installDownloader)) as DownloaderStatus;
     },
-    async probeDownload(url) {
-      return (await call(PROJECT_COMMANDS.probeDownload, { url })) as DownloadProbe;
+    async extensionStatus() {
+      return (await call(PROJECT_COMMANDS.extensionStatus)) as ExtensionInstallStatus;
+    },
+    async prepareExtension() {
+      return (await call(PROJECT_COMMANDS.prepareExtension)) as ExtensionInstallStatus;
+    },
+    async probeDownload(url, cookiesFile) {
+      return (await call(PROJECT_COMMANDS.probeDownload, {
+        url,
+        cookiesFile: cookiesFile ?? null,
+      })) as DownloadProbe;
+    },
+    async chooseCookiesFile() {
+      const raw = await call(PROJECT_COMMANDS.chooseCookiesFile);
+      return typeof raw === 'string' ? raw : null;
     },
     async downloadMedia(request) {
       return (await call(PROJECT_COMMANDS.downloadMedia, { request })) as DownloadOutcome;
@@ -889,6 +1921,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async onDownloadProgress(handler) {
       return listen<DownloadProgressEvent>('download-progress', (event) => handler(event.payload));
+    },
+    async fetchPlatformRules() {
+      return call(PROJECT_COMMANDS.fetchPlatformRules);
     },
     async listMcpServers() {
       const raw = await call(PROJECT_COMMANDS.listMcpServers);
@@ -909,6 +1944,13 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         tool,
         arguments: args,
       })) as McpCallResult;
+    },
+    async closeMcpSession(id) {
+      return (await call(PROJECT_COMMANDS.closeMcpSession, { id })) === true;
+    },
+    async mcpSessionStatus() {
+      const raw = await call(PROJECT_COMMANDS.mcpSessionStatus);
+      return Array.isArray(raw) ? (raw as McpSessionInfo[]) : [];
     },
     async writeProjectVariant(input) {
       return (await call(PROJECT_COMMANDS.writeProjectVariant, {
@@ -987,6 +2029,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async generateScript(request) {
       return (await call(PROJECT_COMMANDS.generateScript, { request })) as ScriptPlan;
     },
+    async generateVideoEffect(request) {
+      return (await call(PROJECT_COMMANDS.generateVideoEffect, { request })) as EffectRecipe;
+    },
     async listVoices() {
       const raw = await call(PROJECT_COMMANDS.listVoices);
       return Array.isArray(raw) ? (raw as VoiceInfo[]) : [];
@@ -1031,6 +2076,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async onRenderProgress(handler) {
       return listen<RenderProgressEvent>('render-progress', (event) => handler(event.payload));
     },
+    async onConvertProgress(handler) {
+      return listen<ConvertProgress>('convert-progress', (event) => handler(event.payload));
+    },
     async onRenderFinished(handler) {
       return listen<RenderFinishedEvent>('render-finished', (event) => handler(event.payload));
     },
@@ -1049,6 +2097,16 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
   };
 }
 
+/** Tauri recibe el ZIP en base64: 64 MB nunca viajan como números JSON. */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk));
+  }
+  return btoa(binary);
+}
+
 function unavailable(): never {
   throw new Error(NATIVE_UNAVAILABLE_REASON);
 }
@@ -1063,10 +2121,12 @@ function createUnavailableService(): DesktopService {
     adoptProject: async () => unavailable(),
     saveProject: async () => unavailable(),
     saveProjectAs: async () => unavailable(),
+    saveDeliveryPackage: async () => unavailable(),
     closeProject: async () => unavailable(),
     importAssets: async () => unavailable(),
     importMediaPaths: async () => unavailable(),
     importLut: async () => unavailable(),
+    chooseSubtitleFile: async () => unavailable(),
     extractFreezeFrame: async () => unavailable(),
     createVideoProxy: async () => unavailable(),
     sampleAssetColor: async () => unavailable(),
@@ -1076,6 +2136,15 @@ function createUnavailableService(): DesktopService {
     analyzeStabilization: async () => unavailable(),
     analyzeMedia: async () => unavailable(),
     convertMedia: async () => unavailable(),
+    convertMediaBatch: async () => unavailable(),
+    compressMedia: async () => unavailable(),
+    onConvertProgress: async () => () => {},
+    mergeVideos: async () => unavailable(),
+    trimVideo: async () => unavailable(),
+    watermarkVideo: async () => unavailable(),
+    setMetadata: async () => unavailable(),
+    audioPeaks: async () => unavailable(),
+    hardwareEncoders: async () => unavailable(),
     downloaderStatus: async () => ({
       available: false,
       version: null,
@@ -1084,16 +2153,63 @@ function createUnavailableService(): DesktopService {
       canInstall: false,
       hint: NATIVE_UNAVAILABLE_REASON,
     }),
+    downloaderBridgeInfo: async () => unavailable(),
     installDownloader: async () => unavailable(),
+    chooseDownloadDirectory: async () => unavailable(),
+    extensionStatus: async () => unavailable(),
+    prepareExtension: async () => unavailable(),
     probeDownload: async () => unavailable(),
+    chooseCookiesFile: async () => unavailable(),
+    chooseImageFile: async () => unavailable(),
+    chooseVideoFile: async () => unavailable(),
+    chooseAudioFile: async () => unavailable(),
+    probeMediaFile: async () => unavailable(),
+    compressAnyFile: async () => unavailable(),
+    onCompressProgress: async () => () => {},
+    measureVmaf: async () => unavailable(),
+    listModels: async () => [],
+    downloadModel: async () => unavailable(),
+    deleteModel: async () => unavailable(),
+    listCapabilities: async () => [],
+    listVisualCatalog: async () => unavailable(),
+    auditVisuals: async () => unavailable(),
+    removeBackground: async () => unavailable(),
+    upscaleImage: async () => unavailable(),
+    denoiseMedia: async () => unavailable(),
+    enhanceDialogue: async () => unavailable(),
+    onDialogueProgress: async () => unavailable(),
+    onDenoiseProgress: async () => () => {},
+    saveThumbnail: async () => unavailable(),
+    pickThumbnailFrames: async () => unavailable(),
+    renderPreviewFrame: async () => unavailable(),
+    analyzeScopesFrame: async () => unavailable(),
+    exportLookLut: async () => unavailable(),
+    exportEdl: async () => unavailable(),
+    exportOtio: async () => unavailable(),
+    exportFcpxml: async () => unavailable(),
+    translateSubtitles: async () => unavailable(),
+    saveLocalizedSubtitle: async () => unavailable(),
+    synthesizeDub: async () => unavailable(),
+    onDubProgress: async () => () => {},
+    cloneVoice: async () => unavailable(),
+    onCloneProgress: async () => () => {},
+    lipSync: async () => unavailable(),
+    onLipSyncProgress: async () => () => {},
+    exportShort: async () => unavailable(),
+    analyzeFaceTrack: async () => unavailable(),
+    onShortProgress: async () => () => {},
+    absoluteFileUrl: () => '',
     downloadMedia: async () => unavailable(),
     cleanupDownload: async () => unavailable(),
     onDownloadProgress: async () => () => {},
+    fetchPlatformRules: async () => unavailable(),
     listMcpServers: async () => unavailable(),
     saveMcpServer: async () => unavailable(),
     deleteMcpServer: async () => unavailable(),
     probeMcpServer: async () => unavailable(),
     callMcpTool: async () => unavailable(),
+    closeMcpSession: async () => false,
+    mcpSessionStatus: async () => [],
     writeProjectVariant: async () => unavailable(),
     renderProjectVariant: async () => unavailable(),
     loadDirectorMemory: async () => unavailable(),
@@ -1111,6 +2227,7 @@ function createUnavailableService(): DesktopService {
     openExternalUrl: async () => unavailable(),
     savePublicationManifest: async () => unavailable(),
     generateScript: async () => unavailable(),
+    generateVideoEffect: async () => unavailable(),
     listVoices: async () => unavailable(),
     synthesizeNarration: async () => unavailable(),
     startRender: async () => unavailable(),

@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { useEditorPreferences } from '../../state/useEditorPreferences';
 
 export function usePlayback(): void {
   const store = useProjectStore();
   const playing = store.state.playing;
   const project = store.state.project;
+  const loop = useEditorPreferences().loopPlayback;
   const { setPlayhead, setPlaying, durationFrames } = store;
   const playheadRef = useRef(store.state.playheadFrame);
   playheadRef.current = store.state.playheadFrame;
@@ -28,6 +30,13 @@ export function usePlayback(): void {
       last = now;
       frame += deltaSeconds * fps;
       if (frame >= total) {
+        if (loop) {
+          // Bucle: vuelve al inicio sin cortar la reproducción.
+          frame = 0;
+          setPlayhead(0);
+          handle = requestAnimationFrame(tick);
+          return;
+        }
         setPlayhead(total);
         setPlaying(false);
         return;
@@ -37,5 +46,5 @@ export function usePlayback(): void {
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [playing, project, setPlayhead, setPlaying, durationFrames]);
+  }, [playing, project, setPlayhead, setPlaying, durationFrames, loop]);
 }

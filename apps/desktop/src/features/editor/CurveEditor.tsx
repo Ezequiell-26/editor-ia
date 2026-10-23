@@ -23,7 +23,7 @@ const LABELS: Record<CurveChannel, string> = {
 };
 
 const COLORS: Record<CurveChannel, string> = {
-  master: '#5eead4',
+  master: '#4b8fd6',
   red: '#ff7a7a',
   green: '#63e6a0',
   blue: '#5aa9ff',

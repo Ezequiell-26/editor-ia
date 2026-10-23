@@ -19,6 +19,7 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { Icon } from '../../components/Icon';
+import { ViewToolbar } from '../../components/ViewToolbar';
 import {
   DEFAULT_FLOW_STYLE,
   buildFlowPrompts,
@@ -253,6 +254,20 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   });
 
   useEffect(() => {
+    // AI Hub deja un brief compacto y navega acá. Se consume una sola vez para
+    // que volver a Guion no pise lo que el usuario ya escribió.
+    try {
+      const saved = localStorage.getItem('editoria.aihub.brief');
+      if (saved) {
+        setBrief(saved);
+        localStorage.removeItem('editoria.aihub.brief');
+      }
+    } catch {
+      // localStorage puede estar bloqueado; el brief manual sigue funcionando.
+    }
+  }, []);
+
+  useEffect(() => {
     if (!project) return;
     let active = true;
     void store.service
@@ -297,13 +312,6 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   if (!project) {
     return (
       <section className="view">
-        <div className="view-head">
-          <div>
-            <p className="eyebrow">Asistente</p>
-            <h2>Guion</h2>
-            <p className="view-summary">Convertí un brief en escenas editables y narración local.</p>
-          </div>
-        </div>
         <p className="empty-state">No hay un proyecto abierto. Creá o abrí uno para escribir el guion.</p>
         <div className="actions">
           <button type="button" className="primary" onClick={() => onNavigate('projects')}>
@@ -491,36 +499,33 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
 
   return (
     <section className="view script-view">
-      <div className="view-head">
-        <div>
-          <p className="eyebrow">Plan de producción</p>
-          <h2>Guion y escenas</h2>
-          <p className="view-summary">
-            Un brief se convierte en escenas estructuradas. Nada se aplica sin tu revisión y queda
-            registrado como operación del proyecto.
-          </p>
-        </div>
-        <div className="head-actions">
-          <button
-            type="button"
-            className="ghost icon-text"
-            onClick={() => {
-              const ok = store.update(captionsFromScenes, {
-                notice: 'Subtítulos generados desde el guion con tiempos estimados; editalos en el editor.',
-              });
-              if (ok) onNavigate('editor');
-            }}
-            disabled={scenes.length === 0}
-          >
-            <Icon name="captions" size={14} />
-            <span>Subtítulos desde el guion</span>
-          </button>
-          <button type="button" className="ghost icon-text" onClick={() => onNavigate('editor')}>
-            <Icon name="editor" size={14} />
-            <span>Ir al editor</span>
-          </button>
-        </div>
-      </div>
+      <ViewToolbar
+        label="Guion y escenas"
+        actions={
+          <>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => {
+                const ok = store.update(captionsFromScenes, {
+                  notice: 'Subtítulos generados desde el guion con tiempos estimados; editalos en el editor.',
+                });
+                if (ok) onNavigate('editor');
+              }}
+              disabled={scenes.length === 0}
+            >
+              <Icon name="captions" size={14} />
+              <span>Subtítulos desde el guion</span>
+            </button>
+            <button type="button" className="ghost icon-text" onClick={() => onNavigate('editor')}>
+              <Icon name="editor" size={14} />
+              <span>Ir al editor</span>
+            </button>
+          </>
+        }
+      >
+        <span className="view-count">{scenes.length} escenas</span>
+      </ViewToolbar>
 
       <div className="script-provider">
         <div>

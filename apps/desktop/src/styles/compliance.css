@@ -1,0 +1,104 @@
+.compliance-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.8fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.compliance-audit,
+.compliance-side {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.compliance-platform {
+  min-width: 210px;
+}
+
+.compliance-platform select {
+  min-width: 160px;
+}
+
+.compliance-findings {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compliance-findings li {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  padding: 9px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.compliance-findings li:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.compliance-findings svg {
+  margin-top: 1px;
+  color: var(--color-text-muted);
+}
+
+.compliance-findings .severity-block svg {
+  color: var(--color-danger);
+}
+
+.compliance-findings .severity-warn svg {
+  color: var(--color-warning, #e7c46a);
+}
+
+.compliance-findings .severity-ok svg {
+  color: var(--color-accent);
+}
+
+.compliance-findings strong {
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.compliance-findings p {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.compliance-findings .link-button {
+  margin-top: 4px;
+  font-size: 9px;
+}
+
+.compliance-rule-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 14px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.compliance-sources {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compliance-sources .link-button {
+  font-size: 10px;
+}
+
+@media (max-width: 1000px) {
+  .compliance-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

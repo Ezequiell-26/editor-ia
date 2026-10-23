@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { ViewToolbar } from '../../components/ViewToolbar';
 import type {
+  DownloaderBridgeInfo,
   DownloaderStatus,
   DownloadOutcome,
   DownloadProbe,
@@ -11,6 +13,8 @@ import type {
 } from '../../services/project-service';
 import { addAsset } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { takePendingDownloadUrl } from './pending';
+import { normalizeDownloadUrl } from './url';
 
 type Stage = 'idle' | 'installing' | 'probing' | 'downloading' | 'importing';
 
@@ -20,6 +24,17 @@ const COMPRESSION_OPTIONS = [
   { value: 'balanced', label: 'Equilibrada · CRF 24 (recomendada)' },
   { value: 'compact', label: 'Compacta · CRF 27' },
 ] as const;
+
+const DOWNLOAD_DIR_KEY = 'editor-ia.download-dir.v1';
+
+function loadDownloadDir(): string | null {
+  try {
+    const value = window.localStorage.getItem(DOWNLOAD_DIR_KEY);
+    return value && value.trim() ? value : null;
+  } catch {
+    return null;
+  }
+}
 
 const KIND_LABELS: Record<DownloadProbe['kind'], string> = {
   video: 'Video',
@@ -66,18 +81,25 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const store = useProjectStore();
   const project = store.state.project;
   const service = store.service;
-  const [url, setUrl] = useState('');
+  const [pendingUrl] = useState(takePendingDownloadUrl);
+  const [url, setUrl] = useState(pendingUrl);
+  const autoAnalyzed = useRef(false);
+  const [cookiesPath, setCookiesPath] = useState<string | null>(null);
   const [probe, setProbe] = useState<DownloadProbe | null>(null);
   const [engine, setEngine] = useState<DownloaderStatus | null>(null);
+  const [bridge, setBridge] = useState<DownloaderBridgeInfo | null>(null);
+  const [bridgeError, setBridgeError] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>('idle');
   const [progress, setProgress] = useState<DownloadProgressEvent | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [rights, setRights] = useState(false);
-  const [selectedHeight, setSelectedHeight] = useState<number | null>(null);
+  const [quality, setQuality] = useState<'best' | 'worst' | number>('best');
+  const [destinationRoot, setDestinationRoot] = useState<string | null>(loadDownloadDir);
   const [compression, setCompression] = useState<(typeof COMPRESSION_OPTIONS)[number]['value']>(
     'balanced',
   );
+  const [format, setFormat] = useState<'mp4' | 'mkv' | 'webm' | 'mp3' | 'm4a'>('mp4');
   const [codec, setCodec] = useState<'h265' | 'h264'>('h265');
   const [outcome, setOutcome] = useState<DownloadOutcome | null>(null);
   const [importedCount, setImportedCount] = useState(0);
@@ -96,10 +118,40 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
           setError(reason instanceof Error ? reason.message : 'no se pudo consultar el motor');
         }
       });
+    void service
+      .downloaderBridgeInfo()
+      .then((info) => {
+        if (!cancelled) setBridge(info);
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setBridgeError(
+            reason instanceof Error ? reason.message : 'el puente para la extensión no está disponible',
+          );
+        }
+      });
     return () => {
       cancelled = true;
     };
   }, [service]);
+
+  async function copyBridge(): Promise<void> {
+    if (!bridge) return;
+    try {
+      await navigator.clipboard.writeText(`${bridge.port}:${bridge.token}`);
+      store.setNotice('Conexión copiada. Pegala en la extensión una vez.');
+    } catch {
+      store.setNotice('No se pudo copiar; seleccioná el token a mano.');
+    }
+  }
+
+  useEffect(() => {
+    if (autoAnalyzed.current || !pendingUrl.trim()) return;
+    autoAnalyzed.current = true;
+    void analyze();
+    // Sólo se autoanaliza la URL que llegó desde otra vista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingUrl]);
 
   useEffect(() => {
     let unlisten: (() => void) | null = null;
@@ -136,12 +188,53 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }
   }
 
+  async function chooseDestination(): Promise<void> {
+    setError(null);
+    try {
+      const picked = await service.chooseDownloadDirectory();
+      if (!picked) return;
+      setDestinationRoot(picked);
+      try {
+        window.localStorage.setItem(DOWNLOAD_DIR_KEY, picked);
+      } catch {
+        // The choice still applies to this session.
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'no se pudo elegir la carpeta');
+    }
+  }
+
+  function useDefaultDestination(): void {
+    setDestinationRoot(null);
+    try {
+      window.localStorage.removeItem(DOWNLOAD_DIR_KEY);
+    } catch {
+      // Ignore unavailable storage.
+    }
+  }
+
+  async function chooseCookies(): Promise<void> {
+    setError(null);
+    try {
+      const picked = await service.chooseCookiesFile();
+      if (!picked) return;
+      setCookiesPath(picked);
+      setProbe(null);
+      setOutcome(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'no se pudo abrir el archivo de cookies');
+    }
+  }
+
   async function analyze(): Promise<void> {
-    const trimmed = url.trim();
+    const trimmed = normalizeDownloadUrl(url);
     if (!trimmed) {
-      setError('Pegá la URL de un video, una foto o un carrusel.');
+      setError(
+        'Pegá un enlace http(s) válido, por ejemplo https://youtu.be/… o youtube.com/watch?v=…',
+      );
       return;
     }
+    setUrl(trimmed);
     setStage('probing');
     setError(null);
     setWarnings([]);
@@ -150,9 +243,11 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     setImportedCount(0);
     setProgress(null);
     try {
-      const result = await service.probeDownload(trimmed);
+      const result = await service.probeDownload(trimmed, cookiesPath);
       setProbe(result);
-      setSelectedHeight(result.maxHeight);
+      setQuality('best');
+      setFormat(result.kind === 'audio' ? 'm4a' : 'mp4');
+      setCompression(result.kind === 'image' ? 'none' : 'balanced');
       setRights(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'no se pudo analizar la URL');
@@ -163,7 +258,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   }
 
   async function download(): Promise<void> {
-    if (!probe || !project) return;
+    if (!probe) return;
     if (!rights) {
       setError('Confirmá que tenés derechos para descargar y usar este contenido.');
       return;
@@ -178,14 +273,27 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     try {
       downloaded = await service.downloadMedia({
         url: probe.url,
-        maxHeight: selectedHeight,
+        maxHeight: typeof quality === 'number' ? quality : null,
+        quality: typeof quality === 'number' ? 'height' : quality,
         compression,
         codec,
         kind: probe.kind,
         playlist: probe.kind === 'gallery',
+        cookiesFile: cookiesPath,
+        format,
+        saveToDownloads: true,
+        destinationRoot,
       });
       setOutcome(downloaded);
       setWarnings([...downloaded.warnings]);
+      if (!project) {
+        setStage('idle');
+        setProgress({ stage: 'done', percent: 100, message: 'Guardado en Videos descargados.' });
+        store.setNotice(`Descarga terminada en ${destinationPath}.`);
+        // El backend mueve los archivos fuera del caché. No borramos el run
+        // aquí: con un backend anterior los archivos todavía viven ahí.
+        return;
+      }
       setStage('importing');
       const imported = await service.importMediaPaths({
         paths: downloaded.files.map((file) => file.path),
@@ -238,39 +346,35 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   }
 
   const qualityOptions = probe?.qualities ?? [];
+  const bestQuality = qualityOptions[0];
+  const minQuality = qualityOptions[qualityOptions.length - 1];
+  const destinationPath =
+    destinationRoot ?? bridge?.downloadsDir ?? 'Descargas\\Videos descargados';
+  const destinationDrive = destinationPath.match(/^[A-Za-z]:/)?.[0] ?? null;
   const canDownload =
     Boolean(probe) &&
-    Boolean(project) &&
     rights &&
     !busy &&
     (probe?.kind !== 'gallery' || probe.entryCount > 0);
 
   return (
     <section className="view download-view">
-      <div className="view-head">
-        <div>
-          <p className="eyebrow">Medios externos</p>
-          <h2>Descargar</h2>
-          <p className="view-summary">
-            Bajá videos, fotos y audio de sitios compatibles con yt-dlp, hasta 8K cuando el sitio
-            lo ofrezca. Se importan al proyecto y podés recomprimirlos con FFmpeg antes de
-            editarlos.
-          </p>
-        </div>
-        <div className="head-actions">
-          <button type="button" className="ghost" onClick={() => onNavigate('assets')}>
+      <ViewToolbar
+        label="Descargar"
+        actions={
+          <button type="button" className="ghost icon-text" onClick={() => onNavigate('assets')}>
             <Icon name="assets" size={14} />
             <span>Ir a Medios</span>
           </button>
-        </div>
-      </div>
+        }
+      />
 
       {!project ? (
-        <div className="notice notice-warning" role="status">
-          Necesitás un proyecto abierto para importar lo que descargues.{' '}
-          <button type="button" className="small ghost" onClick={() => onNavigate('projects')}>
-            Crear o abrir proyecto
-          </button>
+        <div className="notice" role="status">
+          <strong>No necesitás un proyecto para descargar.</strong> El archivo se guarda en{' '}
+          <code>Descargas/Videos descargados/&lt;Plataforma&gt;/&lt;Nombre del video&gt;</code>{' '}
+          y queda disponible en la biblioteca. Si después querés editarlo, abrí un proyecto e
+          importalo desde Medios.
         </div>
       ) : null}
 
@@ -307,6 +411,28 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 : engine?.hint ??
                   'Instalá el motor para descargar. Sólo se acepta contenido público o con permiso.'}
             </p>
+            <div className="download-bridge">
+              <div>
+                <p className="eyebrow">Extensión de Chrome / Edge</p>
+                <p className="fine-print">
+                  {bridge
+                    ? `Puente local en 127.0.0.1:${bridge.port} · token ${bridge.token.slice(0, 8)}…`
+                    : bridgeError ?? 'Conectando el puente local…'}
+                </p>
+              </div>
+              {bridge ? (
+                <button type="button" className="small" onClick={() => void copyBridge()}>
+                  Copiar conexión
+                </button>
+              ) : null}
+            </div>
+            {bridge ? (
+              <p className="fine-print">
+                En Chrome o Edge abrí <code>chrome://extensions</code>, activá Modo desarrollador,
+                elegí «Cargar descomprimida» y apuntá a <code>extensions/editor-ia-downloader</code>.
+                Pegá la conexión una vez en la extensión.
+              </p>
+            ) : null}
           </div>
 
           <div className="card download-source">
@@ -324,9 +450,12 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               }}
             >
               <input
-                type="url"
+                type="text"
+                inputMode="url"
+                autoCapitalize="none"
+                spellCheck={false}
                 value={url}
-                placeholder="https://www.instagram.com/p/… o cualquier enlace público compatible"
+                placeholder="Pegá un enlace de YouTube, Instagram, TikTok o cualquier sitio público…"
                 aria-label="URL para descargar"
                 disabled={busy}
                 onChange={(event) => {
@@ -341,9 +470,37 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 <span>{stage === 'probing' ? 'Analizando…' : 'Analizar'}</span>
               </button>
             </form>
+            <div className="download-cookies">
+              <div>
+                <span className="eyebrow">Cookies (opcional)</span>
+                <p className="fine-print">
+                  {cookiesPath
+                    ? `Usando ${cookiesPath.split(/[\\/]/).pop()} sólo para esta sesión.`
+                    : 'Para contenido con login, exportá cookies.txt en formato Netscape y elegilo acá. No se guardan en el proyecto.'}
+                </p>
+              </div>
+              <div className="actions compact">
+                <button type="button" className="small ghost" disabled={busy} onClick={() => void chooseCookies()}>
+                  {cookiesPath ? 'Cambiar cookies' : 'Elegir cookies.txt'}
+                </button>
+                {cookiesPath ? (
+                  <button
+                    type="button"
+                    className="small ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setCookiesPath(null);
+                      setProbe(null);
+                    }}
+                  >
+                    Quitar
+                  </button>
+                ) : null}
+              </div>
+            </div>
             <p className="fine-print">
-              Sitios con inicio de sesión obligatorio, DRM, transmisiones en vivo o contenido
-              privado pueden fallar. Descargá sólo lo que te pertenece o tenés permiso de usar.
+              Sitios con DRM, captchas, transmisiones en vivo o contenido privado pueden fallar
+              incluso con cookies. Descargá sólo lo que te pertenece o tenés permiso de usar.
             </p>
 
             {probe ? (
@@ -374,20 +531,39 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 </div>
               </div>
               {probe.kind === 'video' && qualityOptions.length > 0 ? (
-                <label className="field">
-                  <span>Calidad a descargar</span>
-                  <select
-                    value={selectedHeight ?? qualityOptions[0]?.height ?? ''}
-                    disabled={busy}
-                    onChange={(event) => setSelectedHeight(Number(event.target.value))}
-                  >
-                    {qualityOptions.map((quality) => (
-                      <option key={quality.height} value={quality.height}>
-                        {qualitySummary(quality)}
+                <>
+                  <label className="field">
+                    <span>Calidad a descargar</span>
+                    <select
+                      value={String(quality)}
+                      disabled={busy}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setQuality(
+                          value === 'best' || value === 'worst' ? value : Number(value),
+                        );
+                      }}
+                    >
+                      <option value="best">
+                        Mejor disponible
+                        {bestQuality ? ` · ${qualitySummary(bestQuality)}` : ''}
                       </option>
-                    ))}
-                  </select>
-                </label>
+                      <option value="worst">
+                        Mínima disponible
+                        {minQuality ? ` · ${qualitySummary(minQuality)}` : ''}
+                      </option>
+                      {qualityOptions.map((item) => (
+                        <option key={item.height} value={item.height}>
+                          Solo {qualitySummary(item)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="fine-print">
+                    Mejor y Mínima eligen automáticamente la pista de video y audio del sitio;
+                    las opciones con altura fijan un tope.
+                  </p>
+                </>
               ) : (
                 <p className="fine-print">
                   {probe.kind === 'gallery'
@@ -399,10 +575,28 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               )}
               <div className="inspector-grid">
                 <label className="field">
+                  <span>Formato de salida</span>
+                  <select
+                    value={format}
+                    disabled={busy || probe.kind === 'image'}
+                    onChange={(event) => {
+                      const value = event.target.value as 'mp4' | 'mkv' | 'webm' | 'mp3' | 'm4a';
+                      setFormat(value);
+                      if (value !== 'mp4') setCompression('none');
+                    }}
+                  >
+                    <option value="mp4">MP4 · más compatible</option>
+                    <option value="mkv">MKV · contenedor flexible</option>
+                    <option value="webm">WebM · web</option>
+                    <option value="mp3">MP3 · sólo audio</option>
+                    <option value="m4a">M4A · audio AAC</option>
+                  </select>
+                </label>
+                <label className="field">
                   <span>Compresión</span>
                   <select
                     value={compression}
-                    disabled={busy || probe.kind === 'image'}
+                    disabled={busy || probe.kind === 'image' || format !== 'mp4'}
                     onChange={(event) =>
                       setCompression(
                         event.target.value as (typeof COMPRESSION_OPTIONS)[number]['value'],
@@ -420,7 +614,12 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   <span>Códec de compresión</span>
                   <select
                     value={codec}
-                    disabled={busy || compression === 'none' || probe.kind === 'image'}
+                    disabled={
+                      busy ||
+                      compression === 'none' ||
+                      probe.kind === 'image' ||
+                      format !== 'mp4'
+                    }
                     onChange={(event) => setCodec(event.target.value as 'h265' | 'h264')}
                   >
                     <option value="h265">H.265 · más chico</option>
@@ -429,9 +628,10 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 </label>
               </div>
               <p className="fine-print">
-                Recomprimir tarda y puede cambiar el aspecto: se conserva el archivo comprimido
-                sólo si queda más chico. Los videos HDR/10-bit se convierten a SDR 8-bit; para
-                conservarlos intactos elegí «Original».
+                MP3/M4A extraen sólo el audio; MKV/WebM cambian el contenedor y dependen de los
+                códecs del sitio. La compresión sólo se aplica a MP4, tarda y puede cambiar el
+                aspecto: se conserva el archivo comprimido sólo si queda más chico. HDR/10-bit pasa
+                a SDR 8-bit; para conservarlo, elegí compresión «Original».
               </p>
             </div>
           ) : null}
@@ -442,7 +642,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             <div className="production-card-head">
               <div>
                 <p className="eyebrow">Descarga</p>
-                <h3>{busy ? 'Trabajando…' : 'Listo para empezar'}</h3>
+                <h3>{busy ? 'Trabajando…' : project ? 'Listo para importar' : 'Descarga sin proyecto'}</h3>
               </div>
             </div>
             {progress ? (
@@ -466,6 +666,42 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 <p className="fine-print">{progress.message}</p>
               </div>
             ) : null}
+            <div className="download-destination">
+              <div className="download-destination-head">
+                <Icon name="folder" size={15} />
+                <div>
+                  <p className="eyebrow">Guardar en</p>
+                  <strong>
+                    {destinationRoot ? destinationDrive ?? 'Carpeta elegida' : 'Predeterminada'}
+                  </strong>
+                </div>
+              </div>
+              <code title={destinationPath}>{destinationPath}</code>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => void chooseDestination()}
+                  disabled={busy}
+                >
+                  Elegir carpeta…
+                </button>
+                {destinationRoot ? (
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={useDefaultDestination}
+                    disabled={busy}
+                  >
+                    Usar predeterminada
+                  </button>
+                ) : null}
+              </div>
+              <p className="fine-print">
+                Se agrega automáticamente <code>&lt;Red&gt;/&lt;Nombre del video&gt;</code> dentro
+                de esa carpeta.
+              </p>
+            </div>
             <label className="check">
               <input
                 type="checkbox"
@@ -475,6 +711,11 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               />
               <span>Tengo derechos para descargar y usar este contenido.</span>
             </label>
+            {!project ? (
+              <p className="fine-print">
+                Se guarda en la biblioteca y no se importa a Medios.
+              </p>
+            ) : null}
             <button
               type="button"
               className="primary icon-text"
@@ -482,7 +723,13 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               onClick={() => void download()}
             >
               <Icon name="download" size={15} />
-              <span>{stage === 'downloading' ? 'Descargando…' : 'Descargar e importar'}</span>
+              <span>
+                {stage === 'downloading'
+                  ? 'Descargando…'
+                  : project
+                    ? 'Descargar e importar'
+                    : 'Descargar a la biblioteca'}
+              </span>
             </button>
             {error ? (
               <div className="notice notice-warning" role="alert">
@@ -507,15 +754,36 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     </li>
                   ))}
                 </ul>
-                {importedCount > 0 ? (
+                <p className="fine-print">
+                  Guardado en <code>{outcome.directory}</code>
+                </p>
+                <div className="actions compact">
                   <button
                     type="button"
-                    className="small"
-                    onClick={() => onNavigate('assets')}
+                    className="small ghost"
+                    onClick={() => {
+                      const path = outcome.files[0]?.path ?? outcome.directory;
+                      void store.service.revealOutput(path).catch((reason) =>
+                        store.setNotice(
+                          reason instanceof Error
+                            ? reason.message
+                            : 'no se pudo abrir la carpeta',
+                        ),
+                      );
+                    }}
                   >
-                    Ver {importedCount} archivo(s) en Medios
+                    Mostrar en carpeta
                   </button>
-                ) : null}
+                  {importedCount > 0 ? (
+                    <button
+                      type="button"
+                      className="small"
+                      onClick={() => onNavigate('assets')}
+                    >
+                      Ver {importedCount} archivo(s) en Medios
+                    </button>
+                  ) : null}
+                </div>
               </div>
             ) : null}
           </div>
@@ -526,7 +794,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               <li>Analizá el enlace para ver las calidades reales que ofrece el sitio.</li>
               <li>Elegí hasta 8K o una resolución menor para bajar más rápido.</li>
               <li>La compresión usa FFmpeg local: no sube tus archivos a ningún servicio.</li>
-              <li>Al importar quedan como medios del proyecto y podés confirmar la licencia en Medios.</li>
+              <li>Cada descarga queda en <code>Descargas/Videos descargados/&lt;Plataforma&gt;/&lt;Video&gt;</code>.</li>
+              <li>Con un proyecto abierto, además se importa a Medios para confirmar la licencia.</li>
             </ul>
           </div>
         </aside>

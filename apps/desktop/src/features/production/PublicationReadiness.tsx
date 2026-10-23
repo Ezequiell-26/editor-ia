@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import type { ViewId } from '../../app/navigation';
+import { Icon } from '../../components/Icon';
 import { basename } from '../../lib/format';
 import { useProjectStore } from '../../state/project-store';
 import {
@@ -7,11 +9,20 @@ import {
   buildPublicationMetadata,
 } from '../../state/publication';
 
-export function PublicationReadiness() {
+export function PublicationReadiness({
+  onNavigate,
+}: {
+  readonly onNavigate?: (id: ViewId) => void;
+}) {
   const store = useProjectStore();
   const project = store.state.project;
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [edlBusy, setEdlBusy] = useState(false);
+  const [edlPath, setEdlPath] = useState<string | null>(null);
+  const [otioPath, setOtioPath] = useState<string | null>(null);
+  const [fcpxmlPath, setFcpxmlPath] = useState<string | null>(null);
+  const [interchangeWarnings, setInterchangeWarnings] = useState<readonly string[]>([]);
   const audit = useMemo(() => (project ? auditPublication(project) : null), [project]);
   const metadata = useMemo(
     () => (project ? buildPublicationMetadata(project) : null),
@@ -91,6 +102,82 @@ export function PublicationReadiness() {
     }
   }
 
+  async function exportEdl(): Promise<void> {
+    setEdlBusy(true);
+    try {
+      const dir = await store.service.chooseDownloadDirectory();
+      if (!dir) return;
+      const result = await store.service.exportEdl({ project: snapshot, outputDir: dir });
+      setEdlPath(result.path);
+      setInterchangeWarnings(result.warnings);
+      store.setNotice(
+        `EDL exportado: ${result.events} evento(s), ${result.warnings.length} aviso(s).`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo exportar el EDL',
+      );
+    } finally {
+      setEdlBusy(false);
+    }
+  }
+
+  async function exportOtio(): Promise<void> {
+    setEdlBusy(true);
+    try {
+      const dir = await store.service.chooseDownloadDirectory();
+      if (!dir) return;
+      const result = await store.service.exportOtio({ project: snapshot, outputDir: dir });
+      setOtioPath(result.path);
+      setInterchangeWarnings(result.warnings);
+      store.setNotice(`OTIO exportado: ${result.tracks} pista(s), ${result.clips} clip(s).`);
+    } catch (error) {
+      store.setNotice(error instanceof Error ? error.message : 'no se pudo exportar el OTIO');
+    } finally {
+      setEdlBusy(false);
+    }
+  }
+
+  async function exportFcpxml(): Promise<void> {
+    setEdlBusy(true);
+    try {
+      const dir = await store.service.chooseDownloadDirectory();
+      if (!dir) return;
+      const result = await store.service.exportFcpxml({ project: snapshot, outputDir: dir });
+      setFcpxmlPath(result.path);
+      setInterchangeWarnings(result.warnings);
+      store.setNotice(`FCPXML exportado: ${result.clips} clip(s), ${result.warnings.length} aviso(s).`);
+    } catch (error) {
+      store.setNotice(error instanceof Error ? error.message : 'no se pudo exportar FCPXML');
+    } finally {
+      setEdlBusy(false);
+    }
+  }
+
+  async function exportInterchangeBundle(): Promise<void> {
+    setEdlBusy(true);
+    try {
+      const dir = await store.service.chooseDownloadDirectory();
+      if (!dir) return;
+      const [edl, otio, fcpxml] = await Promise.all([
+        store.service.exportEdl({ project: snapshot, outputDir: dir }),
+        store.service.exportOtio({ project: snapshot, outputDir: dir }),
+        store.service.exportFcpxml({ project: snapshot, outputDir: dir }),
+      ]);
+      setEdlPath(edl.path);
+      setOtioPath(otio.path);
+      setFcpxmlPath(fcpxml.path);
+      setInterchangeWarnings([...new Set([...edl.warnings, ...otio.warnings, ...fcpxml.warnings])]);
+      store.setNotice(
+        `Intercambio listo: EDL ${edl.events} eventos, OTIO ${otio.clips} clips, FCPXML ${fcpxml.clips} clips.`,
+      );
+    } catch (error) {
+      store.setNotice(error instanceof Error ? error.message : 'no se pudo exportar el intercambio');
+    } finally {
+      setEdlBusy(false);
+    }
+  }
+
   return (
     <article className="card" id="prod-publication">
       <div className="production-card-head">
@@ -98,7 +185,20 @@ export function PublicationReadiness() {
           <p className="eyebrow">Publicación</p>
           <h3>Originalidad y derechos</h3>
         </div>
-        <span className="count-pill">{audit.score}/100</span>
+        <div className="actions compact">
+          {onNavigate ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Abrir cumplimiento"
+              title="Reglas de monetización y riesgos por red"
+              onClick={() => onNavigate('compliance')}
+            >
+              <Icon name="shield" size={15} />
+            </button>
+          ) : null}
+          <span className="count-pill">{audit.score}/100</span>
+        </div>
       </div>
       <div className="production-result">
         <div>
@@ -175,7 +275,53 @@ export function PublicationReadiness() {
         <button type="button" className="primary" onClick={() => void saveManifest()} disabled={busy}>
           {busy ? 'Guardando…' : 'Guardar manifiesto de publicación'}
         </button>
+        <button
+          type="button"
+          className="primary"
+          onClick={() => void exportInterchangeBundle()}
+          disabled={edlBusy}
+          title="Escribe EDL, OTIO y FCPXML en una sola carpeta"
+        >
+          {edlBusy ? 'Exportando…' : 'Paquete EDL+OTIO+FCPXML'}
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => void exportEdl()}
+          disabled={edlBusy}
+          title="CMX 3600 para llevar la timeline a Resolve o Premiere"
+        >
+          {edlBusy ? 'Exportando…' : 'Exportar EDL'}
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => void exportOtio()}
+          disabled={edlBusy}
+          title="OpenTimelineIO JSON para Resolve/Premiere y otras apps"
+        >
+          Exportar OTIO
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => void exportFcpxml()}
+          disabled={edlBusy}
+          title="FCPXML 1.11 para Final Cut Pro / Resolve"
+        >
+          Exportar FCPXML
+        </button>
       </div>
+      {edlPath ? <p className="compress-path">{edlPath}</p> : null}
+      {otioPath ? <p className="compress-path">{otioPath}</p> : null}
+      {fcpxmlPath ? <p className="compress-path">{fcpxmlPath}</p> : null}
+      {interchangeWarnings.length > 0 ? (
+        <ul className="fine-print">
+          {interchangeWarnings.slice(0, 6).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
       <p className="fine-print">
         El manifiesto incluye hashes, licencias, procedencia y variantes. No publica en redes ni
         sube nada: es un registro local para auditoría, créditos y monetización. Verificá los

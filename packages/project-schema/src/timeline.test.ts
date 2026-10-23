@@ -103,9 +103,85 @@ describe('adjustment layers', () => {
   });
 });
 
+describe('freeze clips', () => {
+  const IMAGE_TRACK = '88888888-8888-4888-8888-888888888888';
+  const freezeClip = {
+    id: CLIP_B,
+    trackId: TRACK_VIDEO,
+    kind: 'freeze',
+    label: 'Congelado',
+    startFrame: 30,
+    durationFrames: 60,
+    source: { type: 'asset', assetId: ASSET },
+    effects: { saturation: 1.05 },
+    blendMode: 'screen',
+  };
+
+  it('accepts a freeze clip on a video track', () => {
+    expect(
+      TimelineSchema.safeParse({ tracks: [videoTrack()], clips: [freezeClip] }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a freeze clip on an image track', () => {
+    expect(
+      TimelineSchema.safeParse({
+        tracks: [
+          videoTrack({ id: IMAGE_TRACK, kind: 'image', label: 'I1' }),
+        ],
+        clips: [{ ...freezeClip, trackId: IMAGE_TRACK }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a freeze clip with a windowed source', () => {
+    expect(
+      ClipSchema.safeParse({
+        ...freezeClip,
+        source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 30 },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('rejects a freeze clip with speed', () => {
+    expect(
+      ClipSchema.safeParse({ ...freezeClip, speed: { num: 2, den: 1 } }).success,
+    ).toBe(false);
+  });
+});
+
 describe('ClipSchema', () => {
   it('accepts a video clip whose duration matches its source window', () => {
     expect(ClipSchema.safeParse(videoClip()).success).toBe(true);
+  });
+
+  it('accepts an enabled flag and rejects a non-boolean one', () => {
+    expect(ClipSchema.safeParse(videoClip({ enabled: false })).success).toBe(true);
+    expect(ClipSchema.safeParse(videoClip({ enabled: 'no' })).success).toBe(false);
+  });
+
+  it('accepts a clip color tag and rejects an unknown one', () => {    expect(ClipSchema.safeParse(videoClip({ colorTag: 'teal' })).success).toBe(true);
+    expect(ClipSchema.safeParse(videoClip({ colorTag: 'neon' })).success).toBe(false);
+  });
+
+  it('accepts a per-clip audio mute and rejects a non-boolean', () => {
+    expect(ClipSchema.safeParse(videoClip({ audio: { muted: true } })).success).toBe(true);
+    expect(ClipSchema.safeParse(videoClip({ audio: { muted: 'yes' } })).success).toBe(false);
+  });
+
+  it('accepts a LUT intensity between 0 and 1 and rejects values outside', () => {
+    expect(
+      ClipSchema.safeParse(videoClip({ effects: { lutFile: 'media/luts/x.cube', lutIntensity: 0.4 } }))
+        .success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(videoClip({ effects: { lutFile: 'media/luts/x.cube', lutIntensity: 1.5 } }))
+        .success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(videoClip({ effects: { lutFile: 'media/luts/x.cube', lutIntensity: -0.1 } }))
+        .success,
+    ).toBe(false);
   });
 
   it('rejects a video clip whose duration disagrees with its source window', () => {

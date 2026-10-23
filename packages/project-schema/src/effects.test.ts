@@ -32,11 +32,28 @@ describe('efectos de clip', () => {
         sepia: true,
         hueRotateDeg: 24,
         curvePreset: 'vintage',
+        shadows: -0.2,
+        highlights: 0.3,
+        fade: 0.1,
         fadeInFrames: 10,
         fadeOutFrames: 15,
       }),
     );
     expect(parsed.success).toBe(true);
+  });
+
+  it('acepta sombras, altas luces y fade tonal en rango', () => {
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ shadows: 0.4, highlights: -0.5, fade: 0.25 }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('rechaza tono fino fuera de rango', () => {
+    expect(ClipSchema.safeParse(imageClip({ shadows: 2 })).success).toBe(false);
+    expect(ClipSchema.safeParse(imageClip({ highlights: -2 })).success).toBe(false);
+    expect(ClipSchema.safeParse(imageClip({ fade: 1.2 })).success).toBe(false);
   });
 
   it('rechaza valores fuera de rango y claves desconocidas', () => {
@@ -175,7 +192,8 @@ describe('efectos de clip', () => {
     ).toBe(false);
   });
 
-  it('acepta máscaras rectangulares y elípticas y valida sus límites', () => {    const rectangle = ClipSchema.safeParse({
+  it('acepta máscaras rectangulares, elípticas, diamante, triángulo y redondeadas', () => {
+    const rectangle = ClipSchema.safeParse({
       ...imageClip(undefined),
       mask: { shape: 'rectangle', x: 0, y: 0, width: 0.6, height: 0.7, feather: 0.1 },
     });
@@ -210,10 +228,18 @@ describe('efectos de clip', () => {
         },
       }).success,
     ).toBe(false);
+    for (const shape of ['diamond', 'triangle', 'rounded'] as const) {
+      expect(
+        ClipSchema.safeParse({
+          ...imageClip(undefined),
+          mask: { shape, x: 0, y: 0, width: 1, height: 1 },
+        }).success,
+      ).toBe(true);
+    }
     expect(
       ClipSchema.safeParse({
         ...imageClip(undefined),
-        mask: { shape: 'triangle', x: 0, y: 0, width: 1, height: 1 },
+        mask: { shape: 'heart', x: 0, y: 0, width: 1, height: 1 },
       }).success,
     ).toBe(false);
     expect(

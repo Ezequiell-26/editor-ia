@@ -5,14 +5,49 @@
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
+
+/// Carpeta de recursos del bundle. Se llena una vez al arrancar desde
+/// `AppState::load`; en desarrollo apunta a `target/debug`.
+static RESOURCE_DIR: OnceLock<PathBuf> = OnceLock::new();
+
+/// Registra la carpeta de recursos resuelta por Tauri.
+pub fn init_resource_dir(app: &AppHandle) {
+    let dir = app.path().resource_dir().unwrap_or_else(|_| {
+        std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or_default()
+    });
+    let _ = RESOURCE_DIR.set(dir);
+}
+
+/// Carpeta de recursos del bundle, si ya fue inicializada.
+pub fn bundled_resource_dir() -> Option<&'static Path> {
+    RESOURCE_DIR.get().map(|dir| dir.as_path())
+}
+
+/// Binario empaquetado con el instalador (ffmpeg/ffprobe). Tiene prioridad
+/// sobre el PATH para que la app funcione recién instalada, sin que el usuario
+/// tenga que instalar FFmpeg por separado.
+pub fn bundled_tool(name: &str) -> Option<PathBuf> {
+    let base = RESOURCE_DIR.get()?;
+    let exe = if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    };
+    let candidate = base.join("ffmpeg").join(exe);
+    candidate.is_file().then_some(candidate)
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +107,11 @@ pub fn find_executable(name: &str, override_path: Option<&str>) -> Option<PathBu
             return Some(path);
         }
     }
+    // 1) el que viene con el instalador: funciona recién instalada la app
+    if let Some(bundled) = bundled_tool(name) {
+        return Some(bundled);
+    }
+    // 2) PATH y lugares comunes de la máquina
     let suffixes: &[&str] = if cfg!(windows) {
         &["", ".exe", ".cmd", ".bat"]
     } else {
@@ -220,6 +260,7 @@ pub struct SystemInfo {
     pub ffmpeg: ExecutableInfo,
     pub ffprobe: ExecutableInfo,
     pub powershell: ExecutableInfo,
+    pub hardware: crate::commands::audio::HardwareEncoders,
     pub config_dir: String,
     pub cache_dir: String,
 }
@@ -232,9 +273,16 @@ pub async fn system_info(state: State<'_, AppState>) -> Result<SystemInfo, Proje
         app_version: env!("CARGO_PKG_VERSION").to_owned(),
         os: format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH),
         arch: std::env::consts::ARCH.to_owned(),
-        ffmpeg: describe_ffmpeg(ffmpeg),
+        ffmpeg: describe_ffmpeg(ffmpeg.clone()),
         ffprobe: describe_ffprobe(ffprobe),
         powershell: describe_powershell(powershell),
+        hardware: crate::commands::audio::HardwareEncoders {
+            h264: ffmpeg
+                .as_deref()
+                .and_then(crate::commands::audio::hardware_h264),
+            hevc: None,
+            checked: ffmpeg.is_some(),
+        },
         config_dir: state.config_dir.to_string_lossy().into_owned(),
         cache_dir: state.cache_dir.to_string_lossy().into_owned(),
     })

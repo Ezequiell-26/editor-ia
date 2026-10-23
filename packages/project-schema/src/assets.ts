@@ -110,6 +110,12 @@ export const AssetRightsSchema = z
   })
   .strict();
 
+export const MAX_ASSET_TAGS = 8;
+export const MAX_ASSET_TAG_LENGTH = 24;
+export const MAX_ASSET_BIN_LENGTH = 40;
+
+const AssetTagSchema = z.string().trim().min(1).max(MAX_ASSET_TAG_LENGTH);
+
 const baseShape = {
   id: EntityIdSchema,
   label: z.string().min(1).max(200),
@@ -117,6 +123,9 @@ const baseShape = {
   status: AssetStatusSchema,
   integrity: AssetIntegritySchema.optional(),
   rights: AssetRightsSchema,
+  favorite: z.boolean().optional(),
+  tags: z.array(AssetTagSchema).max(MAX_ASSET_TAGS).optional(),
+  bin: z.string().trim().min(1).max(MAX_ASSET_BIN_LENGTH).optional(),
 };
 
 const VideoAssetSchema = z
@@ -178,6 +187,19 @@ export const AssetSchema = z
     TextAssetSchema,
   ])
   .superRefine((asset, ctx) => {
+    const seenTags = new Set<string>();
+    for (const [index, tag] of (asset.tags ?? []).entries()) {
+      const key = tag.toLocaleLowerCase('es');
+      if (seenTags.has(key)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['tags', index],
+          message: 'asset tags must be unique',
+        });
+      }
+      seenTags.add(key);
+    }
+
     if (
       asset.rights.provenance.origin === 'downloaded' &&
       !asset.rights.provenance.sourceUrl

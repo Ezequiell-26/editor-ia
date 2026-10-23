@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
+import { ViewToolbar } from '../../components/ViewToolbar';
 import type {
   McpProbeResult,
   McpServerConfig,
   McpServerInput,
+  McpSessionInfo,
   McpToolInfo,
 } from '../../services/project-service';
 import {
@@ -13,6 +15,7 @@ import {
   totalFrames,
 } from '../../state/project-actions';
 import { artifactPaths } from '../../state/flow';
+import { FlowQueueCard } from './FlowQueueCard';
 import { useProjectStore } from '../../state/project-store';
 import type { Asset } from '@editor-ia/project-schema';
 
@@ -66,24 +69,45 @@ export function parseEnvLines(text: string): { key: string; value?: string }[] {
   );
 }
 
-function exampleFromSchema(schema: unknown): Record<string, unknown> {
+/**
+ * Ejemplo de argumentos a partir del esquema de la herramienta.
+ *
+ * Sólo se completan los campos obligatorios: mandar los opcionales con valores
+ * vacíos hace que el servidor rechace la llamada (por ejemplo `button: ""`
+ * cuando el enum es `left|right|middle`). Si un campo tiene `enum` o `default`,
+ * se usa ese valor; así el ejemplo es ejecutable de entrada.
+ */
+export function exampleFromSchema(schema: unknown): Record<string, unknown> {
   if (!schema || typeof schema !== 'object') return {};
-  const properties = (schema as { properties?: unknown }).properties;
+  const root = schema as { properties?: unknown; required?: unknown };
+  const properties = root.properties;
   if (!properties || typeof properties !== 'object') return {};
+  const required = Array.isArray(root.required)
+    ? root.required.filter((name): name is string => typeof name === 'string')
+    : null;
   const example: Record<string, unknown> = {};
   for (const [name, definition] of Object.entries(properties)) {
-    const type =
+    if (required && !required.includes(name)) continue;
+    const field =
       definition && typeof definition === 'object'
-        ? (definition as { type?: unknown }).type
-        : undefined;
+        ? (definition as { type?: unknown; enum?: unknown; default?: unknown })
+        : {};
+    if (Array.isArray(field.enum) && field.enum.length > 0) {
+      example[name] = field.enum[0];
+      continue;
+    }
+    if (field.default !== undefined) {
+      example[name] = field.default;
+      continue;
+    }
     example[name] =
-      type === 'number' || type === 'integer'
+      field.type === 'number' || field.type === 'integer'
         ? 0
-        : type === 'boolean'
+        : field.type === 'boolean'
           ? false
-          : type === 'array'
+          : field.type === 'array'
             ? []
-            : type === 'object'
+            : field.type === 'object'
               ? {}
               : '';
   }
@@ -108,6 +132,17 @@ function pretty(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+/** “hace 3 min” para el estado de la sesión. */
+function idleLabel(idleMs: number): string {
+  if (!Number.isFinite(idleMs) || idleMs < 0) return 'un rato';
+  const seconds = Math.round(idleMs / 1000);
+  if (seconds < 10) return 'instantes';
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return `${Math.round(minutes / 60)} h`;
 }
 
 /** MCP tools may return structured JSON as content[].text. */
@@ -147,6 +182,7 @@ export function McpView() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [probes, setProbes] = useState<Record<string, McpProbeResult>>({});
+  const [sessions, setSessions] = useState<readonly McpSessionInfo[]>([]);
   const [toolName, setToolName] = useState('');
   const [toolArgs, setToolArgs] = useState('{}');
   const [toolResult, setToolResult] = useState<{
@@ -191,7 +227,29 @@ export function McpView() {
     void refresh();
   }, [refresh]);
 
+  /**
+   * Las sesiones viven en el backend, no en este componente: se consultan al
+   * entrar y después de cada llamada. Si el servicio no está disponible (modo
+   * navegador) la lista queda vacía sin romper la vista.
+   */
+  const refreshSessions = useCallback(async () => {
+    if (!store.service.available) {
+      setSessions([]);
+      return;
+    }
+    try {
+      setSessions(await store.service.mcpSessionStatus());
+    } catch {
+      setSessions([]);
+    }
+  }, [store.service]);
+
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
+
   const selected = servers.find((server) => server.id === selectedId) ?? null;
+  const session = sessions.find((item) => item.serverId === selectedId) ?? null;
   const probe = selectedId ? probes[selectedId] : undefined;
   const tool: McpToolInfo | undefined = useMemo(
     () => probe?.tools.find((item) => item.name === toolName) ?? probe?.tools[0],
@@ -239,6 +297,9 @@ export function McpView() {
       setFormError(failure instanceof Error ? failure.message : 'no se pudo guardar el servidor MCP');
     } finally {
       setSaving(false);
+      // Guardar reinicia la sesión: el comando o el entorno pueden haber
+      // cambiado y el proceso viejo ya no representa esta configuración.
+      void refreshSessions();
     }
   }
 
@@ -277,6 +338,7 @@ export function McpView() {
       setError(failure instanceof Error ? failure.message : 'no se pudo eliminar el servidor MCP');
     } finally {
       setBusyId(null);
+      void refreshSessions();
     }
   }
 
@@ -306,6 +368,27 @@ export function McpView() {
       });
     } finally {
       setBusyId(null);
+      // La primera llamada abre la sesión y el error la cierra: en los dos
+      // casos el estado que muestra la UI cambió.
+      void refreshSessions();
+    }
+  }
+
+  async function closeSession(): Promise<void> {
+    if (!selected) return;
+    setBusyId(selected.id);
+    try {
+      const closed = await store.service.closeMcpSession(selected.id);
+      store.setNotice(
+        closed
+          ? `Sesión MCP de “${selected.name}” cerrada; su proceso y su navegador se terminaron.`
+          : `“${selected.name}” no tenía una sesión abierta.`,
+      );
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : 'no se pudo cerrar la sesión MCP');
+    } finally {
+      setBusyId(null);
+      void refreshSessions();
     }
   }
 
@@ -454,27 +537,23 @@ export function McpView() {
 
   return (
     <section className="view mcp-view">
-      <div className="view-head mcp-head">
-        <div>
-          <p className="eyebrow">Integraciones</p>
-          <h2>Servidores MCP</h2>
-          <p className="view-summary">
-            Conectá servidores locales por stdio. Editor IA guarda el comando y los nombres de las
-            variables; los valores van al Administrador de credenciales de Windows. Nada se ejecuta
-            hasta que lo probás vos.
-          </p>
-        </div>
-        <div className="actions">
-          <button type="button" className="ghost icon-text" onClick={() => void refresh()} disabled={loading}>
-            <Icon name="refresh" size={15} />
-            <span>{loading ? 'Leyendo…' : 'Recargar'}</span>
-          </button>
-          <button type="button" className="primary icon-text" onClick={newServer}>
-            <Icon name="plus" size={15} />
-            <span>Agregar servidor</span>
-          </button>
-        </div>
-      </div>
+      <ViewToolbar
+        label="Servidores MCP"
+        actions={
+          <>
+            <button type="button" className="ghost icon-text" onClick={() => void refresh()} disabled={loading}>
+              <Icon name="refresh" size={15} />
+              <span>{loading ? 'Leyendo…' : 'Recargar'}</span>
+            </button>
+            <button type="button" className="primary icon-text" onClick={newServer}>
+              <Icon name="plus" size={15} />
+              <span>Agregar servidor</span>
+            </button>
+          </>
+        }
+      >
+        <span className="view-count">{servers.length} servidores</span>
+      </ViewToolbar>
 
       {!store.service.available ? (
         <p className="notice notice-warning">{store.service.unavailableReason}</p>
@@ -892,6 +971,11 @@ export function McpView() {
                       </details>
                     </div>
                   ) : null}
+
+                  <FlowQueueCard
+                    serverId={selected.id}
+                    outputFolder={flowOutputDir}
+                  />
                 </div>
               ) : null}
 
@@ -950,7 +1034,32 @@ export function McpView() {
                               <Icon name="play" size={14} />
                               <span>{busyId === selected.id ? 'Ejecutando…' : 'Ejecutar herramienta'}</span>
                             </button>
+                            {session ? (
+                              <button
+                                type="button"
+                                className="ghost"
+                                onClick={() => void closeSession()}
+                                disabled={busyId !== null}
+                                title="Cierra el proceso del servidor y el navegador que tenga abierto"
+                              >
+                                Cerrar sesión
+                              </button>
+                            ) : null}
                           </div>
+                          {session ? (
+                            <p className="mcp-session" role="status">
+                              <span className="mcp-session-dot" aria-hidden="true" />
+                              Sesión activa · {session.calls} llamada
+                              {session.calls === 1 ? '' : 's'} · pid {session.pid} · inactiva hace{' '}
+                              {idleLabel(session.idleMs)}. El estado del servidor —por ejemplo la
+                              página abierta— se conserva entre llamadas.
+                            </p>
+                          ) : (
+                            <p className="mcp-session muted">
+                              Sin sesión abierta. La primera herramienta la inicia y el estado se
+                              mantiene hasta que la cierres o pasen 10 minutos sin uso.
+                            </p>
+                          )}
                           {toolResult ? (
                             <div
                               className={`mcp-result${toolResult.isError ? ' error' : ''}`}

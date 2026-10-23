@@ -1,0 +1,10 @@
+{
+  "identifier": "splash",
+  "description": "Splash window: receive progress events from the backend during initialization.",
+  "windows": ["splash"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:event:allow-listen"
+  ]
+}

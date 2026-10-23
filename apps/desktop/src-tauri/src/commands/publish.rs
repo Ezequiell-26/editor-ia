@@ -94,7 +94,7 @@ fn canonical_candidate(path: &Path) -> Option<PathBuf> {
     Some(parent.join(path.file_name()?))
 }
 
-fn ensure_path_is_safe(
+pub(crate) fn ensure_path_is_safe(
     project_path: &Path,
     root: &Path,
     output: &Path,

@@ -12,6 +12,7 @@ import {
   type NarrationCandidate,
 } from '../../state/auto-edit';
 import { useProjectStore } from '../../state/project-store';
+import { ViewToolbar } from '../../components/ViewToolbar';
 import { PublicationReadiness } from './PublicationReadiness';
 
 interface ProductionViewProps {
@@ -123,15 +124,6 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
   if (!project) {
     return (
       <section className="view production-view">
-        <div className="view-head">
-          <div>
-            <p className="eyebrow">Producción</p>
-            <h2>Video automático</h2>
-            <p className="view-summary">
-              Convertí un guion y una biblioteca de imágenes en una timeline con voz y subtítulos.
-            </p>
-          </div>
-        </div>
         <p className="empty-state">No hay un proyecto abierto. Creá o abrí uno para producir.</p>
         <div className="actions">
           <button type="button" className="primary" onClick={() => onNavigate('projects')}>
@@ -248,19 +240,12 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
 
   return (
     <section className="view production-view">
-      <div className="view-head production-head">
-        <div>
-          <p className="eyebrow">Producción automática</p>
-          <h2>De guion a video</h2>
-          <p className="view-summary">
-            Voz local por escena, asignación de imágenes, subtítulos y timeline. Todo se queda en
-            tu equipo; nada se envía a un servicio.
-          </p>
-        </div>
+      <ViewToolbar label="Producción">
         <span className={`status-pill ${plan ? 'saved' : 'dirty'}`}>
           {plan ? 'Timeline generada' : 'Listo para montar'}
         </span>
-      </div>
+        <span className="view-count">{scenes.length} escenas</span>
+      </ViewToolbar>
 
       <div className="production-stats">
         <div className="stat-card">
@@ -581,7 +566,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
             )}
           </article>
 
-          <PublicationReadiness />
+          <PublicationReadiness onNavigate={onNavigate} />
         </div>
       </div>
     </section>

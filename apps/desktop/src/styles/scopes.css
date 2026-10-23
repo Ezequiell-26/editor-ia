@@ -1,0 +1,123 @@
+.scopes-panel {
+  position: absolute;
+  top: 37px;
+  right: 9px;
+  z-index: 9;
+  width: 248px;
+  border: 1px solid #1e2935;
+  border-radius: 6px;
+  background: #191a1d;
+  color: #c9d6e2;
+  overflow: hidden;
+}
+
+.scopes-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px 5px 8px;
+  border-bottom: 1px solid #1a2530;
+}
+
+.scopes-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #8fa2b6;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.04em;
+}
+
+.scopes-source {
+  height: 18px;
+  padding: 0 6px;
+  border: 1px solid #223140;
+  border-radius: 3px;
+  background: #0d151d;
+  color: #9fb2c4;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.scopes-source.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.scopes-source:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.scopes-tabs {
+  display: flex;
+  gap: 1px;
+  margin-left: auto;
+}
+
+.scopes-tabs button {
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #7f93a8;
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.scopes-tabs button[aria-pressed='true'] {
+  border-color: #2a3b4a;
+  background: #132029;
+  color: #d9e6f2;
+}
+
+.scopes-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: #7f93a8;
+}
+
+.scopes-close:hover,
+.scopes-tabs button:hover {  color: #d9e6f2;
+}
+
+.scopes-panel canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #070b10;
+}
+
+.scopes-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-top: 1px solid #1a2530;
+  color: #6f8296;
+  font-size: 7.5px;
+}
+
+.scopes-signal {
+  color: #6fa8dc;
+  font-family: var(--font-mono);
+}
+
+.scopes-signal.off {
+  color: #6f8296;
+}
+
+@media (max-width: 1120px) {
+  .scopes-panel {
+    width: 210px;
+  }
+}

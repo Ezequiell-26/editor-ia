@@ -9,6 +9,7 @@ import {
   totalFrames,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { useEditorPreferences } from '../../state/useEditorPreferences';
 import { Icon } from '../../components/Icon';
 import { EditorAssets } from './EditorAssets';
 import { ExportDialog } from './ExportDialog';
@@ -26,6 +27,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
   const project = store.state.project;
+  const preferences = useEditorPreferences();
   const [exportOpen, setExportOpen] = useState(false);
   usePlayback();
 
@@ -68,25 +70,21 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
       }
       if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
         event.preventDefault();
-        const delta = event.shiftKey ? 10 : 1;
+        // El paso base y el paso con Shift salen de Ajustes → Editor, así que
+        // se puede trabajar frame a frame o saltos largos según el proyecto.
+        const step = preferences.jumpStepFrames;
+        const delta = event.shiftKey ? step * 10 : step;
         store.setPlaying(false);
         store.setPlayhead(store.state.playheadFrame + (event.key === 'ArrowLeft' ? -delta : delta));
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [project, store]);
+  }, [project, store, preferences.jumpStepFrames]);
 
   if (!project) {
     return (
       <section className="view">
-        <div className="view-head">
-          <div>
-            <p className="eyebrow">Edición</p>
-            <h2>Editor</h2>
-            <p className="view-summary">Timeline, vista previa e inspector del proyecto abierto.</p>
-          </div>
-        </div>
         <p className="empty-state">
           No hay proyecto abierto. Creá o abrí un proyecto para editar. La timeline no inventa
           pistas ni clips: aparece vacía hasta que montás un medio.
@@ -106,7 +104,6 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
     <section className="editor-workspace">
       <div className="editor-toolbar">
         <div className="editor-title">
-          <p className="eyebrow">Editor</p>
           <h2 title={project.name}>{project.name}</h2>
           <span className="editor-meta">
             {project.video.width}×{project.video.height} · {fps} fps ·{' '}

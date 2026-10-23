@@ -10,6 +10,8 @@ import {
 } from 'react';
 import { parseProject, type ProjectDocument } from '@editor-ia/project-schema';
 import type { DesktopService, OpenedProject } from '../services/project-service';
+import { buildDeliveryPackage } from './delivery-package';
+import { useEditorPreferences } from './useEditorPreferences';
 import {
   ProjectActionError,
   cloneProject,
@@ -86,6 +88,7 @@ export interface ProjectStoreValue {
   openProjectAt(path: string): Promise<boolean>;
   saveNow(): Promise<boolean>;
   saveAs(): Promise<boolean>;
+  packageProject(): Promise<boolean>;
   closeProject(): void;
   mutate<T extends { project: ProjectDocument }>(
     recipe: (project: ProjectDocument) => T,
@@ -151,6 +154,12 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const stateRef = useRef(state);
   stateRef.current = state;
   const editVersionRef = useRef(0);
+
+  // Preferencias que afectan al guardado y al historial. Se leen de
+  // Ajustes → Editor y se aplican en vivo, sin reiniciar la app.
+  const preferences = useEditorPreferences();
+  const historyLimitRef = useRef(preferences.historyLimit);
+  historyLimitRef.current = preferences.historyLimit;
 
   const adopt = useCallback((opened: OpenedProject) => {
     editVersionRef.current = 0;
@@ -311,6 +320,36 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     }
   }, [service]);
 
+  /**
+   * Empaqueta el proyecto en un `.zip` de entrega. No cambia el estado del
+   * proyecto: es una exportación derivada y no debe marcar `dirty` ni entrar
+   * en el historial de deshacer.
+   */
+  const packageProject = useCallback(async (): Promise<boolean> => {
+    const snapshot = stateRef.current;
+    if (!snapshot.project) {
+      return false;
+    }
+    try {
+      const bundle = await buildDeliveryPackage(snapshot.project);
+      const saved = await service.saveDeliveryPackage(bundle.bytes, bundle.fileName);
+      if (!saved) {
+        return false;
+      }
+      setState((current) => ({
+        ...current,
+        notice: `Paquete de entrega guardado en ${saved}`,
+      }));
+      return true;
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        notice: `No se pudo empaquetar el proyecto: ${messageOf(error)}`,
+      }));
+      return false;
+    }
+  }, [service]);
+
   const saveRef = useRef(saveNow);
   saveRef.current = saveNow;
 
@@ -320,9 +359,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     }
     const timer = window.setTimeout(() => {
       void saveRef.current();
-    }, 1_400);
+    }, preferences.autosaveDelayMs);
     return () => window.clearTimeout(timer);
-  }, [state.phase, state.project, state.opened]);
+  }, [state.phase, state.project, state.opened, preferences.autosaveDelayMs]);
 
   const applyRecipe = useCallback(
     <T extends { project: ProjectDocument }>(
@@ -354,7 +393,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
           undo:
             options?.history === false || !current.project
               ? current.undo
-              : [...current.undo, cloneProject(current.project)].slice(-80),
+              : [...current.undo, cloneProject(current.project)].slice(
+                  -historyLimitRef.current,
+                ),
           redo: options?.history === false ? current.redo : [],
         }));
         editVersionRef.current += 1;
@@ -392,7 +433,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         ...current,
         project: previous,
         undo: current.undo.slice(0, -1),
-        redo: [current.project, ...current.redo].slice(0, 80),
+        redo: [current.project, ...current.redo].slice(0, historyLimitRef.current),
         phase: 'dirty',
         error: null,
       };
@@ -412,7 +453,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       return {
         ...current,
         project: next,
-        undo: [...current.undo, current.project].slice(-80),
+        undo: [...current.undo, current.project].slice(-historyLimitRef.current),
         redo: current.redo.slice(1),
         phase: 'dirty',
         error: null,
@@ -421,29 +462,41 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   }, []);
 
   const setSelection = useCallback((selection: Selection) => {
-    setState((current) => ({ ...current, selection }));
+    setState((current) => {
+      if (
+        current.selection.kind === selection.kind &&
+        ('id' in current.selection && 'id' in selection ? current.selection.id === selection.id : true)
+      ) {
+        return current;
+      }
+      return { ...current, selection };
+    });
   }, []);
 
   const requestExport = useCallback(() => {
-    setState((current) => ({ ...current, exportRequested: true }));
+    setState((current) => (current.exportRequested ? current : { ...current, exportRequested: true }));
   }, []);
 
   const consumeExportRequest = useCallback(() => {
-    setState((current) => ({ ...current, exportRequested: false }));
+    setState((current) => (current.exportRequested ? { ...current, exportRequested: false } : current));
   }, []);
 
   const setPlayhead = useCallback((frame: number) => {
     setState((current) => {
       const duration = current.project ? totalFrames(current.project) : 0;
+      const target = Math.max(0, Math.min(duration, Math.round(frame)));
+      if (current.playheadFrame === target) {
+        return current;
+      }
       return {
         ...current,
-        playheadFrame: Math.max(0, Math.min(duration, Math.round(frame))),
+        playheadFrame: target,
       };
     });
   }, []);
 
   const setPlaying = useCallback((playing: boolean) => {
-    setState((current) => ({ ...current, playing }));
+    setState((current) => (current.playing === playing ? current : { ...current, playing }));
   }, []);
 
   const closeProject = useCallback(() => {
@@ -452,11 +505,11 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   }, []);
 
   const clearError = useCallback(() => {
-    setState((current) => ({ ...current, error: null }));
+    setState((current) => (current.error === null ? current : { ...current, error: null }));
   }, []);
 
   const setNotice = useCallback((notice: string | null) => {
-    setState((current) => ({ ...current, notice }));
+    setState((current) => (current.notice === notice ? current : { ...current, notice }));
   }, []);
 
   const durationFrames = state.project ? totalFrames(state.project) : 0;
@@ -490,6 +543,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       openProjectAt,
       saveNow,
       saveAs,
+      packageProject,
       closeProject,
       mutate: applyRecipe,
       update,
@@ -511,6 +565,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       durationFrames,
       openProject,
       openProjectAt,
+      packageProject,
       redo,
       saveAs,
       saveNow,

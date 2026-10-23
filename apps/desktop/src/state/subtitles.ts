@@ -1,7 +1,13 @@
 /**
- * SRT/VTT parsing and serialization. Kept framework-free so the import action,
- * the export button and the tests share the same rules.
+ * SRT/VTT/ASS parsing and SRT serialization. Kept framework-free so the import
+ * action, the export button and the tests share the same rules.
  */
+
+import type { CaptionCue, CaptionWord } from '@editor-ia/project-schema';
+// Se importa el parser SSA/ASS directo: el entry de `subsrt` carga todos los
+// formatos con `require('./format/' + nombre + '.js')`, una require dinámica
+// que Rollup no resuelve y que dejaba la ventana de producción en negro.
+import ssaFormat from 'subsrt/lib/format/ssa.js';
 
 export interface SubtitleCueSeconds {
   readonly startSeconds: number;
@@ -9,14 +15,26 @@ export interface SubtitleCueSeconds {
   readonly text: string;
 }
 
+export type SubtitleFormat = 'srt' | 'vtt' | 'ass' | 'ssa';
+
 export interface ParsedSubtitles {
-  readonly format: 'srt' | 'vtt';
+  readonly format: SubtitleFormat;
   readonly cues: SubtitleCueSeconds[];
   readonly warnings: string[];
 }
 
 const TIMING =
   /^\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2})[.,](\d{1,3})\s*-->\s*(?:(\d{1,3}):)?(\d{1,2}):(\d{1,2})[.,](\d{1,3})/;
+
+/**
+ * Words that should be on screen at a frame. In reveal mode the cue grows one
+ * word at a time; otherwise every timed word is returned for highlighting.
+ */
+export function cueWordsAt(cue: CaptionCue, playheadFrame: number): CaptionWord[] {
+  const words = cue.words ?? [];
+  if (!cue.wordReveal) return [...words];
+  return words.filter((word) => playheadFrame >= word.startFrame);
+}
 
 function seconds(
   hours: string | undefined,
@@ -46,8 +64,80 @@ function cleanText(text: string): string {
     .trim();
 }
 
+/**
+ * CapCut, Premiere and Resolve export styled subtitles as ASS/SSA. Importing
+ * them keeps the text and the timing; the styling is intentionally dropped
+ * because Editor IA owns caption styling per project.
+ */
+function detectAlphaFormat(content: string): 'ass' | 'ssa' | null {
+  const looksAlpha =
+    /^\s*\[Script Info\]/im.test(content) || /^\s*Dialogue:/im.test(content);
+  if (!looksAlpha) {
+    return null;
+  }
+  if (
+    /^\s*ScriptType:\s*v4\.00\+/im.test(content) ||
+    /^\s*\[V4\+ Styles\]/im.test(content)
+  ) {
+    return 'ass';
+  }
+  if (
+    /^\s*ScriptType:\s*v4\.00\s*$/im.test(content) ||
+    /^\s*\[V4 Styles\]/im.test(content)
+  ) {
+    return 'ssa';
+  }
+  return 'ass';
+}
+
+function parseAlphaSubtitles(content: string, format: 'ass' | 'ssa'): ParsedSubtitles {
+  const warnings: string[] = [];
+  const cues: SubtitleCueSeconds[] = [];
+  let captions: ReturnType<typeof ssaFormat.parse>;
+  try {
+    // El parser convierte `\N` en salto de línea y quita las etiquetas `{...}`.
+    captions = ssaFormat.parse(content, { eol: '\n' });
+  } catch {
+    return {
+      format,
+      cues: [],
+      warnings: [`El archivo ${format.toUpperCase()} no se pudo leer.`],
+    };
+  }
+
+  for (const [index, caption] of captions.entries()) {
+    if (caption.type !== 'caption') continue;
+    const text = cleanText(caption.text);
+    const startSeconds = caption.start / 1000;
+    const endSeconds = caption.end / 1000;
+    if (!text) {
+      warnings.push(`Diálogo ${index + 1}: no tiene texto.`);
+      continue;
+    }
+    if (
+      !Number.isFinite(startSeconds) ||
+      !Number.isFinite(endSeconds) ||
+      endSeconds <= startSeconds
+    ) {
+      warnings.push(`Diálogo ${index + 1}: tiempos inválidos.`);
+      continue;
+    }
+    cues.push({ startSeconds, endSeconds, text });
+  }
+
+  if (cues.length === 0 && warnings.length === 0) {
+    warnings.push(`El archivo ${format.toUpperCase()} no tiene diálogos visibles.`);
+  }
+  cues.sort((a, b) => a.startSeconds - b.startSeconds);
+  return { format, cues, warnings };
+}
+
 export function parseSubtitles(content: string): ParsedSubtitles {
   const normalized = content.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+  const alpha = detectAlphaFormat(normalized);
+  if (alpha) {
+    return parseAlphaSubtitles(normalized, alpha);
+  }
   const format = /^\s*WEBVTT\b/i.test(normalized) ? 'vtt' : 'srt';
   const body =
     format === 'vtt'
@@ -104,6 +194,53 @@ export interface SubtitleCueFrames {
   readonly startFrame: number;
   readonly endFrame: number;
   readonly text: string;
+}
+
+function clock(totalSeconds: number, separator: ',' | '.'): string {
+  const clamped = Math.max(0, Math.round(totalSeconds * 1000));
+  const hours = Math.floor(clamped / 3_600_000);
+  const minutes = Math.floor((clamped % 3_600_000) / 60_000);
+  const secs = Math.floor((clamped % 60_000) / 1000);
+  const millis = clamped % 1000;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(
+    secs,
+  ).padStart(2, '0')}${separator}${String(millis).padStart(3, '0')}`;
+}
+
+function orderedCues(cues: readonly SubtitleCueSeconds[]): SubtitleCueSeconds[] {
+  return [...cues]
+    .filter((cue) => cue.text.trim() && Number.isFinite(cue.startSeconds) && cue.endSeconds > cue.startSeconds)
+    .sort((a, b) => a.startSeconds - b.startSeconds);
+}
+
+/** SRT desde tiempos en segundos; lo usa la localización multiidioma. */
+export function serializeSrtSeconds(cues: readonly SubtitleCueSeconds[]): string {
+  const ordered = orderedCues(cues);
+  return ordered
+    .map(
+      (cue, index) =>
+        `${index + 1}\n${clock(cue.startSeconds, ',')} --> ${clock(
+          cue.endSeconds,
+          ',',
+        )}\n${cue.text.trim()}`,
+    )
+    .join('\n\n')
+    .concat(ordered.length > 0 ? '\n' : '');
+}
+
+/** VTT desde tiempos en segundos, con la cabecera obligatoria. */
+export function serializeVttSeconds(cues: readonly SubtitleCueSeconds[]): string {
+  const ordered = orderedCues(cues);
+  const body = ordered
+    .map(
+      (cue, index) =>
+        `${index + 1}\n${clock(cue.startSeconds, '.')} --> ${clock(
+          cue.endSeconds,
+          '.',
+        )}\n${cue.text.trim()}`,
+    )
+    .join('\n\n');
+  return `WEBVTT\n\n${body}${body ? '\n' : ''}`;
 }
 
 export function serializeSrt(

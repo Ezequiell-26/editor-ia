@@ -78,6 +78,66 @@ describe('CaptionCueSchema', () => {
     expect(CaptionCueSchema.safeParse(cue()).success).toBe(true);
   });
 
+  it('accepts wordReveal on a cue with word timings', () => {
+    expect(
+      CaptionCueSchema.safeParse(
+        cue({
+          wordReveal: true,
+          words: [
+            { text: 'Buenas', startFrame: 0, endFrame: 15 },
+            { text: 'tardes', startFrame: 15, endFrame: 30 },
+          ],
+        }),
+      ).success,
+    ).toBe(true);
+    expect(CaptionCueSchema.safeParse(cue({ wordReveal: 'si' })).success).toBe(false);
+  });
+
+  it('accepts two motion keyframes and rejects invalid shapes', () => {
+    const motion = {
+      preset: 'zoom',
+      keyframes: [
+        { frame: 0, scale: 0.85, opacity: 0 },
+        { frame: 30, scale: 1, opacity: 1 },
+      ],
+    };
+    expect(CaptionCueSchema.safeParse(cue({ motion })).success).toBe(true);
+    expect(
+      CaptionCueSchema.safeParse(
+        cue({ motion: { keyframes: [{ frame: 0, opacity: 0 }] } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CaptionCueSchema.safeParse(
+        cue({
+          motion: {
+            keyframes: [
+              { frame: 5, opacity: 0 },
+              { frame: 30, opacity: 1 },
+            ],
+          },
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CaptionCueSchema.safeParse(
+        cue({
+          motion: {
+            keyframes: [
+              { frame: 0, opacity: 0 },
+              { frame: 60, opacity: 1 },
+            ],
+          },
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CaptionCueSchema.safeParse(
+        cue({ motion: { keyframes: [{ frame: 0 }, { frame: 30 }] } }),
+      ).success,
+    ).toBe(false);
+  });
+
   it('rejects a cue that ends at or before it starts', () => {
     expect(CaptionCueSchema.safeParse(cue({ endFrame: 0 })).success).toBe(false);
     expect(CaptionCueSchema.safeParse(cue({ endFrame: -1 })).success).toBe(false);

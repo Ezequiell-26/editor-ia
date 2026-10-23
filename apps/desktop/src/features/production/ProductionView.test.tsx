@@ -79,7 +79,7 @@ describe('ProductionView · video automático', () => {
   it('muestra los pasos y exige confirmar la voz antes de generar', async () => {
     renderView();
 
-    expect(screen.getByRole('heading', { name: 'De guion a video' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Guion y escenas' })).toBeTruthy();
     for (const step of ['Guion y escenas', 'Recursos', 'Voz y narración', 'Montaje automático', 'Revisión y export']) {
       expect(screen.getAllByText(step).length).toBeGreaterThan(0);
     }

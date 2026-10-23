@@ -13,3 +13,24 @@ packages/project-schema/schema/.generated/
 
 # Flow Queue smoke-test artifacts
 extensions/flow-queue/tests/smoke-panel.png
+
+# Binarios de terceros empaquetados para el instalador (FFmpeg ~200 MB,
+# yt-dlp ~18 MB). No se versionan: GitHub rechaza archivos de más de 100 MB y
+# el repo debe quedar liviano. En una máquina de desarrollo se copian a mano o
+# se usa el FFmpeg del sistema, que la app detecta al arrancar.
+apps/desktop/src-tauri/resources/ffmpeg/
+apps/desktop/src-tauri/resources/ffmpeg-dll/
+apps/desktop/src-tauri/resources/tools/
+
+# Salidas de Playwright MCP (snapshots de página) y de los e2e
+.playwright-mcp/
+test-results/
+playwright-report/
+
+# ONNX Runtime (binario grande, se instala con un script)
+apps/desktop/src-tauri/resources/onnxruntime/
+
+# Artefactos de diagnóstico locales
+.tmp-*/
+.tmp-*.log
+.tmp-*.mjs

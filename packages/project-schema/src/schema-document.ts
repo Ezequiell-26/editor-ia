@@ -8,7 +8,14 @@ import { PROJECT_SCHEMA_VERSION, ProjectDocumentSchema } from './project.ts';
  */
 
 export function buildJsonSchemaDocument(): Record<string, unknown> {
-  const generated = zodToJsonSchema(ProjectDocumentSchema, {
+  // zod-to-json-schema 3.25 estrechó el tipo del parámetro a `ZodType<any>`,
+  // que un `ZodEffects` (lo que devuelve `.catchall().superRefine(...)`) ya no
+  // satisface. El chequeo es sólo de tipos: en tiempo de ejecución el generador
+  // siempre aceptó el esquema envuelto.
+  const documentSchema = ProjectDocumentSchema as unknown as Parameters<
+    typeof zodToJsonSchema
+  >[0];
+  const generated = zodToJsonSchema(documentSchema, {
     // zod-to-json-schema 3.24 can only emit draft-07, 2019-09 and OpenAPI 3.
     // The artifact declares draft-07 rather than claiming a dialect the
     // generator silently ignored. Moving to 2020-12 means switching the

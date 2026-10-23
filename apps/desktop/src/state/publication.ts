@@ -3,6 +3,7 @@ import {
   type Asset,
   type ProjectDocument,
 } from '@editor-ia/project-schema';
+import { chaptersFromMarkers } from './markers';
 
 export interface PublicationChecks {
   readonly allAssetsReady: boolean;
@@ -125,13 +126,18 @@ export function buildPublicationMetadata(project: ProjectDocument): PublicationM
     .slice(0, 8);
 
   const fps = Math.max(1, project.video.frameRate.num / Math.max(1, project.video.frameRate.den));
-  let cursor = 0;
-  const chapters = scenes.map((scene) => {
-    const chapter = { startSeconds: Math.round(cursor / fps), title: scene.title };
-    const clip = project.timeline.clips.find((item) => scene.clipIds.includes(item.id));
-    cursor += clip?.durationFrames ?? scene.narration.estimatedDurationFrames ?? 0;
-    return chapter;
-  });
+  const chapters =
+    project.markers.length > 0
+      ? chaptersFromMarkers(project.markers, fps)
+      : (() => {
+          let cursor = 0;
+          return scenes.map((scene) => {
+            const chapter = { startSeconds: Math.round(cursor / fps), title: scene.title };
+            const clip = project.timeline.clips.find((item) => scene.clipIds.includes(item.id));
+            cursor += clip?.durationFrames ?? scene.narration.estimatedDurationFrames ?? 0;
+            return chapter;
+          });
+        })();
 
   const durationSeconds = totalProjectDuration(project) / fps;
   const vertical = project.video.height > project.video.width;

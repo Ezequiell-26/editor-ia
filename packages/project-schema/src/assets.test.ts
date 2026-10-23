@@ -105,6 +105,33 @@ describe('AssetSchema', () => {
     expect(AssetSchema.safeParse(asset).success).toBe(true);
   });
 
+  it('accepts favorites, tags and a bin without touching the media probe', () => {
+    expect(
+      AssetSchema.safeParse(
+        videoAsset({ favorite: true, tags: ['b-roll', 'entrevista'], bin: 'Entrevistas' }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('rejects duplicate tags regardless of case', () => {
+    expect(
+      AssetSchema.safeParse(videoAsset({ tags: ['B-roll', 'b-ROLL'] })).success,
+    ).toBe(false);
+  });
+
+  it('rejects more tags than the editor can show', () => {
+    expect(
+      AssetSchema.safeParse(
+        videoAsset({ tags: Array.from({ length: 9 }, (_, index) => `tag-${index}`) }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('rejects an overlong tag or bin name', () => {
+    expect(AssetSchema.safeParse(videoAsset({ tags: ['x'.repeat(25)] })).success).toBe(false);
+    expect(AssetSchema.safeParse(videoAsset({ bin: 'x'.repeat(41) })).success).toBe(false);
+  });
+
   it('rejects an asset source that has no local path', () => {
     expect(
       AssetSchema.safeParse(

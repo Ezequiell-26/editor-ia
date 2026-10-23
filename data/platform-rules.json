@@ -1,0 +1,240 @@
+{
+  "schema": "editor-ia.platform-rules.v1",
+  "generatedAt": "2026-10-20",
+  "packs": [
+    {
+      "id": "youtube",
+      "label": "YouTube",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "any",
+      "minHeight": 1080,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "Contenido original y con valor añadido; el contenido reutilizado sin transformación no es apto para monetización.",
+        "El video debe ser apto para anunciantes: sin violencia gráfica, engaño, contenido sexual ni lenguaje dañino.",
+        "La música y los clips de terceros necesitan derechos comerciales.",
+        "El contenido realista generado o alterado con IA debe declararse."
+      ],
+      "strikeRisks": [
+        "Música o imágenes sin licencia.",
+        "Contenido duplicado o compilaciones sin transformación.",
+        "Títulos o miniaturas engañosas.",
+        "Divulgación de IA omitida en contenido realista."
+      ],
+      "sources": [
+        {
+          "label": "YouTube · YPP y contenido apto",
+          "url": "https://support.google.com/youtube/answer/72857"
+        },
+        {
+          "label": "YouTube · divulgación de contenido sintético",
+          "url": "https://support.google.com/youtube/answer/14328491"
+        }
+      ]
+    },
+    {
+      "id": "shorts",
+      "label": "YouTube Shorts",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "vertical",
+      "minHeight": 720,
+      "maxDurationSeconds": 180,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "Formato vertical/cuadrado y dentro del límite vigente de Shorts.",
+        "Debe ser original; las recopilaciones sin aportes propios no son aptas.",
+        "La divulgación de IA y los derechos musicales también aplican."
+      ],
+      "strikeRisks": [
+        "Reutilizar un video ajeno sin transformación.",
+        "Música sin licencia.",
+        "Spam o contenido repetitivo."
+      ],
+      "sources": [
+        {
+          "label": "YouTube · YPP y contenido apto",
+          "url": "https://support.google.com/youtube/answer/72857"
+        },
+        {
+          "label": "YouTube · divulgación de contenido sintético",
+          "url": "https://support.google.com/youtube/answer/14328491"
+        }
+      ]
+    },
+    {
+      "id": "tiktok",
+      "label": "TikTok",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "vertical",
+      "minHeight": 720,
+      "maxDurationSeconds": 600,
+      "minDurationSeconds": 60,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "Para recompensas de creador, el video debe superar el minuto y ser original.",
+        "El contenido reutilizado o de baja calidad no califica.",
+        "Las colaboraciones comerciales deben declararse.",
+        "El contenido realista generado por IA debe etiquetarse."
+      ],
+      "strikeRisks": [
+        "Contenido no original o repetido.",
+        "Música comercial sin derechos.",
+        "Publicidad encubierta.",
+        "Contenido que infringe las normas comunitarias."
+      ],
+      "sources": [
+        {
+          "label": "TikTok · normas de la comunidad",
+          "url": "https://www.tiktok.com/community-guidelines"
+        },
+        {
+          "label": "TikTok · contenido generado por IA",
+          "url": "https://support.tiktok.com/en/using-tiktok/creating-videos/ai-generated-content"
+        }
+      ]
+    },
+    {
+      "id": "reels",
+      "label": "Instagram Reels",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "vertical",
+      "minHeight": 720,
+      "maxDurationSeconds": 180,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "Formato vertical y dentro del límite vigente de Reels.",
+        "El contenido debe cumplir las normas comunitarias de Meta.",
+        "Las colaboraciones pagadas y el contenido sintético realista deben declararse.",
+        "La música del catálogo de la plataforma no equivale a derechos para uso comercial fuera de ella."
+      ],
+      "strikeRisks": [
+        "Música protegida fuera del catálogo permitido.",
+        "Contenido duplicado de otras cuentas.",
+        "Marcas o anuncios no divulgados."
+      ],
+      "sources": [
+        {
+          "label": "Meta · normas comunitarias",
+          "url": "https://transparency.meta.com/policies/community-standards/"
+        }
+      ]
+    },
+    {
+      "id": "facebook",
+      "label": "Facebook Reels",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "vertical",
+      "minHeight": 720,
+      "maxDurationSeconds": 90,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "Video vertical/cuadrado y original para el programa de monetización.",
+        "Debe respetar las normas comunitarias y de contenido apto para anunciantes.",
+        "La música y los clips de terceros requieren derechos.",
+        "El contenido sintético realista y las colaboraciones deben declararse."
+      ],
+      "strikeRisks": [
+        "Reutilización de videos de otras páginas.",
+        "Música o imágenes sin licencia.",
+        "Engaño y engagement bait."
+      ],
+      "sources": [
+        {
+          "label": "Meta · normas comunitarias",
+          "url": "https://transparency.meta.com/policies/community-standards/"
+        }
+      ]
+    },
+    {
+      "id": "x",
+      "label": "X",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "any",
+      "minHeight": 720,
+      "maxDurationSeconds": 140,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "La monetización depende de la cuenta y de las políticas vigentes de X.",
+        "El contenido debe ser original y respetar las reglas de la plataforma.",
+        "La música y los clips de terceros requieren derechos."
+      ],
+      "strikeRisks": [
+        "Contenido duplicado o spam.",
+        "Derechos de autor.",
+        "Manipulación engañosa de medios."
+      ],
+      "sources": [
+        {
+          "label": "X · reglas y políticas",
+          "url": "https://help.x.com/en/rules-and-policies/x-rules"
+        }
+      ]
+    },
+    {
+      "id": "twitch",
+      "label": "Twitch",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "horizontal",
+      "minHeight": 720,
+      "requiresAiDisclosure": false,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "La música en streams y VOD requiere derechos; el catálogo del juego no cubre música de fondo.",
+        "El contenido debe cumplir las normas de la comunidad."
+      ],
+      "strikeRisks": [
+        "Música protegida en VOD o clips.",
+        "Contenido prohibido por las normas comunitarias."
+      ],
+      "sources": [
+        {
+          "label": "Twitch · normas de la comunidad",
+          "url": "https://www.twitch.tv/p/en/legal/community-guidelines/"
+        },
+        {
+          "label": "Twitch · derechos musicales",
+          "url": "https://help.twitch.tv/s/article/music-clears?language=en_US"
+        }
+      ]
+    },
+    {
+      "id": "linkedin",
+      "label": "LinkedIn",
+      "version": "2026.10.20",
+      "updatedAt": "2026-10-20",
+      "orientation": "any",
+      "minHeight": 720,
+      "maxDurationSeconds": 900,
+      "requiresAiDisclosure": true,
+      "requiresMusicLicense": true,
+      "monetization": [
+        "Contenido profesional, original y con contexto; evita el spam y los enlaces engañosos.",
+        "La música y los medios de terceros requieren derechos."
+      ],
+      "strikeRisks": [
+        "Spam o automatización no divulgada.",
+        "Contenido engañoso o discriminatorio.",
+        "Derechos de autor."
+      ],
+      "sources": [
+        {
+          "label": "LinkedIn · políticas profesionales",
+          "url": "https://www.linkedin.com/help/linkedin/answer/a1339446"
+        }
+      ]
+    }
+  ]
+}

@@ -66,8 +66,8 @@ export function aspectRatioOf(width: number, height: number): string {
 /** H.264 yuv420p needs even dimensions; clamp to the supported range. */
 export function evenDimension(value: number, fallback = 1920): number {
   if (!Number.isFinite(value)) return fallback;
-  const clamped = Math.max(16, Math.min(16_384, Math.round(value)));
-  return clamped % 2 === 0 ? clamped : Math.min(16_384, clamped + 1);
+  const clamped = Math.max(16, Math.min(32_768, Math.round(value)));
+  return clamped % 2 === 0 ? clamped : Math.min(32_768, clamped + 1);
 }
 
 export function formatFps(num: number, den: number): string {

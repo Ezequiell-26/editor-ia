@@ -7,7 +7,7 @@
 //! unresolved licence until the user declares its rights.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use serde::Serialize;
@@ -60,16 +60,12 @@ pub struct NarrationResult {
     pub provider: String,
 }
 
-fn hide_console(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
-    }
-}
+// La paleta de comandos vive en `commands::hide_console`; acá se reexporta con
+// el nombre local que ya usaba el módulo.
+use crate::commands::hide_console;
 
 fn run_powershell(
-    powershell: &PathBuf,
+    powershell: &Path,
     script: &str,
     envs: &[(&str, &str)],
     stdin: Option<&str>,
@@ -152,6 +148,44 @@ fn parse_voices(raw: &str) -> Vec<VoiceInfo> {
         })
         .take(100)
         .collect()
+}
+
+/// Sintetiza texto a WAV con la voz SAPI indicada y valida que el archivo
+/// exista. La usan la narración y el doblaje; el texto viaja por stdin.
+pub(crate) fn synthesize_sapi_wav(
+    powershell: &Path,
+    text: &str,
+    voice: &str,
+    output: &Path,
+) -> Result<(), ProjectError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el texto para la voz está vacío",
+        ));
+    }
+    let output_text = output.to_string_lossy().into_owned();
+    let result = run_powershell(
+        powershell,
+        TTS_SCRIPT,
+        &[
+            ("EDITORIA_TTS_OUT", &output_text),
+            ("EDITORIA_TTS_VOICE", voice),
+        ],
+        Some(trimmed),
+    );
+    if let Err(error) = result {
+        let _ = std::fs::remove_file(output);
+        return Err(error);
+    }
+    if !output.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el sintetizador terminó sin escribir el archivo de voz",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) async fn sapi_voices(state: &AppState) -> Result<Vec<VoiceInfo>, ProjectError> {
@@ -249,27 +283,7 @@ pub async fn synthesize_narration(
         .map(str::to_owned)
         .or(settings.tts_voice.clone());
     let voice_arg = voice_name.clone().unwrap_or_default();
-    let output_text = output.to_string_lossy().into_owned();
-
-    let result = run_powershell(
-        &powershell,
-        TTS_SCRIPT,
-        &[
-            ("EDITORIA_TTS_OUT", &output_text),
-            ("EDITORIA_TTS_VOICE", &voice_arg),
-        ],
-        Some(trimmed),
-    );
-    if let Err(error) = result {
-        let _ = std::fs::remove_file(&output);
-        return Err(error);
-    }
-    if !output.is_file() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "el sintetizador terminó sin escribir el archivo de narración",
-        ));
-    }
+    synthesize_sapi_wav(&powershell, trimmed, &voice_arg, &output)?;
 
     let measure = probe_file(&ffprobe, &output, MediaKind::Audio)?;
     let (sha256, bytes) = sha256_file(&output)?;

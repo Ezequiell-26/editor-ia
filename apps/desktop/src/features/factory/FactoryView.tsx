@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { ViewToolbar } from '../../components/ViewToolbar';
 import {
   assembleVariant,
   generateVariant,
@@ -51,7 +52,11 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
   const project = store.state.project;
   const root = store.state.opened?.root ?? '';
   const images = useMemo(() => (project ? readyImages(project) : []), [project]);
-  const [brief, setBrief] = useState('');
+  const [brief, setBrief] = useState(() => {
+    const handoff = localStorage.getItem('editoria.factory.brief') ?? '';
+    localStorage.removeItem('editoria.factory.brief');
+    return handoff;
+  });
   const [variants, setVariants] = useState(3);
   const [scenes, setScenes] = useState(5);
   const [language, setLanguage] = useState('es');
@@ -78,13 +83,6 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
   if (!project) {
     return (
       <section className="view">
-        <div className="view-head">
-          <div>
-            <p className="eyebrow">Producción masiva</p>
-            <h2>Fábrica</h2>
-            <p className="view-summary">Generá varias variantes de video desde un brief.</p>
-          </div>
-        </div>
         <article className="factory-empty">
           <div className="factory-empty-mark" aria-hidden="true">
             <Icon name="layers" size={26} />
@@ -259,22 +257,13 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
 
   return (
     <section className="view factory-view">
-      <div className="view-head">
-        <div>
-          <p className="eyebrow">Producción masiva</p>
-          <h2>Fábrica de contenido</h2>
-          <p className="view-summary">
-            Un brief, {variants} variante(s) con guion, voz, imágenes, subtítulos y timeline propia.
-            Cada variante es un proyecto `.editoria.json` portable dentro de la carpeta de salida.
-          </p>
-        </div>
-        <div className="head-actions">
-          <span className={`status-pill ${busy ? 'saving' : 'saved'}`}>
-            <span className={`status-pill-dot phase-${busy ? 'saving' : 'saved'}`} aria-hidden="true" />
-            {busy ? 'Generando' : `${results.filter((item) => item.status === 'ok').length} listas`}
-          </span>
-        </div>
-      </div>
+      <ViewToolbar label="Fábrica">
+        <span className={`status-pill ${busy ? 'saving' : 'saved'}`}>
+          <span className={`status-pill-dot phase-${busy ? 'saving' : 'saved'}`} aria-hidden="true" />
+          {busy ? 'Generando' : `${results.filter((item) => item.status === 'ok').length} listas`}
+        </span>
+        <span className="view-count">{variants} variante(s)</span>
+      </ViewToolbar>
 
       {(
         <div className="factory-layout">

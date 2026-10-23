@@ -1,0 +1,271 @@
+/* Pando, the guide. Invited motion only: this is the onboarding character. */
+
+.panda-guide {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.panda-guide.compact {
+  gap: 8px;
+}
+
+.panda-figure-wrap {
+  flex: none;
+  width: 104px;
+  height: 86px;
+}
+
+.panda-guide.compact .panda-figure-wrap {
+  width: 78px;
+  height: 66px;
+}
+
+.panda-figure {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.panda-body {
+  transform-origin: 110px 150px;
+  animation: panda-bob 3.4s ease-in-out infinite;
+}
+
+.panda-leg {
+  fill: #111827;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: panda-step 2.8s ease-in-out infinite;
+}
+
+.panda-leg-right {
+  animation-delay: -1.4s;
+}
+
+.panda-body-shape {
+  fill: #d8d9dc;
+  stroke: #0f172a;
+  stroke-width: 2;
+}
+
+.panda-arm {
+  fill: #111827;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.panda-head {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: panda-look 5.2s ease-in-out infinite;
+}
+
+.panda-ear {
+  fill: #111827;
+}
+
+.panda-face {
+  fill: #d8d9dc;
+  stroke: #0f172a;
+  stroke-width: 2;
+}
+
+.panda-eye-patch {
+  fill: #111827;
+}
+
+.panda-eye {
+  fill: #d8d9dc;
+}
+
+.panda-pupil {
+  fill: #0f172a;
+}
+
+.panda-nose {
+  fill: #0f172a;
+}
+
+.panda-mouth {
+  fill: none;
+  stroke: #0f172a;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.panda-cheek {
+  fill: #fca5a5;
+  opacity: 0.7;
+}
+
+.panda-scarf {
+  fill: #6fa8dc;
+  stroke: #0f172a;
+  stroke-width: 1.5;
+}
+
+.panda-ruler {
+  transform-box: fill-box;
+  transform-origin: 148px 100px;
+  animation: panda-tap 3.4s ease-in-out infinite;
+}
+
+.panda-ruler rect {
+  fill: #facc15;
+  stroke: #0f172a;
+  stroke-width: 2;
+}
+
+.panda-ruler path {
+  fill: none;
+  stroke: #0f172a;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+.panda-speech {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.welcome-panda {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.welcome-panda .panda-guide {
+  flex: 1;
+}
+
+.welcome-panda .panda-figure-wrap {
+  width: 120px;
+  height: 98px;
+}
+
+.welcome-panda .panda-speech {
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .welcome-panda .panda-figure-wrap {
+    width: 86px;
+    height: 72px;
+  }
+}
+
+.learn-guide {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+}
+
+.learn-guide .panda-guide {
+  flex: 1;
+}
+
+.learn-progress {
+  min-width: 150px;
+}
+
+.learn-progress-track {
+  width: 132px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--color-panel-3);
+}
+
+.learn-progress-track span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+@media (max-width: 720px) {
+  .learn-guide {
+    align-items: flex-start;
+  }
+
+  .learn-guide .panda-figure-wrap {
+    width: 76px;
+    height: 64px;
+  }
+}
+
+.panda-speech strong {
+  color: var(--color-text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.panda-speech span {
+  font-size: 10px;
+}
+
+@keyframes panda-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes panda-step {
+  0%,
+  100% {
+    transform: rotate(-4deg) translateY(0);
+  }
+  50% {
+    transform: rotate(4deg) translateY(-1px);
+  }
+}
+
+@keyframes panda-look {
+  0%,
+  100% {
+    transform: rotate(0deg) translateX(0);
+  }
+  35% {
+    transform: rotate(-2.5deg) translateX(-2px);
+  }
+  70% {
+    transform: rotate(2deg) translateX(2px);
+  }
+}
+
+@keyframes panda-tap {
+  0%,
+  100% {
+    transform: rotate(-2deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panda-body,
+  .panda-leg,
+  .panda-head,
+  .panda-ruler {
+    animation: none;
+  }
+}

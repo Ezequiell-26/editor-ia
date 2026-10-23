@@ -1,12 +1,29 @@
 import { useEffect, useState } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
 import type { DesktopService } from '../services/project-service';
+import {
+  readWaveformCache,
+  waveformCacheKey,
+  writeWaveformCache,
+} from './waveform-cache';
 
 const DEFAULT_BUCKETS = 180;
 
 export type Waveform = readonly number[];
 
+const MAX_PEAK_CACHE = 80;
 const peakCache = new Map<string, Waveform>();
+
+function cacheWaveformPeaks(key: string, value: Waveform): void {
+  if (peakCache.size >= MAX_PEAK_CACHE) {
+    const oldest = peakCache.keys().next().value;
+    if (oldest !== undefined) {
+      peakCache.delete(oldest);
+    }
+  }
+  peakCache.set(key, value);
+}
+
 const pending = new Map<string, Promise<Waveform | null>>();
 const failed = new Set<string>();
 
@@ -96,32 +113,47 @@ export function useWaveform(
       ? asset.source.path
       : null;
   const url = relative && root && service.available ? service.mediaUrl(root, relative) : '';
-  const key = url ? `${url}:${buckets}` : '';
-  const [peaks, setPeaks] = useState<Waveform | null>(() => (key ? peakCache.get(key) ?? null : null));
+  const cacheKey = asset && url ? waveformCacheKey(asset, url, buckets) : '';
+  const [peaks, setPeaks] = useState<Waveform | null>(() => {
+    if (!cacheKey) return null;
+    const memory = peakCache.get(cacheKey);
+    if (memory) return memory;
+    const stored = readWaveformCache(cacheKey, buckets);
+    if (stored) peakCache.set(cacheKey, stored);
+    return stored;
+  });
 
   useEffect(() => {
-    if (!url || !canDecode()) {
+    if (!url) {
       setPeaks(null);
       return;
     }
-    const hit = peakCache.get(key);
+    const hit = peakCache.get(cacheKey);
     if (hit) {
       setPeaks(hit);
       return;
     }
-    if (failed.has(key)) {
+    if (!canDecode()) {
+      setPeaks(null);
+      return;
+    }
+    if (failed.has(cacheKey)) {
       setPeaks(null);
       return;
     }
     let active = true;
-    let request = pending.get(key);
+    let request = pending.get(cacheKey);
     if (!request) {
       request = decodeWaveform(url, buckets).then((result) => {
-        if (result) peakCache.set(key, result);
-        else failed.add(key);
+        if (result) {
+          cacheWaveformPeaks(cacheKey, result);
+          writeWaveformCache(cacheKey, result);
+        } else {
+          failed.add(cacheKey);
+        }
         return result;
       });
-      pending.set(key, request);
+      pending.set(cacheKey, request);
     }
     request
       .then((result) => {
@@ -131,12 +163,12 @@ export function useWaveform(
         if (active) setPeaks(null);
       })
       .finally(() => {
-        pending.delete(key);
+        pending.delete(cacheKey);
       });
     return () => {
       active = false;
     };
-  }, [buckets, key, url]);
+  }, [buckets, cacheKey, url]);
 
   return peaks;
 }

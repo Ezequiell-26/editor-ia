@@ -23,7 +23,7 @@ describe('formatos de video', () => {
     expect(evenDimension(1921)).toBe(1922);
     expect(evenDimension(1920.4)).toBe(1920);
     expect(evenDimension(2)).toBe(16);
-    expect(evenDimension(99_999)).toBe(16_384);
+    expect(evenDimension(99_999)).toBe(32_768);
     expect(evenDimension(Number.NaN, 1080)).toBe(1080);
   });
 

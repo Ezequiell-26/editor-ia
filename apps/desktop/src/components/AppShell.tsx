@@ -2,56 +2,99 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Icon } from './Icon';
 import { MenuBar } from './MenuBar';
+import { PipelineBar } from './PipelineBar';
 import { WindowControls } from './WindowControls';
-import { NAV_VIEWS, type ViewId } from '../app/navigation';
+import { NAV_VIEWS, PIPELINE_HIDDEN_VIEWS, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
+import { usePipeline } from '../state/usePipeline';
 
 interface AppShellProps {
   readonly activeId: ViewId;
   readonly onSelect: (id: ViewId) => void;
+  readonly onReturnToStart?: () => void;
   readonly content: ReactNode;
   readonly flush?: boolean;
 }
 
-export function AppShell({ activeId, onSelect, content, flush = false }: AppShellProps) {
+export function AppShell({
+  activeId,
+  onSelect,
+  onReturnToStart,
+  content,
+  flush = false,
+}: AppShellProps) {
   const store = useProjectStore();
   const project = store.state.project;
   const error = store.state.error;
   const notice = store.state.notice;
+  const pipeline = usePipeline();
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
+  // Las vistas quedan montadas: cada una conserva su propia posición de scroll
+  // en vez de heredar la de la anterior o volver siempre arriba.
+  const scrollPositions = useRef(new Map<ViewId, number>());
+  const previousView = useRef<ViewId | null>(null);
 
   useEffect(() => {
-    if (mainRef.current) {
-      mainRef.current.scrollTop = 0;
-    }
+    const main = mainRef.current;
+    if (!main) return;
+    const previous = previousView.current;
+    if (previous) scrollPositions.current.set(previous, main.scrollTop);
+    main.scrollTop = scrollPositions.current.get(activeId) ?? 0;
+    previousView.current = activeId;
+  }, [activeId]);
+
+  useEffect(() => {
+    const applyTitles = () => {
+      for (const button of document.querySelectorAll<HTMLButtonElement>('button.icon-text')) {
+        if (button.title) continue;
+        const label = button.getAttribute('aria-label') ?? button.textContent?.trim();
+        if (label) button.title = label;
+      }
+    };
+    applyTitles();
+    const handle = window.requestAnimationFrame(applyTitles);
+    return () => {
+      window.cancelAnimationFrame(handle);
+    };
   }, [activeId]);
 
   return (
     <div className="app-shell">
       <header className="topbar">
-        <MenuBar activeId={activeId} onSelect={onSelect} />
-        <div className="window-drag" data-tauri-drag-region aria-hidden="true" />
-        {activeId !== 'editor' ? (
+        {onReturnToStart && (
           <button
             type="button"
-            className="project-chip"
-            aria-live="polite"
-            data-tooltip={
-              project
-                ? `Proyecto: ${project.name} · ${store.statusText} · clic para ir a Proyectos`
-                : 'Sin proyecto abierto · clic para crear o abrir uno'
-            }
-            onClick={() => onSelect('projects')}
+            className="topbar-home-btn"
+            aria-label="Pantalla de inicio"
+            data-tooltip="Volver a la pantalla de inicio"
+            onClick={onReturnToStart}
           >
-            <span className={`phase-dot phase-${store.state.phase}`} aria-hidden="true" />
-            <span className="project-chip-copy">
-              <strong>{project?.name ?? 'Sin proyecto'}</strong>
-              <span>{store.statusText}</span>
-            </span>
+            <Icon name="home" size={14} />
+            <span>Inicio</span>
           </button>
-        ) : null}
-        <div className="window-drag" data-tauri-drag-region aria-hidden="true" />
+        )}
+        <MenuBar
+          activeId={activeId}
+          onSelect={onSelect}
+          {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
+        />
+        <div className="topbar-center" data-tauri-drag-region>
+          {project ? (
+            <div className="topbar-project-pill" title={`Proyecto: ${project.name} (${project.video.width}×${project.video.height})`}>
+              <span className={`topbar-project-dot phase-${store.state.phase}`} aria-hidden="true" />
+              <strong className="topbar-project-title">{project.name}</strong>
+              <span className="topbar-project-spec">
+                {project.video.width}×{project.video.height} · {(project.video.frameRate.num / project.video.frameRate.den).toFixed(0)}fps
+              </span>
+            </div>
+          ) : (
+            <div className="topbar-project-pill empty">
+              <span className="topbar-project-dot" aria-hidden="true" />
+              <span className="topbar-project-title">Sin proyecto activo</span>
+            </div>
+          )}
+        </div>
         <div className="topbar-actions">
           <button
             type="button"
@@ -86,9 +129,16 @@ export function AppShell({ activeId, onSelect, content, flush = false }: AppShel
           >
             <Icon name="save" size={16} />
           </button>
+          <div className="topbar-gpu-gauge" title="Aceleración por GPU local activa">
+            <span className="gpu-label">GPU</span>
+            <div className="gpu-track">
+              <div className="gpu-fill" style={{ width: '92%' }} />
+            </div>
+            <span className="gpu-pct">97%</span>
+          </div>
           <button
             type="button"
-            className="icon-button"
+            className={`topbar-export-btn${hasClip ? ' ready' : ''}`}
             aria-label="Exportar video"
             data-tooltip={hasClip ? 'Exportar video · Ctrl+E' : 'Montá al menos un clip para exportar'}
             onClick={() => {
@@ -97,7 +147,8 @@ export function AppShell({ activeId, onSelect, content, flush = false }: AppShel
             }}
             disabled={!project || !hasClip}
           >
-            <Icon name="export" size={16} />
+            <Icon name="export" size={14} />
+            <span>Exportar</span>
           </button>
           <button
             type="button"
@@ -135,6 +186,9 @@ export function AppShell({ activeId, onSelect, content, flush = false }: AppShel
             Cerrar
           </button>
         </div>
+      ) : null}
+      {!PIPELINE_HIDDEN_VIEWS.has(activeId) ? (
+        <PipelineBar progress={pipeline} activeId={activeId} onSelect={onSelect} />
       ) : null}
       <div className="app-body">
         <Sidebar

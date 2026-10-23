@@ -7,9 +7,22 @@
  * properties, never baked into a project file.
  */
 
-export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v1';
+/**
+ * v2: la identidad visual pasó de la paleta menta/teal al grafito de DaVinci
+ * Resolve. Se cambia la clave a propósito: la paleta guardada pertenecía al
+ * tema anterior, así que se reinicia a los valores nuevos en vez de migrar
+ * colores que ya no existen.
+ */
+export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v2';
 
-export type ThemePresetId = 'mint' | 'ember' | 'violet' | 'ocean' | 'graphite' | 'custom';
+export type ThemePresetId =
+  | 'resolve'
+  | 'mint'
+  | 'ember'
+  | 'violet'
+  | 'ocean'
+  | 'graphite'
+  | 'custom';
 export type Density = 'compact' | 'comfortable' | 'spacious';
 
 export interface ThemeColors {
@@ -38,6 +51,18 @@ export interface AppearanceSettings extends ThemeColors {
 }
 
 export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, ThemeColors>> = {
+  /**
+   * DaVinci Resolve: grafito neutro, sin tinte azul ni verde, y un azul
+   * desaturado como único acento. Los paneles se derivan mezclando la
+   * superficie con el texto, así que este preset define toda la escala.
+   */
+  resolve: {
+    accent: '#4b8fd6',
+    info: '#6fa8dc',
+    background: '#141517',
+    surface: '#1e1f22',
+    text: '#d8d9dc',
+  },
   mint: {
     accent: '#5eead4',
     info: '#5aa9ff',
@@ -102,16 +127,16 @@ export const MONO_FONTS: readonly { readonly id: string; readonly label: string 
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: 1,
-  preset: 'mint',
-  ...THEME_PRESETS.mint,
+  preset: 'resolve',
+  ...THEME_PRESETS.resolve,
   fontUi: 'Segoe UI Variable Text',
   fontDisplay: 'Segoe UI Variable Display',
   fontMono: 'Cascadia Mono',
   scale: 1,
   density: 'comfortable',
   sidebarLabels: false,
-  sidebarWidth: 188,
-  radius: 8,
+  sidebarWidth: 172,
+  radius: 3,
   timelineRows: 48,
   showStatusbar: true,
   reduceMotion: false,
@@ -149,7 +174,8 @@ function density(value: unknown): Density {
 }
 
 function preset(value: unknown): ThemePresetId {
-  return value === 'mint' ||
+  return value === 'resolve' ||
+    value === 'mint' ||
     value === 'ember' ||
     value === 'violet' ||
     value === 'ocean' ||
@@ -222,7 +248,7 @@ function stack(name: string, fallback: string): string {
 
 /** CSS custom properties and data attributes for the current appearance. */
 export function appearanceCssVariables(appearance: AppearanceSettings): Record<string, string> {
-  const sidebar = appearance.sidebarLabels ? appearance.sidebarWidth : 58;
+  const sidebar = appearance.sidebarLabels ? appearance.sidebarWidth : 40;
   return {
     '--color-bg': appearance.background,
     '--color-surface': appearance.surface,
@@ -302,4 +328,65 @@ function safeStorage(): Storage | null {
   } catch {
     return null;
   }
+}
+
+// --------------------------------------------------------------------------- //
+// Color por matiz (para la barra de color)
+// --------------------------------------------------------------------------- //
+
+/** HSL (0-360, 0-1, 0-1) a hex `#rrggbb`. */
+export function hslToHex(hue: number, saturation: number, lightness: number): string {
+  const h = ((hue % 360) + 360) % 360;
+  const s = Math.min(1, Math.max(0, saturation));
+  const l = Math.min(1, Math.max(0, lightness));
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] =
+    h < 60
+      ? [c, x, 0]
+      : h < 120
+        ? [x, c, 0]
+        : h < 180
+          ? [0, c, x]
+          : h < 240
+            ? [0, x, c]
+            : h < 300
+              ? [x, 0, c]
+              : [c, 0, x];
+  const to = (value: number) =>
+    Math.round((value + m) * 255)
+      .toString(16)
+      .padStart(2, '0');
+  return `#${to(r)}${to(g)}${to(b)}`;
+}
+
+/** Hex `#rrggbb` a matiz (0-360). Devuelve 0 si no se puede leer. */
+export function hueOf(hex: string): number {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!match) return 0;
+  const value = Number.parseInt(match[1]!, 16);
+  const r = ((value >> 16) & 255) / 255;
+  const g = ((value >> 8) & 255) / 255;
+  const b = (value & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  if (delta === 0) return 0;
+  let hue: number;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  return Math.round(((hue * 60) % 360 + 360) % 360);
+}
+
+/**
+ * Paleta derivada de un matiz. El acento se mantiene legible sobre fondo oscuro
+ * y el color secundario queda a 150° para que no compita con el acento.
+ */
+export function paletteFromHue(hue: number): Pick<ThemeColors, 'accent' | 'info'> {
+  return {
+    accent: hslToHex(hue, 0.74, 0.63),
+    info: hslToHex(hue + 150, 0.62, 0.66),
+  };
 }

@@ -42,7 +42,7 @@ describe('apariencia local', () => {
 
   it('produce variables de CSS para el rail y la escala', () => {
     const rail = appearanceCssVariables(DEFAULT_APPEARANCE);
-    expect(rail['--sidebar-width']).toBe('58px');
+    expect(rail['--sidebar-width']).toBe('40px');
     expect(rail['--app-zoom']).toBe('1');
     expect(rail['--app-width']).toBe('100vw');
 

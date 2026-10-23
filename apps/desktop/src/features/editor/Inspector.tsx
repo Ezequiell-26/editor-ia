@@ -1,12 +1,34 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Asset, AssetProxy, BlendMode, CaptionCue, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, KeyframeEasing, Scene, Track } from '@editor-ia/project-schema';
+import { Icon } from '../../components/Icon';
+import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
+import { MARKER_COLORS, MAX_MARKERS, type MarkerColor } from '@editor-ia/project-schema';
+import {
+  addMarker,
+  chaptersFromMarkers,
+  clearMarkers,
+  deleteMarker,
+  formatMarkerChapters,
+  markersFromScenes,
+  updateMarker,
+  validateChapters,
+} from '../../state/markers';
 import { friendlyAssetLabel } from '../../state/asset-labels';
+import { AUDIO_PRESETS, type AudioPresetId } from '../../state/audio-presets';
+import {
+  EFFECT_PRESETS,
+  applyEffectPreset,
+  type EffectPreset,
+} from '../../state/effect-presets';
+import { CLIP_COLORS } from '../../state/clip-colors';
+import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import {
   addAsset,
   addCaptionCue,
   addClipFromAsset,
   addTitleCue,
+  applyAudioPresetToAll,
+  applyTransitionToCuts,
   importSubtitleCues,
   addTranscriptionCues,
   applySpeedCurve,
@@ -17,20 +39,27 @@ import {
   clearTransformKeyframes,
   clipGainAtFrame,
   clipTransformAtFrame,
+  closeGaps,
   deleteCaptionCue,
   deleteClip,
   deleteTrack,
+  detachAudio,
   ensureDelivery,
   formatTimecode,
   fpsOf,
+  freezeFrameInPlace,
   markAssetReady,
   moveClip,
+  moveTrack,
   removeAsset,
   removeGainKeyframe,
   removeMaskKeyframe,
   removeTransformKeyframe,
+  rollClip,
   setClipSpeed,
   setClipStabilization,
+  slideClip,
+  slipClip,
   setAssetProxy,
   setProjectLook,
   setGainKeyframe,
@@ -38,9 +67,11 @@ import {
   setTransformKeyframe,
   splitClip,
   splitClipAtFrames,
+  splitClipsAtMarkers,
   splitTrackAtFrames,
   trimClip,
   updateAssetLabel,
+  updateAssetMetadata,
   updateAudioMix,
   updateCaptionCue,
   updateCaptionStyle,
@@ -195,7 +226,7 @@ function Section({
 }: {
   readonly title: string;
   readonly children: ReactNode;
-  readonly group?: 'video' | 'audio' | 'speed' | 'animation' | 'color' | 'style';
+  readonly group?: 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'style';
 }) {
   return (
     <section className="inspector-section" data-group={group}>
@@ -212,6 +243,7 @@ function clipKindLabel(kind: Clip['kind']): string {
     audio: 'Audio',
     graphic: 'Gráfico',
     adjustment: 'Ajuste',
+    freeze: 'Congelado',
   }[kind];
 }
 
@@ -250,7 +282,16 @@ function mediaInfo(asset: Asset): string {
   return 'sin medición';
 }
 
-const COLOR_LOOKS: readonly { readonly id: string; readonly label: string; readonly effects: ClipEffects }[] = [
+const MARKER_COLOR_LABELS: Record<MarkerColor, string> = {
+  mint: 'Menta',
+  amber: 'Ámbar',
+  rose: 'Rosa',
+  blue: 'Azul',
+  violet: 'Violeta',
+  slate: 'Gris',
+};
+
+export const COLOR_LOOKS: readonly { readonly id: string; readonly label: string; readonly effects: ClipEffects }[] = [
   { id: 'neutral', label: 'Neutro', effects: {} },
   {
     id: 'warm',
@@ -291,7 +332,7 @@ const COLOR_LOOKS: readonly { readonly id: string; readonly label: string; reado
   },
 ];
 
-type ClipTab = 'video' | 'audio' | 'speed' | 'animation' | 'color' | 'style' | 'all';
+type ClipTab = 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'style' | 'all';
 
 function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; project: ReturnType<typeof useProjectStore>['state']['project'] }) {
   const store = useProjectStore();
@@ -306,6 +347,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
   const [selectedKeyframe, setSelectedKeyframe] = useState<number | null>(null);
   const [rampFrom, setRampFrom] = useState(2);
   const [rampTo, setRampTo] = useState(0.5);
+  const [trimDelta, setTrimDelta] = useState(1);
   const [curveSegments, setCurveSegments] = useState(8);
   const [beatAnalysis, setBeatAnalysis] = useState<BeatAnalysis | null>(null);
   const [beatBusy, setBeatBusy] = useState(false);
@@ -318,6 +360,12 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
   const [matchRefId, setMatchRefId] = useState('');
   const [matchStrength, setMatchStrength] = useState(0.75);
   const [matchBusy, setMatchBusy] = useState(false);
+  const [relightBusy, setRelightBusy] = useState(false);
+  const [relightError, setRelightError] = useState<string | null>(null);
+  const [effectPrompt, setEffectPrompt] = useState('');
+  const [effectApproved, setEffectApproved] = useState(false);
+  const [effectBusy, setEffectBusy] = useState(false);
+  const [effectError, setEffectError] = useState<string | null>(null);
   useEffect(() => {
     setSceneCuts([]);
     setSceneBusy(false);
@@ -328,6 +376,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     setBeatInfo(null);
     setStabilizeInfo(null);
     setStabilizeBusy(false);
+    setTrimDelta(1);
     setTab(clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video');
   }, [clip.id, clip.kind]);
   if (!project) return null;
@@ -342,7 +391,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       ? (
           clip as Clip & {
             transitionIn?: {
-              type: 'dissolve' | 'fade-black' | 'slide-left' | 'slide-right';
+              type: ClipTransition['type'];
               frames: number;
             };
           }
@@ -360,7 +409,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     animationIn?: ClipAnimation;
     animationOut?: ClipAnimation;
   };
-  const canAnimate = clip.kind === 'video' || clip.kind === 'image';
+  const canAnimate = clip.kind === 'video' || clip.kind === 'image' || clip.kind === 'freeze';
   const animationIn = canAnimate ? animationClip.animationIn : undefined;
   const animationOut = canAnimate ? animationClip.animationOut : undefined;
   const animationMax = Math.max(1, Math.min(240, clip.durationFrames));
@@ -444,7 +493,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     clip.kind === 'video' || clip.kind === 'audio'
       ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1)
       : 1;
-  async function freezeFrame(): Promise<void> {
+  async function freezeFrame(mode: 'track' | 'overlay'): Promise<void> {
     if (
       !project ||
       clip.kind !== 'video' ||
@@ -454,9 +503,10 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     ) {
       return;
     }
+    const atFrame = store.state.playheadFrame;
     const localFrame = Math.max(
       0,
-      Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
+      Math.min(clip.durationFrames - 1, atFrame - clip.startFrame),
     );
     const seconds = (windowedSource.inFrame + localFrame * speedFactor) / fps;
     setFreezeBusy(true);
@@ -473,15 +523,29 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         next = markAssetReady(next, frameAsset.id, 'allowed');
         const ready = next.assets.find((item) => item.id === frameAsset.id);
         if (!ready) throw new Error('el frame no quedó en la biblioteca');
+        if (mode === 'track') {
+          const frozen = freezeFrameInPlace(
+            next,
+            clip.id,
+            atFrame,
+            frameAsset.id,
+            Math.max(1, Math.round(2 * fps)),
+          );
+          return { project: frozen.project, clipId: frozen.freezeClipId };
+        }
         const added = addClipFromAsset(next, ready, {
-          atFrame: store.state.playheadFrame,
+          atFrame,
           durationFrames: Math.max(1, Math.round(2 * fps)),
         });
         return { project: added.project, clipId: added.clipId };
       });
       if (result) {
         store.setSelection({ kind: 'clip', id: result.clipId });
-        store.setNotice('Frame congelado: capa de 2 s agregada en el playhead.');
+        store.setNotice(
+          mode === 'track'
+            ? 'Frame congelado: 2 s en la pista del video y el resto se corrió.'
+            : 'Frame congelado: capa de 2 s agregada en el playhead.',
+        );
       }
     } catch (error) {
       store.setNotice(
@@ -759,14 +823,159 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     store.update((current) => updateClip(current, clip.id, { effects: nextEffects }));
   }
 
+  async function generateEffect(): Promise<void> {
+    const prompt = effectPrompt.trim();
+    if (!prompt || effectBusy) return;
+    setEffectBusy(true);
+    setEffectError(null);
+    try {
+      const recipe = await store.service.generateVideoEffect({
+        prompt,
+        approvedCost: effectApproved,
+      });
+      store.update((current) =>
+        updateClip(current, clip.id, {
+          effects: { ...effects, ...(recipe.effects as ClipEffects) },
+        }),
+      );
+      store.setNotice(
+        `Efecto IA aplicado: ${recipe.name}${recipe.simulated ? ' (simulado)' : ''}. ${recipe.description}`,
+      );
+      setEffectPrompt('');
+    } catch (failure) {
+      setEffectError(
+        failure instanceof Error ? failure.message : 'no se pudo generar el efecto',
+      );
+    } finally {
+      setEffectBusy(false);
+    }
+  }
+
+  async function exportLookLut(): Promise<void> {
+    try {
+      const dir = await store.service.chooseDownloadDirectory();
+      if (!dir) return;
+      const result = await store.service.exportLookLut({
+        outputDir: dir,
+        title: clip.label ?? 'look',
+        effects,
+      });
+      store.setNotice(
+        `Look exportado como LUT .cube (${result.size}³, ${Math.round(result.bytes / 1024)} KB): ${result.path}`,
+      );
+    } catch (failure) {
+      store.setNotice(
+        failure instanceof Error ? failure.message : 'no se pudo exportar el look',
+      );
+    }
+  }
+
+  function setLens(patch: { readonly k1?: number; readonly k2?: number }): void {
+    const current = effects.lensCorrection;
+    const k1 = patch.k1 ?? current?.k1 ?? 0;
+    const k2 = patch.k2 ?? current?.k2 ?? 0;
+    if (Math.abs(k1) < 0.0001 && Math.abs(k2) < 0.0001) {
+      setEffect('lensCorrection', undefined);
+      return;
+    }
+    setEffect('lensCorrection', {
+      k1,
+      k2,
+      ...(current?.cx !== undefined ? { cx: current.cx } : {}),
+      ...(current?.cy !== undefined ? { cy: current.cy } : {}),
+    });
+  }
+
+  function setRelight(
+    patch: Partial<NonNullable<ClipEffects['relight']>>,
+  ): void {
+    const current = effects.relight;
+    setEffect('relight', {
+      x: patch.x ?? current?.x ?? 0,
+      y: patch.y ?? current?.y ?? 0,
+      radius: patch.radius ?? current?.radius ?? 0.45,
+      strength: patch.strength ?? current?.strength ?? 0.35,
+      warmth: patch.warmth ?? current?.warmth ?? 0.08,
+      ...(patch.feather !== undefined
+        ? { feather: patch.feather }
+        : current?.feather !== undefined
+          ? { feather: current.feather }
+          : {}),
+    });
+  }
+
+  async function detectRelight(): Promise<void> {
+    if (!asset || asset.kind !== 'video' || !windowedSource || relightBusy) return;
+    const media = asset.media;
+    if (!media) {
+      setRelightError('El video no tiene duración medida para analizar rostros.');
+      return;
+    }
+    const fps = media.frameRate.num / media.frameRate.den;
+    if (!(fps > 0)) {
+      setRelightError('El video no tiene una tasa de frames válida.');
+      return;
+    }
+    setRelightBusy(true);
+    setRelightError(null);
+    try {
+      const track = await store.service.analyzeFaceTrack({
+        path: asset.source.path,
+        startSeconds: windowedSource.inFrame / fps,
+        endSeconds: windowedSource.outFrame / fps,
+      });
+      const samples = track.samples;
+      if (samples.length === 0) {
+        setRelightError(
+          'No se detectó un rostro frontal en el clip; podés centrar el relight a mano.',
+        );
+        return;
+      }
+      const count = samples.length;
+      const centerX = samples.reduce((sum, sample) => sum + sample.centerX, 0) / count;
+      const centerY = samples.reduce((sum, sample) => sum + sample.centerY, 0) / count;
+      const size = samples.reduce((sum, sample) => sum + sample.size, 0) / count;
+      setRelight({
+        x: Math.max(-1, Math.min(1, (centerX - 0.5) * 2)),
+        y: Math.max(-1, Math.min(1, (centerY - 0.5) * 2)),
+        radius: Math.max(0.18, Math.min(1, size * 2.2)),
+      });
+      store.setNotice(
+        `Relight centrado en el rostro (${track.detections} muestras del clip).`,
+      );
+    } catch (cause) {
+      setRelightError(
+        cause instanceof Error
+          ? cause.message
+          : 'no se pudo detectar el rostro para el relight',
+      );
+    } finally {
+      setRelightBusy(false);
+    }
+  }
+
   function applyLook(look: ClipEffects): void {
     const nextEffects: ClipEffects = { ...look };
     if (effects.fadeInFrames !== undefined) nextEffects.fadeInFrames = effects.fadeInFrames;
     if (effects.fadeOutFrames !== undefined) nextEffects.fadeOutFrames = effects.fadeOutFrames;
     store.update((current) => updateClip(current, clip.id, { effects: nextEffects }));
   }
+
+  function applyTrim(
+    action: (
+      project: ProjectDocument,
+      clipId: string,
+      delta: number,
+    ) => ProjectDocument,
+  ): void {
+    if (!Number.isFinite(trimDelta) || trimDelta === 0) {
+      store.setNotice('elegí un desplazamiento distinto de cero');
+      return;
+    }
+    store.update((current) => action(current, clip.id, trimDelta));
+  }
   function setWheel(
-    kind: 'lift' | 'gamma' | 'gain',
+    kind: 'lift' | 'gamma' | 'gain' | 'offset',
     channel: 'r' | 'g' | 'b',
     value: number,
   ): void {
@@ -776,6 +985,11 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
   function patchHsl(patch: Partial<NonNullable<ClipEffects['hsl']>>): void {
     const current = effects.hsl ?? { hue: 0, saturation: 0, intensity: 0 };
     setEffect('hsl', { ...current, ...patch });
+  }
+  function applyCreativePreset(preset: EffectPreset): void {
+    const next = applyEffectPreset(effects, preset);
+    store.update((current) => updateClip(current, clip.id, { effects: next }));
+    store.setNotice(`Efecto ${preset.label} aplicado.`);
   }
   const compatibleTracks = project.timeline.tracks.filter((item) =>
     clip.kind === 'audio'
@@ -788,13 +1002,14 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       item.status === 'ready' &&
       (item.kind === 'video' || item.kind === 'image'),
   );
-  const visual = clip.kind === 'video' || clip.kind === 'image';
+  const visual = clip.kind === 'video' || clip.kind === 'image' || clip.kind === 'freeze';
   const isAdjustment = clip.kind === 'adjustment';
   const timed = clip.kind === 'video' || clip.kind === 'audio';
   const tabs: { readonly id: ClipTab; readonly label: string }[] = [
     ...(visual ? [{ id: 'video' as const, label: 'Video' }] : []),
     ...(timed ? [{ id: 'audio' as const, label: 'Audio' }] : []),
     ...(timed ? [{ id: 'speed' as const, label: 'Velocidad' }] : []),
+    ...(timed ? [{ id: 'trim' as const, label: 'Recorte' }] : []),
     ...(visual ? [{ id: 'animation' as const, label: 'Animación' }] : []),
     ...(visual || isAdjustment
       ? [{ id: 'color' as const, label: isAdjustment ? 'Ajuste' : 'Color' }]
@@ -830,6 +1045,35 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
           {clipKindLabel(clip.kind)} · {track.label} · {formatTimecode(clip.startFrame, fps)} →{' '}
           {formatTimecode(clip.startFrame + clip.durationFrames, fps)}
         </p>
+        <div className="color-chips" role="group" aria-label="Color del clip">
+          {CLIP_COLORS.map((color) => (
+            <button
+              key={color.id}
+              type="button"
+              className={`small color-chip${clip.colorTag === color.id ? ' active' : ''}`}
+              aria-label={`Color ${color.label}`}
+              aria-pressed={clip.colorTag === color.id}
+              onClick={() =>
+                store.update((current) =>
+                  updateClip(current, clip.id, { colorTag: color.id }),
+                )
+              }
+            >
+              <span className="clip-color-swatch" style={{ background: color.hex }} />
+              {color.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="small ghost"
+            onClick={() =>
+              store.update((current) => updateClip(current, clip.id, { colorTag: undefined }))
+            }
+            disabled={clip.colorTag === undefined}
+          >
+            Sin color
+          </button>
+        </div>
         <div className="inspector-grid">
           <NumberField
             label="Inicio (frame)"
@@ -1072,7 +1316,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
           </button>
         </div>
 
-        {clip.kind === 'video' || clip.kind === 'image' ? (
+        {visual ? (
           <div className="keyframe-panel">
             <div className="production-card-head">
               <div>
@@ -1256,7 +1500,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         ) : null}
       </Section>
 
-      {clip.kind === 'video' || clip.kind === 'image' ? (
+      {visual ? (
         <Section title="Transición de entrada" group="video">
           <div className="inspector-grid">
             <label className="field">
@@ -1285,8 +1529,11 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                 <option value="none">Sin transición</option>
                 <option value="dissolve">Disolvencia</option>
                 <option value="fade-black">Fundido a negro</option>
+                <option value="fade-white">Fundido a blanco</option>
                 <option value="slide-left">Deslizar desde la derecha</option>
                 <option value="slide-right">Deslizar desde la izquierda</option>
+                <option value="slide-up">Deslizar desde abajo</option>
+                <option value="slide-down">Deslizar desde arriba</option>
               </select>
             </label>
             <NumberField
@@ -1516,6 +1763,16 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
+      {clip.kind === 'freeze' ? (
+        <Section title="Congelado" group="video">
+          <p className="fine-print">
+            Este clip es un frame fijo exportado del video original. Se renderiza como imagen
+            y podés moverlo, recortarlo o aplicarle color, máscara y animación sin alterar los
+            frames vecinos.
+          </p>
+        </Section>
+      ) : null}
+
       {clip.kind === 'video' || clip.kind === 'audio' ? (
         <Section title="Velocidad" group="speed">
           <div className="inspector-grid">
@@ -1617,7 +1874,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             <div className="production-card-head">
               <div>
                 <p className="eyebrow">Curva de velocidad</p>
-                <span className="fine-print">6–16 tramos suaves con extremos exactos</span>
+                <span className="fine-print">6–24 tramos suaves con extremos exactos</span>
               </div>
               <div className="actions compact">
                 <label className="field">
@@ -1626,7 +1883,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                     value={curveSegments}
                     onChange={(event) => setCurveSegments(Number(event.target.value))}
                   >
-                    {[6, 8, 12, 16].map((value) => (
+                    {[6, 8, 12, 16, 20, 24].map((value) => (
                       <option key={value} value={value}>
                         {value}
                       </option>
@@ -1670,13 +1927,13 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               <div className="production-card-head">
                 <div>
                   <p className="eyebrow">Freeze frame</p>
-                  <span className="fine-print">Frame exacto del playhead como capa de 2 s</span>
+                  <span className="fine-print">Frame exacto del playhead como 2 s fijos</span>
                 </div>
                 <div className="actions compact">
                   <button
                     type="button"
                     className="small"
-                    onClick={() => void freezeFrame()}
+                    onClick={() => void freezeFrame('track')}
                     disabled={
                       freezeBusy ||
                       !asset ||
@@ -1684,13 +1941,28 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                       asset.source.type !== 'local'
                     }
                   >
-                    {freezeBusy ? 'Congelando…' : 'Congelar frame'}
+                    {freezeBusy ? 'Congelando…' : 'Congelar en la pista'}
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() => void freezeFrame('overlay')}
+                    disabled={
+                      freezeBusy ||
+                      !asset ||
+                      asset.kind !== 'video' ||
+                      asset.source.type !== 'local'
+                    }
+                  >
+                    Como capa
                   </button>
                 </div>
               </div>
               <p className="fine-print">
-                Exporta el frame a PNG, lo importa a Medios y lo monta como imagen sobre el
-                playhead. Después ajustá su duración o posición en la timeline.
+                En la pista divide el video en el playhead, inserta 2 s fijos sobre la misma
+                pista y corre clips, subtítulos y marcadores posteriores. Como capa monta el
+                frame como imagen encima, sin tocar el resto. En ambos casos el PNG queda en
+                Medios.
               </p>
             </div>
           ) : null}
@@ -1766,7 +2038,72 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
-      {clip.kind === 'video' || clip.kind === 'image' ? (
+      {timed ? (
+        <Section title="Ajuste fino" group="trim">
+          <p className="inspector-meta">
+            Ventana de origen{' '}
+            {windowedSource
+              ? `${windowedSource.inFrame}–${windowedSource.outFrame}`
+              : 'no disponible'}{' '}
+            · velocidad {speed.toFixed(2)}×
+          </p>
+          <div className="inspector-grid">
+            <NumberField
+              label="Desplazamiento (frames)"
+              value={trimDelta}
+              min={-300}
+              max={300}
+              onCommit={setTrimDelta}
+            />
+          </div>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              disabled={Math.abs(speed - 1) > 0.001}
+              onClick={() => applyTrim(slipClip)}
+            >
+              Slip
+            </button>
+            <button
+              type="button"
+              className="small"
+              disabled={Math.abs(speed - 1) > 0.001}
+              onClick={() => applyTrim(slideClip)}
+            >
+              Slide
+            </button>
+            <button
+              type="button"
+              className="small"
+              disabled={Math.abs(speed - 1) > 0.001}
+              onClick={() =>
+                applyTrim((project, id, delta) => rollClip(project, id, 'in', delta))
+              }
+            >
+              Roll entrada
+            </button>
+            <button
+              type="button"
+              className="small"
+              disabled={Math.abs(speed - 1) > 0.001}
+              onClick={() =>
+                applyTrim((project, id, delta) => rollClip(project, id, 'out', delta))
+              }
+            >
+              Roll salida
+            </button>
+          </div>
+          <p className="fine-print">
+            Slip mueve el contenido dentro del clip sin mover la timeline. Slide
+            mueve el clip y reparte la diferencia entre los vecinos; Roll mueve el
+            corte con el vecino. Requieren velocidad 1×; Slide y Roll necesitan
+            clips contiguos y rechazan keyframes.
+          </p>
+        </Section>
+      ) : null}
+
+      {visual ? (
         <Section title="Movimiento" group="video">
           <label className="field">
             <span>Movimiento de cámara</span>
@@ -1835,7 +2172,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
-      {clip.kind === 'video' || clip.kind === 'image' ? (
+      {visual ? (
         <Section title="Fondo / chroma key" group="video">
           <div className="inspector-grid">
             <label className="field">
@@ -1913,7 +2250,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
-      {clip.kind === 'video' || clip.kind === 'image' ? (
+      {visual ? (
         <Section title="Máscara" group="video">
           <div className="inspector-grid">
             <label className="field">
@@ -1926,6 +2263,9 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               >
                 <option value="rectangle">Rectángulo</option>
                 <option value="ellipse">Elipse</option>
+                <option value="diamond">Diamante</option>
+                <option value="triangle">Triángulo</option>
+                <option value="rounded">Rectángulo redondeado</option>
               </select>
             </label>
             <NumberField
@@ -2086,7 +2426,29 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
-      {clip.kind === 'video' || clip.kind === 'image' ? (
+      {visual ? (
+        <Section title="Efectos creativos" group="style">
+          <p className="fine-print">
+            Recetas de un clic que reemplazan el grade del clip y conservan sus
+            fades y LUT.
+          </p>
+          <div className="look-presets" role="group" aria-label="Efectos creativos">
+            <span className="appearance-label">Efectos rápidos</span>
+            {EFFECT_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="look-chip"
+                onClick={() => applyCreativePreset(preset)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </Section>
+      ) : null}
+
+      {visual ? (
         <Section title="Estilo" group="style">
           <p className="inspector-meta">
             Punto de partida rápido para el look; conserva los fades del clip.
@@ -2134,8 +2496,32 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
-      {clip.kind === 'video' || clip.kind === 'image' || isAdjustment ? (
+      {visual || isAdjustment ? (
         <Section title="Color y efectos" group="color">
+          {/* DaVinci Resolve Color Wheels (Lift, Gamma, Gain) */}
+          <div className="inspector-color-wheels" role="group" aria-label="Ruedas de color DaVinci">
+            <div className="color-wheel-item">
+              <span className="color-wheel-label">Lift</span>
+              <div className="color-wheel-circle" title="Lift (Sombras)">
+                <span className="color-wheel-reticle" />
+              </div>
+              <span className="color-wheel-sub">Sombras</span>
+            </div>
+            <div className="color-wheel-item">
+              <span className="color-wheel-label">Gamma</span>
+              <div className="color-wheel-circle" title="Gamma (Medios tonos)">
+                <span className="color-wheel-reticle" />
+              </div>
+              <span className="color-wheel-sub">Tonos</span>
+            </div>
+            <div className="color-wheel-item">
+              <span className="color-wheel-label">Gain</span>
+              <div className="color-wheel-circle" title="Gain (Altas luces)">
+                <span className="color-wheel-reticle" />
+              </div>
+              <span className="color-wheel-sub">Luces</span>
+            </div>
+          </div>
           <div className="inspector-grid">
             <NumberField
               label="Brillo"
@@ -2168,6 +2554,34 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               max={1}
               step={0.05}
               onCommit={(value) => setEffect('temperature', value)}
+            />
+            <NumberField
+              label="Sombras"
+              value={effects.shadows ?? 0}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) =>
+                setEffect('shadows', value === 0 ? undefined : value)
+              }
+            />
+            <NumberField
+              label="Altas luces"
+              value={effects.highlights ?? 0}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) =>
+                setEffect('highlights', value === 0 ? undefined : value)
+              }
+            />
+            <NumberField
+              label="Fade tonal"
+              value={effects.fade ?? 0}
+              min={0}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setEffect('fade', value === 0 ? undefined : value)}
             />
             <NumberField
               label="Rotación de tono (°)"
@@ -2223,6 +2637,26 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               step={1}
               onCommit={(value) => setEffect('blur', value)}
             />
+            <NumberField
+              label="Lente K1"
+              value={effects.lensCorrection?.k1 ?? 0}
+              min={-1}
+              max={1}
+              step={0.01}
+              onCommit={(value) => setLens({ k1: value })}
+            />
+            <NumberField
+              label="Lente K2"
+              value={effects.lensCorrection?.k2 ?? 0}
+              min={-1}
+              max={1}
+              step={0.01}
+              onCommit={(value) => setLens({ k2: value })}
+            />
+            <p className="fine-print">
+              Lente K1/K2 corrige la distorsión en el MP4; la preview no la simula y
+              los bordes sin datos quedan negros.
+            </p>
             {!isAdjustment ? (
               <>
                 <NumberField
@@ -2248,6 +2682,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                 ['lift', 'Sombras'],
                 ['gamma', 'Medios'],
                 ['gain', 'Luces'],
+                ['offset', 'Offset'],
               ] as const
             ).map(([kind, label]) => (
               <fieldset className="color-wheel" key={kind}>
@@ -2274,6 +2709,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                 setEffect('lift', undefined);
                 setEffect('gamma', undefined);
                 setEffect('gain', undefined);
+                setEffect('offset', undefined);
               }}
             >
               Neutralizar ruedas
@@ -2475,7 +2911,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                     onClick={() =>
                       store.update((current) =>
                         updateClip(current, clip.id, {
-                          effects: { ...effects, lutFile: undefined },
+                          effects: { ...effects, lutFile: undefined, lutIntensity: undefined },
                         }),
                       )
                     }
@@ -2485,12 +2921,76 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
                 ) : null}
               </div>
             </div>
+            {effects.lutFile ? (
+              <div className="inspector-grid">
+                <NumberField
+                  label="Intensidad LUT (%)"
+                  value={Math.round((effects.lutIntensity ?? 1) * 100)}
+                  min={0}
+                  max={100}
+                  step={5}
+                  onCommit={(value) => setEffect('lutIntensity', value / 100)}
+                />
+              </div>
+            ) : null}
             <p className="fine-print">
-              El archivo se copia a `media/luts` del proyecto y FFmpeg lo aplica con `lut3d`
+              El archivo se copia a `media/luts` del proyecto y FFmpeg lo mezcla con el original
               después del color. La preview no simula el LUT; revisá el MP4.
             </p>
           </div>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Efecto con IA</p>
+                <span className="fine-print">Describe el look; la IA devuelve parámetros nativos</span>
+              </div>
+            </div>
+            <label className="field">
+              <span>Qué efecto querés</span>
+              <input
+                value={effectPrompt}
+                onChange={(event) => setEffectPrompt(event.target.value)}
+                placeholder="cine frío con viñeta y grano suave"
+                maxLength={500}
+                disabled={effectBusy}
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={effectApproved}
+                onChange={(event) => setEffectApproved(event.target.checked)}
+                disabled={effectBusy}
+              />
+              <span>Autorizo una posible llamada con costo al proveedor</span>
+            </label>
+            <div className="actions compact">
+              <button
+                type="button"
+                className="small primary icon-text"
+                onClick={() => void generateEffect()}
+                disabled={effectBusy || effectPrompt.trim().length < 3}
+              >
+                <Icon name="sparkles" size={14} />
+                <span>{effectBusy ? 'Generando…' : 'Generar y aplicar'}</span>
+              </button>
+            </div>
+            {effectError ? (
+              <p className="notice notice-warning" role="alert">
+                {effectError}
+              </p>
+            ) : null}
+          </div>
           <div className="actions compact">
+            <button
+              type="button"
+              className="small ghost"
+              onClick={() => void exportLookLut()}
+              disabled={Object.keys(effects).length === 0}
+              title="Genera una LUT .cube de 33³ con FilmCraft para usar el look en otra app"
+            >
+              Exportar look .cube
+            </button>
             <button
               type="button"
               className="small ghost"
@@ -2503,6 +3003,86 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
           <p className="fine-print">
             La vista previa aplica color, desenfoque y blanco y negro de forma aproximada; el MP4
             renderiza los ajustes con FFmpeg.
+          </p>
+        </Section>
+      ) : null}
+
+      {visual ? (
+        <Section title="Relight por rostro" group="video">
+          <p className="fine-print">
+            Máscara radial de luz sobre el sujeto. No es un modelo generativo:
+            aclara/oscurce y templa la zona elegida en el MP4.
+          </p>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small ghost icon-text"
+              onClick={() => void detectRelight()}
+              disabled={!asset || asset.kind !== 'video' || relightBusy}
+            >
+              <Icon name="eye" size={14} />
+              <span>{relightBusy ? 'Detectando…' : 'Centrar en el rostro'}</span>
+            </button>
+            {effects.relight ? (
+              <button
+                type="button"
+                className="small ghost"
+                onClick={() => setEffect('relight', undefined)}
+              >
+                Quitar relight
+              </button>
+            ) : null}
+          </div>
+          {relightError ? (
+            <p className="notice notice-warning" role="alert">
+              {relightError}
+            </p>
+          ) : null}
+          <div className="inspector-grid">
+            <NumberField
+              label="Fuerza"
+              value={effects.relight?.strength ?? 0.35}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setRelight({ strength: value })}
+            />
+            <NumberField
+              label="Calidez"
+              value={effects.relight?.warmth ?? 0.08}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setRelight({ warmth: value })}
+            />
+            <NumberField
+              label="Radio"
+              value={effects.relight?.radius ?? 0.45}
+              min={0.05}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setRelight({ radius: value })}
+            />
+            <NumberField
+              label="Centro X"
+              value={effects.relight?.x ?? 0}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setRelight({ x: value })}
+            />
+            <NumberField
+              label="Centro Y"
+              value={effects.relight?.y ?? 0}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setRelight({ y: value })}
+            />
+          </div>
+          <p className="fine-print">
+            Sólo se renderiza en el MP4; la preview no muestra el cambio. El
+            `geq` por píxel puede ser lento en 4K.
           </p>
         </Section>
       ) : null}
@@ -2558,6 +3138,39 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
 
       {clip.kind === 'video' || clip.kind === 'audio' ? (
         <Section title="Audio del clip" group="audio">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={audio.muted === true}
+              onChange={(event) =>
+                patchAudio({ muted: event.target.checked ? true : undefined })
+              }
+            />
+            <span>Silenciar este clip</span>
+          </label>
+          <p className="fine-print">
+            Apaga sólo el audio de este clip; la pista y los demás clips siguen sonando.
+          </p>
+          {clip.kind === 'video' ? (
+            <div className="actions compact">
+              <button
+                type="button"
+                className="small"
+                onClick={() => {
+                  const result = store.mutate((current) => detachAudio(current, clip.id));
+                  if (!result) return;
+                  store.setSelection({ kind: 'clip', id: result.clipId });
+                  store.setNotice(
+                    result.createdTrack
+                      ? 'Audio separado en una pista nueva; el video quedó en silencio.'
+                      : 'Audio separado a una pista libre; el video quedó en silencio.',
+                  );
+                }}
+              >
+                Separar audio
+              </button>
+            </div>
+          ) : null}
           <div className="inspector-grid">
             <NumberField
               label="Ganancia (dB)"
@@ -2896,11 +3509,19 @@ function trackKind(clip: Clip): Track['kind'] {
       return 'graphic';
     case 'adjustment':
       return 'adjustment';
+    case 'freeze':
+      return 'video';
   }
 }
 
 function TrackInspector({ track }: { track: Track }) {
   const store = useProjectStore();
+  const sorted = [...(store.state.project?.timeline.tracks ?? [])].sort(
+    (a, b) => a.order - b.order,
+  );
+  const index = sorted.findIndex((item) => item.id === track.id);
+  const canMoveUp = index >= 0 && index < sorted.length - 1;
+  const canMoveDown = index > 0;
   return (
     <Section title="Pista">
       <TextField
@@ -2939,6 +3560,48 @@ function TrackInspector({ track }: { track: Track }) {
         </label>
       </div>
       <div className="actions compact">
+        <button
+          type="button"
+          className="small"
+          disabled={!canMoveUp}
+          onClick={() => store.update((current) => moveTrack(current, track.id, 'up'))}
+        >
+          Subir capa
+        </button>
+        <button
+          type="button"
+          className="small"
+          disabled={!canMoveDown}
+          onClick={() => store.update((current) => moveTrack(current, track.id, 'down'))}
+        >
+          Bajar capa
+        </button>
+        <button
+          type="button"
+          className="small"
+          disabled={track.locked}
+          onClick={() => {
+            try {
+              const current = store.state.project;
+              if (!current) return;
+              const result = closeGaps(current, track.id);
+              if (result.moved === 0) {
+                store.setNotice('La pista no tiene huecos entre clips.');
+                return;
+              }
+              store.update(() => result.project);
+              store.setNotice(
+                `Huecos cerrados: ${result.moved} clip(s), ${(result.removedFrames / fpsOf(result.project)).toFixed(2)} s.`,
+              );
+            } catch (error) {
+              store.setNotice(
+                error instanceof Error ? error.message : 'no se pudieron cerrar los huecos',
+              );
+            }
+          }}
+        >
+          Cerrar huecos
+        </button>
         <button
           type="button"
           className="small danger-ghost"
@@ -3015,6 +3678,64 @@ function CueInspector({ cue }: { cue: CaptionCue }) {
           <option value="slide-up">Subir</option>
         </select>
       </label>
+      <label className="field">
+        <span>Movimiento</span>
+        <select
+          value={cue.motion ? (cue.motion.preset ?? 'custom') : 'none'}
+          disabled={Boolean(cue.words && cue.words.length > 1)}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value === 'none') {
+              store.update((current) =>
+                updateCaptionCue(current, cue.id, { motion: null }),
+              );
+            } else if (value !== 'custom') {
+              store.update((current) =>
+                updateCaptionCue(current, cue.id, {
+                  motion: captionMotionPreset(
+                    value as CaptionMotionPreset,
+                    cue.endFrame - cue.startFrame,
+                  ),
+                }),
+              );
+            }
+          }}
+        >
+          <option value="none">Sin movimiento</option>
+          <option value="fade">Aparecer</option>
+          <option value="zoom">Zoom de entrada</option>
+          <option value="slide-left">Entrar desde la izquierda</option>
+          <option value="slide-right">Entrar desde la derecha</option>
+          <option value="zoom-out">Salir con zoom</option>
+          {cue.motion && !cue.motion.preset ? (
+            <option value="custom">Personalizado</option>
+          ) : null}
+        </select>
+      </label>
+      <p className="fine-print">
+        Dos claves (inicio y fin del cue) para posición, escala, rotación y opacidad. Se
+        renderiza en ASS y la preview lo aproxima. No se aplica a subtítulos con palabras
+        animadas.
+      </p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={cue.wordReveal ?? false}
+          onChange={(event) =>
+            store.update((current) =>
+              updateCaptionCue(current, cue.id, {
+                wordReveal: event.target.checked,
+              }),
+            )
+          }
+        />
+        <span>Revelar por palabra</span>
+      </label>
+      <p className="fine-print">
+        Muestra el texto a medida que cada palabra empieza. Necesita palabras con
+        tiempos (por ejemplo, una transcripción); sin ellos se muestra la línea
+        completa. En el MP4 se emiten eventos ASS incrementales.
+      </p>
       <div className="actions compact">
         <button
           type="button"
@@ -3116,6 +3837,46 @@ function AssetInspector({ asset }: { asset: Asset }) {
           </div>
         )}
       </Section>
+      <Section title="Organización">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={asset.favorite ?? false}
+            onChange={(event) =>
+              store.update((current) =>
+                updateAssetMetadata(current, asset.id, {
+                  favorite: event.target.checked,
+                }),
+              )
+            }
+          />
+          <span>Favorito</span>
+        </label>
+        <TextField
+          label="Bin"
+          value={asset.bin ?? ''}
+          maxLength={40}
+          onCommit={(value) =>
+            store.update((current) =>
+              updateAssetMetadata(current, asset.id, { bin: value }),
+            )
+          }
+        />
+        <TextField
+          label="Etiquetas (coma)"
+          value={(asset.tags ?? []).join(', ')}
+          maxLength={200}
+          onCommit={(value) =>
+            store.update((current) =>
+              updateAssetMetadata(current, asset.id, { tags: value.split(',') }),
+            )
+          }
+        />
+        <p className="fine-print">
+          Hasta 8 etiquetas de 24 caracteres. El bin y las etiquetas se pueden
+          filtrar en Medios y en el rail del editor.
+        </p>
+      </Section>
       {asset.kind === 'video' ? (
         <Section title="Proxy de edición">
           <p className="inspector-meta">
@@ -3190,6 +3951,125 @@ function ProjectInspector() {
   const activeProject = project;
   const fps = project.video.frameRate.num / project.video.frameRate.den;
   const look = project.look ?? {};
+  const sortedMarkers = [...project.markers].sort((a, b) => a.frame - b.frame);
+  const markerChapters = formatMarkerChapters(project.markers, fps);
+  const chapterValidation = validateChapters(chaptersFromMarkers(project.markers, fps));
+
+  function addMarkerAtPlayhead(): void {
+    store.update((current) => addMarker(current, store.state.playheadFrame).project);
+  }
+
+  function createMarkersFromScenes(): void {
+    const current = store.state.project;
+    if (!current) return;
+    try {
+      const result = markersFromScenes(current);
+      if (result.added === 0) {
+        store.setNotice('Ninguna escena aportó un marcador nuevo.');
+        return;
+      }
+      store.update(() => result.project);
+      store.setNotice(
+        `${result.added} marcador(es) desde escenas.${
+          result.skipped > 0 ? ` ${result.skipped} escena(s) salteada(s).` : ''
+        }`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudieron crear los marcadores',
+      );
+    }
+  }
+
+  function applyAudioPreset(preset: AudioPresetId): void {
+    const current = store.state.project;
+    if (!current) return;
+    try {
+      const result = applyAudioPresetToAll(current, preset);
+      if (result.applied === 0) {
+        store.setNotice('No hay clips de audio en pistas desbloqueadas.');
+        return;
+      }
+      store.update(() => result.project);
+      const label = AUDIO_PRESETS.find((item) => item.id === preset)?.label ?? preset;
+      store.setNotice(
+        `${label} aplicado a ${result.applied} clip(s) de audio.${
+          result.skipped > 0 ? ` ${result.skipped} en pistas bloqueadas.` : ''
+        }`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo aplicar el preset de audio',
+      );
+    }
+  }
+
+  function dissolveCuts(): void {    const current = store.state.project;
+    if (!current) return;
+    try {
+      const result = applyTransitionToCuts(current, {
+        type: 'dissolve',
+        frames: 12,
+      });
+      if (result.applied === 0) {
+        store.setNotice('No hay cortes contiguos de video o imagen para disolver.');
+        return;
+      }
+      store.update(() => result.project);
+      store.setNotice(`${result.applied} corte(s) con disolvencia de 12 frames.`);
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudieron aplicar las disolvencias',
+      );
+    }
+  }
+
+  function cutClipsAtMarkers(): void {    const current = store.state.project;
+    if (!current) return;
+    try {
+      const result = splitClipsAtMarkers(current);
+      if (result.cuts === 0) {
+        store.setNotice('Ningún clip cruza los marcadores.');
+        return;
+      }
+      store.update(() => result.project);
+      store.setNotice(
+        `${result.cuts} corte(s) en ${result.clips} clip(s).${
+          result.skippedTracks > 0
+            ? ` ${result.skippedTracks} pista(s) bloqueada(s) sin tocar.`
+            : ''
+        }`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudieron cortar los clips',
+      );
+    }
+  }
+
+  async function copyMarkerChapters(): Promise<void> {
+    if (!markerChapters) {
+      store.setNotice('Agregá al menos un marcador para exportar capítulos.');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(markerChapters);
+      store.setNotice('Capítulos copiados al portapapeles.');
+    } catch {
+      store.setNotice('No se pudo copiar; descargá el .txt o copiá la vista previa.');
+    }
+  }
+
+  function downloadMarkerChapters(): void {
+    if (!markerChapters) return;
+    const blob = new Blob([markerChapters], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${activeProject.name.replace(/[^a-zA-Z0-9-_]+/g, '-') || 'capitulos'}-capitulos.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
 
   function patchLook(patch: Partial<ClipEffects>): void {
     store.update((current) => updateProjectLook(current, patch));
@@ -3234,6 +4114,26 @@ function ProjectInspector() {
     anchor.download = `${activeProject.name.replace(/[^a-zA-Z0-9-_]+/g, '-') || 'subtitulos'}.srt`;
     anchor.click();
     URL.revokeObjectURL(url);
+  }
+
+  async function pickSubtitleFile(): Promise<void> {
+    try {
+      const picked = await store.service.chooseSubtitleFile();
+      if (!picked) return;
+      const parsed = parseSubtitles(picked.text);
+      setSubtitleDraft(picked.text);
+      setSubtitleWarnings(parsed.warnings);
+      setSubtitleIo('import');
+      store.setNotice(
+        `${picked.name}: ${parsed.cues.length} subtítulos detectados; revisá y confirmá la importación.`,
+      );
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error
+          ? error.message
+          : 'no se pudo leer el archivo de subtítulos',
+      );
+    }
   }
 
   function importSubtitles(): void {
@@ -3316,7 +4216,7 @@ function ProjectInspector() {
             label="Ancho"
             value={project.video.width}
             min={16}
-            max={16_384}
+            max={32_768}
             step={2}
             onCommit={(value) => store.update((current) => updateProjectSettings(current, { width: value }))}
           />
@@ -3324,7 +4224,7 @@ function ProjectInspector() {
             label="Alto"
             value={project.video.height}
             min={16}
-            max={16_384}
+            max={32_768}
             step={2}
             onCommit={(value) => store.update((current) => updateProjectSettings(current, { height: value }))}
           />
@@ -3410,6 +4310,198 @@ function ProjectInspector() {
         </p>
       </Section>
 
+      <Section title="Transiciones de corte">
+        <p className="fine-print">
+          Aplica una disolvencia de 12 frames a cada corte contiguo entre clips de
+          video, imagen o congelado, en todas las pistas desbloqueadas. No mueve
+          clips ni cambia duraciones.
+        </p>
+        <div className="actions compact">
+          <button type="button" className="small" onClick={dissolveCuts}>
+            Disolver cortes contiguos
+          </button>
+        </div>
+      </Section>
+
+      <Section title="Marcadores y capítulos">
+        <p className="inspector-meta">
+          {sortedMarkers.length} de {MAX_MARKERS} · el primer capítulo siempre arranca en 0:00
+        </p>
+        <div className="actions compact">
+          <button type="button" className="small" onClick={addMarkerAtPlayhead}>
+            Agregar en playhead
+          </button>
+          <button
+            type="button"
+            className="small"
+            onClick={createMarkersFromScenes}
+            disabled={project.scenes.length === 0}
+          >
+            Marcadores desde escenas
+          </button>
+          <button
+            type="button"
+            className="small"
+            onClick={cutClipsAtMarkers}
+            disabled={sortedMarkers.length === 0}
+          >
+            Cortar clips en marcadores
+          </button>
+          <button
+            type="button"
+            className="small ghost"
+            onClick={() => void copyMarkerChapters()}
+            disabled={!markerChapters}
+          >
+            Copiar capítulos
+          </button>
+          <button
+            type="button"
+            className="small ghost"
+            onClick={downloadMarkerChapters}
+            disabled={!markerChapters}
+          >
+            Descargar .txt
+          </button>
+          <button
+            type="button"
+            className="small danger-ghost"
+            onClick={() => store.update(clearMarkers)}
+            disabled={sortedMarkers.length === 0}
+          >
+            Borrar todos
+          </button>
+        </div>
+        {sortedMarkers.length === 0 ? (
+          <p className="fine-print">
+            Pulsá M en la timeline o “Agregar en playhead”. Los capítulos se
+            exportan en formato YouTube y alimentan el manifiesto de publicación.
+          </p>
+        ) : (
+          <>
+            <div className="marker-list">
+              {sortedMarkers.map((marker) => (
+                <div className="marker-row" key={marker.id}>
+                  <span
+                    className={`marker-dot marker-${marker.color ?? 'mint'}`}
+                    aria-hidden="true"
+                  />
+                  <NumberField
+                    label="Frame"
+                    value={marker.frame}
+                    min={0}
+                    max={240_000}
+                    onCommit={(value) =>
+                      store.update((current) =>
+                        updateMarker(current, marker.id, { frame: value }),
+                      )
+                    }
+                  />
+                  {marker.endFrame !== undefined ? (
+                    <NumberField
+                      label="Fin"
+                      value={marker.endFrame}
+                      min={marker.frame + 1}
+                      max={240_000}
+                      onCommit={(value) =>
+                        store.update((current) =>
+                          updateMarker(current, marker.id, { endFrame: value }),
+                        )
+                      }
+                    />
+                  ) : null}
+                  {marker.endFrame === undefined ? (
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() =>
+                        store.update((current) =>
+                          updateMarker(current, marker.id, {
+                            endFrame: marker.frame + Math.max(1, Math.round(2 * fps)),
+                          }),
+                        )
+                      }
+                    >
+                      Rango 2 s
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() =>
+                        store.update((current) =>
+                          updateMarker(current, marker.id, { endFrame: undefined }),
+                        )
+                      }
+                    >
+                      Quitar rango
+                    </button>
+                  )}
+                  <TextField
+                    label="Nombre"
+                    value={marker.label}
+                    maxLength={120}
+                    onCommit={(value) =>
+                      store.update((current) =>
+                        updateMarker(current, marker.id, { label: value }),
+                      )
+                    }
+                  />
+                  <label className="field marker-color">
+                    <span>Color</span>
+                    <select
+                      value={marker.color ?? 'mint'}
+                      onChange={(event) =>
+                        store.update((current) =>
+                          updateMarker(current, marker.id, {
+                            color: event.target.value as MarkerColor,
+                          }),
+                        )
+                      }
+                    >
+                      {MARKER_COLORS.map((color) => (
+                        <option key={color} value={color}>
+                          {MARKER_COLOR_LABELS[color]}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    className="small danger-ghost"
+                    onClick={() =>
+                      store.update((current) => deleteMarker(current, marker.id))
+                    }
+                  >
+                    Borrar
+                  </button>
+                </div>
+              ))}
+            </div>
+            <pre className="marker-chapters-preview">{markerChapters}</pre>
+            {chapterValidation.ok ? (
+              <p className="fine-print">
+                Cumple el mínimo de YouTube: tres capítulos y al menos 10 s entre inicios. La
+                plataforma todavía puede revisar el contenido.
+              </p>
+            ) : (
+              <div className="chapter-warning" role="status">
+                <strong>Formato de YouTube</strong>
+                <ul>
+                  {chapterValidation.issues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+        <p className="fine-print">
+          Un marcador por frame. Si el primero no está en 0:00 se agrega “Inicio”.
+          El manifiesto de publicación usa los marcadores cuando existen.
+        </p>
+      </Section>
+
       <Section title="Look del proyecto">
         <p className="inspector-meta">
           Color global sobre el compuesto final: se aplica después de mezclar las capas y antes
@@ -3467,6 +4559,30 @@ function ProjectInspector() {
             max={1}
             step={0.05}
             onCommit={(value) => patchLook({ temperature: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Sombras"
+            value={look.shadows ?? 0}
+            min={-1}
+            max={1}
+            step={0.05}
+            onCommit={(value) => patchLook({ shadows: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Altas luces"
+            value={look.highlights ?? 0}
+            min={-1}
+            max={1}
+            step={0.05}
+            onCommit={(value) => patchLook({ highlights: value === 0 ? undefined : value })}
+          />
+          <NumberField
+            label="Fade tonal"
+            value={look.fade ?? 0}
+            min={0}
+            max={1}
+            step={0.05}
+            onCommit={(value) => patchLook({ fade: value === 0 ? undefined : value })}
           />
           <NumberField
             label="Rotación de tono (°)"
@@ -3576,15 +4692,27 @@ function ProjectInspector() {
                 <button
                   type="button"
                   className="small ghost"
-                  onClick={() => patchLook({ lutFile: undefined })}
+                  onClick={() => patchLook({ lutFile: undefined, lutIntensity: undefined })}
                 >
                   Quitar LUT
                 </button>
               ) : null}
             </div>
           </div>
+          {look.lutFile ? (
+            <div className="inspector-grid">
+              <NumberField
+                label="Intensidad LUT global (%)"
+                value={Math.round((look.lutIntensity ?? 1) * 100)}
+                min={0}
+                max={100}
+                step={5}
+                onCommit={(value) => patchLook({ lutIntensity: value / 100 })}
+              />
+            </div>
+          ) : null}
           <p className="fine-print">
-            Se copia a `media/luts` del proyecto y FFmpeg lo aplica al final del grade global.
+            Se copia a `media/luts` del proyecto y FFmpeg lo mezcla al final del grade global.
             La preview no simula el LUT; revisá el MP4.
           </p>
         </div>
@@ -3713,6 +4841,22 @@ function ProjectInspector() {
           />
           <span>Limitar picos a -0,45 dB</span>
         </label>
+        <div className="actions compact">
+          {AUDIO_PRESETS.map((preset) => (
+            <button
+              key={preset.id}
+              type="button"
+              className="small"
+              onClick={() => applyAudioPreset(preset.id)}
+            >
+              {preset.label} a todos
+            </button>
+          ))}
+        </div>
+        <p className="fine-print">
+          Aplica EQ, filtros, compresor y denoise a los clips de audio de las pistas
+          desbloqueadas; conserva ganancia, fades y keyframes. No toca el audio de los videos.
+        </p>
         <p className="fine-print">
           La normalización usa `loudnorm` en una pasada; es una aproximación declarada. El render
           siempre aplica un limitador final a 0,95.
@@ -3923,6 +5067,13 @@ function ProjectInspector() {
           </button>
           <button
             type="button"
+            className="small"
+            onClick={() => void pickSubtitleFile()}
+          >
+            Elegir archivo…
+          </button>
+          <button
+            type="button"
             className="small ghost"
             onClick={() => {
               setSubtitleDraft('');
@@ -3930,7 +5081,7 @@ function ProjectInspector() {
               setSubtitleIo('import');
             }}
           >
-            Importar SRT/VTT
+            Importar SRT/VTT/ASS
           </button>
         </div>
         {subtitleIo !== 'closed' ? (
@@ -3942,7 +5093,7 @@ function ProjectInspector() {
               <span>
                 {subtitleIo === 'export'
                   ? 'SRT generado desde la pista principal'
-                  : 'Pegá el contenido SRT o VTT'}
+                  : 'Pegá el contenido o cargá un archivo SRT/VTT/ASS'}
               </span>
               <textarea
                 rows={9}

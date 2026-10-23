@@ -103,6 +103,28 @@ El panel usa `auto_confirm: true` sólo después de la marca de créditos. Las
 imágenes y videos quedan en `<proyecto>/media/`; la app copia/valida con FFprobe y
 los registra en el `.editoria.json`.
 
+## Generación continua
+
+Para dejar a Flow produciendo imágenes en serie:
+
+1. Escribí **un prompt por línea** en el cuadro de la tarjeta. Las líneas que
+   empiezan con `#` se ignoran y los repetidos se descartan.
+2. Ajustá **repeticiones por prompt**, **espera entre imágenes** (por defecto
+   20 s), **tope de imágenes** y **corte por fallos seguidos**. Con **Repetir la
+   lista hasta el tope** la corrida vuelve a empezar en lugar de terminar.
+3. Marcá **“Autorizo consumir créditos de Flow en cada imagen de esta corrida”**.
+   Sin esa marca el botón queda deshabilitado; la autorización no se recuerda
+   entre sesiones.
+4. **Iniciar lote**. La tarjeta muestra la imagen en curso, el avance, el saldo
+   consultado y las últimas generaciones con su resultado.
+5. **Detener** corta después de la imagen en curso. **Limpiar plan** borra la
+   lista y el avance guardado.
+
+La corrida es secuencial a propósito: Flow es una sola sesión de Chrome y dos
+pedidos simultáneos se pisan. Cada imagen se importa a Medios si la casilla está
+marcada; la importación usa la confirmación de derechos que ya diste al autorizar
+el lote.
+
 ## Evidencia y límites
 
 - **Verificado**: `initialize` y `tools/list` del servidor devuelven
@@ -118,9 +140,15 @@ los registra en el `.editoria.json`.
 - **No es una API oficial**: Google puede cambiar el DOM, pedir verificación o
   suspender cuentas por automatización. Revisá los términos de Flow antes de usar
   el conector en producción.
-- **No hay generación masiva de N escenas todavía**: el panel genera un prompt
-  por llamada; la fábrica y el montaje automático siguen usando los medios ya
-  importados. El siguiente paso sería orquestar los prompts del guion y encadenar
-  Flow → importación → auto-edit.
+- **Generación continua**: la tarjeta **Generación continua** del panel encadena
+  una lista de prompts con repeticiones, espera, tope de imágenes, corte por
+  fallos y ciclo. Corre en `FlowQueueProvider`, por encima de las vistas, así que
+  cambiar de pantalla no la corta; el plan se guarda en
+  `editoria.flow-queue.v1` y al volver queda **detenido** hasta que el usuario
+  autorice otra vez. Verificado con un servicio simulado; **no se ejecutó contra
+  Flow real** porque el Chrome dedicado de esta máquina no tiene sesión de Google.
+- **Falta orquestar el guion**: la cola toma prompts escritos a mano; todavía no
+  se alimenta de las escenas del guion ni encadena Flow → importación →
+  auto-edit automáticamente.
 - El servidor MCP es código de terceros y corre con los permisos del usuario; la
   app no lo sandboxea ni firma sus dependencias.

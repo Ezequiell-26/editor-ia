@@ -35,9 +35,10 @@ interface MenuDefinition {
 interface MenuBarProps {
   readonly activeId: ViewId;
   readonly onSelect: (id: ViewId) => void;
+  readonly onOpenStart?: () => void;
 }
 
-export function MenuBar({ activeId, onSelect }: MenuBarProps) {
+export function MenuBar({ activeId, onSelect, onOpenStart }: MenuBarProps) {
   const store = useProjectStore();
   const { appearance, update, reset } = useAppearance();
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
@@ -188,6 +189,15 @@ export function MenuBar({ activeId, onSelect }: MenuBarProps) {
       entries: [
         {
           kind: 'item',
+          label: 'Pantalla de inicio…',
+          action: () => {
+            if (onOpenStart) onOpenStart();
+            else onSelect('home');
+          },
+        },
+        { kind: 'separator', id: 'file-start' },
+        {
+          kind: 'item',
           label: 'Nuevo proyecto…',
           action: () => {
             onSelect('projects');
@@ -221,6 +231,12 @@ export function MenuBar({ activeId, onSelect }: MenuBarProps) {
           shortcut: 'Ctrl+Shift+S',
           disabled: !canEdit || store.state.phase === 'saving',
           action: () => void store.saveAs(),
+        },
+        {
+          kind: 'item',
+          label: 'Empaquetar proyecto (.zip)…',
+          disabled: !canEdit || store.state.phase === 'saving',
+          action: () => void store.packageProject(),
         },
         { kind: 'separator', id: 'file-export' },
         {
@@ -542,6 +558,9 @@ export function MenuBar({ activeId, onSelect }: MenuBarProps) {
                   ['S', 'Dividir en el cabezal'],
                   ['Supr', 'Eliminar clip o subtítulo'],
                   ['Espacio', 'Reproducir o pausar'],
+                  ['H', 'Herramienta mano para mover la timeline'],
+                  ['Ctrl+rueda', 'Zoom en la timeline'],
+                  ['Shift+rueda', 'Desplazar la timeline en horizontal'],
                   ['← / →', 'Un frame (Shift: diez)'],
                   ['F11', 'Pantalla completa'],
                   ['Esc', 'Cerrar menú o quitar selección'],

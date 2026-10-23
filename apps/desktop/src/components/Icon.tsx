@@ -1,12 +1,16 @@
 import type { ReactNode, SVGProps } from 'react';
 
 export type IconName =
+  | 'home'
   | 'projects'
   | 'production'
   | 'editor'
   | 'script'
   | 'assets'
   | 'download'
+  | 'folder'
+  | 'shield'
+  | 'alert'
   | 'settings'
   | 'undo'
   | 'redo'
@@ -21,6 +25,9 @@ export type IconName =
   | 'plus'
   | 'minus'
   | 'split'
+  | 'copy'
+  | 'paste'
+  | 'ripple'
   | 'trash'
   | 'captions'
   | 'chevron'
@@ -31,6 +38,10 @@ export type IconName =
   | 'lock'
   | 'grid'
   | 'search'
+  | 'star'
+  | 'marker'
+  | 'magnet'
+  | 'hand'
   | 'film'
   | 'audio'
   | 'check'
@@ -44,12 +55,39 @@ export type IconName =
   | 'keyboard'
   | 'info'
   | 'palette'
+  | 'text'
+  | 'effects'
+  | 'filters'
   | 'fullscreen'
   | 'maximize'
   | 'restore'
-  | 'stop';
+  | 'stop'
+  | 'alert-triangle'
+  | 'at-sign'
+  | 'chevron-down'
+  | 'eye-off'
+  | 'github'
+  | 'globe'
+  | 'log-out'
+  | 'mail'
+  | 'director'
+  | 'factory'
+  | 'convert'
+  | 'compress'
+  | 'denoise'
+  | 'thumbnails'
+  | 'ai-hub'
+  | 'background'
+  | 'upscale';
 
 const paths: Record<IconName, ReactNode> = {
+  home: (
+    <>
+      <path d="m3 10 9-7 9 7" />
+      <path d="M5 9v11h14V9" />
+      <path d="M9 20v-6h6v6" />
+    </>
+  ),
   projects: (
     <>
       <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -95,12 +133,52 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M4 19h16" />
     </>
   ),
+  folder: (
+    <>
+      <path d="M3 6h7l2 2h9v11H3z" />
+      <path d="M3 10h18" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="M12 3 20 6v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M12 3 22 21H2z" />
+      <path d="M12 9v5" />
+      <circle cx="12" cy="17.5" r="0.8" />
+    </>
+  ),
   settings: (
     <>
       <path d="M4 7h16M4 12h16M4 17h16" />
       <circle cx="9" cy="7" r="2" />
       <circle cx="15" cy="12" r="2" />
       <circle cx="8" cy="17" r="2" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15V5a2 2 0 0 1 2-2h8" />
+    </>
+  ),
+  paste: (
+    <>
+      <rect x="5" y="4" width="14" height="17" rx="2" />
+      <path d="M9 4V2h6v2" />
+      <path d="M9 11h6M9 15h6" />
+    </>
+  ),
+  ripple: (
+    <>
+      <path d="M4 7h11l-3-3" />
+      <path d="M4 7l3 3" />
+      <path d="M20 17H9l3-3" />
+      <path d="M20 17l-3 3" />
     </>
   ),
   undo: (
@@ -113,6 +191,31 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <path d="m15 7 5 5-5 5" />
       <path d="M20 12H10a6 6 0 0 0-6 6" />
+    </>
+  ),
+  star: (
+    <>
+      <path d="m12 3.5 2.7 5.5 6 .9-4.35 4.2 1.03 5.96L12 17.25l-5.38 2.81 1.03-5.96L3.3 9.9l6-.9z" />
+    </>
+  ),
+  marker: (
+    <>
+      <path d="M6 21V4" />
+      <path d="M6 4h11l-2.5 3.5L17 11H6" />
+    </>
+  ),
+  magnet: (
+    <>
+      <path d="M6 4v7a6 6 0 0 0 12 0V4" />
+      <path d="M6 4h4v7a2 2 0 0 0 4 0V4h4" />
+      <path d="M6 10h4M14 10h4" />
+    </>
+  ),
+  hand: (
+    <>
+      <path d="M8 11V6.8a1.6 1.6 0 0 1 3.2 0V11" />
+      <path d="M11.2 10.4V5.5a1.6 1.6 0 0 1 3.2 0V11" />
+      <path d="M14.4 10.8V7.2a1.6 1.6 0 0 1 3.2 0v7a5.8 5.8 0 0 1-5.8 5.8h-1.2a5 5 0 0 1-3.5-1.4L4 15.4a1.7 1.7 0 0 1 2.4-2.4l1.6 1.6" />
     </>
   ),
   save: (
@@ -168,6 +271,26 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
       <path d="M7 11h4M7 15h7M14 11h3M17 15h2" />
+    </>
+  ),
+  text: (
+    <>
+      <path d="M4 6V4h16v2" />
+      <path d="M12 4v16" />
+      <path d="M8 20h8" />
+    </>
+  ),
+  effects: (
+    <>
+      <path d="M12 3a9 9 0 1 0 9 9c-2.5 0-4-1.5-4-4 0-2.5 1.5-5-5-5z" />
+      <circle cx="8.5" cy="9" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="9.5" r="1.2" fill="currentColor" stroke="none" />
+    </>
+  ),
+  filters: (
+    <>
+      <path d="M4 5h16l-6 7v6l-4 2v-8z" />
     </>
   ),
   chevron: <path d="m7 9 5 5 5-5" />,
@@ -292,6 +415,120 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   stop: <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none" />,
+  'alert-triangle': (
+    <>
+      <path d="M10.3 4.2 2.8 17a2 2 0 0 0 1.7 3h15a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </>
+  ),
+  'at-sign': (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </>
+  ),
+  'chevron-down': <path d="m7 9 5 5 5-5" />,
+  'eye-off': (
+    <>
+      <path d="m3 3 18 18" />
+      <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+      <path d="M9.9 5.1A10.9 10.9 0 0 1 12 5c7 0 10 7 10 7a17.6 17.6 0 0 1-2.4 3.4" />
+      <path d="M6.6 6.6A17.9 17.9 0 0 0 2 12s3 7 10 7a10.9 10.9 0 0 0 4.4-.9" />
+    </>
+  ),
+  github: (
+    <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+  ),
+  globe: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" />
+    </>
+  ),
+  'log-out': (
+    <>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </>
+  ),
+  mail: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </>
+  ),
+  director: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 9h18" />
+      <path d="m7 5-2 4M12 5l-2 4M17 5l-2 4" />
+      <polygon points="10,12 15,14.5 10,17" fill="currentColor" stroke="none" />
+    </>
+  ),
+  factory: (
+    <>
+      <path d="M3 21h18" />
+      <path d="M4 21V9l5 4V9l5 4V4h6v17" />
+      <circle cx="17" cy="8" r="1.5" />
+      <path d="M17 13v4" />
+    </>
+  ),
+  convert: (
+    <>
+      <path d="M4 12a8 8 0 0 1 14.93-4" />
+      <path d="M19 4v4h-4" />
+      <path d="M20 12a8 8 0 0 1-14.93 4" />
+      <path d="M5 20v-4h4" />
+    </>
+  ),
+  compress: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M9 12h6" />
+      <path d="m10 9 2 2 2-2" />
+      <path d="m10 15 2-2 2 2" />
+      <path d="M8 7h8M8 17h8" strokeDasharray="1 2" />
+    </>
+  ),
+  denoise: (
+    <>
+      <path d="M3 12h3l2-5 3 10 3-7 2 4 2-2h3" />
+      <path d="m18 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1z" />
+    </>
+  ),
+  thumbnails: (
+    <>
+      <rect x="3" y="4" width="18" height="14" rx="2" />
+      <rect x="5.5" y="6.5" width="6.5" height="5" rx="1" />
+      <path d="M14.5 8h4M14.5 11h2.5" />
+      <path d="M5.5 14.5h13" />
+    </>
+  ),
+  'ai-hub': (
+    <>
+      <rect x="5" y="5" width="14" height="14" rx="2.5" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
+    </>
+  ),
+  background: (
+    <>
+      <circle cx="12" cy="8" r="3" />
+      <path d="M6.5 19a5.5 5.5 0 0 1 11 0" />
+      <path d="M3 7V3h4M17 3h4v4M3 17v4h4M17 21h4v-4" strokeDasharray="2 2" />
+    </>
+  ),
+  upscale: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="m8 14 3-4 2 2.5 3-4" />
+      <path d="M16 8h2v2" />
+      <path d="m14 10 4-4" />
+    </>
+  ),
 };
 
 export function Icon({

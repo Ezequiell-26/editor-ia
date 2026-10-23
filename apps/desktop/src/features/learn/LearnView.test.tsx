@@ -39,7 +39,7 @@ describe('centro de aprendizaje', () => {
 
     const card = screen.getByText(/Archivos chicos y verificados/i).closest('article') as HTMLElement;
     fireEvent.click(within(card).getByRole('checkbox', { name: /Hecho/i }));
-    expect(window.localStorage.getItem('editor-ia.learn-progress.v1')).toContain('export');
-    expect(screen.getByText(/1 de 12 temas/i)).toBeTruthy();
+    expect(window.localStorage.getItem('editor-ia.learning-progress.v2')).toContain('export');
+    expect(screen.getByText(/1 de 13 temas/i)).toBeTruthy();
   });
 });

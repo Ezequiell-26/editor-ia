@@ -1,8 +1,26 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
+import {
+  MAX_ASSET_BIN_LENGTH,
+  MAX_ASSET_TAG_LENGTH,
+  MAX_ASSET_TAGS,
+} from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { ViewToolbar } from '../../components/ViewToolbar';
 import { useThumbnail } from '../../hooks/useThumbnail';
+import { useFileDrop } from '../../hooks/useFileDrop';
+import { assetBins, filterAssets, type AssetKindFilter } from '../../state/asset-organization';
+import {
+  BUILTIN_SMART_BINS,
+  createSmartBin,
+  filterBySmartBin,
+  loadCustomSmartBins,
+  removeCustomSmartBin,
+  saveCustomSmartBins,
+  smartBinCount,
+  type SmartBin,
+} from '../../state/smart-bins';
 import {
   addAsset,
   addClipFromAsset,
@@ -10,7 +28,9 @@ import {
   fpsOf,
   markAssetReady,
   removeAsset,
+  toggleAssetFavorite,
   updateAssetLabel,
+  updateAssetMetadata,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { buildStoryboard } from '../../state/storyboard';
@@ -67,6 +87,9 @@ function AssetCard({
   const thumbnail = useThumbnail(store.service, asset, root);
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(asset.label);
+  const [metaOpen, setMetaOpen] = useState(false);
+  const [binDraft, setBinDraft] = useState(asset.bin ?? '');
+  const [tagsDraft, setTagsDraft] = useState((asset.tags ?? []).join(', '));
   const inUse = project?.timeline.clips.some(
     (clip) => clip.source.type === 'asset' && clip.source.assetId === asset.id,
   );
@@ -85,6 +108,23 @@ function AssetCard({
           <span className={`asset-kind kind-${asset.kind}`}>{kindLabel(asset.kind)}</span>
         )}
         <span className={`asset-status status-${asset.status}`}>{statusLabel(asset.status)}</span>
+        <button
+          type="button"
+          className={asset.favorite ? 'asset-fav active' : 'asset-fav'}
+          aria-pressed={asset.favorite ?? false}
+          aria-label={
+            asset.favorite
+              ? `Quitar ${asset.label} de favoritos`
+              : `Marcar ${asset.label} como favorito`
+          }
+          title={asset.favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+          onClick={(event) => {
+            event.stopPropagation();
+            store.update((current) => toggleAssetFavorite(current, asset.id));
+          }}
+        >
+          <Icon name="star" size={13} />
+        </button>
       </div>
       <div className="asset-body">
         {editing ? (
@@ -124,6 +164,10 @@ function AssetCard({
         <p className="asset-meta">
           Licencia: {asset.rights.license.id} · {asset.rights.license.commercialUse} ·{' '}
           {asset.integrity ? `${Math.round(asset.integrity.bytes / 1024)} KB` : 'sin hash'}
+        </p>
+        <p className="asset-meta">
+          Bin: {asset.bin ?? 'Sin bin'}{' '}
+          {asset.tags?.length ? `· ${asset.tags.join(' · ')}` : '· sin etiquetas'}
         </p>
         {asset.status !== 'ready' ? (
           <div className="rights-actions" onClick={(event) => event.stopPropagation()}>
@@ -165,6 +209,17 @@ function AssetCard({
             ) : null}
             <button
               type="button"
+              className="small ghost"
+              onClick={() => {
+                setBinDraft(asset.bin ?? '');
+                setTagsDraft((asset.tags ?? []).join(', '));
+                setMetaOpen((value) => !value);
+              }}
+            >
+              Metadatos
+            </button>
+            <button
+              type="button"
               className="small danger-ghost"
               disabled={Boolean(inUse)}
               title={inUse ? 'Está en uso en la timeline' : 'Quitar de la biblioteca'}
@@ -177,6 +232,57 @@ function AssetCard({
             </button>
           </div>
         )}
+        {metaOpen ? (
+          <form
+            className="asset-meta-form"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!project) return;
+              const ok = store.update((current) =>
+                updateAssetMetadata(current, asset.id, {
+                  bin: binDraft,
+                  tags: tagsDraft.split(','),
+                }),
+              );
+              if (ok) setMetaOpen(false);
+            }}
+          >
+            <label className="field">
+              <span>Bin</span>
+              <input
+                value={binDraft}
+                maxLength={MAX_ASSET_BIN_LENGTH}
+                placeholder="Sin bin"
+                onChange={(event) => setBinDraft(event.target.value)}
+              />
+            </label>
+            <label className="field">
+              <span>Etiquetas (separadas por coma)</span>
+              <input
+                value={tagsDraft}
+                maxLength={MAX_ASSET_TAGS * (MAX_ASSET_TAG_LENGTH + 2)}
+                placeholder="b-roll, entrevista…"
+                onChange={(event) => setTagsDraft(event.target.value)}
+              />
+            </label>
+            <div className="actions compact">
+              <button type="submit" className="small primary">
+                Guardar
+              </button>
+              <button
+                type="button"
+                className="small ghost"
+                onClick={() => setMetaOpen(false)}
+              >
+                Cancelar
+              </button>
+            </div>
+            <p className="fine-print">
+              Hasta {MAX_ASSET_TAGS} etiquetas de {MAX_ASSET_TAG_LENGTH} caracteres.
+            </p>
+          </form>
+        ) : null}
         {inUse ? <p className="fine-print">En uso en la timeline.</p> : null}
       </div>
     </article>
@@ -194,18 +300,61 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const [busy, setBusy] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [assetQuery, setAssetQuery] = useState('');
-  const [assetFilter, setAssetFilter] = useState<'all' | 'video' | 'image' | 'audio'>('all');
+  const [assetFilter, setAssetFilter] = useState<AssetKindFilter>('all');
+  const [assetBin, setAssetBin] = useState('all');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [smartBins, setSmartBins] = useState<SmartBin[]>([]);
+  const [activeBinId, setActiveBinId] = useState<string | null>(null);
+
+  async function importDropped(paths: readonly string[]): Promise<void> {
+    const current = store.state.project;
+    if (!current) return;
+    if (!rightsConfirmed) {
+      setWarnings([
+        'Confirmá que tenés derechos para usar y exportar los archivos antes de importar.',
+      ]);
+      return;
+    }
+    setBusy(true);
+    setWarnings([]);
+    try {
+      const outcome = await store.service.importMediaPaths({
+        paths: [...paths],
+        fpsNum: current.video.frameRate.num,
+        fpsDen: current.video.frameRate.den,
+        confirmRights: true,
+      });
+      if (outcome.assets.length > 0) {
+        store.mutate(
+          (current) => {
+            let next = current;
+            for (const asset of outcome.assets) {
+              next = addAsset(next, asset);
+              next = markAssetReady(next, asset.id, licenseMode);
+            }
+            return { project: next };
+          },
+          { history: false },
+        );
+        store.setNotice(`${outcome.assets.length} archivo(s) importados al soltarlos.`);
+      }
+      if (outcome.warnings.length > 0) {
+        setWarnings(outcome.warnings);
+      }
+    } catch (cause) {
+      setWarnings([
+        cause instanceof Error ? cause.message : 'no se pudieron importar los archivos soltados',
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fileDrop = useFileDrop((paths) => importDropped(paths));
 
   if (!project) {
     return (
       <section className="view">
-        <div className="view-head">
-          <div>
-            <p className="eyebrow">Biblioteca</p>
-            <h2>Medios</h2>
-            <p className="view-summary">Importá archivos locales y declarales derechos antes de exportar.</p>
-          </div>
-        </div>
         <p className="empty-state">No hay un proyecto abierto. Creá o abrí uno para importar medios.</p>
         <div className="actions">
           <button type="button" className="primary" onClick={() => onNavigate('projects')}>
@@ -218,16 +367,54 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
 
   const root = store.state.opened?.root ?? '';
   const fps = fpsOf(project);
-  const assetNeedle = assetQuery.trim().toLocaleLowerCase('es');
-  const visibleAssets = project.assets.filter((asset) => {
-    if (assetFilter !== 'all' && asset.kind !== assetFilter) return false;
-    if (!assetNeedle) return true;
-    const source = 'path' in asset.source ? asset.source.path : '';
-    return (
-      asset.label.toLocaleLowerCase('es').includes(assetNeedle) ||
-      source.toLocaleLowerCase('es').includes(assetNeedle)
-    );
+  const bins = assetBins(project.assets);
+  // Un smart bin activo reemplaza los filtros manuales: la regla ya trae el
+  // tipo, el estado y los favoritos. La búsqueda de texto sigue aplicando.
+  const activeBin = [...BUILTIN_SMART_BINS, ...smartBins].find((bin) => bin.id === activeBinId) ?? null;
+  const visibleAssets = filterAssets(filterBySmartBin(project.assets, activeBin), {
+    query: assetQuery,
+    kind: activeBin ? 'all' : assetFilter,
+    bin: activeBin ? null : assetBin === 'all' ? null : assetBin,
+    favoritesOnly: activeBin ? false : favoritesOnly,
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    setSmartBins(loadCustomSmartBins(window.localStorage));
+  }, []);
+
+  function saveCurrentAsSmartBin(): void {
+    const name =
+      assetQuery.trim() ||
+      (favoritesOnly ? 'Favoritos' : '') ||
+      (assetFilter !== 'all' ? assetFilter : '') ||
+      'Regla';
+    const created = createSmartBin({
+      name,
+      kind: assetFilter === 'all' ? 'all' : assetFilter,
+      favoritesOnly,
+      bin: assetBin === 'all' ? '' : assetBin,
+      query: assetQuery.trim(),
+    });
+    setSmartBins((current) => [...current, created]);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      saveCustomSmartBins(window.localStorage, [...smartBins, created]);
+    }
+    setActiveBinId(created.id);
+    setAssetFilter('all');
+    setAssetBin('all');
+    setFavoritesOnly(false);
+    setAssetQuery('');
+  }
+
+  function dropSmartBin(id: string): void {
+    const next = removeCustomSmartBin(smartBins, id);
+    setSmartBins(next);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      saveCustomSmartBins(window.localStorage, next);
+    }
+    if (activeBinId === id) setActiveBinId(null);
+  }
 
   async function importMedia(): Promise<void> {
     if (!rightsConfirmed) {
@@ -377,38 +564,48 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   }
 
   return (
-    <section className="view assets-view">
-      <div className="view-head">
-        <div>
-          <p className="eyebrow">Biblioteca del proyecto</p>
-          <h2>Medios</h2>
-          <p className="view-summary">
-            {project.assets.length} archivo(s) · carpeta del proyecto <code>media/</code>. Los
-            originales no se modifican: se copian y se miden con FFprobe.
-          </p>
+    <section className="view assets-view" data-dropping={fileDrop.hovering ? 'true' : undefined}>
+      {fileDrop.hovering ? (
+        <div className="drop-overlay" role="status">
+          <Icon name="plus" size={22} />
+          <strong>Soltá para importar</strong>
+          <span>Los archivos se agregan al proyecto con sus derechos confirmados</span>
         </div>
-        <div className="head-actions">
-          <button
-            type="button"
-            className="ghost icon-text"
-            onClick={() => void autoStoryboard()}
-            disabled={busy || !store.service.available}
-            title="Seleccioná imágenes y una narración; se montan en orden por nombre"
-          >
-            <Icon name="sparkles" size={14} />
-            <span>Auto-montar lote…</span>
-          </button>
-          <button
-            type="button"
-            className="primary icon-text"
-            onClick={() => void importMedia()}
-            disabled={busy || !store.service.available}
-          >
-            <Icon name="plus" size={14} />
-            <span>{busy ? 'Importando…' : 'Importar medios…'}</span>
-          </button>
-        </div>
-      </div>
+      ) : null}
+      {fileDrop.lastIgnored.length > 0 && !fileDrop.hovering ? (
+        <p className="fine-print">
+          Se ignoraron {fileDrop.lastIgnored.length} archivo(s) de formato no soportado.
+        </p>
+      ) : null}
+      <ViewToolbar
+        label="Medios"
+        actions={
+          <>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => void autoStoryboard()}
+              disabled={busy || !store.service.available}
+              title="Seleccioná imágenes y una narración; se montan en orden por nombre"
+            >
+              <Icon name="sparkles" size={14} />
+              <span>Auto-montar lote…</span>
+            </button>
+            <button
+              type="button"
+              className="primary icon-text"
+              onClick={() => void importMedia()}
+              disabled={busy || !store.service.available}
+            >
+              <Icon name="plus" size={14} />
+              <span>{busy ? 'Importando…' : 'Importar medios…'}</span>
+            </button>
+          </>
+        }
+      >
+        <span className="view-count">{project.assets.length} medios</span>
+        {bins.length > 0 ? <span className="view-count">{bins.length} carpetas</span> : null}
+      </ViewToolbar>
 
       <div className="import-bar">
         <label className="check">
@@ -481,24 +678,66 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
         </div>
       ) : null}
 
+      <div className="smart-bins" role="group" aria-label="Smart Bins">
+        <span className="smart-bins-label">Smart Bins</span>
+        {[...BUILTIN_SMART_BINS, ...smartBins].map((bin) => (
+          <span key={bin.id} className="smart-bin-chip">
+            <button
+              type="button"
+              className={activeBinId === bin.id ? 'smart-bin active' : 'smart-bin'}
+              aria-pressed={activeBinId === bin.id}
+              onClick={() => {
+                setActiveBinId((current) => (current === bin.id ? null : bin.id));
+                if (activeBinId !== bin.id) {
+                  setAssetFilter('all');
+                  setAssetBin('all');
+                  setFavoritesOnly(false);
+                }
+              }}
+            >
+              {bin.name}
+              <em>{smartBinCount(project.assets, bin)}</em>
+            </button>
+            {bin.builtin ? null : (
+              <button
+                type="button"
+                className="smart-bin-remove"
+                aria-label={`Quitar smart bin ${bin.name}`}
+                title="Quitar esta regla"
+                onClick={() => dropSmartBin(bin.id)}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        <button
+          type="button"
+          className="small"
+          onClick={saveCurrentAsSmartBin}
+          title="Guardá los filtros de abajo como una regla reutilizable"
+        >
+          Guardar filtro como regla
+        </button>
+      </div>
+
       <div className="library-toolbar">
         <label className="library-search">
           <Icon name="search" size={14} />
           <input
             type="search"
             value={assetQuery}
-            placeholder="Buscar por nombre o ruta…"
+            placeholder="Buscar por nombre, etiqueta, bin o ruta…"
             aria-label="Buscar en la biblioteca de medios"
             onChange={(event) => setAssetQuery(event.target.value)}
           />
-        </label>
-        <label className="field inline library-filter">
+        </label>        <label className="field inline library-filter">
           <span>Tipo</span>
           <select
             value={assetFilter}
             aria-label="Filtrar biblioteca por tipo"
             onChange={(event) =>
-              setAssetFilter(event.target.value as 'all' | 'video' | 'image' | 'audio')
+              setAssetFilter(event.target.value as AssetKindFilter)
             }
           >
             <option value="all">Todos</option>
@@ -507,6 +746,33 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
             <option value="audio">Audio</option>
           </select>
         </label>
+        {bins.length > 0 ? (
+          <label className="field inline library-filter">
+            <span>Bin</span>
+            <select
+              value={assetBin}
+              aria-label="Filtrar biblioteca por bin"
+              onChange={(event) => setAssetBin(event.target.value)}
+            >
+              <option value="all">Todos</option>
+              {bins.map((bin) => (
+                <option key={bin} value={bin}>
+                  {bin}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          className={favoritesOnly ? 'library-fav active' : 'library-fav'}
+          aria-pressed={favoritesOnly}
+          title="Mostrar solo favoritos"
+          onClick={() => setFavoritesOnly((value) => !value)}
+        >
+          <Icon name="star" size={13} />
+          <span>Solo favoritos</span>
+        </button>
         <span className="library-count">
           {visibleAssets.length} de {project.assets.length} medios
         </span>

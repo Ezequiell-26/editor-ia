@@ -12,9 +12,19 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "editor-ia-desktop"
 path = "src/main.rs"
+# `src/main.rs` sólo arranca la lib. Desactivar su test evita duplicar el
+# manifiesto de recursos cuando `cargo test` enlaza el test de la lib.
+test = false
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[features]
+# Necesario para que el build de produccion embeba el frontend dentro del
+# binario. Sin esta feature el release carga una pagina vacia: el crate `tauri`
+# la declara como opcional y NO viene en `default`, y el CLI solo la activa si
+# existe en este Cargo.toml.
+custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
 tauri = { version = "2", features = ["protocol-asset"] }
@@ -24,6 +34,26 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.154"
 sha2 = "0.10"
 base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 keyring = { version = "3", features = ["windows-native"] }
 uuid = { version = "1", features = ["v4"] }
+# Inferencia local (Fase 3): ONNX Runtime via ort. `download-binaries` trae las
+# bibliotecas precompiladas al compilar. Licencia MIT/Apache-2.0: permitida.
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
+# Decodificar/encodear imágenes para las capacidades de imagen. MIT/Apache-2.0.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# Detección facial local para smart reframe. BSD-2-Clause, sin DLL externo.
+rustface = "0.1.7"
+# Decodificación de frames en proceso (MIT/Apache-2.0). Requiere FFmpeg dev.
+# `ndarray` entrega el frame en RGB24 y con su timestamp, sin pasar por FFmpeg CLI.
+video-rs = { version = "0.12", default-features = false, features = ["ndarray"] }
+# Validación XML del FCPXML exportado. MIT.
+roxmltree = "0.21"
+# Cadena de diálogo DSP de FilmCraft (MIT OR Apache-2.0), sin dependencias.
+# Se usa desde el repositorio oficial fijado a un commit; no se copia código.
+filmcraft-audio-dsp = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-audio-dsp" }
+filmcraft-color = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-color" }
+filmcraft-scopes = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-scopes" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros", "net", "io-util"] }

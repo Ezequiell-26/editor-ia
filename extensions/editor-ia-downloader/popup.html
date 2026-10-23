@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Editor IA — Descargar</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="mark">IA</span>
+        <div>
+          <strong>Editor IA</strong>
+          <span>Descargar</span>
+        </div>
+      </div>
+      <span id="connection" class="dot" title="Sin conectar"></span>
+    </header>
+
+    <main>
+      <section id="pair" class="card hidden">
+        <p class="eyebrow">Conectar con la app</p>
+        <p class="hint">
+          Abrí Editor IA → Descargar, copiá la conexión y pegala acá una sola vez.
+        </p>
+        <input
+          id="token"
+          type="password"
+          placeholder="47615:token… o el token"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="pairBtn" class="primary" type="button">Conectar</button>
+        <p id="pairError" class="error"></p>
+      </section>
+
+      <section id="ready" class="hidden">
+        <div class="urlbar">
+          <input id="url" type="url" placeholder="URL de la página o de una imagen" spellcheck="false" />
+          <button id="analyzeBtn" class="ghost" type="button">Analizar</button>
+        </div>
+
+        <div id="media" class="media hidden">
+          <p class="eyebrow">En esta página</p>
+          <div id="mediaGrid" class="media-grid"></div>
+          <button id="pageBtn" class="link" type="button">Usar la página completa</button>
+        </div>
+
+        <section id="probe" class="card hidden">
+          <p id="probeTitle" class="title"></p>
+          <p id="probeMeta" class="meta"></p>
+          <div id="options" class="options">
+            <label>
+              <span>Calidad</span>
+              <select id="quality"></select>
+            </label>
+            <label>
+              <span>Formato</span>
+              <select id="format">
+                <option value="mp4">MP4</option>
+                <option value="mkv">MKV</option>
+                <option value="webm">WebM</option>
+                <option value="mp3">MP3 (audio)</option>
+                <option value="m4a">M4A (audio)</option>
+              </select>
+            </label>
+            <label>
+              <span>Compresión</span>
+              <select id="compression">
+                <option value="none">Original</option>
+                <option value="high">Alta · CRF 20</option>
+                <option value="balanced" selected>Equilibrada · CRF 24</option>
+                <option value="compact">Compacta · CRF 27</option>
+              </select>
+            </label>
+            <label>
+              <span>Códec</span>
+              <select id="codec">
+                <option value="h265">H.265 · más chico</option>
+                <option value="h264">H.264 · compatible</option>
+              </select>
+            </label>
+          </div>
+          <p id="imageNote" class="hint hidden">La imagen se guarda en su resolución original.</p>
+          <button id="downloadBtn" class="primary" type="button">Descargar</button>
+        </section>
+
+        <section id="progress" class="card hidden">
+          <div class="progress-head">
+            <span id="stage">Descargando</span>
+            <strong id="percent"></strong>
+          </div>
+          <div class="bar"><span id="barFill"></span></div>
+          <p id="message" class="meta"></p>
+        </section>
+
+        <section id="result" class="card hidden"></section>
+        <p id="error" class="error"></p>
+        <p class="hint small">
+          Se guarda en Descargas/Videos descargados/&lt;Plataforma&gt;/&lt;Nombre del video&gt;. La app tiene que estar abierta para descargar.
+        </p>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

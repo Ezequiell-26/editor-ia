@@ -1,26 +1,37 @@
 import { Fragment } from 'react';
-import type { NavView, ViewId } from '../app/navigation';
+import type { NavGroup, NavView, ViewId } from '../app/navigation';
 import type { ProjectPhase } from '../state/project-store';
 import { useAppearance } from '../state/AppearanceProvider';
 import { Icon, type IconName } from './Icon';
 import { ProfileMenu } from './ProfileMenu';
 
 const VIEW_ICONS: Record<ViewId, IconName> = {
+  home: 'home',
   projects: 'projects',
-  director: 'sparkles',
-  production: 'film',
-  factory: 'layers',
-  editor: 'editor',
   script: 'script',
   assets: 'assets',
+  production: 'production',
+  editor: 'editor',
   download: 'download',
-  convert: 'fit',
+  director: 'director',
+  factory: 'factory',
+  compliance: 'shield',
+  convert: 'convert',
+  compare: 'split',
+  compress: 'compress',
+  denoise: 'denoise',
+  thumbnails: 'thumbnails',
+  localization: 'globe',
+  'ai-hub': 'ai-hub',
+  visuals: 'filters',
+  background: 'background',
+  upscale: 'upscale',
   learn: 'learn',
   mcp: 'plug',
   settings: 'settings',
 };
 
-const BREAK_BEFORE: ReadonlySet<ViewId> = new Set<ViewId>(['editor', 'learn']);
+const BREAK_BEFORE_GROUP: ReadonlySet<NavGroup> = new Set<NavGroup>(['herramientas', 'ayuda']);
 
 interface SidebarProps {
   readonly views: readonly NavView[];
@@ -34,13 +45,48 @@ export function Sidebar({ views, activeId, onSelect, projectName, phase }: Sideb
   const { appearance } = useAppearance();
   return (
     <nav
-      className={`sidebar${appearance.sidebarLabels ? ' expanded' : ''}`}
+      className={`sidebar${appearance.sidebarLabels !== false ? ' expanded' : ''}`}
       aria-label="Vistas principales"
     >
+      <div
+        className="sidebar-brand"
+        onClick={() => onSelect('home')}
+        title="Montaje AI Studio"
+        role="button"
+        tabIndex={0}
+      >
+        <div className="sidebar-logo-box">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
+            <circle cx="7" cy="8" r="4" stroke="#e05252" strokeWidth="1.6" fill="rgba(224, 82, 82, 0.2)" />
+            <circle cx="17" cy="8" r="4" stroke="#48b85c" strokeWidth="1.6" fill="rgba(72, 184, 92, 0.2)" />
+            <circle cx="12" cy="16" r="4" stroke="#4881c2" strokeWidth="1.6" fill="rgba(72, 129, 194, 0.25)" />
+            <polygon points="11 14.5 14 16 11 17.5" fill="#4881c2" />
+          </svg>
+        </div>
+        <div className="sidebar-brand-text">
+          <span className="sidebar-brand-title">Montaje</span>
+          <span className="sidebar-brand-sub">AI Studio</span>
+        </div>
+      </div>
+
       <ul>
-        {views.map((view) => (
+        {views.map((view, index) => (
           <Fragment key={view.id}>
-            {BREAK_BEFORE.has(view.id) ? <li className="nav-separator" aria-hidden="true" /> : null}
+            {view.id === 'projects' ? (
+              <li className="nav-group-header" aria-hidden="true">
+                <span className="nav-separator-label">RUTA</span>
+              </li>
+            ) : null}
+            {BREAK_BEFORE_GROUP.has(view.group) &&
+            views[index - 1]?.group !== view.group ? (
+              <li className="nav-separator" aria-hidden="true">
+                <span className="nav-separator-label">
+                  {view.group === 'herramientas'
+                    ? 'HERRAMIENTAS IA'
+                    : 'AYUDA'}
+                </span>
+              </li>
+            ) : null}
             <li>
               <button
                 type="button"
@@ -51,7 +97,7 @@ export function Sidebar({ views, activeId, onSelect, projectName, phase }: Sideb
                   onSelect(view.id);
                 }}
               >
-                <Icon name={VIEW_ICONS[view.id]} className="nav-icon" size={19} />
+                <Icon name={VIEW_ICONS[view.id]} className="nav-icon" size={15} />
                 <span className="nav-label" aria-hidden="true">
                   {view.label}
                 </span>
@@ -66,9 +112,7 @@ export function Sidebar({ views, activeId, onSelect, projectName, phase }: Sideb
           data-tooltip={`Proyecto activo: ${projectName ?? 'ninguno'}`}
         >
           <span className={`phase-dot phase-${phase}`} aria-hidden="true" />
-          {appearance.sidebarLabels ? (
-            <span className="sidebar-project-name">{projectName ?? 'Sin proyecto'}</span>
-          ) : null}
+          <span className="sidebar-project-name">{projectName ?? 'Sin proyecto'}</span>
         </span>
         <ProfileMenu onSelect={onSelect} />
       </div>

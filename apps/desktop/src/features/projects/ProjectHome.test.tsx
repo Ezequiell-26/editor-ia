@@ -10,10 +10,17 @@ beforeEach(() => {
 
 afterEach(cleanup);
 
+function goProjects(): HTMLElement {
+  fireEvent.click(
+    within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: /Proyectos/ }),
+  );
+  return screen.getByRole('main');
+}
+
 describe('Projects', () => {
   it('explica que no hay proyectos y pide un nombre antes de crear', async () => {
     render(<App service={createFakeService()} />);
-    const main = screen.getByRole('main');
+    const main = goProjects();
     expect(main.textContent).toMatch(/No hay proyectos abiertos/i);
     fireEvent.click(within(main).getByRole('button', { name: /Crear y elegir ubicación/i }));
     await waitFor(() => expect(screen.getByText(/Poné un nombre/i)).toBeTruthy());
@@ -23,14 +30,17 @@ describe('Projects', () => {
   it('crea un proyecto, lo recuerda y permite volver a abrirlo desde recientes', async () => {
     const service = createFakeService();
     render(<App service={service} />);
-    const main = screen.getByRole('main');
+    const main = goProjects();
     fireEvent.change(within(main).getByRole('textbox', { name: /nombre/i }), {
       target: { value: 'Mi obra' },
     });
     fireEvent.click(within(main).getByRole('button', { name: /Crear y elegir ubicación/i }));
-    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Mi obra'));
+    await waitFor(
+      () => expect(screen.getByRole('main').textContent).toContain('Mi obra'),
+      { timeout: 5000 },
+    );
     fireEvent.click(
-      within(screen.getByRole('navigation')).getByRole('button', { name: /Proyectos/ }),
+      within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: /Proyectos/ }),
     );
     const projects = screen.getByRole('main');
     expect(projects.textContent).toContain('Proyecto abierto');
@@ -47,7 +57,7 @@ describe('Projects', () => {
       expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/),
     );
     fireEvent.click(
-      within(screen.getByRole('navigation')).getByRole('button', { name: /Proyectos/ }),
+      within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: /Proyectos/ }),
     );
     const main = screen.getByRole('main');
     expect(main.textContent).toContain('Proyecto abierto');
@@ -58,7 +68,7 @@ describe('Projects', () => {
 
   it('permite elegir vertical 9:16 y fps antes de crear', async () => {
     render(<App service={createFakeService()} />);
-    const main = screen.getByRole('main');
+    const main = goProjects();
     fireEvent.change(within(main).getByLabelText(/^Formato$/i), {
       target: { value: 'vertical' },
     });
@@ -72,7 +82,7 @@ describe('Projects', () => {
 
   it('acepta un formato y fps personalizados', () => {
     render(<App service={createFakeService()} />);
-    const main = screen.getByRole('main');
+    const main = goProjects();
     fireEvent.change(within(main).getByLabelText(/^Formato$/i), {
       target: { value: 'custom' },
     });

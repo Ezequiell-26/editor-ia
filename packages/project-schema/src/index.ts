@@ -8,8 +8,36 @@ export {
 } from './project.ts';
 export type { ProjectDocument, ProjectParseResult } from './project.ts';
 
-export { AssetSchema, AssetKindSchema, AssetStatusSchema, AssetRightsSchema, AssetProxySchema } from './assets.ts';
+export {
+  AssetSchema,
+  AssetKindSchema,
+  AssetStatusSchema,
+  AssetRightsSchema,
+  AssetProxySchema,
+  MAX_ASSET_TAGS,
+  MAX_ASSET_TAG_LENGTH,
+  MAX_ASSET_BIN_LENGTH,
+} from './assets.ts';
 export type { Asset, AssetProxy } from './assets.ts';
+export {
+  MarkerSchema,
+  MarkerListSchema,
+  MarkerColorSchema,
+  MARKER_COLORS,
+  MAX_MARKERS,
+} from './markers.ts';
+export type { Marker, MarkerColor } from './markers.ts';
+export {
+  CAPTION_MOTION_PRESETS,
+  CaptionMotionKeyframeSchema,
+  CaptionMotionPresetSchema,
+  CaptionMotionSchema,
+} from './captions.ts';
+export type {
+  CaptionMotion,
+  CaptionMotionKeyframe,
+  CaptionMotionPreset,
+} from './captions.ts';
 
 export {
   CaptionCueSchema,
@@ -75,6 +103,7 @@ export {
   ClipMaskSchema,
   ClipStabilizationSchema,
   BlendModeSchema,
+  ClipColorTagSchema,
   ClipAnimationTypeSchema,
   ClipAnimationSchema,
   MAX_ANIMATION_FRAMES,
@@ -97,6 +126,7 @@ export type {
   ClipMask,
   ClipStabilization,
   BlendMode,
+  ClipColorTag,
   ClipAnimationType,
   ClipAnimation,
   ClipMaskKeyframe,

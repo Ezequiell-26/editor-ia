@@ -241,19 +241,20 @@ struct PassOutput {
 }
 
 fn run_pass(ffmpeg: &Path, path: &Path, args: &[&str]) -> Result<PassOutput, ProjectError> {
-    let output = Command::new(ffmpeg)
+    let mut command = Command::new(ffmpeg);
+    command
         .args(["-hide_banner", "-nostats", "-i"])
         .arg(path)
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo iniciar FFmpeg para analizar el material",
-            )
-        })?;
+        .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
+    let output = command.output().map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo iniciar FFmpeg para analizar el material",
+        )
+    })?;
     Ok(PassOutput {
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         success: output.status.success(),
@@ -269,13 +270,15 @@ fn analyze_luma(ffmpeg: &Path, path: &Path, duration: f64) -> (Option<f64>, Opti
         let seconds = (duration * fraction).max(0.0);
         let seek = format!("{seconds:.3}");
         let filter = "scale=96:-2,signalstats,metadata=print:file=-";
-        let output = Command::new(ffmpeg)
+        let mut command = Command::new(ffmpeg);
+        command
             .args(["-hide_banner", "-nostats", "-ss", &seek, "-i"])
             .arg(path)
             .args(["-frames:v", "1", "-vf", filter, "-an", "-f", "null", "-"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output();
+            .stderr(Stdio::null());
+        crate::commands::hide_console(&mut command);
+        let output = command.output();
         let Ok(output) = output else { continue };
         if !output.status.success() {
             continue;

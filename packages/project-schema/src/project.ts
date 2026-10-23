@@ -6,6 +6,7 @@ import { EntityIdSchema, IsoDateTimeSchema, JsonValueSchema, LanguageTagSchema }
 import { AudioMixSchema, MotionListSchema, SceneListSchema } from './production.ts';
 import { ProvenanceRecordSchema } from './provenance.ts';
 import { FrameRateSchema, TOTAL_DURATION_MAX_FRAMES } from './time.ts';
+import { MarkerListSchema } from './markers.ts';
 import { ClipEffectsSchema, TimelineSchema } from './timeline.ts';
 
 /**
@@ -39,6 +40,7 @@ const KNOWN_ROOT_KEYS: readonly string[] = [
   'captions',
   'scenes',
   'motion',
+  'markers',
   'audio',
   'renderProfiles',
   'exportVariants',
@@ -55,7 +57,7 @@ const KNOWN_ROOT_KEYS: readonly string[] = [
 const FORBIDDEN_KEY =
   /^(?:x-)?(?:api[_-]?key|apikey|access[_-]?token|refresh[_-]?token|secret|password|passwd|authorization|auth[_-]?token|bearer[_-]?token|cookie|private[_-]?key)$/i;
 
-const PixelsSchema = z.number().int().positive().lte(16_384);
+const PixelsSchema = z.number().int().positive().lte(32_768);
 
 const VideoSettingsSchema = z
   .object({
@@ -119,6 +121,7 @@ const ProjectSchemaBase = z.object({
   captions: CaptionsSchema,
   scenes: SceneListSchema,
   motion: MotionListSchema,
+  markers: MarkerListSchema,
   audio: AudioMixSchema,
   renderProfiles: RenderProfileListSchema,
   exportVariants: ExportVariantListSchema,
@@ -144,6 +147,25 @@ function integrityIssues(project: z.infer<typeof ProjectSchemaBase>): Issue[] {
       });
     }
     assetIds.add(asset.id);
+  });
+
+  const markerIds = new Set<string>();
+  const markerFrames = new Set<number>();
+  project.markers.forEach((marker, index) => {
+    if (markerIds.has(marker.id)) {
+      issues.push({
+        path: ['markers', index, 'id'],
+        message: 'marker ids must be unique inside a project',
+      });
+    }
+    markerIds.add(marker.id);
+    if (markerFrames.has(marker.frame)) {
+      issues.push({
+        path: ['markers', index, 'frame'],
+        message: 'only one marker can live on the same frame',
+      });
+    }
+    markerFrames.add(marker.frame);
   });
 
   const trackIds = new Set<string>();
@@ -369,6 +391,7 @@ export function createEmptyProject(
     captions: { styles: [], cues: [] },
     scenes: [],
     motion: [],
+    markers: [],
     audio: {},
     renderProfiles: [],
     exportVariants: [],

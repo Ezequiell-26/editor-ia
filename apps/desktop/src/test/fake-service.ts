@@ -1,5 +1,6 @@
 import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import { createEmptyProject } from '@editor-ia/project-schema';
+import { FALLBACK_VISUAL_CATALOG } from '../features/visuals/visuals';
 import type {
   AssetFileInfo,
   AudioProviderInfo,
@@ -9,6 +10,7 @@ import type {
   ImportOutcome,
   McpCallResult,
   McpProbeResult,
+  McpSessionInfo,
   McpServerConfig,
   McpServerInput,
   NarrationResult,
@@ -17,6 +19,7 @@ import type {
   RenderFinishedEvent,
   RenderProgressEvent,
   RenderStarted,
+  ConvertProgress,
   ScriptPlan,
   SystemInfo,
   VoiceInfo,
@@ -75,11 +78,14 @@ export interface FakeService extends DesktopService {
     save: number;
     import: number;
     render: number;
+    compressAny: number;
+    destination: string | null;
   };
   emitProgress(event: RenderProgressEvent): void;
   emitFinished(event: RenderFinishedEvent): void;
   setSaveFailure(message: string | null): void;
   setImportOutcome(outcome: ImportOutcome | null): void;
+  readonly deliveries: { fileName: string; bytes: Uint8Array }[];
   current: OpenedProject | null;
 }
 
@@ -97,14 +103,30 @@ export function createFakeService(): FakeService {
   let saveFailure: string | null = null;
   let importOutcome: ImportOutcome | null = null;
   let mcpServers: McpServerConfig[] = [];
+  // Sesiones MCP simuladas: se abren con la primera llamada y se cierran a
+  // pedido, igual que el backend real.
+  const openSessions = new Set<string>();
+  const sessionCalls = new Map<string, number>();
+  let flowGenerations = 0;
   const progressHandlers = new Set<(event: RenderProgressEvent) => void>();
   const finishedHandlers = new Set<(event: RenderFinishedEvent) => void>();
-  const calls = { create: 0, open: 0, save: 0, import: 0, render: 0 };
+  const convertHandlers = new Set<(event: ConvertProgress) => void>();
+  const deliveries: { fileName: string; bytes: Uint8Array }[] = [];
+  const calls = {
+    create: 0,
+    open: 0,
+    save: 0,
+    import: 0,
+    render: 0,
+    compressAny: 0,
+    destination: null as string | null,
+  };
 
   const service: FakeService = {
     available: true,
     unavailableReason: null,
     calls,
+    deliveries,
     current: null,
     async createProject(input: CreateProjectRequest) {
       calls.create += 1;
@@ -160,6 +182,10 @@ export function createFakeService(): FakeService {
       service.current = current;
       return current;
     },
+    async saveDeliveryPackage(bytes: Uint8Array, fileName: string) {
+      deliveries.push({ fileName, bytes });
+      return `C:\\salida\\${fileName}`;
+    },
     async closeProject() {
       current = null;
       service.current = null;
@@ -174,6 +200,7 @@ export function createFakeService(): FakeService {
       );
     },
     async importMediaPaths(input) {
+      calls.import += 1;
       return {
         assets: input.paths.slice(0, 12).map((path, index) =>
           readyAsset({
@@ -188,6 +215,12 @@ export function createFakeService(): FakeService {
     async importLut() {
       return { path: 'media/luts/fake.cube', name: 'fake.cube' };
     },
+    async chooseSubtitleFile() {
+      return {
+        name: 'demo.srt',
+        text: '1\n00:00:00,000 --> 00:00:02,000\nHola subtítulo\n',
+      };
+    },
     async downloaderStatus() {
       return {
         available: true,
@@ -198,6 +231,14 @@ export function createFakeService(): FakeService {
         hint: null,
       };
     },
+    async downloaderBridgeInfo() {
+      return {
+        port: 47615,
+        token: 'token-de-prueba',
+        downloadsDir: 'C:\\Users\\tester\\Downloads\\Editor IA',
+        running: true,
+      };
+    },
     async installDownloader() {
       return {
         available: true,
@@ -206,6 +247,27 @@ export function createFakeService(): FakeService {
         managed: true,
         canInstall: true,
         hint: null,
+      };
+    },
+    async chooseDownloadDirectory() {
+      return 'D:\\Videos descargados';
+    },
+    async extensionStatus() {
+      return {
+        available: true,
+        prepared: true,
+        sourcePath: 'C:\\repo\\extensions\\editor-ia-downloader',
+        preparedPath: 'C:\\Users\\tester\\AppData\\Roaming\\com.editoria.desktop\\extension\\editor-ia-downloader',
+        hint: 'Cargala desde Chrome o Edge.',
+      };
+    },
+    async prepareExtension() {
+      return {
+        available: true,
+        prepared: true,
+        sourcePath: 'C:\\repo\\extensions\\editor-ia-downloader',
+        preparedPath: 'C:\\Users\\tester\\AppData\\Roaming\\com.editoria.desktop\\extension\\editor-ia-downloader',
+        hint: 'Cargala desde Chrome o Edge.',
       };
     },
     async probeDownload(url: string) {
@@ -241,7 +303,11 @@ export function createFakeService(): FakeService {
         ],
       };
     },
+    async chooseCookiesFile() {
+      return 'C:\\cookies\\cookies.txt';
+    },
     async downloadMedia(request) {
+      calls.destination = request.destinationRoot ?? null;
       return {
         runId: '11111111-1111-4111-8111-111111111111',
         directory: 'C:\\cache\\downloads\\fake',
@@ -260,6 +326,9 @@ export function createFakeService(): FakeService {
     async cleanupDownload() {},
     async onDownloadProgress() {
       return () => {};
+    },
+    async fetchPlatformRules() {
+      return null;
     },
     async extractFreezeFrame() {
       return readyAsset({
@@ -362,7 +431,80 @@ export function createFakeService(): FakeService {
         bytes: 2048,
         durationSeconds: 1,
         formatName: request.target,
+        sourceBytes: 8192,
+        encoder: 'libx264',
       };
+    },
+    async convertMediaBatch(assetIds, target, outputDir) {
+      return assetIds.map((assetId) => ({
+        assetId,
+        label: `medio ${assetId.slice(0, 4)}`,
+        ok: true,
+        path: `${outputDir}\\lote-${assetId.slice(0, 4)}.${target}`,
+        bytes: 4096,
+        sourceBytes: 16_384,
+        durationSeconds: 2,
+        formatName: target,
+        encoder: 'libx264',
+      }));
+    },
+    async compressMedia(request) {
+      // El fake simula una compresión real: nunca más grande que el origen.
+      const pedido = Math.round((request.targetMegabytes ?? 1) * 1024 * 1024);
+      return {
+        path: `${request.outputDir}\\comprimido.${request.target}`,
+        bytes: Math.min(pedido, 4096),
+        durationSeconds: 4,
+        formatName: request.target,
+        sourceBytes: 32_768,
+        encoder: 'h264_nvenc',
+      };
+    },
+    async onConvertProgress(handler) {
+      convertHandlers.add(handler);
+      return () => convertHandlers.delete(handler);
+    },
+    async mergeVideos(assetIds, outputDir) {
+      return {
+        path: `${outputDir}\\union.mp4`,
+        bytes: 4096,
+        message: `videos unidos (${assetIds.length})`,
+      };
+    },
+    async trimVideo(_assetId, startSeconds, endSeconds, outputDir) {
+      return {
+        path: `${outputDir}\\recorte.mp4`,
+        bytes: 3072,
+        message: `recorte de ${startSeconds} a ${endSeconds}`,
+      };
+    },
+    async watermarkVideo(_assetId, text, position, outputDir) {
+      return {
+        path: `${outputDir}\\marca-de-agua.mp4`,
+        bytes: 2560,
+        message: `marca «${text}» en ${position}`,
+      };
+    },
+    async setMetadata(_assetId, title, artist, comment, outputDir) {
+      return {
+        path: `${outputDir}\\con-metadatos.mp4`,
+        bytes: 2048,
+        message: `metadatos: ${title || artist || comment}`,
+      };
+    },
+    async audioPeaks(assetId, buckets) {
+      return {
+        assetId,
+        durationSeconds: 4,
+        buckets: buckets ?? 600,
+        peaks: Array.from({ length: buckets ?? 600 }, (_, index) => ({
+          min: -0.2 - (index % 7) * 0.05,
+          max: 0.3 + (index % 5) * 0.08,
+        })),
+      };
+    },
+    async hardwareEncoders() {
+      return { h264: null, hevc: null, checked: true };
     },
     async listMcpServers() {
       return mcpServers.map((server) => ({ ...server }));
@@ -418,6 +560,38 @@ export function createFakeService(): FakeService {
       };
     },
     async callMcpTool(id: string, tool: string, args: unknown): Promise<McpCallResult> {
+      openSessions.add(id);
+      sessionCalls.set(id, (sessionCalls.get(id) ?? 0) + 1);
+      if (tool === 'flow_generate_image') {
+        flowGenerations += 1;
+        return {
+          serverId: id,
+          toolName: tool,
+          result: {
+            content: [
+              {
+                type: 'text',
+                text: JSON.stringify({
+                  artifacts: [
+                    { type: 'image', path: `C:\\media\\flow-${flowGenerations}.png` },
+                  ],
+                }),
+              },
+            ],
+          },
+          isError: false,
+          elapsedMs: 5,
+        };
+      }
+      if (tool === 'flow_status') {
+        return {
+          serverId: id,
+          toolName: tool,
+          result: { content: [{ type: 'text', text: JSON.stringify({ credits: 42 }) }] },
+          isError: false,
+          elapsedMs: 2,
+        };
+      }
       return {
         serverId: id,
         toolName: tool,
@@ -425,6 +599,368 @@ export function createFakeService(): FakeService {
         isError: false,
         elapsedMs: 9,
       };
+    },
+    async chooseVideoFile(title?: string) {
+      void title;
+      return 'C:////media////toma.mp4';
+    },
+    async chooseAudioFile(title?: string) {
+      void title;
+      return 'C:////media////voz.wav';
+    },
+    async probeMediaFile(path: string) {
+      return {
+        path,
+        bytes: 41_943_040,
+        durationSeconds: 12.5,
+        formatName: 'mov,mp4,m4a',
+        width: 1920,
+        height: 1080,
+        videoCodec: 'h264',
+        audioCodec: 'aac',
+      };
+    },
+    async compressAnyFile(request) {
+      calls.compressAny = (calls.compressAny ?? 0) + 1;
+      void request;
+      return {
+        path: 'C:////salida////toma.mp4',
+        bytes: 4_194_304,
+        durationSeconds: 12.5,
+        formatName: 'mov,mp4,m4a',
+        sourceBytes: 41_943_040,
+        encoder: 'libx264',
+      };
+    },
+    onCompressProgress(_handler: (event: { percent: number }) => void) {
+      // El arnés no simula compresiones largas: el progreso no llega a emitirse.
+      return Promise.resolve(() => {});
+    },
+    async measureVmaf(original: string, compressed: string) {
+      void original;
+      void compressed;
+      return 91.3;
+    },
+    async listModels() {
+      return [
+        {
+          id: 'u2netp',
+          capability: 'remove-background',
+          purpose: 'Recorta el sujeto de una foto generando su recorte con transparencia.',
+          bytes: 4_574_861,
+          downloaded: true,
+          license: { id: 'apache-2.0', detail: 'Pesos de U²-Net (Apache-2.0).', url: '' },
+          sourceUrl: 'https://github.com/danielgatis/rembg',
+        },
+        {
+          id: 'seeta-face',
+          capability: 'face-detection',
+          purpose: 'Detecta rostros para smart reframe.',
+          bytes: 1_209_904,
+          downloaded: true,
+          license: { id: 'bsd-2-clause', detail: 'SeetaFace (BSD-2-Clause).', url: '' },
+          sourceUrl: 'https://github.com/seetaface/SeetaFaceEngine',
+        },
+      ];
+    },
+    async downloadModel(id: string) {
+      if (id === 'seeta-face') {
+        return {
+          id,
+          capability: 'face-detection',
+          purpose: 'Detecta rostros para smart reframe.',
+          bytes: 1_209_904,
+          downloaded: true,
+          license: { id: 'bsd-2-clause', detail: 'SeetaFace (BSD-2-Clause).', url: '' },
+          sourceUrl: 'https://github.com/seetaface/SeetaFaceEngine',
+        };
+      }
+      return {
+        id,
+        capability: 'remove-background',
+        purpose: 'Recorta el sujeto de una foto generando su recorte con transparencia.',
+        bytes: 4_574_861,
+        downloaded: true,
+        license: { id: 'apache-2.0', detail: 'Pesos de U²-Net (Apache-2.0).', url: '' },
+        sourceUrl: 'https://github.com/danielgatis/rembg',
+      };
+    },
+    async deleteModel(id: string) {
+      return id === 'u2netp';
+    },
+    async listCapabilities() {
+      return [
+        {
+          id: 'remove-background',
+          label: 'Quitar fondo de una foto',
+          purpose: 'Recorta el sujeto de una foto generando su recorte con transparencia.',
+          backends: [
+            {
+              id: 'modelo-u2netp',
+              kind: 'local',
+              detail: 'Modelo u2netp en el equipo',
+              available: true,
+              reason: null,
+            },
+          ],
+          available: true,
+        },
+      ];
+    },
+    async listVisualCatalog() {
+      return FALLBACK_VISUAL_CATALOG;
+    },
+    async auditVisuals(project: unknown) {
+      const value = project as { timeline?: { clips?: unknown[] } };
+      return {
+        clipsScanned: value.timeline?.clips?.length ?? 0,
+        transitions: 0,
+        effectsClips: 0,
+        findings: [],
+      };
+    },
+    async upscaleImage(inputPath: string) {
+      return {
+        path: inputPath.replace(/\.[^.]+$/, '-x4.png'),
+        inputWidth: 128,
+        inputHeight: 128,
+        outputWidth: 512,
+        outputHeight: 512,
+        tiles: 1,
+      };
+    },
+    async removeBackground(inputPath: string) {
+      return {
+        path: inputPath.replace(/\.[^.]+$/, '-sin-fondo.png'),
+        width: 1920,
+        height: 1080,
+      };
+    },
+    async denoiseMedia(request) {
+      const extension = request.mode === 'image' ? 'png' : 'mp4';
+      return {
+        path: request.inputPath.replace(/\.[^.]+$/, `-denoise.${extension}`),
+        bytes: 1_500_000,
+        sourceBytes: 2_000_000,
+        filter: 'hqdn3d=2.50:1.80:6.00:4.00',
+        width: 1920,
+        height: 1080,
+        durationSeconds: 12,
+      };
+    },
+    async onDenoiseProgress() {
+      return () => {};
+    },
+    async enhanceDialogue(request) {
+      const preset = request.preset ?? 'dialogo';
+      return {
+        path: `${request.outputDir ?? 'C:\media'}\voz-${preset}.wav`,
+        bytes: 2_500_000,
+        durationSeconds: 4.2,
+        preset,
+        effects: ['denoise', 'dehum', 'deesser', 'compressor', 'limiter'],
+      };
+    },
+    async onDialogueProgress() {
+      return () => {};
+    },
+    async saveThumbnail(request) {
+      return {
+        path: `${request.outputDir}\\miniatura.png`,
+        bytes: 220_000,
+        width: 1280,
+        height: 720,
+      };
+    },
+    async pickThumbnailFrames(request) {
+      void request;
+      return [1, 2, 3].map((rank) => ({
+        path: `C:\cache\thumbnails\frame-${rank}.png`,
+        score: 80 - rank * 4,
+        timeSeconds: rank * 2.5,
+        width: 480,
+        height: 270,
+      }));
+    },
+    async renderPreviewFrame(request) {
+      return {
+        path: 'C:\cache\preview\frame.png',
+        width: request.native ? 3840 : 1920,
+        height: request.native ? 2160 : 1080,
+        frame: request.frame,
+        timeSeconds: request.frame / 30,
+        clipId: request.clipId,
+        clipLabel: 'Clip',
+        native: request.native === true,
+        decoder: 'ffmpeg',
+      };
+    },
+    async analyzeScopesFrame(request) {
+      void request;
+      return {
+        width: 1920,
+        height: 1080,
+        samples: 129600,
+        waveform: { columns: 480, rows: 256, data: [1, 2, 3] },
+        vectorscope: { columns: 255, rows: 255, data: [1, 2, 3] },
+        histogram: [[1], [2], [3]],
+        histogramY: [1],
+        meanCbCr: [0, 0],
+      };
+    },
+    async exportLookLut(request) {
+      return {
+        path: `${request.outputDir}\look.cube`,
+        bytes: 120_000,
+        size: 33,
+      };
+    },
+    async exportEdl(request) {
+      return {
+        path: `${request.outputDir}\timeline.edl`,
+        bytes: 640,
+        events: 3,
+        warnings: [],
+      };
+    },
+    async exportOtio(request) {
+      return { path: `${request.outputDir}\timeline.otio`, bytes: 2048, tracks: 2, clips: 3, warnings: [] };
+    },
+    async exportFcpxml(request) {
+      return { path: `${request.outputDir}\timeline.fcpxml`, bytes: 3072, clips: 3, warnings: [] };
+    },
+    async generateVideoEffect(request) {
+      void request;
+      return {
+        name: 'Cine IA',
+        description: 'Contraste y viñeta generados sin red.',
+        effects: { contrast: 1.15, vignette: 0.2 },
+        providerId: 'mock',
+        model: 'mock',
+        simulated: true,
+      };
+    },
+    async translateSubtitles(request) {
+      return {
+        texts: request.texts.map(
+          (text) => `${request.targetLanguage.toUpperCase()}: ${text}`,
+        ),
+        providerId: 'mock',
+        model: 'simulado',
+        simulated: false,
+      };
+    },
+    async saveLocalizedSubtitle(request) {
+      return {
+        path: `${request.outputDir}\\subtitulos.${request.language}.${request.format}`,
+        bytes: 512,
+        format: request.format,
+        language: request.language,
+      };
+    },
+    async synthesizeDub(request) {
+      return {
+        path: `${request.outputDir}\\video-dub-${request.language}.mp4`,
+        bytes: 12_400_000,
+        width: 1080,
+        height: 1920,
+        durationSeconds: request.endSeconds ?? 5,
+        language: request.language,
+        voice: request.voice ?? 'Microsoft Sabina',
+        cues: request.cues.length,
+        replacedOriginalAudio: !(request.bedVolume && request.bedVolume > 0),
+        originalAudioVolume: request.bedVolume ?? 0,
+        warnings: [],
+      };
+    },
+    async onDubProgress() {
+      return () => {};
+    },
+    async cloneVoice(request) {
+      return {
+        path: 'media/voz-clonada-demo.wav',
+        bytes: 1_200_000,
+        durationSeconds: 2.2,
+        language: request.language,
+        engine: request.engine ?? 'xtts',
+        referenceSha256: 'b'.repeat(64),
+      };
+    },
+    async onCloneProgress() {
+      return () => {};
+    },
+    async lipSync(request) {
+      return {
+        path: `${request.outputDir}\\video-lipsync.mp4`,
+        bytes: 18_000_000,
+        width: 1080,
+        height: 1920,
+        durationSeconds: 5,
+        engine: request.engine ?? 'wav2lip',
+      };
+    },
+    async onLipSyncProgress() {
+      return () => {};
+    },
+    async exportShort(request) {
+      return {
+        path: `${request.outputDir}\\short-vertical.mp4`,
+        bytes: 4_200_000,
+        width: 1080,
+        height: 1920,
+        durationSeconds: request.endSeconds - request.startSeconds,
+        reframe: request.smartReframe ? 'smart' : 'center',
+        facesDetected: request.smartReframe ? 8 : 0,
+      };
+    },
+    async onShortProgress() {
+      return () => {};
+    },
+    async analyzeFaceTrack(request) {
+      const duration = Math.max(0.1, request.endSeconds - request.startSeconds);
+      const samples = [0, 0.33, 0.66, 1].map((fraction) => ({
+        time: request.startSeconds + duration * fraction,
+        centerX: 0.5,
+        centerY: 0.4,
+        size: 0.3,
+      }));
+      return {
+        model: 'seeta-face',
+        durationSeconds: duration,
+        detections: samples.length,
+        samples,
+        track: samples.map((sample) => ({
+          time: sample.time,
+          x: sample.centerX,
+          y: sample.centerY,
+        })),
+        scaledWidth: 1080,
+        scaledHeight: 1920,
+        xExpression: 'iw*0.35',
+        yExpression: 'ih*0.2',
+      };
+    },
+    async chooseImageFile(title?: string) {
+      // El arnés devuelve una ruta fija; el test que necesite otra la pisa.
+      void title;
+      return 'C:////media////foto.png';
+    },
+    absoluteFileUrl(path: string) {
+      return THUMB;
+    },
+    async closeMcpSession(id: string) {
+      const had = openSessions.delete(id);
+      sessionCalls.delete(id);
+      return had;
+    },
+    async mcpSessionStatus(): Promise<McpSessionInfo[]> {
+      return [...openSessions].map((id) => ({
+        serverId: id,
+        pid: 4242,
+        calls: sessionCalls.get(id) ?? 0,
+        startedAtMs: 1_700_000_000_000,
+        idleMs: 1_000,
+      }));
     },
     async loadDirectorMemory() {
       return null;
@@ -469,6 +1005,7 @@ export function createFakeService(): FakeService {
           version: '5.1',
           hint: null,
         },
+        hardware: { h264: null, hevc: null, checked: true },
         configDir: 'C:\\Users\\tester\\AppData\\Roaming\\editor-ia',
         cacheDir: 'C:\\Users\\tester\\AppData\\Local\\editor-ia',
       };
@@ -554,6 +1091,7 @@ export function createFakeService(): FakeService {
       return [
         { id: 'Microsoft Helena', name: 'Microsoft Helena', culture: 'es-ES', gender: 'Female' },
         { id: 'Microsoft Sabina', name: 'Microsoft Sabina', culture: 'es-MX', gender: 'Female' },
+        { id: 'Microsoft Zira', name: 'Microsoft Zira', culture: 'en-US', gender: 'Female' },
       ];
     },
     async synthesizeNarration(): Promise<NarrationResult> {

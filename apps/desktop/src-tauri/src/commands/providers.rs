@@ -575,6 +575,496 @@ pub async fn generate_script(
     ))
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectRequest {
+    pub prompt: String,
+    #[serde(default)]
+    pub approved_cost: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectRecipe {
+    pub name: String,
+    pub description: String,
+    pub effects: Value,
+    pub provider_id: String,
+    pub model: String,
+    pub simulated: bool,
+}
+
+fn clean_effect(value: &Value) -> Result<Value, String> {
+    let source = value
+        .get("effects")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_else(|| value.as_object().cloned().unwrap_or_default());
+    let mut effects = serde_json::Map::new();
+    let mut number = |key: &str, min: f64, max: f64| {
+        if let Some(raw) = source.get(key).and_then(Value::as_f64) {
+            if raw.is_finite() {
+                effects.insert(key.to_owned(), json!(raw.clamp(min, max)));
+            }
+        }
+    };
+    number("brightness", -1.0, 1.0);
+    number("contrast", 0.0, 3.0);
+    number("saturation", 0.0, 3.0);
+    number("temperature", -1.0, 1.0);
+    number("vignette", 0.0, 1.0);
+    number("sharpen", 0.0, 5.0);
+    number("blur", 0.0, 50.0);
+    number("hueRotateDeg", -180.0, 180.0);
+    for key in ["grayscale", "sepia"] {
+        if let Some(raw) = source.get(key).and_then(Value::as_bool) {
+            effects.insert(key.to_owned(), Value::Bool(raw));
+        }
+    }
+    if effects.is_empty() {
+        return Err("el efecto no trae ningún parámetro visual válido".to_owned());
+    }
+    Ok(Value::Object(effects))
+}
+
+#[tauri::command]
+pub async fn generate_video_effect(
+    state: State<'_, AppState>,
+    request: EffectRequest,
+) -> Result<EffectRecipe, ProjectError> {
+    let prompt = request.prompt.trim().to_owned();
+    if !(3..=500).contains(&prompt.chars().count()) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "describí el efecto con 3 a 500 caracteres",
+        ));
+    }
+    let settings = state.settings_snapshot()?;
+    let provider = settings.provider.clone();
+    if provider.kind == "mock" {
+        return Ok(EffectRecipe {
+            name: "Cine local".to_owned(),
+            description: "Contraste y viñeta calculados sin red.".to_owned(),
+            effects: json!({ "contrast": 1.15, "saturation": 0.92, "vignette": 0.2, "temperature": 0.08 }),
+            provider_id: "mock".to_owned(),
+            model: "mock".to_owned(),
+            simulated: true,
+        });
+    }
+    if provider.base_url.is_empty() || provider.model.is_empty() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "configurá un proveedor en Ajustes o usá el simulador",
+        ));
+    }
+    validate_provider_base_url(&provider.base_url)?;
+    let local = is_local_endpoint(&provider.base_url);
+    if !local && !request.approved_cost {
+        return Err(ProjectError::message(
+            ProjectErrorCode::CostNotApproved,
+            "confirmá que esta llamada puede consumir cuota antes de generar el efecto",
+        ));
+    }
+    let key = read_key();
+    if !local && key.is_none() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "falta la clave del proveedor en el almacén de Windows",
+        ));
+    }
+    let system = "Sos colorista de video. Devolvés SOLO un objeto JSON válido, sin markdown: {\"name\": string, \"description\": string, \"effects\": {\"brightness\": -1..1, \"contrast\": 0..3, \"saturation\": 0..3, \"temperature\": -1..1, \"vignette\": 0..1, \"sharpen\": 0..5, \"blur\": 0..50, \"hueRotateDeg\": -180..180, \"grayscale\": boolean, \"sepia\": boolean}}. Usá sólo los parámetros necesarios y valores moderados.";
+    let body = json!({
+        "model": provider.model,
+        "temperature": 0.2,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": format!("Efecto pedido: {prompt}") }
+        ]
+    });
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "no se pudo preparar la conexión",
+            )
+        })?;
+    let mut call = client
+        .post(chat_endpoint(&provider.base_url))
+        .json(&body)
+        .header("Accept", "application/json");
+    if let Some(secret) = key {
+        call = call.bearer_auth(secret);
+    }
+    let response = call.send().await.map_err(|error| {
+        let safe = if error.is_timeout() {
+            "el proveedor no respondió en 120 segundos".to_owned()
+        } else if error.is_connect() {
+            "no se pudo conectar con el proveedor; revisá que Ollama/servicio esté encendido"
+                .to_owned()
+        } else {
+            "la llamada al proveedor falló".to_owned()
+        };
+        ProjectError::message(ProjectErrorCode::ProviderUnavailable, &safe)
+    })?;
+    if !response.status().is_success() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderRejected,
+            &format!(
+                "el proveedor rechazó el efecto (HTTP {})",
+                response.status().as_u16()
+            ),
+        ));
+    }
+    let payload: Value = response.json().await.map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "el proveedor no devolvió JSON legible",
+        )
+    })?;
+    let content = payload["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "la respuesta no trae choices[0].message.content",
+            )
+        })?;
+    let json_text = extract_json(content).ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "el modelo no devolvió un objeto JSON",
+        )
+    })?;
+    let value: Value = serde_json::from_str(json_text).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "el JSON del efecto no se pudo parsear",
+        )
+    })?;
+    let effects = clean_effect(&value).map_err(|detail| {
+        ProjectError::message(ProjectErrorCode::InvalidProviderResponse, &detail)
+    })?;
+    Ok(EffectRecipe {
+        name: clean_text(value["name"].as_str().map(str::to_owned), 80)
+            .unwrap_or_else(|| "Efecto IA".to_owned()),
+        description: clean_text(value["description"].as_str().map(str::to_owned), 300)
+            .unwrap_or_default(),
+        effects,
+        provider_id: "openai-compatible".to_owned(),
+        model: provider.model,
+        simulated: false,
+    })
+}
+
+const MAX_TRANSLATE_CUES: usize = 100;
+const MAX_TRANSLATE_CHARS: usize = 12_000;
+const MAX_GLOSSARY_CHARS: usize = 1_000;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslateRequest {
+    pub texts: Vec<String>,
+    #[serde(default = "default_source_language")]
+    pub source_language: String,
+    pub target_language: String,
+    #[serde(default)]
+    pub glossary: Option<String>,
+    #[serde(default)]
+    pub approved_cost: bool,
+}
+
+fn default_source_language() -> String {
+    "auto".to_owned()
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslatedTexts {
+    pub texts: Vec<String>,
+    pub provider_id: String,
+    pub model: String,
+    pub simulated: bool,
+}
+
+fn language_name(code: &str) -> Option<&'static str> {
+    match code.to_ascii_lowercase().as_str() {
+        "es" => Some("español rioplatense"),
+        "en" => Some("inglés"),
+        "zh" => Some("chino mandarín simplificado"),
+        "hi" => Some("hindi"),
+        "ar" => Some("árabe moderno estándar"),
+        "pt" => Some("portugués brasileño"),
+        "bn" => Some("bengalí"),
+        "ru" => Some("ruso"),
+        _ => None,
+    }
+}
+
+fn validate_translation(request: &TranslateRequest) -> Result<(Vec<String>, String), ProjectError> {
+    if request.texts.is_empty() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "no hay subtítulos para traducir",
+        ));
+    }
+    if request.texts.len() > MAX_TRANSLATE_CUES {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            &format!("un lote de traducción admite hasta {MAX_TRANSLATE_CUES} subtítulos"),
+        ));
+    }
+    let target = request.target_language.trim().to_ascii_lowercase();
+    if language_name(&target).is_none() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el idioma de destino no está entre los ocho soportados",
+        ));
+    }
+    let source = request.source_language.trim().to_ascii_lowercase();
+    if source != "auto" && language_name(&source).is_none() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el idioma de origen no es válido",
+        ));
+    }
+    let mut total = 0usize;
+    let mut texts = Vec::with_capacity(request.texts.len());
+    for text in &request.texts {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "un subtítulo llegó vacío",
+            ));
+        }
+        if trimmed.chars().count() > 4_000 {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "un subtítulo supera los 4000 caracteres",
+            ));
+        }
+        total += trimmed.chars().count();
+        texts.push(trimmed.to_owned());
+    }
+    if total > MAX_TRANSLATE_CHARS {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            &format!(
+                "el lote supera los {MAX_TRANSLATE_CHARS} caracteres; dividilo en partes más chicas"
+            ),
+        ));
+    }
+    Ok((texts, target))
+}
+
+fn parse_translations(content: &str, expected: usize) -> Result<Vec<String>, ProjectError> {
+    let trimmed = content.trim();
+    let value: Value = match serde_json::from_str(trimmed) {
+        Ok(value) => value,
+        Err(_) => {
+            let json_text = extract_json(trimmed).ok_or_else(|| {
+                ProjectError::message(
+                    ProjectErrorCode::InvalidProviderResponse,
+                    "la traducción no es un JSON interpretable",
+                )
+            })?;
+            serde_json::from_str(json_text).map_err(|_| {
+                ProjectError::message(
+                    ProjectErrorCode::InvalidProviderResponse,
+                    "la traducción no es un JSON interpretable",
+                )
+            })?
+        }
+    };
+    let entries = value
+        .get("texts")
+        .or_else(|| value.get("translations"))
+        .and_then(Value::as_array)
+        .or_else(|| value.as_array())
+        .ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "la traducción no trae una lista de textos",
+            )
+        })?;
+    if entries.len() != expected {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            &format!(
+                "la traducción devolvió {} textos y se esperaban {expected}; no se aplicó nada",
+                entries.len()
+            ),
+        ));
+    }
+    let mut texts = Vec::with_capacity(expected);
+    for entry in entries {
+        let text = entry.as_str().map(str::trim).unwrap_or("");
+        if text.is_empty() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "la traducción devolvió un subtítulo vacío; no se aplicó nada",
+            ));
+        }
+        texts.push(text.chars().take(4_000).collect());
+    }
+    Ok(texts)
+}
+
+fn mock_translation(request: &TranslateRequest) -> TranslatedTexts {
+    TranslatedTexts {
+        texts: request
+            .texts
+            .iter()
+            .map(|text| text.trim().to_owned())
+            .collect(),
+        provider_id: "mock".to_owned(),
+        model: "mock".to_owned(),
+        simulated: true,
+    }
+}
+
+#[tauri::command]
+pub async fn translate_subtitles(
+    state: State<'_, AppState>,
+    request: TranslateRequest,
+) -> Result<TranslatedTexts, ProjectError> {
+    let (texts, target) = validate_translation(&request)?;
+    let settings = state.settings_snapshot()?;
+    let provider = settings.provider.clone();
+    if provider.kind == "mock" {
+        // El proveedor simulado no inventa una traducción: devuelve el texto
+        // original marcado como simulado para que la UI no lo presente como
+        // traducido ni lo exporte como si lo fuera.
+        return Ok(mock_translation(&request));
+    }
+    if provider.base_url.is_empty() || provider.model.is_empty() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "configurá un proveedor en Ajustes para traducir",
+        ));
+    }
+    validate_provider_base_url(&provider.base_url)?;
+    let local = is_local_endpoint(&provider.base_url);
+    if !local && !request.approved_cost {
+        return Err(ProjectError::message(
+            ProjectErrorCode::CostNotApproved,
+            "autorizá el consumo de cuota antes de traducir con un proveedor remoto",
+        ));
+    }
+    let key = read_key();
+    if !local && key.is_none() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "falta la clave del proveedor en el almacén de Windows",
+        ));
+    }
+    let source = request.source_language.trim().to_ascii_lowercase();
+    let source_label = if source == "auto" {
+        "detección automática".to_owned()
+    } else {
+        language_name(&source)
+            .unwrap_or("origen desconocido")
+            .to_owned()
+    };
+    let target_label = language_name(&target).unwrap_or("destino");
+    let glossary = request
+        .glossary
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.chars().take(MAX_GLOSSARY_CHARS).collect::<String>())
+        .unwrap_or_default();
+    let glossary_block = if glossary.is_empty() {
+        String::new()
+    } else {
+        format!("\nGlosario que NO se traduce (respetá estas grafías): {glossary}")
+    };
+    let system = format!(
+        "Sos un traductor profesional de subtítulos. Traducís de {source_label} a {target_label}. Devolvés SOLO un objeto JSON válido, sin markdown ni comentarios, con la forma {{\"texts\": [string, ...]}}. Traducí cada entrada en el mismo orden, sin numerarlas ni agregar notas, con lenguaje natural y compacto para leer en pantalla. No omitas, fusiones ni agregues entradas. Respondé exactamente {} entradas.{glossary_block}",
+        texts.len()
+    );
+    let user = serde_json::json!({ "texts": texts }).to_string();
+    let body = json!({
+        "model": provider.model,
+        "temperature": 0.2,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
+        ]
+    });
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "no se pudo preparar la conexión",
+            )
+        })?;
+    let mut call = client
+        .post(chat_endpoint(&provider.base_url))
+        .json(&body)
+        .header("Accept", "application/json");
+    if let Some(secret) = key {
+        call = call.bearer_auth(secret);
+    }
+    let response = call.send().await.map_err(|error| {
+        let safe = if error.is_timeout() {
+            "el proveedor no respondió en 120 segundos".to_owned()
+        } else if error.is_connect() {
+            "no se pudo conectar con el proveedor; revisá la URL y que el servicio esté encendido"
+                .to_owned()
+        } else {
+            "la llamada de traducción falló".to_owned()
+        };
+        ProjectError::message(ProjectErrorCode::ProviderUnavailable, &safe)
+    })?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderRejected,
+            &format!(
+                "el proveedor rechazó la traducción (HTTP {})",
+                status.as_u16()
+            ),
+        ));
+    }
+    let body = response.bytes().await.map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "el proveedor no devolvió un cuerpo legible",
+        )
+    })?;
+    if body.len() > 2_000_000 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "la respuesta de traducción supera el límite de 2 MB",
+        ));
+    }
+    let payload: Value = serde_json::from_slice(&body).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "el proveedor no devolvió un JSON interpretable",
+        )
+    })?;
+    let content = payload["choices"][0]["message"]["content"]
+        .as_str()
+        .ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "la respuesta no trae choices[0].message.content",
+            )
+        })?;
+    Ok(TranslatedTexts {
+        texts: parse_translations(content, texts.len())?,
+        provider_id: "openai-compatible".to_owned(),
+        model: provider.model.clone(),
+        simulated: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -678,5 +1168,80 @@ mod tests {
         assert!(too_short.chars().count() < 10);
         let too_long = "x".repeat(MAX_BRIEF_CHARS + 1);
         assert!(too_long.chars().count() > MAX_BRIEF_CHARS);
+    }
+
+    fn translation(texts: &[&str], target: &str) -> TranslateRequest {
+        TranslateRequest {
+            texts: texts.iter().map(|text| (*text).to_owned()).collect(),
+            source_language: "auto".to_owned(),
+            target_language: target.to_owned(),
+            glossary: None,
+            approved_cost: false,
+        }
+    }
+
+    #[test]
+    fn translation_accepts_the_eight_languages_and_trims() {
+        for code in ["es", "en", "zh", "hi", "ar", "pt", "bn", "ru"] {
+            let request = translation(&["  Hola  "], code);
+            let (texts, target) = validate_translation(&request).expect("válido");
+            assert_eq!(texts, vec!["Hola"]);
+            assert_eq!(target, code);
+        }
+    }
+
+    #[test]
+    fn translation_rejects_unknown_languages_empty_and_huge_batches() {
+        assert!(validate_translation(&translation(&["Hola"], "fr")).is_err());
+        assert!(validate_translation(&translation(&[], "en")).is_err());
+        assert!(validate_translation(&translation(&["   "], "en")).is_err());
+        let many = vec!["Hola"; MAX_TRANSLATE_CUES + 1];
+        assert!(validate_translation(&translation(&many, "en")).is_err());
+        let long = "x".repeat(MAX_TRANSLATE_CHARS + 1);
+        assert!(validate_translation(&translation(&[&long], "en")).is_err());
+    }
+
+    #[test]
+    fn translation_parser_requires_every_cue_in_order() {
+        let parsed = parse_translations(r#"{"texts":["Hello","World"]}"#, 2).expect("JSON");
+        assert_eq!(parsed, vec!["Hello", "World"]);
+        let array = parse_translations(r#"["Uno","Dos"]"#, 2).expect("array");
+        assert_eq!(array, vec!["Uno", "Dos"]);
+        let fenced =
+            parse_translations("```json\n{\"translations\":[\"Eins\"]}\n```", 1).expect("fenced");
+        assert_eq!(fenced, vec!["Eins"]);
+    }
+
+    #[test]
+    fn translation_parser_rejects_missing_empty_or_extra_cues() {
+        assert!(parse_translations(r#"{"texts":["Uno"]}"#, 2).is_err());
+        assert!(parse_translations(r#"{"texts":["Uno","Dos","Tres"]}"#, 2).is_err());
+        assert!(parse_translations(r#"{"texts":["Uno","   "]}"#, 2).is_err());
+        assert!(parse_translations("sin json", 1).is_err());
+    }
+
+    #[test]
+    fn simulated_translation_is_marked_and_does_not_invent_text() {
+        let request = translation(&["Hola", "Mundo"], "en");
+        let result = mock_translation(&request);
+        assert!(result.simulated);
+        assert_eq!(result.texts, vec!["Hola", "Mundo"]);
+    }
+}
+
+#[cfg(test)]
+mod effect_tests {
+    use super::*;
+
+    #[test]
+    fn effect_parameters_are_clamped_and_filtered() {
+        let recipe = clean_effect(&serde_json::json!({
+            "effects": { "brightness": 9, "contrast": -2, "vignette": 0.4, "inventado": 3 }
+        }))
+        .expect("efecto válido");
+        assert_eq!(recipe["brightness"], 1.0);
+        assert_eq!(recipe["contrast"], 0.0);
+        assert_eq!(recipe["vignette"], 0.4);
+        assert!(recipe.get("inventado").is_none());
     }
 }

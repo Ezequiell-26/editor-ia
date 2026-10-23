@@ -27,7 +27,7 @@ Si un dato no se puede reconstruir a partir de este archivo más los recursos de
 | Namespace de extensión | Una clave raíz nueva solo se admite bajo prefijo `x-` (ej. `x-experiment`). Cualquier otra clave raíz se rechaza. |
 | Prohibición de credenciales | Se recorre todo el documento y se rechaza cualquier clave que coincida con `api_key`, `apikey`, `access_token`, `refresh_token`, `secret`, `password`, `authorization`, `auth_token`, `bearer_token`, `cookie`, `private_key` — aunque esté dentro de `x-`. |
 | Ids | `uuid` v4 generado por la aplicación. Los slugs legibles por humanos se rechazan: un id escrito a mano es la forma habitual de romper una referencia. |
-| Unicidad | Los ids son únicos **dentro de cada colección** (`assets`, `timeline.tracks`, `timeline.clips`, `scenes`, `motion`, `captions.styles`, `captions.cues`, `renderProfiles`, `exportVariants`, `provenance.*`). Reutilizar un id entre colecciones distintas es válido. |
+| Unicidad | Los ids son únicos **dentro de cada colección** (`assets`, `timeline.tracks`, `timeline.clips`, `scenes`, `motion`, `markers`, `captions.styles`, `captions.cues`, `renderProfiles`, `exportVariants`, `provenance.*`). Reutilizar un id entre colecciones distintas es válido. |
 | Orden | El orden de presentación es un campo (`order` en tracks y escenas), no la posición en el array. Un archivo reordenado sin cambiar `order` significa lo mismo. |
 | Duración | Nada se aproxima: si un valor no se puede expresar en frames enteros, el documento es inválido. |
 
@@ -74,8 +74,9 @@ Un asset **siempre** tiene una ruta local. No existe la variante "renderizo desd
 | `language` | BCP 47 (`es`, `es-419`) | idioma por defecto del proyecto |
 | `video` | VideoSettings | ver abajo |
 | `assets`, `timeline`, `captions`, `scenes`, `motion`, `audio`, `renderProfiles`, `exportVariants`, `provenance`, `migrationHistory` | colecciones | todas obligatorias, pueden estar vacías |
+| `markers` | colección | opcional, default `[]`; los proyectos anteriores cargan sin migración |
 
-`VideoSettings`: `width`, `height` (enteros > 0 ≤ 16384), `frameRate` racional, `backgroundColor` hex opcional, `safeArea {top,right,bottom,left}` opcional en píxeles.
+`VideoSettings`: `width`, `height` (enteros > 0 ≤ 32768), `frameRate` racional, `backgroundColor` hex opcional, `safeArea {top,right,bottom,left}` opcional en píxeles.
 
 ### 5.2 `assets[]` — discriminado por `kind`
 
@@ -111,18 +112,29 @@ Un asset **siempre** tiene una ruta local. No existe la variante "renderizo desd
 
 ### 5.4 `timeline.clips[]` — discriminado por `kind`
 
-`kind` ∈ `video | image | audio | graphic`. Campos comunes: `id`, `trackId`, `startFrame`, `durationFrames`, `label?`, `transform?`, `audio?`, `effects?`, `motion?`.
+`kind` ∈ `video | image | audio | graphic | freeze | adjustment`. Campos comunes: `id`, `trackId`, `startFrame`, `durationFrames`, `label?`, `colorTag?`, `transform?`, `audio?`, `effects?`, `motion?`.
+
+`colorTag` es una etiqueta de organización (no de render): `rose | orange | amber | green | teal | blue | violet | slate`.
+
+`freeze` es un frame fijo exportado de un video: vive sólo en pistas `video`, usa
+una fuente de imagen sin ventana y se renderiza como imagen (`-loop 1`). Al
+crearlo desde el Inspector, el video se divide en el playhead, el congelado ocupa
+2 s y los clips, subtítulos y marcadores posteriores se corren esa misma
+duración. `adjustment` sólo vive en pistas `adjustment` y su fuente es
+`{type:"adjustment"}`.
 
 `source` ∈
 - `{type:"asset", assetId, inFrame, outFrame}` — clips `video` y `audio`
-- `{type:"asset", assetId}` — clip `image` (una ventana de origen en una imagen es un error)
+- `{type:"asset", assetId}` — clips `image` y `freeze` (una ventana de origen en
+  una imagen es un error)
 - `{type:"graphic", motionId}` — clip `graphic`
+- `{type:"adjustment"}` — clip `adjustment`
 
 `speed` (racional) solo en `video` y `audio`.
 `transform` = `{offsetX, offsetY, scaleX, scaleY, rotationDeg, opacity}` todos opcionales; `opacity` en [0,1], `scaleX/Y` > 0.
-`audio` = `{gainDb ∈ [−60,12], fadeInFrames, fadeOutFrames, highPassHz ∈ [20,2000], lowPassHz ∈ [1000,20000], eqLowDb|eqMidDb|eqHighDb ∈ [−12,12], compressor: boolean, denoise ∈ [0,1]}`.
-`chromaKey` solo en `video` y `image` = `{color: "#rrggbb", similarity ∈ [0.01,1], blend ∈ [0,1]}`; el render usa `chromakey` y conserva el alfa para la capa inferior.
-`effects` solo en `video` y `image`, todos opcionales y con rangos cerrados:
+`audio` = `{gainDb ∈ [−60,12], muted?: boolean, fadeInFrames, fadeOutFrames, highPassHz ∈ [20,2000], lowPassHz ∈ [1000,20000], eqLowDb|eqMidDb|eqHighDb ∈ [−12,12], compressor: boolean, denoise ∈ [0,1]}`. `muted:true` silencia el audio embebido del clip (video) o el clip de audio sin mutear la pista.
+`chromaKey` solo en `video`, `image` y `freeze` = `{color: "#rrggbb", similarity ∈ [0.01,1], blend ∈ [0,1]}`; el render usa `chromakey` y conserva el alfa para la capa inferior.
+`effects` solo en `video`, `image` y `freeze`, todos opcionales y con rangos cerrados:
 
 | Campo | Rango | Efecto |
 | --- | --- | --- |
@@ -130,11 +142,18 @@ Un asset **siempre** tiene una ruta local. No existe la variante "renderizo desd
 | `contrast` | [0, 3] | contraste, `eq` |
 | `saturation` | [0, 3] | saturación, `eq` |
 | `temperature` | [−1, 1] | balance cálido/frío, `colorbalance` |
+| `shadows` | [−1, 1] | curva maestra, punto 0.25 |
+| `highlights` | [−1, 1] | curva maestra, punto 0.75 |
+| `fade` | [0, 1] | fade tonal: levanta negros y baja blancos |
 | `vignette` | [0, 1] | viñeta |
 | `sharpen` | [0, 5] | nitidez, `unsharp` |
 | `blur` | [0, 50] | desenfoque gaussiano, sigma |
 | `grayscale`, `sepia` | booleano | conversión de color |
 | `fadeInFrames`, `fadeOutFrames` | duración | fundido visual dentro del clip |
+
+`shadows`, `highlights` y `fade` se construyen como una curva maestra fija que
+se aplica antes de `curvePreset`/`curves`; no se acepta sintaxis de filtro desde
+el documento.
 
 La vista previa aplica los efectos con filtros CSS y el render con FFmpeg; ambos
 leen los mismos campos. Rust valida la identidad de timing y acota cada efecto al
@@ -164,7 +183,9 @@ reducción de ruido (`afftdn`) no es un modelo de voice isolation.
 ### 5.5 `captions`
 
 `styles[]` = `{id, name, fontFamily, fontSizePx 1–400, color, outlineColor?, position ∈ top|center|bottom}` con color hex (`#rgb`/`#rrggbb`).
-`cues[]` = `{id, trackId, styleId?, text 1–500, language, startFrame, endFrame}`.
+`cues[]` = `{id, trackId, styleId?, text 1–500, language, startFrame, endFrame, words?, wordReveal?, animation?, motion?}`.
+
+`motion` = `{preset?, keyframes:[from, to]}` con exactamente dos claves: la primera en `frame:0` y la segunda dentro de la duración del cue; cada clave acepta `x`/`y ∈ [−1,1]`, `scale ∈ [0.2,4]`, `rotationDeg ∈ [−180,180]` y `opacity ∈ [0,1]`, y al menos una propiedad debe animarse. Es un movimiento de dos claves, no keyframes arbitrarios. En subtítulos con más de una palabra el renderer ignora `motion` y prioriza el resaltado/revelado.
 
 `endFrame > startFrame`; sin solapamiento dentro de un track; `styleId` debe existir. En el sobre del documento, todo cue debe vivir en un track de `kind:"caption"`.
 
@@ -233,6 +254,12 @@ El texto del modelo nunca se ejecuta: se convierte en `patch`, se valida, y reci
 
 `{fromVersion, toVersion, migratedAt, tool}`. Se agrega una entrada por cada migración aplicada al abrir un archivo de una versión anterior.
 
+### 5.13 `markers[]`
+
+`{id, frame, endFrame?, label (1–120, una sola línea), color?}` con `color ∈ mint|amber|rose|blue|violet|slate`. Si `endFrame` existe debe ser mayor que `frame`; representa un rango visible en la regla y no cambia los capítulos.
+
+Un frame solo puede tener un marcador y el proyecto admite hasta 200. La colección es opcional y los archivos sin `markers` cargan con `[]`, sin migración. Para capítulos, los tiempos se redondean a segundos y se deduplican; si el primer marcador no está en 0:00 se antepone `Inicio`. El manifiesto de publicación usa los marcadores cuando existen; si no, sigue derivando capítulos de las escenas.
+
 ## 6. Integridad referencial que valida el sobre
 
 Ninguna entidad puede apuntar a algo que no esté en el archivo:
@@ -248,6 +275,7 @@ Ninguna entidad puede apuntar a algo que no esté en el archivo:
 9. `audio.ducking.sourceTrackIds` / `targetTrackIds` → existen en `timeline.tracks`.
 10. `provenance.claims[].sourceIds` → existen en `provenance.sources`.
 11. `provenance.claims[].sceneId` → existe en `scenes`.
+12. `markers[].id` es único y `markers[].frame` no se repite.
 
 ## 7. Versionado y compatibilidad
 

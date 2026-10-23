@@ -1,0 +1,608 @@
+/* ============================================================
+   Flat structure
+
+   This layer removes decorative gradients, glows, blur, heavy
+   shadows and ornamental motion. Borders, spacing and semantic
+   colors remain so the hierarchy is still readable.
+   ============================================================ */
+
+:root {
+  --shadow-pop: none;
+  --shadow-panel: none;
+  --glow-accent: none;
+}
+
+body {
+  background: var(--color-bg) !important;
+}
+
+.app-shell {
+  background: var(--color-bg) !important;
+}
+
+.app-shell .topbar,
+.app-shell .statusbar {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+.app-shell .sidebar {
+  background: var(--color-surface) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* ---------- rhythm ---------- */
+
+.app-shell .view {
+  width: 100%;
+  max-width: 1560px;
+  gap: var(--space-3);
+  background: transparent !important;
+}
+
+.app-shell .view-toolbar {
+  min-height: 26px;
+}
+
+.app-shell .card,
+.app-shell .panel,
+.app-shell .modal,
+.app-shell .app-modal,
+.app-shell .menubar-dropdown,
+.app-shell .profile-popover,
+.app-shell .project-current,
+.app-shell .factory-empty,
+.app-shell .script-provider,
+.app-shell .import-bar,
+.app-shell .download-engine,
+.app-shell .download-source,
+.app-shell .download-options,
+.app-shell .download-run,
+.app-shell .download-notes,
+.app-shell .production-stats > *,
+.app-shell .director-source,
+.app-shell .asset-rail,
+.app-shell .preview-panel,
+.app-shell .inspector,
+.app-shell .timeline-panel {
+  background: var(--color-panel) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+  box-shadow: none !important;
+}
+
+.app-shell .card {
+  padding: 14px;
+  gap: 10px;
+}
+
+.app-shell .project-format-summary {
+  gap: 0;
+  margin: 8px 0 0;
+}
+
+.app-shell .project-format-summary span {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.app-shell .project-format-summary span + span::before {
+  content: '·';
+  margin: 0 8px;
+  color: var(--color-empty);
+}
+
+.app-shell .project-format-summary strong {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+/* Metrics are a definition row, not a stack of cards. */
+.app-shell .project-metrics {
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.app-shell .project-metrics > div {
+  padding: 0;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell .production-stats > * {
+  padding: 8px 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid var(--color-border) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+/* Controls are icons and labels, not uppercase captions. */
+.app-shell button {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.app-shell .rail-info * {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.app-shell .transport-button,
+.app-shell .primary-transport {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.app-shell .primary-transport {
+  color: var(--color-accent) !important;
+}
+
+.app-shell .card h3,
+.app-shell .production-card-head h3 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------- no ornamental backgrounds ---------- */
+
+.app-shell .view,
+.app-shell .view *:not(img):not(video):not(canvas) {
+  background-image: none !important;
+}
+
+.app-shell .topbar,
+.app-shell .sidebar,
+.app-shell .statusbar,
+.app-shell .editor-toolbar,
+.app-shell .editor-workspace,
+.app-shell .timeline,
+.app-shell .timeline-toolbar,
+.app-shell .timeline-scroll,
+.app-shell .timeline-surface,
+.app-shell .track-lane,
+.app-shell .timeline-row,
+.app-shell .modal,
+.app-shell .app-modal,
+.app-shell .menubar-dropdown,
+.app-shell .profile-popover,
+.app-shell .project-chip,
+.app-shell .quick-download,
+.app-shell .preview-stage,
+.app-shell .preview-canvas,
+.app-shell .download-progress-track,
+.app-shell .download-engine-badge,
+.app-shell .welcome-option,
+.app-shell .welcome-mark {
+  background-image: none !important;
+}
+
+/* ---------- actions ---------- */
+
+.app-shell button,
+.app-shell .look-chip,
+.app-shell .preview-tool {
+  background-image: none !important;
+}
+
+.app-shell .primary {
+  background-color: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+}
+
+.app-shell .primary:hover:not(:disabled) {
+  background-color: var(--color-accent-strong) !important;
+  filter: none !important;
+}
+
+/* El tema plano pisa el fondo de .primary con !important; sin esta regla un
+ * botón deshabilitado seguía viéndose verde y parecía operable. */
+.app-shell .primary:disabled {
+  background-color: #15211f !important;
+  border-color: #293b3a !important;
+  color: #69817b !important;
+  box-shadow: none !important;
+  opacity: 1 !important;
+}
+
+.app-shell button:hover,
+.app-shell .sidebar button:hover .nav-icon,
+.app-shell .card:hover,
+.app-shell .recent-open:hover {
+  transform: none !important;
+}
+
+/* ---------- no shadows, glows or blur ---------- */
+
+.app-shell *,
+.app-shell *::before,
+.app-shell *::after {
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app-shell :focus-visible {
+  outline: 1px solid var(--color-accent) !important;
+  outline-offset: 2px;
+}
+
+/* ---------- fields ---------- */
+
+.app-shell
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not([type='color']),
+.app-shell select,
+.app-shell textarea {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border-strong) !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+}
+
+.app-shell
+  input:not([type='range']):not([type='checkbox']):not([type='radio']):not(
+    [type='color']
+  ):focus-visible,
+.app-shell select:focus-visible,
+.app-shell textarea:focus-visible {
+  border-color: var(--color-accent) !important;
+}
+
+/* ---------- motion ---------- */
+
+.app-shell .view-loading-dot,
+.app-shell .phase-dot,
+.app-shell .status-pill-dot,
+.app-shell .sidebar *,
+.app-shell .topbar *,
+.app-shell .statusbar *,
+.app-shell .view-toolbar *,
+.app-shell .editor-toolbar *,
+.app-shell .timeline-toolbar *,
+.app-shell .welcome-mark * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* Icon-first actions: the label stays as the accessible name and tooltip. */
+.app-shell .view-toolbar .icon-text > span,
+.app-shell .editor-toolbar .icon-text > span,
+.app-shell .timeline-tools .icon-text > .tool-label,
+.app-shell .project-toolbar .icon-text > span,
+.app-shell .learn-toolbar .icon-text > span {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* ---------- labels ---------- */
+
+.app-shell .eyebrow,
+.app-shell .stat-card span,
+.app-shell .sidebar-section-label,
+.app-shell .sidebar-caption,
+.app-shell .asset-kind,
+.app-shell .track-kind,
+.app-shell .download-engine-badge,
+.app-shell .status-pill,
+.app-shell .field > span,
+.app-shell .range-field > span,
+.app-shell .inspector-tabs button,
+.app-shell .inspector-tabs *,
+.app-shell .inspector-head *,
+.app-shell .rail-head *,
+.app-shell .timeline-toolbar *,
+.app-shell .track-name *,
+.app-shell .editor-meta,
+.app-shell .statusbar *,
+.app-shell .clip-window,
+.app-shell .lane-hint {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.app-shell .eyebrow {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.app-shell .status-pill {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none !important;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  gap: 5px;
+}
+
+.app-shell .status-pill-dot,
+.app-shell .phase-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.app-shell .download-engine-badge,
+.app-shell .look-chip,
+.app-shell .preview-tool {
+  background: transparent !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 4px !important;
+  color: var(--color-text-muted) !important;
+}
+
+.app-shell .asset-kind,
+.app-shell .track-kind {
+  padding: 0;
+  border: 0;
+  background: transparent !important;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 500;
+}
+
+/* Redundant labels and HUD metadata: the surrounding controls already state it. */
+.app-shell .track-kind,
+.app-shell .rail-asset .asset-kind,
+.app-shell .preview-hud,
+.app-shell .preview-timecode-chip {
+  display: none !important;
+}
+
+/* ---------- shell states ---------- */
+
+.app-shell .sidebar button[aria-current='page'] {
+  background: var(--color-panel-2) !important;
+  border-color: var(--color-border) !important;
+}
+
+.app-shell .sidebar button[aria-current='page']::before {
+  background: var(--color-accent);
+}
+
+.app-shell .project-chip {
+  background: transparent !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 4px !important;
+}
+
+.app-shell .brand-note,
+.app-shell .welcome-mark {
+  display: none !important;
+}
+
+.app-shell .empty-state {
+  padding: 16px;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+  background: var(--color-panel) !important;
+}
+
+.app-shell .notice {
+  background: var(--color-panel) !important;
+  border: 1px solid var(--color-border) !important;
+  border-left: 2px solid currentColor !important;
+  border-radius: 4px !important;
+}
+
+.app-shell .modal-backdrop,
+.app-shell .app-modal-backdrop {
+  background: rgba(0, 0, 0, 0.72) !important;
+}
+
+[data-tooltip]::after {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+/* ---------- timeline ---------- */
+
+.app-shell .timeline-scroll,
+.app-shell .timeline-surface {
+  background: var(--color-bg) !important;
+}
+
+.app-shell .track-lane {
+  background-color: var(--color-panel) !important;
+  border-top: 1px solid var(--color-border) !important;
+}
+
+.app-shell .timeline-row:nth-child(even) .track-lane {
+  background-color: var(--color-panel-2) !important;
+}
+
+.app-shell .timeline-clip {
+  background: var(--color-panel-2) !important;
+  border: 1px solid var(--color-border-strong) !important;
+  border-radius: 4px !important;
+  touch-action: none;
+}
+
+.app-shell .timeline-clip.kind-video {
+  border-left: 2px solid #4c7fb6 !important;
+}
+
+.app-shell .timeline-clip.kind-image {
+  border-left: 2px solid #7b69bd !important;
+}
+
+.app-shell .timeline-clip.kind-audio,
+.app-shell .timeline-clip.kind-narration {
+  border-left: 2px solid #3e8f7d !important;
+}
+
+.app-shell .timeline-clip.kind-graphic {
+  border-left: 2px solid #a05a7f !important;
+}
+
+.app-shell .timeline-clip.kind-adjustment {
+  border-left: 2px solid #96733e !important;
+}
+
+.app-shell .timeline-clip.kind-freeze {
+  border-left: 2px solid #b08355 !important;
+}
+
+.app-shell .timeline-clip.selected {
+  outline: 1px solid var(--color-accent) !important;
+  outline-offset: 1px;
+}
+
+.app-shell .clip-label {
+  text-shadow: none !important;
+}
+
+.app-shell .clip-color-dot {
+  display: inline-block !important;
+  width: 7px !important;
+  height: 7px !important;
+  margin-right: 4px !important;
+  border-radius: 2px !important;
+  vertical-align: baseline;
+}
+
+.app-shell .color-chips {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 4px !important;
+  margin: 6px 0 10px !important;
+}
+
+.app-shell .color-chip {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 4px;
+}
+
+.app-shell .color-chip.active {
+  border-color: var(--color-accent) !important;
+}
+
+.app-shell .clip-color-swatch {
+  display: inline-block !important;
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 2px !important;
+}
+
+.app-shell .clip-thumb {
+  opacity: 1;
+}
+
+.app-shell .timeline-clip.dimmed {
+  opacity: 0.24 !important;
+}
+
+.app-shell .timeline-clip.disabled {
+  opacity: 0.34 !important;
+}
+
+.app-shell .color-filter-field select {
+  height: 24px !important;
+  font-size: 11px !important;
+}
+
+.app-shell .clip-search-field input {
+  width: 132px !important;
+  height: 24px !important;
+  font-size: 11px !important;
+}
+
+.app-shell .caption-cue {
+  background: var(--color-panel-2) !important;
+  border: 1px solid var(--color-border-strong) !important;
+  color: var(--color-text) !important;
+  text-shadow: none !important;
+}
+
+.app-shell .playhead-line {
+  background: var(--color-accent) !important;
+  width: 1px !important;
+}
+
+.app-shell .playhead-grip {
+  width: 12px;
+  height: 16px;
+  margin-left: -6px;
+  border-radius: 2px;
+  transform: none;
+  background: var(--color-accent);
+  pointer-events: auto !important;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.app-shell .trim-handle {
+  width: 4px;
+  background: var(--color-accent);
+}
+
+.app-shell .fade-handle {
+  width: 8px !important;
+  height: 8px !important;
+  background: var(--color-accent) !important;
+  border: 1px solid rgba(0, 0, 0, 0.6) !important;
+  border-radius: 50% !important;
+}
+
+.app-shell .fade-handle.active {
+  background: #ffffff !important;
+}
+
+/* ---------- preview chrome (content untouched) ---------- */
+
+.app-shell .preview-stage {
+  background: var(--color-bg) !important;
+}
+
+.app-shell .preview-canvas {
+  border: 1px solid var(--color-border);
+  border-radius: 2px;
+}
+
+.app-shell .preview-hud-chip,
+.app-shell .preview-timecode-chip {
+  background: rgba(0, 0, 0, 0.55) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 3px !important;
+  color: var(--color-text-muted) !important;
+  text-shadow: none !important;
+}
+
+.app-shell .editor-toolbar {
+  background: var(--color-surface) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+/* ---------- welcome ---------- */
+
+.app-shell .welcome-option {
+  background: var(--color-panel) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+}
+
+.app-shell .welcome-option.primary-option {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+}

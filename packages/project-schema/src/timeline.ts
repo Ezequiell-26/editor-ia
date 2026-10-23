@@ -28,6 +28,7 @@ export const ClipKindSchema = z.enum([
   'image',
   'audio',
   'graphic',
+  'freeze',
   'adjustment',
 ]);
 
@@ -120,6 +121,7 @@ export const ClipTransformSchema = z
 export const ClipAudioSchema = z
   .object({
     gainDb: DecibelSchema.optional(),
+    muted: z.boolean().optional(),
     fadeInFrames: DurationSchema.optional(),
     fadeOutFrames: DurationSchema.optional(),
     highPassHz: z.number().gte(20).lte(2_000).optional(),
@@ -242,6 +244,9 @@ export const ClipEffectsSchema = z
     contrast: z.number().gte(0).lte(3).optional(),
     saturation: z.number().gte(0).lte(3).optional(),
     temperature: z.number().gte(-1).lte(1).optional(),
+    shadows: z.number().gte(-1).lte(1).optional(),
+    highlights: z.number().gte(-1).lte(1).optional(),
+    fade: UnitIntervalSchema.optional(),
     lift: z
       .object({
         r: z.number().gte(-1).lte(1),
@@ -259,6 +264,19 @@ export const ClipEffectsSchema = z
       .strict()
       .optional(),
     gain: z
+      .object({
+        r: z.number().gte(-1).lte(1),
+        g: z.number().gte(-1).lte(1),
+        b: z.number().gte(-1).lte(1),
+      })
+      .strict()
+      .optional(),
+    /**
+     * Cuarta rueda de Primaries (DaVinci): balance de medios tonos. En FFmpeg se
+     * mapea a `colorbalance=rm/gm/bm`, el mismo espacio que usan Lift (sombras)
+     * y Gain (altas luces).
+     */
+    offset: z
       .object({
         r: z.number().gte(-1).lte(1),
         g: z.number().gte(-1).lte(1),
@@ -289,6 +307,35 @@ export const ClipEffectsSchema = z
       .strict()
       .optional(),
     vignette: z.number().gte(0).lte(1).optional(),
+    /**
+     * Corrección de lente (ResolveFX Lens Correction). k1/k2 son los factores
+     * cuadráticos de FFmpeg `lenscorrection`; el centro es relativo (0..1).
+     */
+    lensCorrection: z
+      .object({
+        k1: z.number().gte(-1).lte(1),
+        k2: z.number().gte(-1).lte(1),
+        cx: z.number().gte(0).lte(1).optional(),
+        cy: z.number().gte(0).lte(1).optional(),
+      })
+      .strict()
+      .optional(),
+    /**
+     * Relight local por máscara radial (no es un modelo generativo). El centro
+     * y el radio están normalizados al frame; la fuerza y la calidez van de
+     * -1 (oscurecer/enfriar) a 1 (aclarar/calentar).
+     */
+    relight: z
+      .object({
+        x: z.number().gte(-1).lte(1),
+        y: z.number().gte(-1).lte(1),
+        radius: z.number().gt(0).lte(1),
+        strength: z.number().gte(-1).lte(1),
+        warmth: z.number().gte(-1).lte(1),
+        feather: z.number().gte(0).lte(1).optional(),
+      })
+      .strict()
+      .optional(),
     sharpen: z.number().gte(0).lte(5).optional(),
     blur: z.number().gte(0).lte(50).optional(),
     grayscale: z.boolean().optional(),
@@ -307,6 +354,7 @@ export const ClipEffectsSchema = z
       .optional(),
     curves: ClipCurvesSchema.optional(),
     lutFile: z.string().min(1).max(500).optional(),
+    lutIntensity: z.number().gte(0).lte(1).optional(),
     fadeInFrames: DurationSchema.optional(),
     fadeOutFrames: DurationSchema.optional(),
   })
@@ -372,7 +420,7 @@ export type ClipMaskKeyframe = z.infer<typeof ClipMaskKeyframeSchema>;
 
 export const ClipMaskSchema = z
   .object({
-    shape: z.enum(['rectangle', 'ellipse']),
+    shape: z.enum(['rectangle', 'ellipse', 'diamond', 'triangle', 'rounded']),
     x: z.number().gte(-1).lte(1),
     y: z.number().gte(-1).lte(1),
     width: z.number().gt(0).lte(2),
@@ -414,7 +462,15 @@ export type ClipStabilization = z.infer<typeof ClipStabilizationSchema>;
 export const MAX_TRANSITION_FRAMES = 120;
 export const ClipTransitionSchema = z
   .object({
-    type: z.enum(['dissolve', 'fade-black', 'slide-left', 'slide-right']),
+    type: z.enum([
+      'dissolve',
+      'fade-black',
+      'fade-white',
+      'slide-left',
+      'slide-right',
+      'slide-up',
+      'slide-down',
+    ]),
     frames: z.number().int().min(1).max(MAX_TRANSITION_FRAMES),
   })
   .strict();
@@ -442,12 +498,26 @@ export const ClipAnimationSchema = z
   .strict();
 export type ClipAnimation = z.infer<typeof ClipAnimationSchema>;
 
+export const ClipColorTagSchema = z.enum([
+  'rose',
+  'orange',
+  'amber',
+  'green',
+  'teal',
+  'blue',
+  'violet',
+  'slate',
+]);
+export type ClipColorTag = z.infer<typeof ClipColorTagSchema>;
+
 const clipCommon = {
   id: EntityIdSchema,
   trackId: EntityIdSchema,
   label: z.string().min(1).max(200).optional(),
   startFrame: FrameSchema,
   durationFrames: DurationSchema,
+  enabled: z.boolean().optional(),
+  colorTag: ClipColorTagSchema.optional(),
   transform: ClipTransformSchema.optional(),
   audio: ClipAudioSchema.optional(),
 };
@@ -501,6 +571,27 @@ const GraphicClipSchema = z
   .object({ ...clipCommon, kind: z.literal('graphic'), source: GraphicSourceSchema })
   .strict();
 
+/**
+ * A still image placed on a video track by the freeze command. It is rendered
+ * exactly like an image clip; the separate kind lets the editor explain that
+ * the frame belongs to the surrounding video instead of the image track.
+ */
+const FreezeClipSchema = z
+  .object({
+    ...clipCommon,
+    kind: z.literal('freeze'),
+    source: StillAssetSourceSchema,
+    effects: ClipEffectsSchema.optional(),
+    motion: ClipMotionSchema.optional(),
+    chromaKey: ChromaKeySchema.optional(),
+    mask: ClipMaskSchema.optional(),
+    blendMode: BlendModeSchema.optional(),
+    transitionIn: ClipTransitionSchema.optional(),
+    animationIn: ClipAnimationSchema.optional(),
+    animationOut: ClipAnimationSchema.optional(),
+  })
+  .strict();
+
 const AdjustmentClipSchema = z
   .object({
     ...clipCommon,
@@ -516,6 +607,7 @@ const TRACK_KINDS_FOR_CLIP: Record<z.infer<typeof ClipKindSchema>, readonly stri
   image: ['image'],
   audio: ['audio', 'narration'],
   graphic: ['graphic'],
+  freeze: ['video'],
   adjustment: ['adjustment'],
 };
 
@@ -525,6 +617,7 @@ export const ClipSchema = z
     AudioClipSchema,
     ImageIconSchema,
     GraphicClipSchema,
+    FreezeClipSchema,
     AdjustmentClipSchema,
   ])
   .superRefine((clip, ctx) => {

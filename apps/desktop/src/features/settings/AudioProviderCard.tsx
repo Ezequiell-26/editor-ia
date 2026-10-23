@@ -121,7 +121,6 @@ export function AudioProviderCard() {
 
   return (
     <article className="card">
-      <p className="eyebrow">Audio y voz</p>
       <h3>Proveedor de narración</h3>
       <p className="muted">
         SAPI local es gratis y sin red. ElevenLabs usa su API oficial y puede consumir

@@ -41,8 +41,9 @@ function audio(durationFrames: number): Asset {
   } as Asset;
 }
 
-function renderPanel() {
+function renderPanel(assets: Asset[] = []) {
   const project = ensureDelivery(createEmptyProject('Lote', NOW));
+  project.assets = assets;
   const service = createFakeService();
   const onNavigate = vi.fn();
   render(
@@ -106,5 +107,80 @@ describe('AssetsPanel · auto-montar lote', () => {
 
     await waitFor(() => expect(screen.getByText(/Elegí al menos una imagen/i)).toBeTruthy());
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('AssetsPanel · organización de medios', () => {
+  it('filtra por favoritos, etiqueta y bin, y alterna la estrella', () => {
+    const favorite = {
+      ...image('favorita.png'),
+      favorite: true,
+      tags: ['plaza'],
+      bin: 'Exteriores',
+    } as Asset;
+    const other = image('otra.png');
+    renderPanel([favorite, other]);
+
+    expect(screen.getByText('favorita.png')).toBeTruthy();
+    expect(screen.getByText('otra.png')).toBeTruthy();
+    expect(screen.getByLabelText(/Filtrar biblioteca por bin/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Solo favoritos/i }));
+    expect(screen.getByText('favorita.png')).toBeTruthy();
+    expect(screen.queryByText('otra.png')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /Solo favoritos/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Marcar otra.png como favorito/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Solo favoritos/i }));
+    expect(screen.getByText('otra.png')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText(/Buscar en la biblioteca de medios/i), {
+      target: { value: 'plaza' },
+    });
+    expect(screen.getByText('favorita.png')).toBeTruthy();
+    expect(screen.queryByText('otra.png')).toBeNull();
+  });
+
+  it('los Smart Bins filtran por tipo y favoritos con su conteo', () => {
+    const favorite = { ...image('favorita.png'), favorite: true } as Asset;
+    const other = image('otra.png');
+    const clip = {
+      ...audio(300),
+      id: newId(),
+      label: 'voz.wav',
+    } as Asset;
+    renderPanel([favorite, other, clip]);
+
+    const videoBin = screen.getByRole('button', { name: /^Video/ });
+    expect(videoBin.textContent).toContain('0');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Imágenes/ }));
+    expect(screen.getByText('favorita.png')).toBeTruthy();
+    expect(screen.getByText('otra.png')).toBeTruthy();
+    expect(screen.queryByText('voz.wav')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Favoritos/ }));
+    expect(screen.getByText('favorita.png')).toBeTruthy();
+    expect(screen.queryByText('otra.png')).toBeNull();
+    expect(screen.queryByText('voz.wav')).toBeNull();
+
+    // Volver a tocar el bin activo lo desactiva.
+    fireEvent.click(screen.getByRole('button', { name: /^Favoritos/ }));
+    expect(screen.getByText('otra.png')).toBeTruthy();
+  });
+
+  it('guarda el filtro actual como una regla propia', () => {
+    const favorite = { ...image('favorita.png'), favorite: true, bin: 'Exteriores' } as Asset;
+    renderPanel([favorite, image('otra.png')]);
+
+    fireEvent.change(screen.getByLabelText(/Buscar en la biblioteca de medios/i), {
+      target: { value: 'favorita' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar filtro como regla/i }));
+
+    const bins = document.querySelector('.smart-bins');
+    expect(bins?.textContent).toContain('favorita');
+    expect(screen.getByText('favorita.png')).toBeTruthy();
+    expect(screen.queryByText('otra.png')).toBeNull();
   });
 });

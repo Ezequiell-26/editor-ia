@@ -293,6 +293,9 @@ pub async fn create_video_proxy(
     })?;
     let file_name = format!("proxy-{}.mp4", uuid::Uuid::new_v4());
     let target = directory.join(&file_name);
+    // Proxy con GPU si la máquina tiene encoder de hardware: es material de
+    // vista previa, donde la velocidad pesa más que la máxima calidad.
+    let hw = crate::commands::audio::hardware_h264(&ffmpeg);
     let mut command = std::process::Command::new(&ffmpeg);
     command
         .arg("-hide_banner")
@@ -304,13 +307,8 @@ pub async fn create_video_proxy(
             "-vf",
             "scale=w='min(854,iw)':h='min(854,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
         ])
+        .args(crate::commands::audio::proxy_video_args(hw.as_deref()))
         .args([
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "26",
             "-c:a",
             "aac",
             "-b:a",
@@ -501,18 +499,14 @@ pub async fn import_lut(
             "elegí un LUT con extensión .cube",
         ));
     }
-    let mut file = std::fs::File::open(&source)
+    let text = std::fs::read_to_string(&source)
         .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo leer el LUT"))?;
-    let mut header = [0u8; 4096];
-    use std::io::Read;
-    let read = file.read(&mut header).unwrap_or(0);
-    let header = String::from_utf8_lossy(&header[..read]);
-    if !header.contains("LUT_3D_SIZE") && !header.contains("LUT_1D_SIZE") {
-        return Err(ProjectError::message(
+    filmcraft_color::Lut::parse_cube(&text).map_err(|error| {
+        ProjectError::message(
             ProjectErrorCode::InvalidProject,
-            "el archivo no parece un LUT .cube válido",
-        ));
-    }
+            format!("el LUT .cube no es válido: {error}").as_str(),
+        )
+    })?;
     let directory = session.root.join("media").join("luts");
     std::fs::create_dir_all(&directory)
         .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo crear media/luts"))?;
@@ -608,6 +602,95 @@ pub async fn check_asset_files(
         }
     }
     Ok(out)
+}
+
+/// Abre el selector nativo de imágenes y devuelve la ruta elegida.
+///
+/// Lo usa el comparador antes/después, pero es genérico: cualquier vista que
+/// necesite una imagen suelta del disco.
+#[tauri::command]
+pub async fn choose_image_file(
+    app: AppHandle,
+    title: Option<String>,
+) -> Result<Option<String>, ProjectError> {
+    let mut dialog = app.dialog().file();
+    dialog = match title.as_deref() {
+        Some(text) if !text.trim().is_empty() => dialog.set_title(text.trim()),
+        _ => dialog.set_title("Elegir imagen"),
+    };
+    let Some(picked) = dialog
+        .add_filter(
+            "Imágenes",
+            &[
+                "png", "jpg", "jpeg", "webp", "avif", "gif", "bmp", "tif", "tiff",
+            ],
+        )
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "No se pudo usar la imagen elegida.")
+    })?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Selector nativo de videos sueltos (compresión, inspección).
+#[tauri::command]
+pub async fn choose_video_file(
+    app: AppHandle,
+    title: Option<String>,
+) -> Result<Option<String>, ProjectError> {
+    let mut dialog = app.dialog().file();
+    dialog = match title.as_deref() {
+        Some(text) if !text.trim().is_empty() => dialog.set_title(text.trim()),
+        _ => dialog.set_title("Elegir video"),
+    };
+    let Some(picked) = dialog
+        .add_filter(
+            "Videos",
+            &[
+                "mp4", "mkv", "mov", "avi", "webm", "wmv", "flv", "ts", "m4v", "mpg", "mpeg",
+                "3gp", "ogv",
+            ],
+        )
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "No se pudo usar el video elegido.")
+    })?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
+/// Selector nativo de audio suelto (mejora de voz, transcripción, análisis).
+#[tauri::command]
+pub async fn choose_audio_file(
+    app: AppHandle,
+    title: Option<String>,
+) -> Result<Option<String>, ProjectError> {
+    let mut dialog = app.dialog().file();
+    dialog = match title.as_deref() {
+        Some(text) if !text.trim().is_empty() => dialog.set_title(text.trim()),
+        _ => dialog.set_title("Elegir audio"),
+    };
+    let Some(picked) = dialog
+        .add_filter(
+            "Audio",
+            &[
+                "wav", "mp3", "m4a", "aac", "flac", "ogg", "opus", "wma", "aiff", "aif", "caf",
+                "mp4", "mov", "mkv",
+            ],
+        )
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = picked.into_path().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "No se pudo usar el audio elegido.")
+    })?;
+    Ok(Some(path.to_string_lossy().into_owned()))
 }
 
 #[allow(dead_code)]

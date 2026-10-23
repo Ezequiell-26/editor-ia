@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Asset, ProjectDocument, Scene } from '@editor-ia/project-schema';
 import { createEmptyProject, parseProject } from '@editor-ia/project-schema';
+import { captionMotionPreset } from './caption-motion';
+import { addMarker, markersFromScenes } from './markers';
 import { TITLE_TEMPLATES } from './title-templates';
 import {
   ProjectActionError,
@@ -9,9 +11,12 @@ import {
   addCaptionCue,
   addTitleCue,
   addTitleFromTemplate,
+  addTrack,
   applyCompression,
+  applyAudioPresetToAll,
   applySpeedCurve,
   applySpeedRamp,
+  applyTransitionToCuts,
   applyProfileFit,
   compressionPresetOf,
   addTranscriptionCues,
@@ -22,11 +27,15 @@ import {
   captionsFromScenes,
   captureTransformKeyframe,
   clipTransformAtFrame,
+  closeGaps,
   deleteClip,
+  detachAudio,
   duplicateClip,
   ensureDelivery,
+  freezeFrameInPlace,
   markAssetReady,
   moveClip,
+  moveTrack,
   newId,
   removeAsset,
   setClipSpeed,
@@ -38,14 +47,17 @@ import {
   setTransformKeyframe,
   splitClip,
   splitClipAtFrames,
+  splitClipsAtMarkers,
   splitTrackAtFrames,
   removeMaskKeyframe,
   clearMaskKeyframes,
   totalFrames,
   trimClip,
+  updateAssetMetadata,
   updateCaptionCue,
   updateClip,
   updateAudioMix,
+  toggleAssetFavorite,
   updateProjectLook,
   setProjectLook,
   updateProjectSettings,
@@ -268,6 +280,467 @@ describe('biblioteca y timeline', () => {
   });
 });
 
+describe('freeze dentro del clip', () => {
+  function freezeSetup() {
+    const asset = videoAsset(300);
+    const still = imageAsset();
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 300,
+    });
+    const styled = updateClip(added.project, added.clipId, {
+      effects: { saturation: 1.2 },
+      transform: { scaleX: 1.1, scaleY: 1.1, offsetX: 20 },
+      blendMode: 'screen',
+    });
+    const withAssets = addAsset(styled, still);
+    return { project: withAssets, clipId: added.clipId, still };
+  }
+
+  it('divide el video, inserta el congelado y corre el resto de la pista', () => {
+    const { project, clipId, still } = freezeSetup();
+    const result = freezeFrameInPlace(project, clipId, 120, still.id, 60);
+    const next = validated(result.project);
+    expect(next.timeline.clips).toHaveLength(3);
+    const left = next.timeline.clips.find((clip) => clip.id === clipId);
+    const freeze = next.timeline.clips.find((clip) => clip.id === result.freezeClipId);
+    const right = next.timeline.clips.find(
+      (clip) => clip.kind === 'video' && clip.id !== clipId,
+    );
+    expect(left?.kind).toBe('video');
+    expect(left?.startFrame).toBe(0);
+    expect(left?.durationFrames).toBe(120);
+    expect(freeze?.kind).toBe('freeze');
+    expect(freeze?.startFrame).toBe(120);
+    expect(freeze?.durationFrames).toBe(60);
+    expect(freeze?.source).toEqual({ type: 'asset', assetId: still.id });
+    expect(right?.startFrame).toBe(180);
+    expect(right?.durationFrames).toBe(180);
+    if (!left || left.kind !== 'video') throw new Error('se esperaba video');
+    if (!freeze || freeze.kind !== 'freeze') throw new Error('se esperaba freeze');
+    expect(right?.kind === 'video' ? right.source.inFrame : null).toBe(120);
+    expect(left.effects).toEqual({ saturation: 1.2 });
+    expect(freeze.effects).toEqual({ saturation: 1.2 });
+    expect(freeze?.transform).toEqual({ scaleX: 1.1, scaleY: 1.1, offsetX: 20 });
+    expect(freeze?.blendMode).toBe('screen');
+  });
+
+  it('corre subtítulos y marcadores desde el playhead y deja los anteriores', () => {
+    const { project, clipId, still } = freezeSetup();
+    const first = addCaptionCue(project, {
+      text: 'Antes',
+      startFrame: 100,
+      durationFrames: 10,
+    });
+    const second = addCaptionCue(first.project, {
+      text: 'Después',
+      startFrame: 120,
+      durationFrames: 30,
+    });
+    const withWords: ProjectDocument = {
+      ...second.project,
+      captions: {
+        ...second.project.captions,
+        cues: second.project.captions.cues.map((cue) =>
+          cue.id === second.cueId
+            ? {
+                ...cue,
+                words: [
+                  { text: 'Después', startFrame: 120, endFrame: 135 },
+                  { text: 'ya', startFrame: 135, endFrame: 150 },
+                ],
+              }
+            : cue,
+        ),
+      },
+    };
+    const before = addMarker(withWords, 90, { label: 'Antes' });
+    const after = addMarker(before.project, 120, { label: 'Después' });
+    const result = freezeFrameInPlace(after.project, clipId, 120, still.id, 60);
+    const next = validated(result.project);
+    const cues = [...next.captions.cues].sort((a, b) => a.startFrame - b.startFrame);
+    expect(cues.map((cue) => [cue.startFrame, cue.endFrame])).toEqual([
+      [100, 110],
+      [180, 210],
+    ]);
+    expect(cues[1]?.words?.map((word) => [word.startFrame, word.endFrame])).toEqual([
+      [180, 195],
+      [195, 210],
+    ]);
+    const markers = [...next.markers].sort((a, b) => a.frame - b.frame);
+    expect(markers.map((marker) => marker.frame)).toEqual([90, 180]);
+  });
+
+  it('rechaza el playhead fuera del clip, la pista bloqueada y un asset sin confirmar', () => {
+    const { project, clipId, still } = freezeSetup();
+    expect(() => freezeFrameInPlace(project, clipId, 400, still.id, 60)).toThrow(
+      ProjectActionError,
+    );
+    const locked = validated(
+      updateTrack(project, project.timeline.clips[0]!.trackId, { locked: true }),
+    );
+    expect(() => freezeFrameInPlace(locked, clipId, 120, still.id, 60)).toThrow(
+      ProjectActionError,
+    );
+    const unverified = validated({
+      ...project,
+      assets: project.assets.map((asset) =>
+        asset.id === still.id ? { ...asset, status: 'unverified' as const } : asset,
+      ),
+    });
+    expect(() => freezeFrameInPlace(unverified, clipId, 120, still.id, 60)).toThrow(
+      ProjectActionError,
+    );
+  });
+});
+
+describe('color de clip', () => {
+  it('asigna y limpia la etiqueta de color', () => {
+    const asset = videoAsset();
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const tagged = validated(
+      updateClip(added.project, added.clipId, { colorTag: 'violet' }),
+    );
+    expect(tagged.timeline.clips[0]?.colorTag).toBe('violet');
+    const cleared = validated(updateClip(tagged, added.clipId, { colorTag: undefined }));
+    expect(cleared.timeline.clips[0]?.colorTag).toBeUndefined();
+  });
+});
+
+describe('separar audio', () => {
+  it('crea un clip de audio, silencia el video y copia ventana y ajustes', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 240,
+    });
+    const styled = updateClip(added.project, added.clipId, {
+      audio: { gainDb: -4, highPassHz: 90 },
+      colorTag: 'teal',
+    });
+    const result = detachAudio(styled, added.clipId);
+    const next = validated(result.project);
+    const video = next.timeline.clips.find((clip) => clip.id === added.clipId);
+    const audio = next.timeline.clips.find((clip) => clip.id === result.clipId);
+    expect(result.createdTrack).toBe(true);
+    expect(audio?.kind).toBe('audio');
+    expect(audio?.startFrame).toBe(0);
+    expect(audio?.durationFrames).toBe(240);
+    expect(audio?.source).toEqual({
+      type: 'asset',
+      assetId: asset.id,
+      inFrame: 0,
+      outFrame: 240,
+    });
+    if (audio?.kind !== 'audio') throw new Error('se esperaba audio');
+    expect(audio.audio?.gainDb).toBe(-4);
+    expect(audio.audio?.highPassHz).toBe(90);
+    expect(audio.audio?.muted).toBeUndefined();
+    expect(audio.colorTag).toBe('teal');
+    expect(video?.audio?.muted).toBe(true);
+  });
+
+  it('reutiliza una pista libre y rechaza clips que no son video o pistas bloqueadas', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const withTrack = addTrack(added.project, 'audio', 'Música');
+    const result = detachAudio(withTrack.project, added.clipId);
+    expect(result.createdTrack).toBe(false);
+    expect(result.trackId).toBe(withTrack.trackId);
+    validated(result.project);
+    const mutedTrack = addTrack(added.project, 'audio', 'Silenciada');
+    const muted = validated(
+      updateTrack(mutedTrack.project, mutedTrack.trackId, { muted: true }),
+    );
+    const fresh = detachAudio(muted, added.clipId);
+    expect(fresh.createdTrack).toBe(true);
+    validated(fresh.project);
+    expect(() => detachAudio(result.project, result.clipId)).toThrow(ProjectActionError);
+    const locked = validated(updateTrack(added.project, added.trackId, { locked: true }));
+    expect(() => detachAudio(locked, added.clipId)).toThrow(ProjectActionError);
+  });
+});
+
+describe('cerrar huecos', () => {
+  it('compacta los clips de una pista y conserva el inicio del primero', () => {
+    const asset = videoAsset(300);
+    const first = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 30,
+      durationFrames: 30,
+    });
+    const second = addClipFromAsset(first.project, asset, {
+      atFrame: 120,
+      durationFrames: 30,
+    });
+    expect(second.trackId).toBe(first.trackId);
+    const audio = audioAsset(300);
+    const source = addClipFromAsset(addAsset(second.project, audio), audio, {
+      atFrame: 200,
+      durationFrames: 60,
+    });
+    const result = closeGaps(source.project, first.trackId);
+    const next = validated(result.project);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.trackId === first.trackId)
+      .sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips.map((clip) => clip.startFrame)).toEqual([30, 60]);
+    expect(result.moved).toBe(1);
+    expect(result.removedFrames).toBe(60);
+    expect(
+      next.timeline.clips.find((clip) => clip.id === source.clipId)?.startFrame,
+    ).toBe(200);
+  });
+
+  it('no mueve una pista sin huecos y rechaza una pista bloqueada', () => {
+    const asset = videoAsset(300);
+    const first = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 30,
+    });
+    const second = addClipFromAsset(first.project, asset, {
+      atFrame: 30,
+      durationFrames: 30,
+    });
+    const contiguous = closeGaps(second.project, first.trackId);
+    expect(contiguous.moved).toBe(0);
+    expect(contiguous.project).toBe(second.project);
+    const locked = validated(updateTrack(second.project, first.trackId, { locked: true }));
+    expect(() => closeGaps(locked, first.trackId)).toThrow(ProjectActionError);
+  });
+});
+
+describe('cortar clips en marcadores', () => {
+  it('divide el video en cada marcador sin cambiar duraciones', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 300,
+    });
+    const first = addMarker(added.project, 90, { label: 'Uno' });
+    const second = addMarker(first.project, 180, { label: 'Dos' });
+    const result = splitClipsAtMarkers(second.project);
+    const next = validated(result.project);
+    expect(result.cuts).toBe(2);
+    expect(result.clips).toBe(1);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.trackId === added.trackId)
+      .sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips.map((clip) => [clip.startFrame, clip.durationFrames])).toEqual([
+      [0, 90],
+      [90, 90],
+      [180, 120],
+    ]);
+    expect(next.markers).toHaveLength(2);
+  });
+
+  it('ignora marcadores fuera del clip y no toca pistas bloqueadas', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const outside = addMarker(added.project, 180, { label: 'Fuera' });
+    const noCross = splitClipsAtMarkers(outside.project);
+    expect(noCross.cuts).toBe(0);
+    expect(noCross.project).toBe(outside.project);
+
+    const inside = addMarker(added.project, 45, { label: 'Dentro' });
+    const locked = validated(
+      updateTrack(inside.project, added.trackId, { locked: true }),
+    );
+    const blocked = splitClipsAtMarkers(locked);
+    expect(blocked.cuts).toBe(0);
+    expect(blocked.skippedTracks).toBe(1);
+    expect(blocked.project).toBe(locked);
+  });
+});
+
+describe('orden de pistas', () => {
+  it('sube y baja una pista intercambiando el orden con la vecina', () => {
+    let project = addTrack(base(), 'video', 'V1').project;
+    project = addTrack(project, 'video', 'V2').project;
+    project = addTrack(project, 'audio', 'A1').project;
+    const sorted = [...project.timeline.tracks].sort((a, b) => a.order - b.order);
+    const middle = sorted[1]!;
+    const moved = moveTrack(project, middle.id, 'up');
+    const next = validated(moved);
+    const nextMiddle = next.timeline.tracks.find((track) => track.id === middle.id)!;
+    expect(nextMiddle.order).toBe(2);
+    expect(
+      next.timeline.tracks.find((track) => track.id === sorted[2]!.id)?.order,
+    ).toBe(1);
+    const top = [...next.timeline.tracks].sort((a, b) => a.order - b.order).at(-1)!;
+    expect(moveTrack(next, top.id, 'up')).toBe(next);
+    const bottom = [...next.timeline.tracks].sort((a, b) => a.order - b.order)[0]!;
+    expect(moveTrack(next, bottom.id, 'down')).toBe(next);
+    expect(() => moveTrack(next, '00000000-0000-4000-8000-000000000000', 'up')).toThrow(
+      ProjectActionError,
+    );
+  });
+});
+
+describe('transiciones en lote', () => {
+  it('disuelve cortes contiguos y deja intactos el primero y los huecos', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    for (const at of [0, 30, 60, 120]) {
+      project = addClipFromAsset(project, asset, {
+        atFrame: at,
+        durationFrames: 30,
+      }).project;
+    }
+    const result = applyTransitionToCuts(project, {
+      type: 'dissolve',
+      frames: 12,
+    });
+    const next = validated(result.project);
+    expect(result.applied).toBe(2);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.source.type === 'asset')
+      .sort((a, b) => a.startFrame - b.startFrame);
+    if (clips[0]?.kind !== 'video' || clips[1]?.kind !== 'video') {
+      throw new Error('se esperaba video');
+    }
+    expect(clips[0].transitionIn).toBeUndefined();
+    expect(clips[1].transitionIn).toEqual({ type: 'dissolve', frames: 12 });
+    expect(clips[2]?.kind === 'video' ? clips[2].transitionIn : undefined).toEqual({
+      type: 'dissolve',
+      frames: 12,
+    });
+    expect(clips[3]?.kind === 'video' ? clips[3].transitionIn : undefined).toBeUndefined();
+  });
+
+  it('salta pistas bloqueadas', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    for (const at of [0, 30]) {
+      project = addClipFromAsset(project, asset, {
+        atFrame: at,
+        durationFrames: 30,
+      }).project;
+    }
+    const locked = validated(updateTrack(project, project.timeline.tracks[0]!.id, { locked: true }));
+    const result = applyTransitionToCuts(locked, { frames: 12 });
+    expect(result.applied).toBe(0);
+    expect(result.project).toBe(locked);
+  });
+});
+
+describe('presets de audio en lote', () => {
+  it('aplica voz clara a los clips de audio desbloqueados y conserva ganancia', () => {
+    const audio = audioAsset(300);
+    let project = addAsset(base(), audio);
+    const first = addClipFromAsset(project, audio, {
+      atFrame: 0,
+      durationFrames: 60,
+    });
+    const secondTrack = addTrack(first.project, 'audio', 'A2');
+    const second = addClipFromAsset(secondTrack.project, audio, {
+      atFrame: 0,
+      durationFrames: 30,
+      trackId: secondTrack.trackId,
+    });
+    project = updateClip(second.project, first.clipId, {
+      audio: { gainDb: -5 },
+    });
+    project = updateTrack(project, secondTrack.trackId, { locked: true });
+    const result = applyAudioPresetToAll(project, 'voice');
+    expect(result.applied).toBe(1);
+    expect(result.skipped).toBe(1);
+    const next = validated(result.project);
+    const processed = next.timeline.clips.find((clip) => clip.id === first.clipId);
+    const blocked = next.timeline.clips.find((clip) => clip.id === second.clipId);
+    if (processed?.kind !== 'audio') throw new Error('se esperaba audio');
+    expect(processed.audio).toMatchObject({
+      gainDb: -5,
+      highPassHz: 90,
+      lowPassHz: 12_000,
+      eqMidDb: 2,
+      compressor: true,
+      deesser: true,
+      denoise: 0.12,
+      gateDb: -40,
+    });
+    expect(blocked?.kind === 'audio' ? blocked.audio?.compressor : undefined).toBeUndefined();
+  });
+});
+
+describe('marcadores desde escenas', () => {
+  it('crea un marcador por escena en su primer clip y salta vacías o repetidas', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    const first = addClipFromAsset(project, asset, {
+      atFrame: 0,
+      durationFrames: 60,
+    });
+    const second = addClipFromAsset(first.project, asset, {
+      atFrame: 120,
+      durationFrames: 60,
+    });
+    const scenes: Scene[] = [
+      {
+        id: newId(),
+        order: 0,
+        title: 'Intro',
+        intent: 'hook',
+        status: 'draft',
+        narration: { text: 'Hola', estimatedDurationFrames: 30 },
+        clipIds: [first.clipId],
+      },
+      {
+        id: newId(),
+        order: 1,
+        title: 'Cierre',
+        intent: 'cta',
+        status: 'draft',
+        narration: { text: 'Chau', estimatedDurationFrames: 30 },
+        clipIds: [second.clipId],
+      },
+      {
+        id: newId(),
+        order: 2,
+        title: 'Vacía',
+        intent: 'context',
+        status: 'draft',
+        narration: { text: 'Sin clip', estimatedDurationFrames: 1 },
+        clipIds: [],
+      },
+    ];
+    const withScenes = validated({ ...second.project, scenes });
+    const result = markersFromScenes(withScenes);
+    expect(result.added).toBe(2);
+    expect(result.skipped).toBe(1);
+    const next = validated(result.project);
+    expect(next.markers.map((marker) => [marker.frame, marker.label])).toEqual([
+      [0, 'Intro'],
+      [120, 'Cierre'],
+    ]);
+    const again = markersFromScenes(next);
+    expect(again.added).toBe(0);
+    expect(again.skipped).toBe(3);
+    expect(again.project).toBe(next);
+  });
+});
+
+describe('activar y desactivar clip', () => {
+  it('marca enabled false y lo limpia al reactivar', () => {
+    const asset = videoAsset();
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 30,
+    });
+    const disabled = validated(
+      updateClip(added.project, added.clipId, { enabled: false }),
+    );
+    expect(disabled.timeline.clips[0]?.enabled).toBe(false);
+    const enabled = validated(updateClip(disabled, added.clipId, { enabled: true }));
+    expect(enabled.timeline.clips[0]?.enabled).toBeUndefined();
+  });
+});
+
 describe('proxy de video', () => {
   it('asigna y quita un proxy solo en videos', () => {
     const asset = videoAsset();
@@ -368,6 +841,42 @@ describe('subtítulos', () => {
     const cueTwo = next.captions.cues.find((cue) => cue.id === second.cueId);
     expect(cueTwo?.startFrame).toBe(90);
     expect(next.captions.cues.every((cue) => cue.styleId)).toBe(true);
+  });
+
+  it('aplica y quita el movimiento de dos keyframes', () => {
+    const project = base();
+    const created = addCaptionCue(project, {
+      text: 'Título animado',
+      startFrame: 0,
+      durationFrames: 90,
+    });
+    const updated = validated(
+      updateCaptionCue(created.project, created.cueId, {
+        motion: captionMotionPreset('zoom', 90),
+      }),
+    );
+    expect(updated.captions.cues[0]?.motion?.preset).toBe('zoom');
+    const cleared = validated(
+      updateCaptionCue(updated, created.cueId, { motion: null }),
+    );
+    expect(cleared.captions.cues[0]?.motion).toBeUndefined();
+  });
+
+  it('activa y limpia el revelado por palabra', () => {
+    const project = base();
+    const created = addCaptionCue(project, {
+      text: 'Buenas tardes',
+      startFrame: 0,
+      durationFrames: 90,
+    });
+    const enabled = validated(
+      updateCaptionCue(created.project, created.cueId, { wordReveal: true }),
+    );
+    expect(enabled.captions.cues[0]?.wordReveal).toBe(true);
+    const disabled = validated(
+      updateCaptionCue(enabled, created.cueId, { wordReveal: false }),
+    );
+    expect(disabled.captions.cues[0]?.wordReveal).toBeUndefined();
   });
 
   it('rechaza un subtítulo superpuesto', () => {
@@ -1220,5 +1729,57 @@ describe('capas de ajuste', () => {
     expect(() => addAdjustmentLayer(base(), 0, { trackId: newId() })).toThrow(
       ProjectActionError,
     );
+  });
+});
+
+describe('metadatos de organización de medios', () => {
+  it('guarda bin, etiquetas y favorito, y los limpia después', () => {
+    const asset = videoAsset();
+    const project = addAsset(base(), asset);
+    const updated = validated(
+      updateAssetMetadata(project, asset.id, {
+        bin: '  Entrevistas  ',
+        tags: ['  Voz  ', 'voz', 'Plaza', ''],
+        favorite: true,
+      }),
+    );
+    const saved = updated.assets.find((item) => item.id === asset.id);
+    expect(saved?.bin).toBe('Entrevistas');
+    expect(saved?.tags).toEqual(['Voz', 'Plaza']);
+    expect(saved?.favorite).toBe(true);
+
+    const cleared = validated(
+      updateAssetMetadata(updated, asset.id, { bin: '', tags: [], favorite: false }),
+    );
+    const emptied = cleared.assets.find((item) => item.id === asset.id);
+    expect(emptied?.bin).toBeUndefined();
+    expect(emptied?.tags).toBeUndefined();
+    expect(emptied?.favorite).toBeUndefined();
+  });
+
+  it('alterna el favorito sin tocar el resto del material', () => {
+    const asset = videoAsset();
+    const project = addAsset(base(), asset);
+    const starred = validated(toggleAssetFavorite(project, asset.id));
+    expect(starred.assets[0]?.favorite).toBe(true);
+    const unstarred = validated(toggleAssetFavorite(starred, asset.id));
+    expect(unstarred.assets[0]?.favorite).toBeUndefined();
+    expect(unstarred.assets[0]?.integrity).toEqual(asset.integrity);
+  });
+
+  it('rechaza demasiadas etiquetas o una etiqueta demasiado larga', () => {
+    const asset = videoAsset();
+    const project = addAsset(base(), asset);
+    expect(() =>
+      updateAssetMetadata(project, asset.id, {
+        tags: Array.from({ length: 9 }, (_, index) => `tag-${index}`),
+      }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      updateAssetMetadata(project, asset.id, { tags: ['x'.repeat(25)] }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      updateAssetMetadata(project, asset.id, { bin: 'x'.repeat(41) }),
+    ).toThrow(ProjectActionError);
   });
 });

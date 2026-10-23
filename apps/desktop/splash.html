@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Montaje · Cargando</title>
+    <style>
+      :root {
+        --bg: #141416;
+        --panel: #1a1a1d;
+        --border: #333438;
+        --accent: #4881c2;
+        --accent-strong: #3c6ea5;
+        --text: #ffffff;
+        --muted: #9c9da1;
+        color-scheme: dark;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        user-select: none;
+        cursor: default;
+      }
+
+      .splash-container {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        background: #141416;
+        border: 1px solid #333438;
+        overflow: hidden;
+      }
+
+      /* Hero background photo of woman editor */
+      .splash-bg-image {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center right;
+        opacity: 0.85;
+      }
+
+      /* High-end cinematic gradient overlay for text readability */
+      .splash-overlay {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          90deg,
+          rgba(16, 17, 20, 0.96) 0%,
+          rgba(16, 17, 20, 0.88) 40%,
+          rgba(16, 17, 20, 0.45) 70%,
+          rgba(16, 17, 20, 0.18) 100%
+        ),
+        linear-gradient(
+          0deg,
+          rgba(16, 17, 20, 0.98) 0%,
+          rgba(16, 17, 20, 0.72) 24%,
+          transparent 60%
+        );
+        pointer-events: none;
+      }
+
+      /* ─── Top Branding ─── */
+      .splash-top {
+        position: relative;
+        z-index: 10;
+        padding: 28px 34px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .splash-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .splash-logo-box {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        background: #232d3a;
+        border: 1px solid #3a4b60;
+        color: #4881c2;
+        flex-shrink: 0;
+      }
+
+      .splash-titles {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+
+      .splash-app-name {
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #ffffff;
+        line-height: 1;
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.7);
+      }
+
+      .splash-app-subtitle {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #8faec9;
+      }
+
+      .splash-badges {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 2px;
+      }
+
+      .splash-badge {
+        font-family: 'Segoe UI Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.05em;
+        padding: 2px 7px;
+        background: rgba(26, 27, 31, 0.85);
+        border: 1px solid #333438;
+        color: #b0b2b8;
+      }
+
+      .splash-badge--accent {
+        background: #202c3a;
+        border-color: #354a63;
+        color: #6fa8dc;
+      }
+
+      /* ─── System Info Strip ─── */
+      .splash-sysinfo {
+        position: relative;
+        z-index: 10;
+        padding: 0 34px;
+        display: flex;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .sysinfo-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 9px;
+        font-weight: 500;
+        color: #6a6c72;
+        letter-spacing: 0.02em;
+      }
+
+      .sysinfo-item svg {
+        width: 11px;
+        height: 11px;
+        opacity: 0.6;
+      }
+
+      .sysinfo-value {
+        color: #9c9da1;
+      }
+
+      /* ─── Step Log ─── */
+      .splash-log {
+        position: relative;
+        z-index: 10;
+        padding: 0 34px;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        max-height: 80px;
+        overflow: hidden;
+      }
+
+      .log-entry {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 9.5px;
+        color: #555;
+        letter-spacing: 0.01em;
+        opacity: 0;
+        transform: translateY(4px);
+        animation: logFadeIn 0.25s ease-out forwards;
+      }
+
+      .log-entry--active {
+        color: #b0b2b8;
+      }
+
+      .log-entry--done {
+        color: #4a7a4a;
+      }
+
+      @keyframes logFadeIn {
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      .log-icon {
+        width: 10px;
+        height: 10px;
+        flex-shrink: 0;
+      }
+
+      .log-icon--spin {
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      /* ─── Bottom Status & Progress ─── */
+      .splash-bottom {
+        position: relative;
+        z-index: 10;
+        padding: 0 34px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .splash-status-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+      }
+
+      .splash-status-left {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .splash-status-dot {
+        width: 6px;
+        height: 6px;
+        background: #4881c2;
+        border-radius: 50%;
+        animation: pulseDot 1.4s ease-in-out infinite;
+      }
+
+      @keyframes pulseDot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50%      { opacity: 0.4; transform: scale(0.85); }
+      }
+
+      .splash-status-text {
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        color: #e0e1e6;
+        min-height: 18px;
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+      }
+
+      .splash-status-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .splash-status-step {
+        font-family: 'Segoe UI Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 9.5px;
+        color: #8c8e94;
+      }
+
+      .splash-elapsed {
+        font-family: 'Segoe UI Mono', SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        font-size: 9.5px;
+        color: #6a6c72;
+      }
+
+      /* Progress bar */
+      .splash-progress-track {
+        position: relative;
+        width: 100%;
+        height: 3px;
+        background: rgba(40, 42, 48, 0.8);
+        border: 1px solid #2e3036;
+        overflow: hidden;
+      }
+
+      .splash-progress-bar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 0%;
+        background: #4881c2;
+        transition: width 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+      }
+
+      .splash-footer-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 8.5px;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #6a6c72;
+        margin-top: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="splash-container">
+      <!-- Background Photo of Woman Video Editor -->
+      <img
+        src="./splash-bg.jpg"
+        alt="Estudio de Edición"
+        class="splash-bg-image"
+        onerror="this.style.display='none'"
+      />
+      <div class="splash-overlay" aria-hidden="true"></div>
+
+      <!-- Top Branding -->
+      <div class="splash-top">
+        <div class="splash-brand">
+          <div class="splash-logo-box">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none">
+              <!-- Geometric DaVinci-inspired color wheels & timeline play -->
+              <circle cx="7" cy="8" r="4" stroke="#e05252" stroke-width="1.6" fill="rgba(224, 82, 82, 0.18)" />
+              <circle cx="17" cy="8" r="4" stroke="#48b85c" stroke-width="1.6" fill="rgba(72, 184, 92, 0.18)" />
+              <circle cx="12" cy="16" r="4" stroke="#4881c2" stroke-width="1.6" fill="rgba(72, 129, 194, 0.22)" />
+              <polygon points="11 14.5 14 16 11 17.5" fill="#4881c2" />
+            </svg>
+          </div>
+          <div class="splash-titles">
+            <h1 class="splash-app-name">MONTAJE</h1>
+            <span class="splash-app-subtitle">Estudio de Edición &amp; Postproducción NLE</span>
+          </div>
+        </div>
+
+        <div class="splash-badges">
+          <span class="splash-badge splash-badge--accent">v0.1.0</span>
+          <span class="splash-badge">Motor FFmpeg 7</span>
+          <span class="splash-badge">Aceleración GPU</span>
+          <span class="splash-badge">IA Local</span>
+        </div>
+      </div>
+
+      <!-- System Info detected at runtime -->
+      <div class="splash-sysinfo" id="sysinfo-strip"></div>
+
+      <!-- Mini step log (last 4 completed steps) -->
+      <div class="splash-log" id="step-log"></div>
+
+      <!-- Bottom Specific Loading Steps & Progress -->
+      <div class="splash-bottom">
+        <div class="splash-status-row">
+          <div class="splash-status-left">
+            <span class="splash-status-dot" aria-hidden="true"></span>
+            <span class="splash-status-text" id="status-text">Iniciando estudio de edición…</span>
+          </div>
+          <div class="splash-status-right">
+            <span class="splash-elapsed" id="elapsed-time">0.0s</span>
+            <span class="splash-status-step" id="status-step">— / —</span>
+          </div>
+        </div>
+
+        <div class="splash-progress-track">
+          <div class="splash-progress-bar" id="progress-bar"></div>
+        </div>
+
+        <div class="splash-footer-meta">
+          <span>Procesamiento 100% en tu equipo · Sin nube</span>
+          <span>Arquitectura DaVinci NLE</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // ─── DOM refs ───
+      var textEl    = document.getElementById('status-text');
+      var stepEl    = document.getElementById('status-step');
+      var barEl     = document.getElementById('progress-bar');
+      var elapsedEl = document.getElementById('elapsed-time');
+      var logEl     = document.getElementById('step-log');
+      var sysinfoEl = document.getElementById('sysinfo-strip');
+
+      var startTime = performance.now();
+      var receivedRealEvent = false;
+      var completedSteps = [];
+      var MAX_LOG = 4;
+
+      // ─── Elapsed timer ───
+      var elapsedTimer = window.setInterval(function () {
+        var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
+        elapsedEl.textContent = elapsed + 's';
+      }, 100);
+
+      // ─── System info detection ───
+      function detectSystemInfo() {
+        var items = [];
+
+        // OS
+        var platform = navigator.platform || '';
+        var ua = navigator.userAgent || '';
+        if (platform.indexOf('Win') >= 0) items.push({ icon: 'monitor', label: 'SO', value: 'Windows' });
+        else if (platform.indexOf('Mac') >= 0) items.push({ icon: 'monitor', label: 'SO', value: 'macOS' });
+        else if (platform.indexOf('Linux') >= 0) items.push({ icon: 'monitor', label: 'SO', value: 'Linux' });
+
+        // CPU cores
+        if (navigator.hardwareConcurrency) {
+          items.push({ icon: 'cpu', label: 'CPU', value: navigator.hardwareConcurrency + ' núcleos' });
+        }
+
+        // Memory (approx)
+        if (navigator.deviceMemory) {
+          items.push({ icon: 'memory', label: 'RAM', value: navigator.deviceMemory + ' GB' });
+        }
+
+        // GPU (from WebGL)
+        try {
+          var canvas = document.createElement('canvas');
+          var gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+          if (gl) {
+            var ext = gl.getExtension('WEBGL_debug_renderer_info');
+            if (ext) {
+              var renderer = gl.getParameter(ext.UNMASKED_RENDERER_WEBGL);
+              if (renderer) {
+                // Shorten the name
+                var gpu = renderer
+                  .replace(/ANGLE \(/, '')
+                  .replace(/\)$/, '')
+                  .replace(/ Direct3D.*/, '')
+                  .replace(/ vs_.*/, '')
+                  .replace(/,.*/, '')
+                  .trim();
+                if (gpu.length > 30) gpu = gpu.substring(0, 30) + '…';
+                items.push({ icon: 'gpu', label: 'GPU', value: gpu });
+              }
+            }
+          }
+        } catch (e) { /* no GPU info */ }
+
+        // Render items
+        var iconSvgs = {
+          monitor: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="12" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="5" y1="13" x2="11" y2="13" stroke="currentColor" stroke-width="1.2"/><line x1="8" y1="10" x2="8" y2="13" stroke="currentColor" stroke-width="1.2"/></svg>',
+          cpu: '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="4" y="4" width="8" height="8" rx="1" fill="none" stroke="currentColor" stroke-width="1.2"/><line x1="6" y1="2" x2="6" y2="4" stroke="currentColor" stroke-width="1"/><line x1="10" y1="2" x2="10" y2="4" stroke="currentColor" stroke-width="1"/><line x1="6" y1="12" x2="6" y2="14" stroke="currentColor" stroke-width="1"/><line x1="10" y1="12" x2="10" y2="14" stroke="currentColor" stroke-width="1"/><line x1="2" y1="6" x2="4" y2="6" stroke="currentColor" stroke-width="1"/><line x1="2" y1="10" x2="4" y2="10" stroke="currentColor" stroke-width="1"/><line x1="12" y1="6" x2="14" y2="6" stroke="currentColor" stroke-width="1"/><line x1="12" y1="10" x2="14" y2="10" stroke="currentColor" stroke-width="1"/></svg>',
+          memory: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="2" y="5" width="12" height="6" rx="1"/><line x1="5" y1="5" x2="5" y2="3"/><line x1="8" y1="5" x2="8" y2="3"/><line x1="11" y1="5" x2="11" y2="3"/></svg>',
+          gpu: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><rect x="1" y="4" width="14" height="8" rx="1.5"/><circle cx="5" cy="8" r="2"/><circle cx="11" cy="8" r="2"/></svg>'
+        };
+
+        var html = '';
+        for (var i = 0; i < items.length; i++) {
+          var it = items[i];
+          html += '<div class="sysinfo-item">'
+            + (iconSvgs[it.icon] || '')
+            + '<span>' + it.label + ':</span>'
+            + '<span class="sysinfo-value">' + it.value + '</span>'
+            + '</div>';
+        }
+        sysinfoEl.innerHTML = html;
+      }
+
+      detectSystemInfo();
+
+      // ─── Step Log ───
+      function addLogEntry(text, isDone) {
+        var checkSvg = '<svg class="log-icon" viewBox="0 0 16 16" fill="none" stroke="#4a7a4a" stroke-width="2"><polyline points="3 8 7 12 13 4"/></svg>';
+        var spinSvg  = '<svg class="log-icon log-icon--spin" viewBox="0 0 16 16" fill="none" stroke="#4881c2" stroke-width="2"><path d="M8 2a6 6 0 1 1-4 1.5" stroke-linecap="round"/></svg>';
+
+        var entry = document.createElement('div');
+        entry.className = 'log-entry ' + (isDone ? 'log-entry--done' : 'log-entry--active');
+        entry.innerHTML = (isDone ? checkSvg : spinSvg) + '<span>' + text + '</span>';
+
+        logEl.appendChild(entry);
+
+        // Keep only last MAX_LOG entries visible
+        while (logEl.children.length > MAX_LOG) {
+          logEl.removeChild(logEl.firstChild);
+        }
+      }
+
+      // ─── Update UI ───
+      function updateProgress(step, total, message, pct) {
+        // Mark previous active log as done
+        var activeEntries = logEl.querySelectorAll('.log-entry--active');
+        for (var i = 0; i < activeEntries.length; i++) {
+          activeEntries[i].className = 'log-entry log-entry--done';
+          var icon = activeEntries[i].querySelector('.log-icon');
+          if (icon) {
+            icon.outerHTML = '<svg class="log-icon" viewBox="0 0 16 16" fill="none" stroke="#4a7a4a" stroke-width="2"><polyline points="3 8 7 12 13 4"/></svg>';
+          }
+        }
+
+        // Add new active entry
+        addLogEntry(message, false);
+
+        // Update status bar
+        textEl.textContent = message;
+        stepEl.textContent = step + ' / ' + total;
+        barEl.style.width = pct + '%';
+      }
+
+      // ─── Listen for real Tauri events ───
+      var tauriListenerReady = false;
+
+      function setupTauriListener() {
+        if (typeof window.__TAURI_INTERNALS__ !== 'undefined') {
+          try {
+            if (window.__TAURI_INTERNALS__.transformCallback) {
+              var callbackId = window.__TAURI_INTERNALS__.transformCallback(function (event) {
+                if (event && event.payload) {
+                  var p = event.payload;
+                  if (typeof p === 'string') {
+                    try { p = JSON.parse(p); } catch (e) {}
+                  }
+                  receivedRealEvent = true;
+
+                  // Cancel fallback timer if we get real events
+                  if (fallbackTimer) {
+                    window.clearInterval(fallbackTimer);
+                    fallbackTimer = null;
+                  }
+
+                  if (p && typeof p.step === 'number') {
+                    updateProgress(p.step, p.total, p.message, p.pct);
+                  }
+                }
+              });
+
+              // Register the event listener through Tauri internals (Any target)
+              window.__TAURI_INTERNALS__.invoke('plugin:event|listen', {
+                event: 'splash-progress',
+                target: { kind: 'Any' },
+                handler: callbackId
+              }).then(function () {
+                tauriListenerReady = true;
+              }).catch(function () {
+                // Fallback: Tauri events not available
+              });
+            }
+          } catch (e) {
+            // Tauri not available, fallback will handle it
+          }
+        }
+      }
+
+      // Try to set up listener immediately
+      setupTauriListener();
+
+      // Also try after short delays in case Tauri internals aren't ready at instant 0
+      if (!tauriListenerReady) {
+        window.setTimeout(setupTauriListener, 50);
+        window.setTimeout(setupTauriListener, 150);
+      }
+
+      // ─── Fallback: simulated steps if no real events arrive ───
+      var fallbackSteps = [
+        { text: 'Inicializando subsistemas del motor de video…', pct: 15 },
+        { text: 'Detectando aceleración de hardware y decodificadores GPU…', pct: 32 },
+        { text: 'Cargando preferencias, atajos y configuración NLE…', pct: 52 },
+        { text: 'Iniciando puente de descarga y servicios en segundo plano…', pct: 70 },
+        { text: 'Comprobando catálogo de proyectos y medios locales…', pct: 88 },
+        { text: 'Estudio de edición listo.', pct: 100 }
+      ];
+
+      var fallbackIndex = 0;
+      var fallbackTimer = null;
+
+      // Start fallback after 500ms — enough time for real events to arrive
+      window.setTimeout(function () {
+        if (receivedRealEvent) return;
+
+        // First step immediately
+        updateProgress(1, fallbackSteps.length, fallbackSteps[0].text, fallbackSteps[0].pct);
+        fallbackIndex = 1;
+
+        fallbackTimer = window.setInterval(function () {
+          if (receivedRealEvent) {
+            window.clearInterval(fallbackTimer);
+            fallbackTimer = null;
+            return;
+          }
+          if (fallbackIndex < fallbackSteps.length) {
+            var s = fallbackSteps[fallbackIndex];
+            updateProgress(fallbackIndex + 1, fallbackSteps.length, s.text, s.pct);
+            fallbackIndex++;
+          } else {
+            window.clearInterval(fallbackTimer);
+            fallbackTimer = null;
+          }
+        }, 360);
+      }, 500);
+    </script>
+  </body>
+</html>

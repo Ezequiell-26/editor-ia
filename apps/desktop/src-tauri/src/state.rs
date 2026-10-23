@@ -113,10 +113,12 @@ pub struct AppState {
     pub render_jobs: SharedRenderJobs,
     pub thumbnails: Mutex<HashMap<String, String>>,
     pub analysis_cache: Mutex<HashMap<String, crate::commands::intelligence::MediaAnalysis>>,
+    pub downloader_bridge: Mutex<Option<crate::commands::downloader_bridge::BridgeRuntime>>,
 }
 
 impl AppState {
     pub fn load(app: &AppHandle) -> Self {
+        crate::commands::system::init_resource_dir(app);
         let config_dir = app
             .path()
             .app_config_dir()
@@ -127,6 +129,9 @@ impl AppState {
             .unwrap_or_else(|_| std::env::temp_dir().join("editor-ia-cache"));
         let _ = std::fs::create_dir_all(&config_dir);
         let _ = std::fs::create_dir_all(&cache_dir);
+
+        // yt-dlp que vino con el instalador, si la carpeta gestionada está vacía.
+        crate::commands::downloader::ensure_bundled_engine(&config_dir);
 
         let settings = std::fs::read_to_string(config_dir.join("settings.json"))
             .ok()
@@ -142,6 +147,7 @@ impl AppState {
             render_jobs: Arc::new(Mutex::new(HashMap::new())),
             thumbnails: Mutex::new(HashMap::new()),
             analysis_cache: Mutex::new(HashMap::new()),
+            downloader_bridge: Mutex::new(None),
         }
     }
 

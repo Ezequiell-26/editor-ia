@@ -131,19 +131,20 @@ pub async fn detect_scenes(
     let filter = scene_filter(threshold);
 
     let path_text = path.to_string_lossy().into_owned();
-    let output = Command::new(&ffmpeg)
+    let mut command = Command::new(&ffmpeg);
+    command
         .args(["-hide_banner", "-nostats", "-i"])
         .arg(&path_text)
         .args(["-vf", &filter, "-an", "-f", "null", "-"])
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo iniciar FFmpeg para analizar escenas",
-            )
-        })?;
+        .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
+    let output = command.output().map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo iniciar FFmpeg para analizar escenas",
+        )
+    })?;
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
     if !output.status.success() {
         return Err(ProjectError::message(
@@ -275,7 +276,8 @@ pub async fn analyze_stabilization(
     // FFmpeg filter options reject an unquoted Windows drive colon. Running
     // inside `media/stabilizers` keeps the value a bare UUID file name.
     let filter = format!("vidstabdetect=shakiness=5:accuracy=15:result={file_name}");
-    let output = Command::new(&ffmpeg)
+    let mut command = Command::new(&ffmpeg);
+    command
         .current_dir(&directory)
         .args([
             "-hide_banner",
@@ -289,14 +291,14 @@ pub async fn analyze_stabilization(
         .arg(&path)
         .args(["-vf", &filter, "-an", "-f", "null", "-"])
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::Io,
-                "no se pudo iniciar FFmpeg para estabilizar",
-            )
-        })?;
+        .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
+    let output = command.output().map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo iniciar FFmpeg para estabilizar",
+        )
+    })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         let _ = std::fs::remove_file(&transform_path);

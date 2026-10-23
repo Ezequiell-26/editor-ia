@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
+import { Icon } from '../../components/Icon';
+import { queueDownloadUrl } from '../download/pending';
+import { normalizeDownloadUrl } from '../download/url';
 import {
   framesToSeconds,
   fpsOf,
@@ -34,6 +37,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
   const [fpsDen, setFpsDen] = useState(1);
   const [recents, setRecents] = useState<RecentProject[]>(() => loadRecents());
   const [busy, setBusy] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState('');
 
   useEffect(() => {
     if (store.state.opened) {
@@ -109,6 +113,16 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
     }
   }
 
+  function quickDownload(): void {
+    const normalized = normalizeDownloadUrl(downloadUrl);
+    if (!normalized) {
+      store.setNotice('Pegá un enlace http(s) válido para descargar.');
+      return;
+    }
+    queueDownloadUrl(normalized);
+    onNavigate('download');
+  }
+
   function close(): void {
     if (!confirmLeave('Cerrar el proyecto')) return;
     store.closeProject();
@@ -138,21 +152,34 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
   }
 
   return (
-    <section className="view projects-view">
-      <div className="view-head">
-        <div>
-          <p className="eyebrow">Local-first</p>
-          <h2>Proyectos</h2>
-          <p className="view-summary">
-            Tus archivos y tu timeline quedan en este equipo. El proyecto es un{' '}
-            <code>.editoria.json</code> portable; los medios se copian a su carpeta.
-          </p>
-        </div>
-        <div className="head-actions">
-          <button type="button" className="ghost" onClick={open} disabled={locked}>
-            Abrir proyecto…
+    <section className="view projects-view" aria-label="Proyectos">
+      <div className="project-toolbar">
+        <button type="button" className="ghost icon-text" onClick={open} disabled={locked}>
+          <Icon name="projects" size={15} />
+          <span>Abrir proyecto…</span>
+        </button>
+        <form
+          className="quick-download"
+          onSubmit={(event) => {
+            event.preventDefault();
+            quickDownload();
+          }}
+        >
+          <Icon name="download" size={15} />
+          <input
+            type="text"
+            inputMode="url"
+            autoCapitalize="none"
+            spellCheck={false}
+            value={downloadUrl}
+            placeholder="Pegá un enlace de YouTube, Instagram, TikTok o cualquier sitio público…"
+            aria-label="URL para descargar"
+            onChange={(event) => setDownloadUrl(event.target.value)}
+          />
+          <button type="submit" className="primary" disabled={!downloadUrl.trim()}>
+            Descargar
           </button>
-        </div>
+        </form>
       </div>
 
       {!store.service.available ? (
@@ -223,11 +250,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
           </div>
         </article>
       ) : (
-        <p className="empty-state">
-          No hay proyectos abiertos. Creá uno nuevo o abrí un archivo{' '}
-          <code>.editoria.json</code> existente. La lista de recientes se llena a medida que
-          abrís proyectos en este equipo.
-        </p>
+        <p className="empty-state">No hay proyectos abiertos.</p>
       )}
 
       <div className="home-grid">
@@ -274,7 +297,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
                   <input
                     type="number"
                     min={16}
-                    max={16_384}
+                    max={32_768}
                     step={2}
                     value={width}
                     disabled={locked}
@@ -286,7 +309,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
                   <input
                     type="number"
                     min={16}
-                    max={16_384}
+                    max={32_768}
                     step={2}
                     value={height}
                     disabled={locked}
@@ -397,27 +420,6 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
         </article>
       </div>
 
-      <article className="card minimal">
-        <p className="eyebrow">Qué guarda el proyecto</p>
-        <div className="feature-grid">
-          <p>
-            <strong>Medios con derechos.</strong> Cada archivo importado guarda hash, bytes,
-            duración y licencia. Sin derechos confirmados no se exporta.
-          </p>
-          <p>
-            <strong>Timeline en frames.</strong> Los cortes y trims son enteros: no hay deriva al
-            renderizar a otra tasa.
-          </p>
-          <p>
-            <strong>Guion y escenas.</strong> La IA propone un plan estructurado; vos lo aplicás y
-            queda registrado en el proyecto.
-          </p>
-          <p>
-            <strong>Render verificado.</strong> El estado “completado” sólo aparece si FFprobe
-            confirma archivo, tamaño, duración y resolución.
-          </p>
-        </div>
-      </article>
     </section>
   );
 }

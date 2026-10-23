@@ -1,11 +1,50 @@
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, type Plugin } from 'vitest/config';
+
+/**
+ * El build multi-entrada agrega `crossorigin` a los tags de script/stylesheet.
+ * Con el protocolo propio de Tauri eso puede dejar la ventana en blanco: el
+ * tag se vuelve un pedido CORS que el handler de assets no responde.
+ */
+function stripCrossorigin(): Plugin {
+  return {
+    name: 'strip-crossorigin',
+    transformIndexHtml: {
+      order: 'post',
+      handler: (html) => html.replace(/\s+crossorigin(?==|\s|>)/g, ''),
+    },
+  };
+}
 
 export default defineConfig({
-  plugins: [react()],
+  // Rutas relativas: el protocolo de assets de Tauri no resuelve `/assets/...`.
+  base: './',
+  plugins: [react(), stripCrossorigin()],
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // No vaciar dist automáticamente: la limpieza se hace por lotes desde el
+    // script de build para no borrar en masa sin control.
+    emptyOutDir: false,
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL('./index.html', import.meta.url)),
+        splash: fileURLToPath(new URL('./splash.html', import.meta.url)),
+      },
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('scheduler')) {
+              return 'vendor-react';
+            }
+            if (id.includes('@tauri-apps')) {
+              return 'vendor-tauri';
+            }
+          }
+        },
+      },
+    },
   },
   server: {
     port: 5173,

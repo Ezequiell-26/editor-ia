@@ -7,6 +7,10 @@ export default defineConfig({
       '**/dist/**',
       '**/target/**',
       'extensions/**',
+      // Los specs de Playwright se ejecutan con `npm run test:e2e`; Vitest no
+      // puede resolver su runner y los reportaba como archivos fallidos.
+      'apps/desktop/e2e/**',
+      '.tmp-vitest/**',
     ],
   },
 });

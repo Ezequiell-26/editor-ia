@@ -10,12 +10,15 @@ use std::io::{BufRead, BufReader};
 use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 use crate::commands::system::resolve_tools;
@@ -84,6 +87,11 @@ pub struct DownloadRequest {
     pub codec: Option<String>,
     pub kind: Option<String>,
     pub playlist: Option<bool>,
+    pub cookies_file: Option<String>,
+    pub format: Option<String>,
+    pub save_to_downloads: Option<bool>,
+    pub quality: Option<String>,
+    pub destination_root: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -147,14 +155,40 @@ fn managed_engine_path(config_dir: &Path) -> PathBuf {
     }
 }
 
+/// Si el instalador trajo yt-dlp y la carpeta gestionada está vacía, lo copia
+/// ahí. Así Descargar funciona recién instalada la app, sin pedir descarga.
+pub(crate) fn ensure_bundled_engine(config_dir: &Path) {
+    let managed = managed_engine_path(config_dir);
+    if managed.is_file() {
+        return;
+    }
+    let Some(base) = crate::commands::system::bundled_resource_dir() else {
+        return;
+    };
+    let file_name = if cfg!(windows) {
+        "yt-dlp.exe"
+    } else {
+        "yt-dlp"
+    };
+    let bundled = base.join("tools").join(file_name);
+    if !bundled.is_file() {
+        return;
+    }
+    if let Some(parent) = managed.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::copy(&bundled, &managed);
+}
+
 fn engine_version(engine: &Path) -> Option<String> {
-    let output = Command::new(engine)
+    let mut command = Command::new(engine);
+    command
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
+        .stderr(Stdio::null());
+    crate::commands::hide_console(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -166,7 +200,7 @@ fn engine_version(engine: &Path) -> Option<String> {
     }
 }
 
-fn resolve_engine(config_dir: &Path) -> Result<PathBuf, ProjectError> {
+pub(crate) fn resolve_engine(config_dir: &Path) -> Result<PathBuf, ProjectError> {
     let managed = managed_engine_path(config_dir);
     if managed.is_file() && engine_version(&managed).is_some() {
         return Ok(managed);
@@ -218,9 +252,39 @@ fn status_from_config(config_dir: &Path) -> DownloaderStatus {
     }
 }
 
+/// `engine_version` lanza `yt-dlp --version` y espera el proceso. En Windows ese
+/// arranque puede tardar segundos, y `downloader_status` se llama cada vez que se
+/// abre la vista Descargar. Se cachea para que cambiar de pestaña no vuelva a
+/// pagar ese costo.
+fn status_cache() -> &'static Mutex<Option<(Instant, DownloaderStatus)>> {
+    static CACHE: OnceLock<Mutex<Option<(Instant, DownloaderStatus)>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
+const STATUS_TTL: Duration = Duration::from_secs(60);
+
+fn invalidate_status_cache() {
+    if let Ok(mut guard) = status_cache().lock() {
+        *guard = None;
+    }
+}
+
 #[tauri::command]
-pub fn downloader_status(state: State<'_, AppState>) -> DownloaderStatus {
-    status_from_config(&state.config_dir)
+pub async fn downloader_status(
+    state: State<'_, AppState>,
+) -> Result<DownloaderStatus, ProjectError> {
+    if let Ok(guard) = status_cache().lock() {
+        if let Some((at, cached)) = guard.as_ref() {
+            if at.elapsed() < STATUS_TTL {
+                return Ok(cached.clone());
+            }
+        }
+    }
+    let fresh = status_from_config(&state.config_dir);
+    if let Ok(mut guard) = status_cache().lock() {
+        *guard = Some((Instant::now(), fresh.clone()));
+    }
+    Ok(fresh)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -229,11 +293,29 @@ fn sha256_hex(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+fn expected_engine_hash(sums: &str) -> Option<String> {
+    sums.lines().find_map(|line| {
+        let mut parts = line.split_whitespace();
+        let hash = parts.next()?;
+        let name = parts.next()?;
+        if name
+            .trim_start_matches('*')
+            .eq_ignore_ascii_case("yt-dlp.exe")
+        {
+            Some(hash.to_ascii_lowercase())
+        } else {
+            None
+        }
+    })
+}
+
 #[tauri::command]
 pub async fn install_downloader(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<DownloaderStatus, ProjectError> {
+    // El estado cacheado deja de valer apenas se intenta instalar el motor.
+    invalidate_status_cache();
     if !cfg!(windows) {
         return Err(provider_error(
             "La instalación automática sólo está disponible en Windows. Instalá yt-dlp con tu gestor de paquetes.",
@@ -271,21 +353,7 @@ pub async fn install_downloader(
         .text()
         .await
         .map_err(|error| provider_error(format!("No se pudo leer la verificación: {error}")))?;
-    let expected = sums
-        .lines()
-        .find_map(|line| {
-            let mut parts = line.split_whitespace();
-            let hash = parts.next()?;
-            let name = parts.next()?;
-            if name
-                .trim_start_matches('*')
-                .eq_ignore_ascii_case("yt-dlp.exe")
-            {
-                Some(hash.to_ascii_lowercase())
-            } else {
-                None
-            }
-        })
+    let expected = expected_engine_hash(&sums)
         .ok_or_else(|| provider_error("El checksum oficial del motor no está disponible."))?;
     let actual = sha256_hex(&exe);
     if actual != expected {
@@ -315,7 +383,7 @@ pub async fn install_downloader(
     Ok(status_from_config(&config_dir))
 }
 
-fn validate_url(raw: &str) -> Result<String, ProjectError> {
+pub(crate) fn validate_url(raw: &str) -> Result<String, ProjectError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() || trimmed.len() > MAX_URL_LENGTH {
         return Err(invalid_error("Pegá una URL http(s) válida."));
@@ -361,6 +429,44 @@ fn validate_url(raw: &str) -> Result<String, ProjectError> {
     Ok(parsed.to_string())
 }
 
+fn validate_cookies_file(raw: Option<&str>) -> Result<Option<PathBuf>, ProjectError> {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let path = PathBuf::from(raw);
+    let metadata = std::fs::metadata(&path)
+        .map_err(|_| invalid_error("El archivo de cookies no existe en esa ruta."))?;
+    if !metadata.is_file() {
+        return Err(invalid_error(
+            "Las cookies tienen que ser un archivo de texto.",
+        ));
+    }
+    if metadata.len() == 0 || metadata.len() > 10 * 1024 * 1024 {
+        return Err(invalid_error(
+            "El archivo de cookies está vacío o supera los 10 MB.",
+        ));
+    }
+    Ok(Some(path))
+}
+
+#[tauri::command]
+pub async fn choose_cookies_file(app: AppHandle) -> Result<Option<String>, ProjectError> {
+    let Some(picked) = app
+        .dialog()
+        .file()
+        .set_title("Elegir cookies.txt exportadas del navegador")
+        .add_filter("Cookies Netscape", &["txt", "cookies"])
+        .blocking_pick_file()
+    else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|_| io_error("No se pudo usar el archivo de cookies elegido."))?;
+    validate_cookies_file(Some(&path.to_string_lossy()))?;
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 fn is_youtube_host(url: &reqwest::Url) -> bool {
     let host = url.host_str().unwrap_or("").to_ascii_lowercase();
     host == "youtu.be"
@@ -368,6 +474,53 @@ fn is_youtube_host(url: &reqwest::Url) -> bool {
         || host.ends_with(".youtube.com")
         || host == "youtube-nocookie.com"
         || host.ends_with(".youtube-nocookie.com")
+}
+
+fn host_matches(host: &str, domains: &[&str]) -> bool {
+    domains
+        .iter()
+        .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+}
+
+/// Fixed folder names used below Downloads/Videos descargados. The URL is
+/// parsed, never used as a path, so a site cannot choose or escape the folder.
+pub(crate) fn platform_folder(raw: &str) -> &'static str {
+    let Ok(url) = reqwest::Url::parse(raw) else {
+        return "Otros";
+    };
+    let host = url.host_str().unwrap_or("").to_ascii_lowercase();
+    if host_matches(&host, &["youtube.com", "youtu.be", "youtube-nocookie.com"]) {
+        "YouTube"
+    } else if host_matches(&host, &["tiktok.com"]) {
+        "TikTok"
+    } else if host_matches(&host, &["instagram.com"]) {
+        "Instagram"
+    } else if host_matches(&host, &["facebook.com", "fb.watch"]) {
+        "Facebook"
+    } else if host_matches(&host, &["x.com", "twitter.com"]) {
+        "X"
+    } else if host_matches(&host, &["vimeo.com"]) {
+        "Vimeo"
+    } else if host_matches(&host, &["twitch.tv"]) {
+        "Twitch"
+    } else if host_matches(&host, &["pinterest.com", "pin.it"]) {
+        "Pinterest"
+    } else if host_matches(&host, &["reddit.com", "redd.it"]) {
+        "Reddit"
+    } else if host_matches(&host, &["threads.net"]) {
+        "Threads"
+    } else if host_matches(&host, &["snapchat.com"]) {
+        "Snapchat"
+    } else {
+        "Otros"
+    }
+}
+
+fn video_format_selector(quality: &str, max_height: u32) -> String {
+    if quality == "worst" {
+        return "worstvideo[height>=144]+worstaudio/worst[height>=144]/worst".to_owned();
+    }
+    format!("bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best")
 }
 
 fn truncate(value: &str, limit: usize) -> String {
@@ -623,12 +776,17 @@ fn probe_blocking(
     app: &AppHandle,
     engine: &Path,
     url: &str,
+    cookies: Option<&Path>,
 ) -> Result<DownloadProbe, ProjectError> {
     emit_progress(app, "probing", None, "Consultando la URL…");
-    probe_with_engine(engine, url)
+    probe_with_engine(engine, url, cookies)
 }
 
-fn probe_with_engine(engine: &Path, url: &str) -> Result<DownloadProbe, ProjectError> {
+pub(crate) fn probe_with_engine(
+    engine: &Path,
+    url: &str,
+    cookies: Option<&Path>,
+) -> Result<DownloadProbe, ProjectError> {
     let parsed = reqwest::Url::parse(url).map_err(|_| invalid_error("La URL no es válida."))?;
     let mut command = Command::new(engine);
     command.args([
@@ -645,11 +803,15 @@ fn probe_with_engine(engine: &Path, url: &str) -> Result<DownloadProbe, ProjectE
     if is_youtube_host(&parsed) {
         command.arg("--no-playlist");
     }
+    if let Some(cookies) = cookies {
+        command.arg("--cookies").arg(cookies);
+    }
     command.arg(url);
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
     let output = command
         .output()
         .map_err(|_| provider_error("No se pudo ejecutar yt-dlp para analizar la URL."))?;
@@ -675,12 +837,16 @@ pub async fn probe_download(
     app: AppHandle,
     state: State<'_, AppState>,
     url: String,
+    cookies_file: Option<String>,
 ) -> Result<DownloadProbe, ProjectError> {
     let validated = validate_url(&url)?;
+    let cookies = validate_cookies_file(cookies_file.as_deref())?;
     let engine = resolve_engine(&state.config_dir)?;
-    tauri::async_runtime::spawn_blocking(move || probe_blocking(&app, &engine, &validated))
-        .await
-        .map_err(|_| provider_error("El análisis de la URL se interrumpió."))?
+    tauri::async_runtime::spawn_blocking(move || {
+        probe_blocking(&app, &engine, &validated, cookies.as_deref())
+    })
+    .await
+    .map_err(|_| provider_error("El análisis de la URL se interrumpió."))?
 }
 
 fn media_extension(path: &Path) -> String {
@@ -750,7 +916,8 @@ fn read_download_output(
 
 fn dimensions(ffprobe: Option<&Path>, path: &Path) -> Option<(u32, u32)> {
     let ffprobe = ffprobe?;
-    let output = Command::new(ffprobe)
+    let mut command = Command::new(ffprobe);
+    command
         .args([
             "-v",
             "error",
@@ -762,9 +929,9 @@ fn dimensions(ffprobe: Option<&Path>, path: &Path) -> Option<(u32, u32)> {
             "json",
         ])
         .arg(path)
-        .stdin(Stdio::null())
-        .output()
-        .ok()?;
+        .stdin(Stdio::null());
+    crate::commands::hide_console(&mut command);
+    let output = command.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -776,7 +943,7 @@ fn dimensions(ffprobe: Option<&Path>, path: &Path) -> Option<(u32, u32)> {
     ))
 }
 
-type ProgressSink<'a> = &'a dyn Fn(&str, Option<f64>, &str);
+pub(crate) type ProgressSink<'a> = &'a dyn Fn(&str, Option<f64>, &str);
 
 fn compress_video(
     progress: ProgressSink<'_>,
@@ -835,6 +1002,7 @@ fn compress_video(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
     let result = command
         .output()
         .map_err(|_| "No se pudo ejecutar FFmpeg para comprimir.".to_owned())?;
@@ -859,13 +1027,14 @@ fn compress_video(
     Ok(Some(output))
 }
 
-fn download_blocking(
+pub(crate) fn download_blocking(
     progress: ProgressSink<'_>,
     engine: &Path,
     cache_dir: &Path,
     request: DownloadRequest,
     ffmpeg: Option<PathBuf>,
     ffprobe: Option<PathBuf>,
+    cookies: Option<&Path>,
 ) -> Result<DownloadOutcome, ProjectError> {
     let validated = validate_url(&request.url)?;
     let kind = request.kind.as_deref().unwrap_or("video");
@@ -873,7 +1042,7 @@ fn download_blocking(
         return Err(invalid_error("El tipo de descarga no es válido."));
     }
     let compression = request.compression.as_deref().unwrap_or("none");
-    let crf = match compression {
+    let requested_crf = match compression {
         "none" => None,
         "high" => Some(20),
         "balanced" => Some(24),
@@ -884,6 +1053,31 @@ fn download_blocking(
         "h265" | "h264" => request.codec.as_deref().unwrap_or("h265"),
         _ => return Err(invalid_error("El códec de compresión no es válido.")),
     };
+    let quality = match request.quality.as_deref().unwrap_or("best") {
+        "best" | "worst" | "height" => request.quality.as_deref().unwrap_or("best"),
+        _ => return Err(invalid_error("La preferencia de calidad no es válida.")),
+    };
+    let requested_format = request
+        .format
+        .as_deref()
+        .unwrap_or("mp4")
+        .to_ascii_lowercase();
+    let format = match requested_format.as_str() {
+        "mp4" | "mkv" | "webm" | "mp3" | "m4a" => requested_format.as_str(),
+        _ => return Err(invalid_error("El formato de salida no es válido.")),
+    };
+    let audio_only = matches!(format, "mp3" | "m4a");
+    let compression_allowed = !audio_only && matches!(format, "mp4");
+    if requested_crf.is_some() && !compression_allowed {
+        return Err(invalid_error(
+            "La compresión sólo se aplica al formato MP4. Elegí MP4 o desactivá la compresión.",
+        ));
+    }
+    let crf = if compression_allowed {
+        requested_crf
+    } else {
+        None
+    };
     if crf.is_some() && ffmpeg.is_none() {
         return Err(provider_error(
             "FFmpeg no está disponible; sin él no se puede comprimir. Elegí «Original» o configurá FFmpeg en Ajustes.",
@@ -893,10 +1087,7 @@ fn download_blocking(
     let directory = cache_dir.join("downloads").join(&run_id);
     std::fs::create_dir_all(&directory)
         .map_err(|_| io_error("No se pudo crear la carpeta temporal de descarga."))?;
-    let output_template = directory
-        .join("%(title).120s [%(id)s].%(ext)s")
-        .to_string_lossy()
-        .into_owned();
+    let output_template = download_output_template(&directory);
     let max_height = request
         .max_height
         .unwrap_or(MAX_HEIGHT)
@@ -908,6 +1099,7 @@ fn download_blocking(
         "--no-warnings",
         "--newline",
         "--ignore-config",
+        "--windows-filenames",
         "--socket-timeout",
         "30",
         "--retries",
@@ -923,13 +1115,26 @@ fn download_blocking(
     } else {
         command.arg("--no-playlist");
     }
-    if kind == "video" {
-        command.arg("-f").arg(format!(
-            "bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best"
-        ));
-        command.args(["--merge-output-format", "mp4"]);
+    if audio_only {
+        command.args([
+            "-f",
+            "bestaudio/best",
+            "-x",
+            "--audio-format",
+            format,
+            "--audio-quality",
+            "0",
+        ]);
+    } else if kind == "video" {
+        command
+            .arg("-f")
+            .arg(video_format_selector(quality, max_height));
+        command.args(["--merge-output-format", format, "--remux-video", format]);
     } else if kind == "audio" {
         command.args(["-f", "bestaudio/best"]);
+    }
+    if let Some(cookies) = cookies {
+        command.arg("--cookies").arg(cookies);
     }
     command.arg("-o").arg(&output_template);
     command.arg(&validated);
@@ -937,6 +1142,7 @@ fn download_blocking(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
     progress(
         "downloading",
         Some(0.0),
@@ -1032,6 +1238,184 @@ fn download_blocking(
     })
 }
 
+fn unique_destination(directory: &Path, name: &str) -> PathBuf {
+    let file_name = Path::new(name)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("archivo");
+    let direct = directory.join(file_name);
+    if !direct.exists() {
+        return direct;
+    }
+    let path = Path::new(file_name);
+    let stem = path
+        .file_stem()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "archivo".to_owned());
+    let extension = path
+        .extension()
+        .map(|value| format!(".{}", value.to_string_lossy()))
+        .unwrap_or_default();
+    for index in 2..=999 {
+        let candidate = directory.join(format!("{stem} ({index}){extension}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    let suffix = &Uuid::new_v4().to_string()[..8];
+    directory.join(format!("{stem}-{suffix}{extension}"))
+}
+
+/// Turns the downloaded file stem into a folder name. Invalid Windows
+/// characters are replaced, whitespace is collapsed and the name is capped so
+/// the final path stays usable. The original file name remains untouched.
+/// Windows still fails with OSError 22 when the temporary path + title +
+/// yt-dlp suffixes cross MAX_PATH. Keep the readable title below 60 chars and
+/// let yt-dlp produce Windows-safe names; the per-video folder is derived from
+/// that short stem.
+fn download_output_template(directory: &Path) -> String {
+    directory
+        .join("%(title).60s [%(id)s].%(ext)s")
+        .to_string_lossy()
+        .into_owned()
+}
+
+pub(crate) fn folder_from_file_name(name: &str) -> Option<String> {
+    let raw_stem = Path::new(name).file_stem()?.to_string_lossy();
+    let stem = raw_stem
+        .strip_suffix(" - compacto")
+        .unwrap_or(raw_stem.as_ref());
+    let mut cleaned = String::with_capacity(stem.len());
+    for character in stem.chars() {
+        if character.is_control()
+            || matches!(
+                character,
+                '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+            )
+        {
+            cleaned.push('_');
+        } else {
+            cleaned.push(character);
+        }
+    }
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let trimmed = collapsed
+        .trim_matches([' ', '.'])
+        .chars()
+        .take(80)
+        .collect::<String>();
+    let trimmed = trimmed.trim_end_matches([' ', '.']).to_owned();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let upper = trimmed.to_ascii_uppercase();
+    let reserved = matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || upper
+            .strip_prefix("COM")
+            .and_then(|value| value.parse::<u8>().ok())
+            .is_some_and(|value| (1..=9).contains(&value))
+        || upper
+            .strip_prefix("LPT")
+            .and_then(|value| value.parse::<u8>().ok())
+            .is_some_and(|value| (1..=9).contains(&value));
+    Some(if reserved {
+        format!("_{trimmed}")
+    } else {
+        trimmed
+    })
+}
+
+fn download_folder_name(files: &[DownloadedFile]) -> Option<String> {
+    files
+        .first()
+        .and_then(|file| folder_from_file_name(&file.name))
+}
+
+/// The user can choose any existing folder, so downloads can live on another
+/// disk. The default is Downloads/Videos descargados. The chosen folder stays
+/// as typed (no `\\?\` prefix) and is validated before any file is moved.
+fn resolve_destination_root(
+    chosen: Option<&str>,
+    default: PathBuf,
+) -> Result<PathBuf, ProjectError> {
+    let Some(chosen) = chosen.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(default);
+    };
+    let path = PathBuf::from(chosen);
+    if !path.is_absolute() {
+        return Err(invalid_error(
+            "La carpeta de descarga debe ser una ruta absoluta.",
+        ));
+    }
+    if !path.is_dir() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "La carpeta de descarga ya no existe. Elegí otra carpeta.",
+        ));
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+pub async fn choose_download_directory(app: AppHandle) -> Result<Option<String>, ProjectError> {
+    let default = app
+        .path()
+        .download_dir()
+        .unwrap_or_else(|_| std::env::temp_dir());
+    let Some(folder) = app
+        .dialog()
+        .file()
+        .set_title("Elegir carpeta para las descargas")
+        .set_directory(default)
+        .blocking_pick_folder()
+    else {
+        return Ok(None);
+    };
+    let folder = folder.into_path().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "No se pudo usar la carpeta elegida.")
+    })?;
+    if !folder.is_dir() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "La ruta elegida no es una carpeta.",
+        ));
+    }
+    Ok(Some(folder.to_string_lossy().into_owned()))
+}
+
+fn move_download_to(outcome: &mut DownloadOutcome, destination: &Path) -> Result<(), ProjectError> {
+    std::fs::create_dir_all(destination)
+        .map_err(|_| io_error("No se pudo crear Videos descargados."))?;
+    let mut moved = Vec::with_capacity(outcome.files.len());
+    for file in &outcome.files {
+        let source = PathBuf::from(&file.path);
+        let target = unique_destination(destination, &file.name);
+        if std::fs::rename(&source, &target).is_err() {
+            std::fs::copy(&source, &target)
+                .map_err(|_| io_error("No se pudo guardar el archivo en Descargas."))?;
+            std::fs::remove_file(&source).map_err(|_| {
+                io_error("Se copió el archivo pero no se pudo limpiar el temporal.")
+            })?;
+        }
+        let bytes = std::fs::metadata(&target)
+            .map(|metadata| metadata.len())
+            .unwrap_or(file.bytes);
+        moved.push(DownloadedFile {
+            path: target.to_string_lossy().into_owned(),
+            name: target
+                .file_name()
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_else(|| file.name.clone()),
+            bytes,
+            kind: file.kind.clone(),
+        });
+    }
+    outcome.files = moved;
+    outcome.directory = destination.to_string_lossy().into_owned();
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn download_media(
     app: AppHandle,
@@ -1043,16 +1427,55 @@ pub async fn download_media(
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
     let cache_dir = state.cache_dir.clone();
     let url = validate_url(&request.url)?;
-    let request = DownloadRequest { url, ..request };
+    let cookies = validate_cookies_file(request.cookies_file.as_deref())?;
+    let destination = if request.save_to_downloads.unwrap_or(true) {
+        let base = app
+            .path()
+            .download_dir()
+            .map_err(|_| provider_error("No se pudo ubicar la carpeta de Descargas de Windows."))?;
+        let root = resolve_destination_root(
+            request.destination_root.as_deref(),
+            base.join("Videos descargados"),
+        )?;
+        Some(root.join(platform_folder(&url)))
+    } else {
+        None
+    };
+    let mut request = DownloadRequest {
+        url,
+        save_to_downloads: None,
+        destination_root: None,
+        ..request
+    };
+    request.cookies_file = None;
     let progress_app = app.clone();
     let progress = move |stage: &str, percent: Option<f64>, message: &str| {
         emit_progress(&progress_app, stage, percent, message.to_owned());
     };
-    tauri::async_runtime::spawn_blocking(move || {
-        download_blocking(&progress, &engine, &cache_dir, request, ffmpeg, ffprobe)
+    let mut outcome = tauri::async_runtime::spawn_blocking(move || {
+        download_blocking(
+            &progress,
+            &engine,
+            &cache_dir,
+            request,
+            ffmpeg,
+            ffprobe,
+            cookies.as_deref(),
+        )
     })
     .await
-    .map_err(|_| provider_error("La descarga se interrumpió."))?
+    .map_err(|_| provider_error("La descarga se interrumpió."))??;
+    if let Some(root) = destination {
+        let original = PathBuf::from(&outcome.directory);
+        let destination = download_folder_name(&outcome.files)
+            .map(|folder| root.join(folder))
+            .unwrap_or(root);
+        move_download_to(&mut outcome, &destination)?;
+        let _ = std::fs::remove_dir_all(original);
+        let saved_in = outcome.directory.clone();
+        outcome.warnings.push(format!("Guardado en {saved_in}."));
+    }
+    Ok(outcome)
 }
 
 #[tauri::command]
@@ -1092,6 +1515,151 @@ mod tests {
         assert!(validate_url("http://127.0.0.1/video").is_err());
         assert!(validate_url("http://192.168.1.10/video").is_err());
         assert!(validate_url("https://www.youtube.com/watch?v=abc").is_ok());
+    }
+
+    #[test]
+    fn output_template_keeps_windows_paths_short() {
+        let template = download_output_template(Path::new("C:/cache"));
+        assert!(template.contains("%(title).60s"));
+        assert!(!template.contains("%(title).120s"));
+        assert!(template.contains("[%(id)s]"));
+    }
+
+    #[test]
+    fn validates_a_custom_destination_root() {
+        let root = std::env::temp_dir().join(format!("editor-ia-root-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let default = root.join("default");
+        assert_eq!(
+            resolve_destination_root(Some(root.to_str().unwrap()), default.clone()).unwrap(),
+            root
+        );
+        assert!(resolve_destination_root(Some("relative/folder"), default.clone()).is_err());
+        assert!(resolve_destination_root(
+            Some(&root.join("missing").to_string_lossy()),
+            default.clone()
+        )
+        .is_err());
+        assert_eq!(
+            resolve_destination_root(None, default.clone()).unwrap(),
+            default
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn builds_a_safe_video_folder_name() {
+        let files = vec![DownloadedFile {
+            path: "C:\\cache\\video.mp4".to_owned(),
+            name: "Mi video_ capítulo 1_2_.mp4".to_owned(),
+            bytes: 1,
+            kind: "video".to_owned(),
+        }];
+        assert_eq!(
+            download_folder_name(&files).as_deref(),
+            Some("Mi video_ capítulo 1_2_")
+        );
+        assert_eq!(folder_from_file_name("Qué?.mp4").as_deref(), Some("Qué_"));
+        assert_eq!(folder_from_file_name("CON.mp4").as_deref(), Some("_CON"));
+        assert_eq!(
+            folder_from_file_name("Toma principal - compacto.mp4").as_deref(),
+            Some("Toma principal")
+        );
+        assert_eq!(download_folder_name(&[]), None);
+    }
+
+    #[test]
+    fn maps_download_urls_to_platform_folders() {
+        assert_eq!(
+            platform_folder("https://www.youtube.com/watch?v=abc"),
+            "YouTube"
+        );
+        assert_eq!(platform_folder("https://youtu.be/abc"), "YouTube");
+        assert_eq!(
+            platform_folder("https://www.tiktok.com/@a/video/1"),
+            "TikTok"
+        );
+        assert_eq!(
+            platform_folder("https://www.instagram.com/reel/abc"),
+            "Instagram"
+        );
+        assert_eq!(platform_folder("https://x.com/user/status/1"), "X");
+        assert_eq!(
+            platform_folder("https://www.facebook.com/watch/?v=1"),
+            "Facebook"
+        );
+        assert_eq!(platform_folder("https://vimeo.com/123"), "Vimeo");
+        assert_eq!(platform_folder("https://www.twitch.tv/videos/1"), "Twitch");
+        assert_eq!(platform_folder("https://example.com/video"), "Otros");
+    }
+
+    #[test]
+    fn builds_best_worst_and_height_format_selectors() {
+        assert_eq!(
+            video_format_selector("best", 4_320),
+            "bestvideo[height<=4320]+bestaudio/best[height<=4320]/best"
+        );
+        assert_eq!(
+            video_format_selector("worst", 4_320),
+            "worstvideo[height>=144]+worstaudio/worst[height>=144]/worst"
+        );
+        assert_eq!(
+            video_format_selector("height", 720),
+            "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+        );
+    }
+
+    #[test]
+    fn moves_downloads_to_unique_names_in_destination() {
+        let root = std::env::temp_dir().join(format!("editor-ia-move-{}", Uuid::new_v4()));
+        let source = root.join("cache");
+        let destination = root.join("downloads");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&destination).unwrap();
+        let original = source.join("video.mp4");
+        std::fs::write(&original, b"new video").unwrap();
+        std::fs::write(destination.join("video.mp4"), b"existing").unwrap();
+        let mut outcome = DownloadOutcome {
+            run_id: "run".to_owned(),
+            directory: source.to_string_lossy().into_owned(),
+            files: vec![DownloadedFile {
+                path: original.to_string_lossy().into_owned(),
+                name: "video.mp4".to_owned(),
+                bytes: 9,
+                kind: "video".to_owned(),
+            }],
+            compressed: false,
+            warnings: Vec::new(),
+        };
+        move_download_to(&mut outcome, &destination).unwrap();
+        assert_eq!(outcome.directory, destination.to_string_lossy());
+        assert!(destination.join("video (2).mp4").is_file());
+        assert!(!original.exists());
+        assert_eq!(outcome.files[0].name, "video (2).mp4");
+        assert_eq!(outcome.files[0].bytes, 9);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verifies_engine_checksum_format() {
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        let sums = "aaaa  other.zip\nBBBB *yt-dlp.exe\ncccc  yt-dlp\n";
+        assert_eq!(expected_engine_hash(sums).as_deref(), Some("bbbb"));
+        assert!(expected_engine_hash("nada").is_none());
+    }
+
+    #[test]
+    fn validates_optional_cookies_file() {
+        assert!(validate_cookies_file(None).unwrap().is_none());
+        assert!(validate_cookies_file(Some("  ")).unwrap().is_none());
+        assert!(validate_cookies_file(Some("C:/no/existe/cookies.txt")).is_err());
+        let file = std::env::temp_dir().join(format!("editor-ia-cookies-{}.txt", Uuid::new_v4()));
+        std::fs::write(&file, "# Netscape HTTP Cookie File\n").unwrap();
+        assert!(validate_cookies_file(Some(&file.to_string_lossy())).is_ok());
+        let _ = std::fs::remove_file(&file);
     }
 
     #[test]
@@ -1154,20 +1722,25 @@ mod tests {
         let Some(engine) = live_engine() else {
             return;
         };
-        let probe =
-            probe_with_engine(&engine, "https://www.youtube.com/watch?v=BaW_jenozKc").unwrap();
+        let probe = probe_with_engine(&engine, "https://www.youtube.com/watch?v=aqz-KE-bpKQ", None)
+            .unwrap();
         assert_eq!(probe.kind, "video");
         assert!(!probe.title.is_empty());
         assert!(!probe.qualities.is_empty());
         let cache = std::env::temp_dir().join(format!("editor-ia-dl-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&cache).unwrap();
         let request = DownloadRequest {
-            url: "https://www.youtube.com/watch?v=BaW_jenozKc".to_owned(),
+            url: "https://www.youtube.com/watch?v=aqz-KE-bpKQ".to_owned(),
             max_height: Some(360),
             compression: Some("compact".to_owned()),
             codec: Some("h264".to_owned()),
             kind: Some("video".to_owned()),
             playlist: Some(false),
+            cookies_file: None,
+            format: Some("mp4".to_owned()),
+            save_to_downloads: None,
+            quality: None,
+            destination_root: None,
         };
         let progress = |_stage: &str, _percent: Option<f64>, _message: &str| {};
         let outcome = download_blocking(
@@ -1177,6 +1750,7 @@ mod tests {
             request,
             Some(PathBuf::from("ffmpeg")),
             Some(PathBuf::from("ffprobe")),
+            None,
         )
         .unwrap();
         assert!(!outcome.files.is_empty());

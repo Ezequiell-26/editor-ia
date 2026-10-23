@@ -4,6 +4,7 @@ import type {
   BlendMode,
   CaptionCue,
   CaptionStyle,
+  CaptionMotion,
   Clip,
   ChromaKey,
   ClipEffects,
@@ -14,11 +15,15 @@ import type {
   ClipMask,
   ClipMaskKeyframe,
   ClipAnimation,
+  ClipColorTag,
   ProjectDocument,
   Scene,
   Track,
 } from '@editor-ia/project-schema';
 import {
+  MAX_ASSET_BIN_LENGTH,
+  MAX_ASSET_TAGS,
+  MAX_ASSET_TAG_LENGTH,
   MAX_GAIN_KEYFRAMES,
   MAX_TRANSFORM_KEYFRAMES,
   TRANSFORM_KEYFRAME_SCALE_MAX,
@@ -28,6 +33,7 @@ import {
   sampleTransformKeyframes,
 } from '@editor-ia/project-schema';
 import { friendlyAssetLabel } from './asset-labels';
+import { AUDIO_PRESETS, type AudioPresetId } from './audio-presets';
 import { aspectRatioOf, evenDimension, retimeProject, validFpsRange } from './video-format';
 
 /**
@@ -125,6 +131,8 @@ export function trackKindForClip(clip: Clip): Track['kind'] {
       return 'audio';
     case 'graphic':
       return 'graphic';
+    case 'freeze':
+      return 'video';
     case 'adjustment':
       return 'adjustment';
   }
@@ -470,6 +478,86 @@ export function updateAssetLabel(project: ProjectDocument, assetId: string, labe
   return next;
 }
 
+/** Edits the organisational metadata without touching paths, hashes or rights. */
+export function updateAssetMetadata(
+  project: ProjectDocument,
+  assetId: string,
+  patch: {
+    label?: string;
+    bin?: string | null;
+    tags?: readonly string[];
+    favorite?: boolean;
+  },
+): ProjectDocument {
+  const next = cloneProject(project);
+  const asset = next.assets.find((item) => item.id === assetId);
+  if (!asset) {
+    throw new ProjectActionError('el material no está en el proyecto');
+  }
+  if (patch.label !== undefined) {
+    const label = patch.label.trim();
+    if (!label) {
+      throw new ProjectActionError('el material necesita un nombre');
+    }
+    asset.label = label;
+  }
+  if (patch.bin !== undefined) {
+    const bin = (patch.bin ?? '').trim();
+    if (!bin) {
+      delete asset.bin;
+    } else {
+      if (bin.length > MAX_ASSET_BIN_LENGTH) {
+        throw new ProjectActionError(
+          `el bin admite hasta ${MAX_ASSET_BIN_LENGTH} caracteres`,
+        );
+      }
+      asset.bin = bin;
+    }
+  }
+  if (patch.tags !== undefined) {
+    const tags: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of patch.tags) {
+      const tag = raw.trim();
+      if (!tag) continue;
+      if (tag.length > MAX_ASSET_TAG_LENGTH) {
+        throw new ProjectActionError(
+          `cada etiqueta admite hasta ${MAX_ASSET_TAG_LENGTH} caracteres`,
+        );
+      }
+      const key = tag.toLocaleLowerCase('es');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      tags.push(tag);
+    }
+    if (tags.length > MAX_ASSET_TAGS) {
+      throw new ProjectActionError(`un material admite hasta ${MAX_ASSET_TAGS} etiquetas`);
+    }
+    if (tags.length === 0) {
+      delete asset.tags;
+    } else {
+      asset.tags = tags;
+    }
+  }
+  if (patch.favorite !== undefined) {
+    if (patch.favorite) asset.favorite = true;
+    else delete asset.favorite;
+  }
+  touch(next);
+  return next;
+}
+
+export function toggleAssetFavorite(
+  project: ProjectDocument,
+  assetId: string,
+): ProjectDocument {
+  const asset = project.assets.find((item) => item.id === assetId);
+  if (!asset) {
+    throw new ProjectActionError('el material no está en el proyecto');
+  }
+  return updateAssetMetadata(project, assetId, { favorite: !asset.favorite });
+}
+
 export function setAssetProxy(
   project: ProjectDocument,
   assetId: string,
@@ -580,6 +668,8 @@ function compatibleTrackKinds(kind: Clip['kind']): Track['kind'][] {
       return ['audio', 'narration'];
     case 'graphic':
       return ['graphic'];
+    case 'freeze':
+      return ['video'];
     case 'adjustment':
       return ['adjustment'];
   }
@@ -1130,6 +1220,214 @@ export function trimClip(
   return next;
 }
 
+function measuredSourceFrames(project: ProjectDocument, clip: WindowedClip): number {
+  if (clip.source.type !== 'asset') {
+    throw new ProjectActionError('el clip no referencia un material local');
+  }
+  const asset = project.assets.find((item) => item.id === clip.source.assetId);
+  const media = asset && 'media' in asset ? asset.media : undefined;
+  const duration =
+    media && 'durationFrames' in media ? media.durationFrames : undefined;
+  if (typeof duration !== 'number' || duration <= 0) {
+    throw new ProjectActionError('el material no declara una duración medida');
+  }
+  return duration;
+}
+
+function trimGuards(
+  project: ProjectDocument,
+  clip: WindowedClip,
+  options: { allowKeyframes: boolean },
+): void {
+  const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (!track || track.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const speed = speedOf(clip);
+  if (speed.num !== speed.den) {
+    throw new ProjectActionError('el ajuste fino requiere velocidad 1×');
+  }
+  if ('stabilization' in clip && clip.stabilization) {
+    throw new ProjectActionError(
+      'quitá la estabilización antes de mover la ventana de origen',
+    );
+  }
+  if (options.allowKeyframes) return;
+  const maskKeyframes = 'mask' in clip ? clip.mask?.keyframes?.length : undefined;
+  if (
+    clip.transform?.keyframes?.length ||
+    clip.audio?.gainKeyframes?.length ||
+    maskKeyframes
+  ) {
+    throw new ProjectActionError(
+      'quitá los keyframes de los clips afectados antes de mover el corte',
+    );
+  }
+}
+
+/**
+ * Slip: moves the source window inside the clip without moving the clip on the
+ * timeline. The duration and every neighbour stay untouched.
+ */
+export function slipClip(
+  project: ProjectDocument,
+  clipId: string,
+  deltaFrames: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !isWindowed(clip)) {
+    throw new ProjectActionError('el slip necesita un clip de video o audio');
+  }
+  trimGuards(next, clip, { allowKeyframes: true });
+  const delta = Math.round(deltaFrames);
+  if (delta === 0) return project;
+  const max = measuredSourceFrames(next, clip);
+  const inFrame = clip.source.inFrame + delta;
+  const outFrame = clip.source.outFrame + delta;
+  if (inFrame < 0 || outFrame > max) {
+    throw new ProjectActionError(
+      'el slip se sale de la ventana disponible del material',
+    );
+  }
+  clip.source.inFrame = inFrame;
+  clip.source.outFrame = outFrame;
+  touch(next);
+  return next;
+}
+
+/**
+ * Slide: moves the clip on the timeline and absorbs the difference in its two
+ * contiguous neighbours. The middle clip keeps its duration and source window.
+ */
+export function slideClip(
+  project: ProjectDocument,
+  clipId: string,
+  deltaFrames: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !isWindowed(clip)) {
+    throw new ProjectActionError('el slide necesita un clip de video o audio');
+  }
+  const trackClips = next.timeline.clips
+    .filter((item) => item.trackId === clip.trackId)
+    .sort((a, b) => a.startFrame - b.startFrame);
+  const index = trackClips.findIndex((item) => item.id === clip.id);
+  const previous = trackClips[index - 1];
+  const following = trackClips[index + 1];
+  if (!previous || !following) {
+    throw new ProjectActionError('slide necesita un clip anterior y otro posterior');
+  }
+  if (!isWindowed(previous) || !isWindowed(following)) {
+    throw new ProjectActionError(
+      'slide necesita clips de video o audio a ambos lados',
+    );
+  }
+  if (
+    previous.startFrame + previous.durationFrames !== clip.startFrame ||
+    clip.startFrame + clip.durationFrames !== following.startFrame
+  ) {
+    throw new ProjectActionError('slide necesita tres clips contiguos');
+  }
+  for (const item of [previous, clip, following]) {
+    trimGuards(next, item, { allowKeyframes: false });
+  }
+  const delta = Math.round(deltaFrames);
+  if (delta === 0) return project;
+  const previousMax = measuredSourceFrames(next, previous);
+  const previousDuration = previous.durationFrames + delta;
+  const followingDuration = following.durationFrames - delta;
+  const followingIn = following.source.inFrame + delta;
+  if (previousDuration < 1 || followingDuration < 1) {
+    throw new ProjectActionError('slide dejaría un clip sin duración');
+  }
+  if (
+    previous.source.outFrame + delta > previousMax ||
+    previous.source.outFrame + delta <= previous.source.inFrame
+  ) {
+    throw new ProjectActionError(
+      'slide se sale de la ventana del clip anterior',
+    );
+  }
+  if (followingIn < 0 || followingIn >= following.source.outFrame) {
+    throw new ProjectActionError(
+      'slide se sale de la ventana del clip siguiente',
+    );
+  }
+  previous.durationFrames = previousDuration;
+  previous.source.outFrame += delta;
+  clip.startFrame += delta;
+  following.startFrame += delta;
+  following.durationFrames = followingDuration;
+  following.source.inFrame = followingIn;
+  touch(next);
+  return next;
+}
+
+/**
+ * Roll: moves the cut between two contiguous clips without moving either outer
+ * edge. `edge: "in"` edits the cut with the previous clip; `"out"` the next.
+ */
+export function rollClip(
+  project: ProjectDocument,
+  clipId: string,
+  edge: 'in' | 'out',
+  deltaFrames: number,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || !isWindowed(clip)) {
+    throw new ProjectActionError('el roll necesita un clip de video o audio');
+  }
+  const trackClips = next.timeline.clips
+    .filter((item) => item.trackId === clip.trackId)
+    .sort((a, b) => a.startFrame - b.startFrame);
+  const index = trackClips.findIndex((item) => item.id === clip.id);
+  const left = edge === 'in' ? trackClips[index - 1] : clip;
+  const right = edge === 'in' ? clip : trackClips[index + 1];
+  if (!left || !right) {
+    throw new ProjectActionError(
+      edge === 'in'
+        ? 'el roll de entrada necesita un clip anterior'
+        : 'el roll de salida necesita un clip posterior',
+    );
+  }
+  if (!isWindowed(left) || !isWindowed(right)) {
+    throw new ProjectActionError('el roll necesita clips de video o audio');
+  }
+  if (left.startFrame + left.durationFrames !== right.startFrame) {
+    throw new ProjectActionError('los clips del corte no son contiguos');
+  }
+  trimGuards(next, left, { allowKeyframes: false });
+  trimGuards(next, right, { allowKeyframes: false });
+  const delta = Math.round(deltaFrames);
+  if (delta === 0) return project;
+  const leftMax = measuredSourceFrames(next, left);
+  const leftDuration = left.durationFrames + delta;
+  const rightDuration = right.durationFrames - delta;
+  const rightIn = right.source.inFrame + delta;
+  if (leftDuration < 1 || rightDuration < 1) {
+    throw new ProjectActionError('el roll dejaría un clip sin duración');
+  }
+  if (
+    left.source.outFrame + delta > leftMax ||
+    left.source.outFrame + delta <= left.source.inFrame
+  ) {
+    throw new ProjectActionError('el roll se sale de la ventana del clip izquierdo');
+  }
+  if (rightIn < 0 || rightIn >= right.source.outFrame) {
+    throw new ProjectActionError('el roll se sale de la ventana del clip derecho');
+  }
+  left.durationFrames = leftDuration;
+  left.source.outFrame += delta;
+  right.startFrame += delta;
+  right.durationFrames = rightDuration;
+  right.source.inFrame = rightIn;
+  touch(next);
+  return next;
+}
+
 export function splitClip(
   project: ProjectDocument,
   clipId: string,
@@ -1199,6 +1497,346 @@ export function splitClip(
 }
 
 /** Split a clip at several absolute timeline frames, in order. */
+/**
+ * Freeze inside the original video track: split at the playhead, shift every
+ * clip, caption and marker at/after it, and insert a ready image asset as a
+ * `freeze` clip. The copied effects/static transform keep the still close to
+ * the surrounding grade.
+ */
+export function freezeFrameInPlace(
+  project: ProjectDocument,
+  clipId: string,
+  atFrame: number,
+  assetId: string,
+  durationFrames = 60,
+): {
+  project: ProjectDocument;
+  freezeClipId: string;
+  startFrame: number;
+  durationFrames: number;
+} {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || clip.kind !== 'video') {
+    throw new ProjectActionError('el freeze en la pista necesita un clip de video');
+  }
+  const track = next.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (!track || track.locked) {
+    throw new ProjectActionError('la pista del video está bloqueada');
+  }
+  const at = Math.round(atFrame);
+  const clipEnd = clip.startFrame + clip.durationFrames;
+  if (at < clip.startFrame || at >= clipEnd) {
+    throw new ProjectActionError('poné el playhead dentro del clip de video');
+  }
+  const duration = Math.max(1, Math.round(durationFrames));
+  const asset = next.assets.find((item) => item.id === assetId);
+  if (!asset || asset.kind !== 'image') {
+    throw new ProjectActionError('el freeze necesita una imagen importada');
+  }
+  if (asset.status !== 'ready') {
+    throw new ProjectActionError('confirmá los derechos del frame antes de congelarlo');
+  }
+  const original = {
+    effects: clip.effects ? JSON.parse(JSON.stringify(clip.effects)) : undefined,
+    transform: clip.transform
+      ? (() => {
+          const { keyframes: _keyframes, ...rest } = clip.transform;
+          return Object.keys(rest).length > 0
+            ? JSON.parse(JSON.stringify(rest))
+            : undefined;
+        })()
+      : undefined,
+    blendMode: 'blendMode' in clip ? clip.blendMode : undefined,
+    trackId: clip.trackId,
+  };
+  let working = next;
+  if (at > clip.startFrame) {
+    const split = splitClip(working, clipId, at);
+    if (!split) {
+      throw new ProjectActionError('no se pudo dividir el clip en el playhead');
+    }
+    working = split.project;
+  }
+  for (const item of working.timeline.clips) {
+    if (item.startFrame >= at) item.startFrame += duration;
+  }
+  for (const cue of working.captions.cues) {
+    if (cue.startFrame >= at) {
+      cue.startFrame += duration;
+      cue.endFrame += duration;
+      for (const word of cue.words ?? []) {
+        word.startFrame += duration;
+        word.endFrame += duration;
+      }
+    }
+  }
+  for (const marker of working.markers) {
+    if (marker.frame >= at) marker.frame += duration;
+  }
+  const freezeClipId = newId();
+  const freeze: Clip = {
+    id: freezeClipId,
+    trackId: original.trackId,
+    kind: 'freeze',
+    label: 'Congelado',
+    startFrame: at,
+    durationFrames: duration,
+    source: { type: 'asset', assetId },
+    ...(original.effects ? { effects: original.effects } : {}),
+    ...(original.transform ? { transform: original.transform } : {}),
+    ...(original.blendMode ? { blendMode: original.blendMode } : {}),
+  };
+  working.timeline.clips.push(freeze);
+  touch(working);
+  return {
+    project: working,
+    freezeClipId,
+    startFrame: at,
+    durationFrames: duration,
+  };
+}
+
+/**
+ * Moves the embedded audio of a video clip to its own audio clip. It reuses the
+ * first free audio/narration track at that window and creates one otherwise;
+ * the video keeps its picture and is muted so the sound never doubles.
+ */
+export function detachAudio(
+  project: ProjectDocument,
+  clipId: string,
+): {
+  project: ProjectDocument;
+  clipId: string;
+  trackId: string;
+  createdTrack: boolean;
+} {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) {
+    throw new ProjectActionError('el clip no está en la timeline');
+  }
+  if (clip.kind !== 'video') {
+    throw new ProjectActionError('sólo un clip de video puede separar su audio');
+  }
+  const owner = next.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (!owner || owner.locked) {
+    throw new ProjectActionError('la pista del video está bloqueada');
+  }
+  const start = clip.startFrame;
+  const end = start + clip.durationFrames;
+  let target = next.timeline.tracks.find(
+    (track) =>
+      (track.kind === 'audio' || track.kind === 'narration') &&
+      !track.locked &&
+      !track.muted &&
+      !next.timeline.clips.some(
+        (item) =>
+          item.trackId === track.id &&
+          item.startFrame < end &&
+          item.startFrame + item.durationFrames > start,
+      ),
+  );
+  let createdTrack = false;
+  if (!target) {
+    const order = Math.max(-1, ...next.timeline.tracks.map((track) => track.order)) + 1;
+    target = {
+      id: newId(),
+      kind: 'audio',
+      label: 'Audio separado',
+      order,
+      muted: false,
+      hidden: false,
+      locked: false,
+    };
+    next.timeline.tracks.push(target);
+    createdTrack = true;
+  }
+  const audio = clip.audio ? JSON.parse(JSON.stringify(clip.audio)) : {};
+  delete audio.muted;
+  const detached: Clip = {
+    id: newId(),
+    trackId: target.id,
+    kind: 'audio',
+    label: `${clip.label ?? 'Audio'} · audio`.slice(0, 200),
+    startFrame: start,
+    durationFrames: clip.durationFrames,
+    source: JSON.parse(JSON.stringify(clip.source)),
+    ...(clip.speed ? { speed: JSON.parse(JSON.stringify(clip.speed)) } : {}),
+    ...(clip.reverse ? { reverse: true } : {}),
+    ...(Object.keys(audio).length > 0 ? { audio } : {}),
+    ...(clip.colorTag ? { colorTag: clip.colorTag } : {}),
+  };
+  next.timeline.clips.push(detached);
+  clip.audio = { ...(clip.audio ?? {}), muted: true };
+  touch(next);
+  return {
+    project: next,
+    clipId: detached.id,
+    trackId: target.id,
+    createdTrack,
+  };
+}
+
+/**
+ * Closes the empty spaces between clips of one track. The first clip keeps its
+ * start so overlay tracks do not jump to zero; locked tracks are rejected.
+ */
+export function applyAudioPresetToAll(
+  project: ProjectDocument,
+  preset: AudioPresetId,
+): { project: ProjectDocument; applied: number; skipped: number } {
+  const settings = AUDIO_PRESETS.find((item) => item.id === preset)?.settings;
+  if (!settings) return { project, applied: 0, skipped: 0 };
+  let next = project;
+  let applied = 0;
+  let skipped = 0;
+  for (const clip of project.timeline.clips) {
+    if (clip.kind !== 'audio') continue;
+    const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+    if (!track || track.locked) {
+      skipped += 1;
+      continue;
+    }
+    const audio = { ...(clip.audio ?? {}), ...settings };
+    next = updateClip(next, clip.id, { audio });
+    applied += 1;
+  }
+  return { project: next, applied, skipped };
+}
+
+export function applyTransitionToCuts(
+  project: ProjectDocument,
+  options: {
+    type?: ClipTransition['type'];
+    frames?: number;
+    trackIds?: readonly string[];
+  } = {},
+): { project: ProjectDocument; applied: number } {
+  const type = options.type ?? 'dissolve';
+  const frames = Math.max(1, Math.round(options.frames ?? 12));
+  const next = cloneProject(project);
+  let applied = 0;
+  for (const track of next.timeline.tracks) {
+    if (track.locked) continue;
+    if (options.trackIds && !options.trackIds.includes(track.id)) continue;
+    const clips = next.timeline.clips
+      .filter((clip) => clip.trackId === track.id)
+      .sort((a, b) => a.startFrame - b.startFrame);
+    for (let index = 1; index < clips.length; index += 1) {
+      const previous = clips[index - 1]!;
+      const clip = clips[index]!;
+      if (previous.startFrame + previous.durationFrames !== clip.startFrame) continue;
+      if (
+        clip.kind !== 'video' &&
+        clip.kind !== 'image' &&
+        clip.kind !== 'freeze'
+      ) {
+        continue;
+      }
+      if (
+        previous.kind !== 'video' &&
+        previous.kind !== 'image' &&
+        previous.kind !== 'freeze'
+      ) {
+        continue;
+      }
+      const target = clip as Clip & { transitionIn?: ClipTransition };
+      target.transitionIn = {
+        type,
+        frames: Math.min(frames, clip.durationFrames),
+      };
+      applied += 1;
+    }
+  }
+  if (applied === 0) return { project, applied };
+  touch(next);
+  return { project: next, applied };
+}
+
+export function closeGaps(
+  project: ProjectDocument,
+  trackId: string,
+): { project: ProjectDocument; moved: number; removedFrames: number } {
+  const next = cloneProject(project);
+  const track = next.timeline.tracks.find((item) => item.id === trackId);
+  if (!track) {
+    throw new ProjectActionError('la pista no está en el proyecto');
+  }
+  if (track.locked) {
+    throw new ProjectActionError('la pista está bloqueada');
+  }
+  const clips = next.timeline.clips
+    .filter((clip) => clip.trackId === trackId)
+    .sort((a, b) => a.startFrame - b.startFrame || a.id.localeCompare(b.id));
+  if (clips.length < 2) {
+    return { project, moved: 0, removedFrames: 0 };
+  }
+  let cursor = clips[0]!.startFrame;
+  let moved = 0;
+  let removedFrames = 0;
+  for (const clip of clips) {
+    if (clip.startFrame !== cursor) {
+      removedFrames += Math.max(0, clip.startFrame - cursor);
+      clip.startFrame = cursor;
+      moved += 1;
+    }
+    cursor += clip.durationFrames;
+  }
+  if (moved > 0) touch(next);
+  return { project: moved > 0 ? next : project, moved, removedFrames };
+}
+
+/**
+ * Splits every unlocked clip that crosses a marker frame. It turns chapter
+ * markers into editable segments without rippling or changing durations.
+ */
+export function splitClipsAtMarkers(
+  project: ProjectDocument,
+  options: { trackIds?: readonly string[] } = {},
+): { project: ProjectDocument; cuts: number; clips: number; skippedTracks: number } {
+  const frames = [
+    ...new Set(
+      project.markers
+        .map((marker) => marker.frame)
+        .filter((frame) => frame > 0),
+    ),
+  ].sort((a, b) => a - b);
+  if (frames.length === 0) {
+    return { project, cuts: 0, clips: 0, skippedTracks: 0 };
+  }
+  let next = project;
+  let cuts = 0;
+  let clips = 0;
+  const skipped = new Set<string>();
+  const originals = [...project.timeline.clips];
+  for (const clip of originals) {
+    const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+    if (!track) continue;
+    if (options.trackIds && !options.trackIds.includes(track.id)) continue;
+    const inside = frames.filter(
+      (frame) =>
+        frame > clip.startFrame && frame < clip.startFrame + clip.durationFrames,
+    );
+    if (inside.length === 0) continue;
+    if (track.locked) {
+      skipped.add(track.id);
+      continue;
+    }
+    const result = splitClipAtFrames(next, clip.id, inside);
+    if (!result) continue;
+    next = result.project;
+    cuts += Math.max(0, result.clipIds.length - 1);
+    clips += 1;
+  }
+  return {
+    project: next,
+    cuts,
+    clips,
+    skippedTracks: skipped.size,
+  };
+}
+
 export function splitClipAtFrames(
   project: ProjectDocument,
   clipId: string,
@@ -1327,7 +1965,9 @@ export function pasteClip(
       : undefined) ??
     next.timeline.tracks.find((track) => track.id === clip.trackId) ??
     next.timeline.tracks.find((track) => {
-      if (clip.kind === 'video') return track.kind === 'video';
+      if (clip.kind === 'video' || clip.kind === 'freeze') {
+        return track.kind === 'video';
+      }
       if (clip.kind === 'image') return track.kind === 'image';
       if (clip.kind === 'audio') return track.kind === 'audio' || track.kind === 'narration';
       if (clip.kind === 'graphic') return track.kind === 'graphic';
@@ -1407,6 +2047,8 @@ export function updateClip(
     blendMode: BlendMode | undefined;
     animationIn: ClipAnimation | undefined;
     animationOut: ClipAnimation | undefined;
+    colorTag: ClipColorTag | undefined;
+    enabled: boolean;
   }>,
 ): ProjectDocument {
   const next = cloneProject(project);
@@ -1424,6 +2066,15 @@ export function updateClip(
     }
     clip.label = label;
   }
+  if ('colorTag' in patch) {
+    const target = clip as Clip & { colorTag?: ClipColorTag };
+    if (patch.colorTag === undefined) delete target.colorTag;
+    else target.colorTag = patch.colorTag;
+  }
+  if (patch.enabled !== undefined) {
+    if (patch.enabled) delete clip.enabled;
+    else clip.enabled = false;
+  }
   if (patch.transform !== undefined) {
     if (Object.keys(patch.transform).length === 0) {
       delete clip.transform;
@@ -1439,7 +2090,12 @@ export function updateClip(
     }
   }
   if (patch.effects !== undefined) {
-    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'adjustment') {
+    if (
+      clip.kind !== 'video' &&
+      clip.kind !== 'image' &&
+      clip.kind !== 'freeze' &&
+      clip.kind !== 'adjustment'
+    ) {
       throw new ProjectActionError('este tipo de clip no acepta efectos visuales');
     }
     if (Object.keys(patch.effects).length === 0) {
@@ -1449,7 +2105,7 @@ export function updateClip(
     }
   }
   if ('motion' in patch) {
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
       throw new ProjectActionError('este tipo de clip no acepta movimiento');
     }
     if (patch.motion === undefined) {
@@ -1459,7 +2115,7 @@ export function updateClip(
     }
   }
   if ('chromaKey' in patch) {
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
       throw new ProjectActionError('este tipo de clip no acepta chroma key');
     }
     if (patch.chromaKey === undefined) {
@@ -1469,7 +2125,7 @@ export function updateClip(
     }
   }
   if ('transitionIn' in patch && patch.transitionIn !== undefined) {
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
       throw new ProjectActionError('este tipo de clip no acepta transiciones visuales');
     }
     const target = clip as Clip & { transitionIn?: ClipTransition };
@@ -1488,7 +2144,7 @@ export function updateClip(
     else delete target.reverse;
   }
   if ('mask' in patch) {
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
       throw new ProjectActionError('este tipo de clip no acepta máscara');
     }
     const target = clip as Clip & { mask?: ClipMask };
@@ -1499,7 +2155,7 @@ export function updateClip(
     }
   }
   if ('blendMode' in patch) {
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
       throw new ProjectActionError('este tipo de clip no acepta modo de mezcla');
     }
     const target = clip as Clip & { blendMode?: BlendMode };
@@ -1508,7 +2164,7 @@ export function updateClip(
   }
   for (const side of ['animationIn', 'animationOut'] as const) {
     if (!(side in patch)) continue;
-    if (clip.kind !== 'video' && clip.kind !== 'image') {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
       throw new ProjectActionError('este tipo de clip no acepta animaciones');
     }
     const target = clip as Clip & { animationIn?: ClipAnimation; animationOut?: ClipAnimation };
@@ -1767,7 +2423,7 @@ export function setTransformKeyframe(
   if (!clip) {
     throw new ProjectActionError('el clip no está en la timeline');
   }
-  if (clip.kind !== 'video' && clip.kind !== 'image') {
+  if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
     throw new ProjectActionError('este tipo de clip no acepta keyframes de transformación');
   }
   if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
@@ -2165,6 +2821,30 @@ export function updateTrack(
   return next;
 }
 
+export function moveTrack(
+  project: ProjectDocument,
+  trackId: string,
+  direction: 'up' | 'down',
+): ProjectDocument {
+  const next = cloneProject(project);
+  const sorted = [...next.timeline.tracks].sort((a, b) => a.order - b.order);
+  const index = sorted.findIndex((item) => item.id === trackId);
+  if (index < 0) {
+    throw new ProjectActionError('la pista no existe');
+  }
+  const target = direction === 'up' ? index + 1 : index - 1;
+  if (target < 0 || target >= sorted.length) {
+    return project;
+  }
+  const track = sorted[index]!;
+  const neighbour = sorted[target]!;
+  const order = track.order;
+  track.order = neighbour.order;
+  neighbour.order = order;
+  touch(next);
+  return next;
+}
+
 export function deleteTrack(project: ProjectDocument, trackId: string): ProjectDocument {
   const next = cloneProject(project);
   if (next.timeline.clips.some((clip) => clip.trackId === trackId)) {
@@ -2540,7 +3220,17 @@ export function addCaptionCueWindows(
 export function updateCaptionCue(
   project: ProjectDocument,
   cueId: string,
-  patch: Partial<Pick<CaptionCue, 'text' | 'startFrame' | 'endFrame' | 'styleId' | 'animation'>>,
+  patch: Partial<
+    Pick<
+      CaptionCue,
+      | 'text'
+      | 'startFrame'
+      | 'endFrame'
+      | 'styleId'
+      | 'animation'
+      | 'wordReveal'
+    >
+  > & { motion?: CaptionMotion | null },
 ): ProjectDocument {
   const next = cloneProject(project);
   const cue = next.captions.cues.find((item) => item.id === cueId);
@@ -2563,6 +3253,14 @@ export function updateCaptionCue(
   if (patch.animation !== undefined) {
     if (patch.animation === 'none') delete cue.animation;
     else cue.animation = patch.animation;
+  }
+  if (patch.wordReveal !== undefined) {
+    if (patch.wordReveal) cue.wordReveal = true;
+    else delete cue.wordReveal;
+  }
+  if ('motion' in patch) {
+    if (patch.motion) cue.motion = patch.motion as CaptionMotion;
+    else delete cue.motion;
   }
   if (cue.endFrame <= cue.startFrame) {
     throw new ProjectActionError('el subtítulo debe terminar después de empezar');

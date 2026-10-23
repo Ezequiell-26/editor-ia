@@ -14,17 +14,38 @@
       {
         "label": "main",
         "title": "Editor IA",
-        "width": 1360,
-        "height": 820,
-        "minWidth": 1100,
-        "minHeight": 680,
+        "width": 900,
+        "height": 580,
+        "minWidth": 760,
+        "minHeight": 500,
         "resizable": true,
         "fullscreen": false,
+        "maximized": false,
+        "visible": false,
         "center": true,
         "decorations": false,
         "shadow": true,
+        "dragDropEnabled": true,
+        "theme": "Dark",
+        "backgroundColor": "#1a1a1d",
+        "additionalBrowserArgs": "--in-process-gpu"
+      },
+      {
+        "label": "splash",
+        "title": "Editor IA",
+        "url": "splash.html",
+        "width": 680,
+        "height": 380,
+        "resizable": false,
+        "fullscreen": false,
+        "center": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "shadow": true,
         "dragDropEnabled": false,
-        "theme": "Dark"
+        "theme": "Dark",
+        "backgroundColor": "#1a1a1d",
+        "additionalBrowserArgs": "--in-process-gpu"
       }
     ],
     "security": {
@@ -37,18 +58,46 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
+    "resources": {
+      "../../../extensions/editor-ia-downloader": "extension/editor-ia-downloader",
+      "resources/ffmpeg/*": "ffmpeg/",
+      "resources/ffmpeg-dll/avcodec-63.dll": "avcodec-63.dll",
+      "resources/ffmpeg-dll/avdevice-63.dll": "avdevice-63.dll",
+      "resources/ffmpeg-dll/avfilter-12.dll": "avfilter-12.dll",
+      "resources/ffmpeg-dll/avformat-63.dll": "avformat-63.dll",
+      "resources/ffmpeg-dll/avutil-61.dll": "avutil-61.dll",
+      "resources/ffmpeg-dll/swscale-10.dll": "swscale-10.dll",
+      "resources/ffmpeg-dll/swresample-7.dll": "swresample-7.dll",
+      "resources/ffmpeg-dll/LICENSE.txt": "FFMPEG-LICENSE.txt",
+      "resources/tools/*": "tools/",
+      "resources/onnxruntime/onnxruntime.dll": "onnxruntime.dll"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "displayLanguageSelector": false
-      }
+        "displayLanguageSelector": false,
+        "languages": [
+          "Spanish"
+        ],
+        "installerIcon": "icons/icon.ico",
+        "uninstallerIcon": "icons/icon.ico",
+        "headerImage": "installer/header.bmp",
+        "sidebarImage": "installer/sidebar.bmp",
+        "uninstallerHeaderImage": "installer/header.bmp"
+      },
+      "certificateThumbprint": "58204858E163CE7DA173DB8AB09CD9B8359C3954",
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "http://timestamp.digicert.com",
+      "tsp": false
     }
   }
 }

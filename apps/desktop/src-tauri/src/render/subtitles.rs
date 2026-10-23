@@ -79,6 +79,75 @@ fn alignment_and_margin(position: &str, height: u32) -> (u8, i32) {
     }
 }
 
+/// ASS tags for the cue's two motion keyframes. Position is emitted only when
+/// an x/y key exists; scale, rotation and opacity are always overridden so the
+/// two keyframes interpolate together.
+fn caption_motion_tags(
+    cue: &Value,
+    width: u32,
+    height: u32,
+    fps: f64,
+    base_x: f64,
+    base_y: f64,
+) -> Option<String> {
+    let frames = cue.get("motion")?.get("keyframes")?.as_array()?;
+    if frames.len() != 2 {
+        return None;
+    }
+    let from = &frames[0];
+    let to = &frames[1];
+    let read = |value: &Value, key: &str| {
+        value
+            .get(key)
+            .and_then(Value::as_f64)
+            .filter(|number| number.is_finite())
+    };
+    let from_frame = read(from, "frame").unwrap_or(0.0);
+    let to_frame = read(to, "frame").unwrap_or(from_frame);
+    let duration = ((to_frame - from_frame).max(1.0) / fps.max(1.0) * 1000.0)
+        .round()
+        .max(1.0) as u64;
+    let pair = |key: &str, fallback: f64| {
+        let start = read(from, key).unwrap_or(fallback);
+        let end = read(to, key).unwrap_or(start);
+        (start, end)
+    };
+    let has = |key: &str| from.get(key).is_some() || to.get(key).is_some();
+    let (x1, x2) = pair("x", 0.0);
+    let (y1, y2) = pair("y", 0.0);
+    let (scale1, scale2) = pair("scale", 1.0);
+    let (rotation1, rotation2) = pair("rotationDeg", 0.0);
+    let (opacity1, opacity2) = pair("opacity", 1.0);
+    let px = |x: f64| (base_x + x.clamp(-1.0, 1.0) * (width as f64 / 2.0)).clamp(0.0, width as f64);
+    let py =
+        |y: f64| (base_y + y.clamp(-1.0, 1.0) * (height as f64 / 2.0)).clamp(0.0, height as f64);
+    let percent = |scale: f64| scale.clamp(0.2, 4.0) * 100.0;
+    let alpha = |opacity: f64| ((1.0 - opacity.clamp(0.0, 1.0)) * 255.0).round() as u32;
+    let mut tags = String::from("{");
+    if has("x") || has("y") {
+        tags.push_str(&format!(
+            "\\move({:.0},{:.0},{:.0},{:.0},0,{duration})",
+            px(x1),
+            py(y1),
+            px(x2),
+            py(y2)
+        ));
+    }
+    tags.push_str(&format!(
+        "\\fscx{:.2}\\fscy{:.2}\\frz{:.2}\\alpha&H{:02X}&\\t(0,{duration},\\fscx{:.2}\\fscy{:.2}\\frz{:.2}\\alpha&H{:02X}&)",
+        percent(scale1),
+        percent(scale1),
+        rotation1.clamp(-180.0, 180.0),
+        alpha(opacity1).min(255),
+        percent(scale2),
+        percent(scale2),
+        rotation2.clamp(-180.0, 180.0),
+        alpha(opacity2).min(255)
+    ));
+    tags.push('}');
+    Some(tags)
+}
+
 pub struct CaptionInput<'a> {
     pub project: &'a Value,
     pub render_width: u32,
@@ -262,14 +331,40 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             .or_else(|| names.first().map(|(_, name)| name.clone()))
             .unwrap_or_else(|| "Default".to_owned());
         let primary = cue_color(cue);
+        let word_count = cue["words"].as_array().map_or(0, |words| words.len());
+        let reveal = cue["wordReveal"].as_bool().unwrap_or(false) && word_count > 1;
+        let style_position = styles
+            .iter()
+            .find(|item| item["id"].as_str() == Some(style_id))
+            .and_then(|item| item["position"].as_str())
+            .unwrap_or("bottom");
+        let base_y = match style_position {
+            "top" => 80.0,
+            "center" => input.render_height as f64 / 2.0,
+            _ => input.render_height as f64 - 80.0,
+        };
+        let motion_tags = if word_count > 1 {
+            None
+        } else {
+            caption_motion_tags(
+                cue,
+                input.render_width,
+                input.render_height,
+                input.project_fps,
+                input.render_width as f64 / 2.0,
+                base_y,
+            )
+        };
         let depth = depths
             .iter()
             .find(|(id, _)| id == style_id)
             .map(|(_, value)| *value)
             .unwrap_or(0);
-        if depth > 0 {
+        if depth > 0 && !reveal {
             let depth_text = escape_text(cue["text"].as_str().unwrap_or(""));
-            let tags = animation_tags(cue, style_id);
+            let tags = motion_tags
+                .clone()
+                .unwrap_or_else(|| animation_tags(cue, style_id));
             for layer in 1..=depth {
                 push_dialogue(
                     &mut header,
@@ -297,6 +392,39 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             let cue_start = cue["startFrame"].as_u64().unwrap_or(0);
             let cue_end = cue["endFrame"].as_u64().unwrap_or(cue_start + 1);
             let first_start = ordered[0]["startFrame"].as_u64().unwrap_or(cue_start);
+            if reveal {
+                for (index, word) in ordered.iter().enumerate() {
+                    let word_start = word["startFrame"]
+                        .as_u64()
+                        .unwrap_or(cue_start)
+                        .max(cue_start);
+                    let next_start = ordered
+                        .get(index + 1)
+                        .and_then(|next| next["startFrame"].as_u64())
+                        .unwrap_or(cue_end)
+                        .min(cue_end);
+                    let word_end = next_start.max(word_start + 1);
+                    let mut line = String::new();
+                    for (word_index, item) in ordered.iter().take(index + 1).enumerate() {
+                        let token = escape_text(item["text"].as_str().unwrap_or(""));
+                        let color = if word_index == index {
+                            WORD_ACCENT
+                        } else {
+                            primary.as_str()
+                        };
+                        line.push_str(&format!("{{\\c{color}&}}{token}{{\\c{primary}&}} "));
+                    }
+                    let tags = animation_tags(cue, style_id);
+                    push_dialogue(
+                        &mut header,
+                        word_start as f64 / input.project_fps.max(1.0),
+                        word_end as f64 / input.project_fps.max(1.0),
+                        &style,
+                        &format!("{tags}{}", line.trim_end()),
+                    );
+                }
+                continue;
+            }
             if first_start > cue_start {
                 let text = escape_text(cue["text"].as_str().unwrap_or(""));
                 let tags = animation_tags(cue, style_id);
@@ -340,7 +468,9 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             continue;
         }
         let text = escape_text(cue["text"].as_str().unwrap_or(""));
-        let tags = animation_tags(cue, style_id);
+        let tags = motion_tags
+            .clone()
+            .unwrap_or_else(|| animation_tags(cue, style_id));
         push_dialogue(&mut header, start, end, &style, &format!("{tags}{text}"));
     }
 
@@ -490,6 +620,59 @@ mod tests {
         });
         assert!(ass.contains(r"\c&H00D4EA5E&"));
         assert!(ass.matches("Dialogue:").count() >= 3);
+    }
+
+    #[test]
+    fn word_reveal_emits_incremental_events() {
+        let mut value = project();
+        value["captions"]["cues"][0]["words"] = serde_json::json!([
+            { "text": "Hola", "startFrame": 0, "endFrame": 10 },
+            { "text": "mundo", "startFrame": 10, "endFrame": 20 },
+            { "text": "nuevo", "startFrame": 20, "endFrame": 30 }
+        ]);
+        value["captions"]["cues"][0]["wordReveal"] = serde_json::json!(true);
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        let dialogues: Vec<&str> = ass
+            .lines()
+            .filter(|line| line.starts_with("Dialogue:"))
+            .collect();
+        assert_eq!(dialogues.len(), 3);
+        assert!(dialogues[0].contains("Hola"));
+        assert!(!dialogues[0].contains("mundo"));
+        assert!(dialogues[1].contains("mundo"));
+        assert!(!dialogues[1].contains("nuevo"));
+        assert!(dialogues[2].contains("nuevo"));
+    }
+
+    #[test]
+    fn caption_motion_emits_move_scale_rotation_and_alpha() {
+        let mut value = project();
+        value["captions"]["cues"][0]["motion"] = serde_json::json!({
+            "preset": "slide-left",
+            "keyframes": [
+                { "frame": 0, "x": -0.8, "scale": 0.8, "rotationDeg": -8, "opacity": 0 },
+                { "frame": 30, "x": 0, "scale": 1, "rotationDeg": 0, "opacity": 1 }
+            ]
+        });
+        let ass = build_ass(CaptionInput {
+            project: &value,
+            render_width: 1920,
+            render_height: 1080,
+            project_width: 1920,
+            project_fps: 30.0,
+        });
+        assert!(ass.contains("\\move("));
+        assert!(ass.contains("\\fscx80.00"));
+        assert!(ass.contains("\\frz-8.00"));
+        assert!(ass.contains("\\alpha&HFF&"));
+        assert!(ass.contains("\\t(0,"));
+        assert_eq!(ass.matches("\\move(").count(), 1);
     }
 
     #[test]

@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
+import { NAV_VIEWS } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { PandaGuide } from '../../components/PandaGuide';
 import { useProjectStore } from '../../state/project-store';
-
-const PROGRESS_KEY = 'editor-ia.learn-progress.v1';
+import {
+  LEARNING_UPDATED_EVENT,
+  loadLearningState,
+  setSectionCompleted,
+  type LearningState,
+} from '../../state/learning-progress';
 
 interface LearnSection {
   readonly id: string;
@@ -105,18 +111,20 @@ const SECTIONS: readonly LearnSection[] = [
     eyebrow: '06 · Director',
     title: 'Cortes inteligentes y medidos',
     body: 'Analiza silencios, escenas, negros, freezes, ruido y loudness con FFmpeg. Detecta tomas repetidas por texto, quita muletillas no léxicas, limpia la voz, normaliza a -14 LUFS y arma subtítulos. Todo queda como clips normales y se puede deshacer.',
-    tips: ['La memoria local aprende de los cambios que conservás; no es una red neuronal.'],
+    tips: ['La app registra las herramientas que usás para ordenar esta guía.'],
     action: { label: 'Abrir Director', view: 'director' },
   },
   {
     id: 'editor',
     eyebrow: '07 · Editor',
     title: 'Edición manual completa',
-    body: 'Medios a la izquierda, Inspector al centro con pestañas Video/Audio/Velocidad/Animación/Color/Estilo/Todo, preview a la derecha y timeline abajo. Timeline por frames con varias pistas: mover, recortar, dividir, copiar/pegar y ripple, velocidad y rampa de 3 tramos, reverse, freeze frame, proxies de preview, máscaras rectangulares/elípticas con rotación y keyframes, 9 modos de mezcla, igualar color, efectos de color con ruedas sombras/medios/luces, HSL selectivo, LUT .cube, fades, keyframes de escala/posición/rotación/opacidad/volumen con curvas, disolvencias, animaciones de entrada/salida por clip (fundido y deslizamiento), biblioteca de títulos con plantillas, estilos y animaciones, Ken Burns, chroma key, audio con EQ/compresor/denoise/efectos de voz, subtítulos por palabra, importación/exportación SRT/VTT y ducking de música.',
+    body: 'Medios a la izquierda, Inspector al centro con pestañas Video/Audio/Velocidad/Animación/Color/Estilo/Todo, preview a la derecha y timeline abajo. Timeline por frames con varias pistas: mover, recortar, dividir, copiar/pegar y ripple, velocidad y rampa de 3 tramos, reverse, freeze frame, proxies de preview, máscaras rectangulares/elípticas con rotación y keyframes, 9 modos de mezcla, igualar color, efectos de color con ruedas sombras/medios/luces, HSL selectivo, LUT .cube con intensidad, scopes de onda/vectorscopio/histograma, fades, keyframes de escala/posición/rotación/opacidad/volumen con curvas, disolvencias, animaciones de entrada/salida por clip (fundido y deslizamiento), biblioteca de títulos con plantillas, estilos y animaciones, Ken Burns, chroma key, audio con EQ/compresor/denoise/efectos de voz, subtítulos por palabra, importación/exportación SRT/VTT y ducking de música.',
     tips: [
       'S divide el clip en el cabezal; Ctrl+D duplica y clic derecho abre más acciones.',
+      'H activa la mano para mover la timeline; Ctrl+rueda acerca y Shift+rueda desplaza.',
       'El Look del proyecto (Proyecto → Look del proyecto) aplica color y LUT global sin tocar los clips.',
-      'Las guías de composición se activan arriba de la preview.',
+      'Las guías y los scopes se activan arriba de la preview; los scopes muestrean el clip visual activo.',
+      'Los capítulos avisan si no cumplen el mínimo de YouTube: tres cortes y 10 s entre inicios.',
     ],
     action: { label: 'Abrir Editor', view: 'editor' },
   },
@@ -140,15 +148,27 @@ const SECTIONS: readonly LearnSection[] = [
     action: { label: 'Exportar desde el editor', view: 'editor' },
   },
   {
+    id: 'download',
+    eyebrow: '10 · Descargar',
+    title: 'Videos y fotos de la web',
+    body: 'La vista Descargar usa yt-dlp para bajar videos, audio, fotos y carruseles públicos hasta 8K. Acepta enlaces completos, dominios sin https y texto compartido. Analiza el enlace, muestra las calidades reales y permite recomprimir con FFmpeg (H.265/H.264). Toda descarga queda en Descargas/Videos descargados/<Plataforma>/<Nombre del video>; con proyecto abierto además se importa a Medios. Podés elegir Mejor, Mínima o una altura concreta.',
+    tips: [
+      'Confirmá derechos antes de descargar; no se evade DRM, login, captcha ni contenido privado.',
+      'La compresión es local y sólo conserva el archivo nuevo si queda más chico.',
+      'Los carruseles se limitan a 12 elementos; pegá la URL de un post individual.',
+    ],
+    action: { label: 'Abrir Descargar', view: 'download' },
+  },
+  {
     id: 'convert',
-    eyebrow: '10 · Convertir',
+    eyebrow: '11 · Convertir',
     title: 'Imagen, video y audio',
     body: 'Convertí assets listos a PNG, JPEG, WebP, MP4, WebM, MOV, GIF, MP3 o WAV, con calidad y ancho máximo. La salida se verifica con FFprobe y nunca sobrescribe el original.',
     action: { label: 'Abrir Convertir', view: 'convert' },
   },
   {
     id: 'mcp',
-    eyebrow: '11 · MCP',
+    eyebrow: '12 · MCP',
     title: 'Conectá herramientas locales',
     body: 'Agregá un servidor MCP por stdio con comando y argumentos. Editor IA guarda los nombres de las variables y sus valores en el Administrador de credenciales de Windows. Probá el handshake, mirá las herramientas y ejecutalas con JSON.',
     tips: ['Nada se ejecuta al guardar; sólo al pulsar Probar o Ejecutar.'],
@@ -156,7 +176,7 @@ const SECTIONS: readonly LearnSection[] = [
   },
   {
     id: 'shortcuts',
-    eyebrow: '12 · Ayuda',
+    eyebrow: '13 · Ayuda',
     title: 'Atajos y límites',
     body: 'Ctrl+O abre, Ctrl+S guarda, Ctrl+E exporta, Ctrl+D duplica, S divide, Espacio reproduce y F11 va a pantalla completa. La app no publica en redes, no descarga stock sin procedencia y no entrena modelos con tus datos.',
     tips: [
@@ -166,30 +186,19 @@ const SECTIONS: readonly LearnSection[] = [
   },
 ];
 
-function loadDone(): Set<string> {
-  try {
-    const raw = window.localStorage.getItem(PROGRESS_KEY);
-    const parsed: unknown = raw ? JSON.parse(raw) : [];
-    return new Set(Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []);
-  } catch {
-    return new Set();
-  }
-}
-
 export function LearnView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
-  const [done, setDone] = useState<Set<string>>(loadDone);
+  const [learning, setLearning] = useState<LearningState>(loadLearningState);
   const [query, setQuery] = useState('');
   const project = store.state.project;
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(PROGRESS_KEY, JSON.stringify([...done]));
-    } catch {
-      // Progress is a convenience; the guide still works without storage.
-    }
-  }, [done]);
+    const sync = (): void => setLearning(loadLearningState());
+    window.addEventListener(LEARNING_UPDATED_EVENT, sync);
+    return () => window.removeEventListener(LEARNING_UPDATED_EVENT, sync);
+  }, []);
 
+  const done = new Set(learning.completed);
   const visible = SECTIONS.filter((section) => {
     if (!query.trim()) return true;
     const haystack = `${section.title} ${section.body} ${section.tips?.join(' ') ?? ''}`.toLowerCase();
@@ -197,14 +206,17 @@ export function LearnView({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
   });
   const completed = SECTIONS.filter((section) => done.has(section.id)).length;
   const percent = Math.round((completed / SECTIONS.length) * 100);
+  const lastView = learning.lastView
+    ? NAV_VIEWS.find((view) => view.id === learning.lastView)
+    : null;
+  const nextSection = SECTIONS.find((section) => !done.has(section.id));
+  const pandaMessage = lastView ? `Ya viste ${lastView.label}.` : 'Hola, soy Pando.';
+  const pandaDetail = nextSection
+    ? `Seguimos con ${nextSection.title}.`
+    : 'Ya recorriste todos los temas.';
 
   function toggle(id: string, checked: boolean): void {
-    setDone((current) => {
-      const next = new Set(current);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+    setLearning(setSectionCompleted(id, checked));
   }
 
   return (
@@ -220,18 +232,33 @@ export function LearnView({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
         </div>
         <div className="learn-progress" aria-label={`Progreso ${percent}%`}>
           <div
-            className="learn-progress-ring"
-            style={{
-              background: `conic-gradient(var(--color-accent) ${percent}%, var(--color-panel-3) 0)`,
-            }}
+            className="learn-progress-track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
           >
-            <strong>{percent}%</strong>
-            <span>aprendido</span>
+            <span style={{ width: `${percent}%` }} />
           </div>
           <span className="fine-print">
-            {completed} de {SECTIONS.length} temas
+            {percent}% · {completed} de {SECTIONS.length} temas
           </span>
         </div>
+      </div>
+
+      <div className="learn-guide">
+        <PandaGuide message={pandaMessage} detail={pandaDetail} compact />
+        {nextSection?.action ? (
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={`Continuar con ${nextSection.title}`}
+            title={`Continuar con ${nextSection.title}`}
+            onClick={() => onNavigate(nextSection.action!.view)}
+          >
+            <Icon name="play" size={16} />
+          </button>
+        ) : null}
       </div>
 
       {!project ? (
