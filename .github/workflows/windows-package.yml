@@ -44,14 +44,17 @@ jobs:
       - name: Instala las dependencias del lockfile
         run: npm ci
 
+      - name: Prepara FFmpeg dev y libclang para video-rs
+        run: bash scripts/ci-ffmpeg-dev.sh
+
       - name: Verifica antes de empaquetar
         run: npm run verify
 
       - name: Formato de Rust
         run: node scripts/rust-env.mjs -- cargo fmt --all -- --check
 
-      - name: Construye el instalador NSIS
-        run: node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build
+      - name: Construye el instalador NSIS sin firma
+        run: node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --no-sign
 
       - name: Comprueba que el instalador existe y no esta vacio
         run: |

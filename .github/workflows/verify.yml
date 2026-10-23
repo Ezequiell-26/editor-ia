@@ -48,6 +48,9 @@ jobs:
       - name: Aplica el toolchain que fija rust-toolchain.toml
         run: rustup show
 
+      - name: Prepara FFmpeg dev y libclang para video-rs
+        run: bash scripts/ci-ffmpeg-dev.sh
+
       - name: Typecheck estricto y toda la suite
         run: npm run verify
 

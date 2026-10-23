@@ -2220,9 +2220,12 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   sondear, vuelve al tamaño del lienzo. El badge del monitor informa si el
   frame salió de `video-rs` o de FFmpeg.
 - **Medición real**: un MP4 `testsrc2` de **640×360** dentro de un proyecto
-  **320×180** produjo un PNG de **640×360** con `decoder=video-rs` (test live
-  `live_native_frame_uses_video_rs_at_source_size`). El preview de lienzo sigue
-  saliendo 320×180 con `decoder=ffmpeg`.
+  **320×180** produjo un PNG de **640×360** con `decoder=video-rs`; el mismo
+  archivo con `-display_rotation 90` salió **360×640** con `decoder=ffmpeg`
+  (autorrotación). El preview de lienzo sigue saliendo 320×180 con
+  `decoder=ffmpeg`. Tests live
+  `live_native_frame_uses_video_rs_at_source_size` y
+  `live_native_frame_honours_display_rotation`.
 - **Requisitos de compilación**: FFmpeg **9.0 shared LGPL** de desarrollo
   (`include/`, `lib/avcodec.lib`, `bin/avcodec-63.dll`) y `libclang.dll` para
   bindgen. `scripts/rust-env.mjs` detecta el build en
@@ -2234,7 +2237,14 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   instalación, junto al `.exe`; `FFMPEG-LICENSE.txt` queda al lado. Son ~150 MB
   sin comprimir, así que el instalador crece respecto del build anterior. El
   `ffmpeg.exe` estático que renderiza sigue siendo un proceso separado.
-- **Pruebas**: Rust **231 passed, 0 failed, 12 ignored**; frontend **869/869**
+- **Instalador verificado (2026-10-23)**: `Editor IA_0.1.0_x64-setup.exe`,
+  **180,66 MiB** (189.436.896 bytes), SHA-256
+  `AB716BBC67781F354EA0B20269C9C700E32BCAE417FA0E213961BCE4A044FFD5`,
+  firma Authenticode válida. Instalado en
+  `C:\Users\ofici\AppData\Local\Editor IA`; la app arrancó y el proceso cargó
+  las **siete DLLs desde esa carpeta** (verificado con la tabla de módulos). El
+  ejecutable y `avcodec-63.dll` verifican con `signtool /pa`.
+- **Pruebas**: Rust **232 passed, 0 failed, 13 ignored**; frontend **869/869**
   en 98 archivos; typecheck limpio. El test de lib necesita el manifiesto de
   comctl32 v6: `rust-env` marca `EDITOR_IA_TEST_BUILD=1` y `build.rs` enlaza
   `resource.lib` sólo en esa corrida; el target de test del bin está desactivado
