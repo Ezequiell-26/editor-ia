@@ -272,6 +272,45 @@ describe('shell de Editor IA', () => {
     ).toBe(false);
   });
 
+  it('dobla un video traducido y lo importa al proyecto', async () => {
+    const service = renderApp();
+    await createProject('Doblaje');
+    nav('Medios');
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toMatch(/Confirmo que tengo derechos/i),
+    );
+    const assets = screen.getByRole('main');
+    fireEvent.click(within(assets).getByRole('checkbox'));
+    fireEvent.click(within(assets).getByRole('button', { name: /Importar medios/i }));
+    await waitFor(() => expect(within(screen.getByRole('main')).getByText(/Toma de prueba/)).toBeTruthy());
+
+    nav('Localización');
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('Un video, ocho idiomas'));
+    fireEvent.click(within(main).getByRole('button', { name: /Elegir subtítulos originales/i }));
+    await waitFor(() => expect(main.textContent).toContain('demo.srt'));
+    fireEvent.click(within(main).getByRole('button', { name: /Traducir a 1/i }));
+    await waitFor(() => expect(main.textContent).toContain('EN: Hola subtítulo'));
+    fireEvent.click(within(main).getByRole('button', { name: /Doblar video/i }));
+    await waitFor(() =>
+      expect(within(screen.getByRole('main')).getByRole('button', { name: /Importar al proyecto/i })).toBeTruthy(),
+    );
+    const importsBefore = service.calls.import;
+    fireEvent.click(
+      within(screen.getByRole('main')).getByRole('button', { name: /Importar al proyecto/i }),
+    );
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole('main')).getByRole('button', { name: /Importado al proyecto/i }),
+      ).toBeTruthy(),
+    );
+    expect(service.calls.import).toBe(importsBefore + 1);
+    fireEvent.click(within(screen.getByRole('main')).getByRole('button', { name: /Ver en Medios/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('Importar medios'),
+    );
+  });
+
   it('abre AI Hub y compone una skill con presupuesto de tokens', async () => {
     renderApp();
     await createProject('AI Hub');

@@ -3936,12 +3936,21 @@
   background: color-mix(in srgb, var(--color-accent) 5%, transparent);
 }
 
+.localization-dub-summary {
+  display: grid;
+  gap: 4px;
+}
+
 .localization-dub-result .compress-numbers,
 .localization-dub-result .compress-path {
   margin: 0;
 }
 
-.localization-dub-result > button {
+.localization-dub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
   justify-self: start;
 }
 

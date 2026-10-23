@@ -614,6 +614,8 @@ leé siempre la política oficial enlazada.
 - La tarjeta **Doblaje local** ya está en esta vista: elegí un video, un idioma
   traducido y una voz SAPI; opcionalmente conservá una cama con el audio
   original. La app sintetiza cada cue, ajusta la duración y reemplaza el audio.
+  Al terminar podés **Importar al proyecto**: el MP4 queda en **Medios** listo
+  para la timeline, o usá **Mostrar en carpeta** para abrirlo fuera de la app.
   Depende de que Windows tenga una voz instalada para ese idioma (en esta
   máquina hay español `es-MX` e inglés `en-US`). La detección del idioma de
   origen es una sugerencia al modelo, no un detector local.

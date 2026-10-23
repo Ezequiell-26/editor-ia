@@ -166,13 +166,15 @@ quedan en tu equipo; la nube no es obligatoria.
   timeline”; la barra de timeline se compacta a iconos en ventanas angostas. La
   biblioteca también tiene búsqueda y filtro, y el estado de guardado se muestra
   compacto con punto de fase.
-- **Ajustes en dos paneles**: una barra lateral fija con Apariencia, Editor, IA,
-  Voz y audio, Atajos, Herramientas, Datos locales y Alcance; cada sección tiene
-  título, explicación y contenido agrupado. La navegación interna desplaza sólo
-  el panel de contenido, sin mover la barra superior. **Editor** controla
-  autoguardado, historial, zoom inicial, imán, paso de las flechas, capas de la
-  timeline, bucle y guías; **Datos locales** incluye el respaldo de la
-  configuración en un JSON y su restauración.
+- **Ajustes como ventana aparte**: al entrar a Configuración se abre una ventana
+  flotante de 940×660 (arrastrable desde su barra, se cierra con Esc o con la X)
+  sobre la vista actual, que no se pierde. Adentro está el panel en dos columnas
+  con Apariencia, Editor, IA, Voz y audio, Atajos, Herramientas, Datos locales y
+  Alcance. No es una segunda ventana nativa: se dibuja dentro del WebView, así
+  que no suma un proceso ni RAM. **Editor** controla autoguardado, historial,
+  zoom inicial, imán, paso de las flechas, capas de la timeline, bucle y guías;
+  **Datos locales** incluye el respaldo de la configuración en un JSON y su
+  restauración.
 - **Color medido y capítulos listos**: LUT `.cube` por clip, por capa de ajuste
   y look global, con **intensidad 0–100 %** mezclada en FFmpeg sin tocar máscaras
   ni opacidad. La preview suma **scopes** de onda de luminancia, vectorscopio de
@@ -846,6 +848,11 @@ fuente vigente es el addendum de la matriz.
   **1,14 MB**, motor XTTS y ruta del WAV; no se probó contra un motor real.
 - **Pruebas:** **860 tests/96 archivos** raíz, Rust **215 passed, 0 failed, 7
   ignored**; typecheck, build y fmt verdes. `LocalizationView` **27,69 kB**.
+- **Importación al proyecto (2026-10-23)**: el resultado ofrece **Importar al
+  proyecto**; llama a `import_media_paths` con `windows-sapi-dub`, agrega el MP4
+  como asset listo y **Ver en Medios** navega a la biblioteca. El test real de
+  SAPI pasó con `Microsoft Zira Desktop` (5 s, 2 cues, cama 0.15) y el flujo de
+  interfaz quedó cubierto con el servicio simulado.
 - **Límite**: la QA usó el servicio simulado; SAPI real se validó por backend y
   clonación real depende del motor externo. Sin lip-sync, multi-voz por cue ni
   edición del WAV.
