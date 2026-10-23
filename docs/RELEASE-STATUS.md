@@ -6,18 +6,20 @@ cada bloque; no reemplaza al [roadmap](ROADMAP.md) ni al README.
 ## Referencias
 
 - `main`: **`058ffe7`** — CI de recursos corregido y verde.
-- Rama de trabajo: **`feat/dubbing-import`** (`8841a5f`), publicada en
+- Rama de trabajo: **`feat/dubbing-import`** (`f372e59`), publicada en
   `origin`. El PR no se pudo abrir con la herramienta GitHub MCP
   (`create_pull_request` devuelve un error de esquema de salida); URL de
   creación: https://github.com/Ezequiell-26/editor-ia/pull/new/feat/dubbing-import
+  El workflow `verify` de la rama se disparó por `workflow_dispatch`:
+  https://github.com/Ezequiell-26/editor-ia/actions/runs/40015435883
 - CI verde de `main`: https://github.com/Ezequiell-26/editor-ia/actions/runs/40011992590
 - Entorno local: Windows, Ryzen 5 4600G, 14 GB, sin GPU dedicada.
 
 ## Clasificación
 
 - **CI de `main`: LISTO** (run 40011992590, 15/15 pasos verdes).
-- **Cambio de doblaje: NO VERIFICADO EN CI** (rama publicada, pruebas locales
-  verdes; falta abrir/mergear el PR y correr su CI).
+- **Cambio de doblaje: CI DE RAMA EN CURSO** (pruebas locales verdes y
+  `workflow_dispatch` encolado; falta el resultado y el PR).
 - **Distribución comercial: PENDIENTE EXTERNO** (firma confiable y decisión
   legal de LGPL; monetización y cuentas no configuradas).
 - **Funciones fuera del alcance de esta beta**: importación EDL/OTIO/FCPXML,
@@ -51,8 +53,14 @@ cada bloque; no reemplaza al [roadmap](ROADMAP.md) ni al README.
 - Instalador `main` anterior: **180,66 MiB**, firmado, instalado; la app cargó
   las siete DLLs LGPL desde su carpeta. Este artefacto precede al cambio de
   doblaje.
-- Instalador de la rama de doblaje: **en construcción**; al terminar se agregan
-  tamaño, hash y prueba de instalación.
+- Instalador QA de la rama de doblaje: **184,00 MiB** (192.938.688 bytes),
+  SHA-256 `F563A18EB8D02B17F776C673692DAEA523A78507768DC7C09E9399813D41C05B`,
+  firma Authenticode válida. Contiene el `.exe`, las siete DLLs, `ffmpeg.exe`/
+  `ffprobe.exe` **9.0.2**, `yt-dlp` **2026.10.21**, `onnxruntime.dll` **1.22**,
+  la extensión y el aviso `FFMPEG-LICENSE.txt`. Instalado con el instalador
+  silencioso: la app arrancó y cargó las siete DLLs desde
+  `C:\Users\ofici\AppData\Local\Editor IA`. La firma del `.exe` instalado
+  también verifica.
 
 ### Seguridad y licencias
 
@@ -73,26 +81,24 @@ cada bloque; no reemplaza al [roadmap](ROADMAP.md) ni al README.
 ## Bloqueos y pendientes
 
 1. **PR de la rama de doblaje**: abrir con la URL anterior o corregir la
-   herramienta GitHub MCP; su CI aún no se ejecutó.
-2. **Instalador de la rama**: verificar instalación limpia, inicio, recursos,
-   hash y firma; no se declara hasta medirlo.
-3. **Firma confiable**: la actual es autofirmada y sólo confía localmente.
+   herramienta GitHub MCP; el CI de la rama está corriendo por dispatch.
+2. **Firma confiable**: la actual es autofirmada y sólo confía localmente.
    SignPath o Microsoft Store son las vías gratuitas a evaluar; requieren cuenta
    y decisión del titular.
-4. **Política LGPL**: `video-rs` enlaza dinámicamente FFmpeg LGPL. El ROADMAP
+3. **Política LGPL**: `video-rs` enlaza dinámicamente FFmpeg LGPL. El ROADMAP
    dice “sólo MIT/Apache/BSD/Unlicense enlazadas”; esta integración es una
    excepción que necesita revisión legal antes de vender. Se distribuyen las
    DLLs sin modificar y con aviso, pero la política del proyecto debe
    actualizarse o la función debe desactivarse en la edición comercial.
-5. **Monetización**: no hay proveedor de pagos, licencias ni cuentas
+4. **Monetización**: no hay proveedor de pagos, licencias ni cuentas
    configuradas. No se implementó nada ficticio. Decisión externa pendiente.
-6. **Auditoría Rust**: instalar `cargo-audit` o ejecutar un escaneo equivalente
+5. **Auditoría Rust**: instalar `cargo-audit` o ejecutar un escaneo equivalente
    antes de la release.
-7. **Dependencias de desarrollo**: actualizar Vite/Vitest para cerrar los
+6. **Dependencias de desarrollo**: actualizar Vite/Vitest para cerrar los
    avisos de auditoría sin rebajar pruebas.
 
 ## Próximo paso
 
-Con el CI de `main` verde: terminar el instalador de la rama, instalarlo y
-verificar el arranque y los recursos; abrir el PR; después resolver la decisión
-legal de LGPL y la firma confiable antes de hablar de venta.
+Esperar el CI de la rama y abrir el PR. Con el instalador QA verificado, quedan
+la revisión legal de LGPL, la firma confiable y la decisión de monetización
+antes de hablar de venta.
