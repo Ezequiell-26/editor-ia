@@ -10,16 +10,17 @@ cada bloque; no reemplaza al [roadmap](ROADMAP.md) ni al README.
   `origin`. El PR no se pudo abrir con la herramienta GitHub MCP
   (`create_pull_request` devuelve un error de esquema de salida); URL de
   creación: https://github.com/Ezequiell-26/editor-ia/pull/new/feat/dubbing-import
-  El workflow `verify` de la rama se disparó por `workflow_dispatch`:
-  https://github.com/Ezequiell-26/editor-ia/actions/runs/40015435883
+  El workflow `verify` de la rama se disparó por `workflow_dispatch` y quedó
+  verde: https://github.com/Ezequiell-26/editor-ia/actions/runs/40015435883
+  (commit `f372e59`; `5ee1ff9` sólo agrega documentación).
 - CI verde de `main`: https://github.com/Ezequiell-26/editor-ia/actions/runs/40011992590
 - Entorno local: Windows, Ryzen 5 4600G, 14 GB, sin GPU dedicada.
 
 ## Clasificación
 
 - **CI de `main`: LISTO** (run 40011992590, 15/15 pasos verdes).
-- **Cambio de doblaje: CI DE RAMA EN CURSO** (pruebas locales verdes y
-  `workflow_dispatch` encolado; falta el resultado y el PR).
+- **Cambio de doblaje: LISTO** (pruebas locales y CI de rama verdes; falta
+  abrir el PR, que es una limitación de la herramienta GitHub MCP).
 - **Distribución comercial: PENDIENTE EXTERNO** (firma confiable y decisión
   legal de LGPL; monetización y cuentas no configuradas).
 - **Funciones fuera del alcance de esta beta**: importación EDL/OTIO/FCPXML,
@@ -97,8 +98,19 @@ cada bloque; no reemplaza al [roadmap](ROADMAP.md) ni al README.
 6. **Dependencias de desarrollo**: actualizar Vite/Vitest para cerrar los
    avisos de auditoría sin rebajar pruebas.
 
+## Clasificación final de esta pasada
+
+- **LISTO**: CI de `main` y de la rama, typecheck, Vitest, Playwright, Rust,
+  render real, doblaje SAPI e instalador QA instalado y abierto.
+- **PENDIENTE EXTERNO**: abrir el PR (la herramienta GitHub MCP falla al
+  crearlo), firma confiable, revisión legal LGPL y fuente/oferta GPL,
+  monetización y cuentas.
+- **NO VERIFICADO**: `cargo audit`, instalación en una segunda máquina limpia y
+  el flujo de pago real.
+- **BLOQUEADO**: ninguno técnico para la beta local.
+
 ## Próximo paso
 
-Esperar el CI de la rama y abrir el PR. Con el instalador QA verificado, quedan
-la revisión legal de LGPL, la firma confiable y la decisión de monetización
-antes de hablar de venta.
+Abrir el PR de la rama (o mergearla) y resolver la revisión legal de LGPL y la
+firma confiable; después, la decisión de monetización. El producto no se declara
+“listo para vender” hasta cerrar esos puntos externos.
