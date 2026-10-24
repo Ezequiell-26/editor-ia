@@ -15,6 +15,7 @@ use crate::commands::system::resolve_tools;
 use crate::media::resolve_inside_root;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{self, build_plan, parse_profile, BuildPlanInput};
+use crate::render::motion::{build_motion_ass, has_visible_graphic_clips, MotionAssInput};
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize)]
@@ -216,6 +217,7 @@ pub async fn render_project_variant(
     profile_id: String,
     output_path: String,
     include_captions: bool,
+    motion_plans: Option<Value>,
 ) -> Result<VariantRendered, ProjectError> {
     let settings = state.settings_snapshot()?;
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
@@ -271,6 +273,33 @@ pub async fn render_project_variant(
     // Short social variants can legitimately compress below the conservative
     // delivery floor; keep a real anti-empty-render check.
     profile.min_output_bytes = profile.min_output_bytes.min(50_000);
+    let project_width = project["video"]["width"].as_u64().unwrap_or(1920) as u32;
+    let project_height = project["video"]["height"].as_u64().unwrap_or(1080) as u32;
+    let project_fps = project["video"]["frameRate"]["num"].as_u64().unwrap_or(30) as f64
+        / project["video"]["frameRate"]["den"]
+            .as_u64()
+            .unwrap_or(1)
+            .max(1) as f64;
+    let motion_ass = match motion_plans {
+        Some(plans) => build_motion_ass(MotionAssInput {
+            project: &project,
+            plans: &plans,
+            render_width: profile.width,
+            render_height: profile.height,
+            project_width,
+            project_height,
+            project_fps,
+        })?,
+        None => {
+            if has_visible_graphic_clips(&project) {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "la variante tiene clips gráficos sin plan de motion; volvé a generarla",
+                ));
+            }
+            String::new()
+        }
+    };
     let mut final_output = PathBuf::from(output_path.trim());
     if final_output.as_os_str().is_empty() {
         return Err(ProjectError::message(
@@ -321,6 +350,11 @@ pub async fn render_project_variant(
         include_captions,
         temp_dir: &temp_dir,
         ffprobe: &ffprobe,
+        motion_ass: if motion_ass.is_empty() {
+            None
+        } else {
+            Some(motion_ass.as_str())
+        },
     }) {
         Ok(plan) => plan,
         Err(error) => {

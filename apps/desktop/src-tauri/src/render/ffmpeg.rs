@@ -40,6 +40,38 @@ pub struct Profile {
     pub audio_channels: u32,
     pub min_output_bytes: u64,
     pub duration_tolerance_frames: u32,
+    pub hardware_encoder: Option<String>,
+}
+
+const HARDWARE_H264: [&str; 3] = ["h264_amf", "h264_nvenc", "h264_qsv"];
+const HARDWARE_HEVC: [&str; 3] = ["hevc_amf", "hevc_nvenc", "hevc_qsv"];
+
+fn validate_hardware_encoder(
+    video_codec: &str,
+    encoder: &str,
+    width: u32,
+    height: u32,
+) -> Result<(), ProjectError> {
+    let supported = if video_codec == "h265" {
+        HARDWARE_HEVC.contains(&encoder)
+    } else {
+        HARDWARE_H264.contains(&encoder)
+    };
+    if !supported {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el encoder de hardware no coincide con el códec del perfil",
+        ));
+    }
+    // Los encoders de hardware tienen límites más chicos que libx264/libx265.
+    let max_side = if video_codec == "h265" { 8192 } else { 4096 };
+    if width > max_side || height > max_side {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "ese encoder de hardware no admite esta resolución; exportá con software",
+        ));
+    }
+    Ok(())
 }
 
 impl Profile {
@@ -171,6 +203,10 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
             "el perfil pide un encuadre desconocido",
         ));
     }
+    let hardware_encoder = text(value, "hardwareEncoder").map(str::to_owned);
+    if let Some(encoder) = hardware_encoder.as_deref() {
+        validate_hardware_encoder(&video_codec, encoder, width as u32, height as u32)?;
+    }
     Ok(Profile {
         id: text(value, "id").unwrap_or_default().to_owned(),
         name: text(value, "name").unwrap_or("Render").to_owned(),
@@ -197,7 +233,42 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
         duration_tolerance_frames: value["qualityGate"]["durationToleranceFrames"]
             .as_u64()
             .unwrap_or(10) as u32,
+        hardware_encoder,
     })
+}
+
+fn hardware_encoder_args(profile: &Profile) -> Option<Vec<String>> {
+    let encoder = profile.hardware_encoder.as_deref()?;
+    let quality = profile.crf.unwrap_or(20).clamp(0, 51).to_string();
+    let mut args = vec!["-c:v".to_owned(), encoder.to_owned()];
+    if let Some(bps) = profile.target_bps {
+        args.extend(["-b:v".to_owned(), bps.to_string()]);
+    } else if encoder.ends_with("_amf") {
+        args.extend([
+            "-rc".to_owned(),
+            "cqp".to_owned(),
+            "-qp_i".to_owned(),
+            quality.clone(),
+            "-qp_p".to_owned(),
+            quality,
+            "-quality".to_owned(),
+            "quality".to_owned(),
+        ]);
+    } else if encoder.ends_with("_nvenc") {
+        args.extend([
+            "-rc".to_owned(),
+            "vbr".to_owned(),
+            "-cq".to_owned(),
+            quality,
+            "-b:v".to_owned(),
+            "0".to_owned(),
+            "-preset".to_owned(),
+            "p5".to_owned(),
+        ]);
+    } else if encoder.ends_with("_qsv") {
+        args.extend(["-global_quality".to_owned(), quality]);
+    }
+    Some(args)
 }
 
 fn seconds(value: f64) -> String {
@@ -1635,6 +1706,7 @@ fn audio_filter(
     reverse: bool,
     speed_num: u32,
     speed_den: u32,
+    track_gain_db: f64,
 ) -> String {
     let lead = lead_seconds.max(0.0);
     let gain_db = number(audio, "gainDb").unwrap_or(0.0).clamp(-60.0, 12.0);
@@ -1748,6 +1820,10 @@ fn audio_filter(
     } else if gain_db.abs() > 0.001 {
         filters.push(format!("volume={gain_db:.2}dB"));
     }
+    let track_gain = track_gain_db.clamp(-60.0, 12.0);
+    if track_gain.abs() > 0.001 {
+        filters.push(format!("volume={track_gain:.2}dB"));
+    }
     let fade_in = (audio["fadeInFrames"].as_u64().unwrap_or(0) as f64 / profile.fps())
         .clamp(0.0, clip_seconds);
     let fade_out = (audio["fadeOutFrames"].as_u64().unwrap_or(0) as f64 / profile.fps())
@@ -1779,6 +1855,9 @@ pub struct BuildPlanInput<'a> {
     pub include_captions: bool,
     pub temp_dir: &'a Path,
     pub ffprobe: &'a Path,
+    /// ASS generated from the motion plans; `None` means the caller did not
+    /// provide plans. A visible graphic clip without a plan is an error.
+    pub motion_ass: Option<&'a str>,
 }
 
 fn ensure_asset_unchanged(asset: &Value, path: &Path) -> Result<(), ProjectError> {
@@ -1824,6 +1903,28 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
             ))
         })
         .collect();
+    // Mezcla por pista: la ganancia se aplica a todo su audio y el solo
+    // silencia las demás pistas con señal (video, audio y narración).
+    let track_mix: HashMap<String, (f64, bool)> = tracks
+        .iter()
+        .filter_map(|track| {
+            Some((
+                track["id"].as_str()?.to_owned(),
+                (
+                    number(track, "gainDb").unwrap_or(0.0).clamp(-60.0, 12.0),
+                    track["solo"].as_bool().unwrap_or(false),
+                ),
+            ))
+        })
+        .collect();
+    let any_solo = tracks.iter().any(|track| {
+        track["solo"].as_bool().unwrap_or(false)
+            && !track["muted"].as_bool().unwrap_or(false)
+            && matches!(
+                track["kind"].as_str().unwrap_or(""),
+                "video" | "audio" | "narration"
+            )
+    });
     let assets = project["assets"].as_array().cloned().unwrap_or_default();
     let asset_by_id: HashMap<String, Value> = assets
         .iter()
@@ -1918,6 +2019,7 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
                 .get(track_id)
                 .cloned()
                 .unwrap_or(("video".to_owned(), 0, false, false));
+        let (track_gain, track_solo) = track_mix.get(track_id).copied().unwrap_or((0.0, false));
         let start_seconds = clip["startFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
         let clip_seconds = clip["durationFrames"].as_u64().unwrap_or(0) as f64 / project_fps;
         if clip_seconds <= 0.0 {
@@ -1925,10 +2027,15 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         }
         let lead_seconds = transition_lead_seconds(clip, project_fps, clip_seconds, start_seconds);
         if kind == "graphic" {
-            return Err(ProjectError::message(
-                ProjectErrorCode::RenderFailed,
-                "los clips gráficos todavía no tienen un renderizador nativo; quitálos o reemplazalos por medios",
-            ));
+            if input.motion_ass.is_none() || input.motion_ass == Some("") {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "el clip gráfico no tiene un plan de motion; volvé a exportar desde el editor",
+                ));
+            }
+            // The graphic is burned by the motion ASS generated from the plan
+            // before the caption pass; it owns no media input here.
+            continue;
         }
         let asset_id = clip["source"]["assetId"].as_str().unwrap_or("");
         let asset = asset_by_id.get(asset_id).ok_or_else(|| {
@@ -2093,7 +2200,11 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
                 .entry(asset_id.to_owned())
                 .or_insert_with(|| has_audio_stream(input.ffprobe, &path))
         };
-        if has_audio && !muted && clip["audio"]["muted"].as_bool() != Some(true) {
+        if has_audio
+            && !muted
+            && (!any_solo || track_solo)
+            && clip["audio"]["muted"].as_bool() != Some(true)
+        {
             filters.push(audio_filter(
                 index,
                 profile,
@@ -2104,6 +2215,7 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
                 clip["reverse"].as_bool().unwrap_or(false),
                 speed_num,
                 speed_den,
+                track_gain,
             ));
             audio_labels.push(format!("[a{index}]"));
             audio_track_ids.push(track_id.to_owned());
@@ -2173,10 +2285,15 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
                 return false;
             }
             let track_id = clip["trackId"].as_str().unwrap_or("");
-            track_info
+            let audible = track_info
                 .get(track_id)
                 .map(|(kind, _, _, muted)| matches!(kind.as_str(), "audio" | "narration") && !muted)
-                .unwrap_or(false)
+                .unwrap_or(false);
+            let solo = track_mix
+                .get(track_id)
+                .map(|(_, solo)| *solo)
+                .unwrap_or(false);
+            audible && (!any_solo || solo)
         })
         .collect();
     for clip in audio_clips {
@@ -2222,6 +2339,7 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         ]);
         let index = inputs;
         inputs += 1;
+        let (track_gain, _) = track_mix.get(track_id).copied().unwrap_or((0.0, false));
         filters.push(audio_filter(
             index,
             profile,
@@ -2232,6 +2350,7 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
             clip["reverse"].as_bool().unwrap_or(false),
             speed_num,
             speed_den,
+            track_gain,
         ));
         audio_labels.push(format!("[a{index}]"));
         audio_track_ids.push(track_id.to_owned());
@@ -2379,8 +2498,19 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         filters.push(chain);
         "look".to_owned()
     };
+    let mut video_label = graded_label.clone();
+    if let Some(motion_ass) = input.motion_ass.filter(|value| !value.is_empty()) {
+        std::fs::write(input.temp_dir.join("motion.ass"), motion_ass).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo preparar el motion graphics del render",
+            )
+        })?;
+        filters.push(format!("[{video_label}]ass=motion.ass[motion]"));
+        video_label = "motion".to_owned();
+    }
     if ass.is_empty() {
-        filters.push(format!("[{graded_label}]format=yuv420p[vout]"));
+        filters.push(format!("[{video_label}]format=yuv420p[vout]"));
     } else {
         std::fs::write(input.temp_dir.join("captions.ass"), ass).map_err(|_| {
             ProjectError::message(
@@ -2389,7 +2519,7 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
             )
         })?;
         filters.push(format!(
-            "[{graded_label}]ass=captions.ass,format=yuv420p[vout]"
+            "[{video_label}]ass=captions.ass,format=yuv420p[vout]"
         ));
     }
 
@@ -2400,21 +2530,27 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
         "[vout]".into(),
         "-map".into(),
         "[aout]".into(),
-        "-c:v".into(),
-        if profile.video_codec == "h265" {
-            "libx265"
-        } else {
-            "libx264"
-        }
-        .into(),
-        "-preset".into(),
-        profile.video_preset.clone(),
     ]);
-    if let Some(crf) = profile.crf {
-        args.extend(["-crf".into(), crf.to_string()]);
-    }
-    if let Some(bps) = profile.target_bps {
-        args.extend(["-b:v".into(), bps.to_string()]);
+    if let Some(mut hardware) = hardware_encoder_args(&profile) {
+        args.append(&mut hardware);
+    } else {
+        args.extend([
+            "-c:v".into(),
+            if profile.video_codec == "h265" {
+                "libx265"
+            } else {
+                "libx264"
+            }
+            .into(),
+            "-preset".into(),
+            profile.video_preset.clone(),
+        ]);
+        if let Some(crf) = profile.crf {
+            args.extend(["-crf".into(), crf.to_string()]);
+        }
+        if let Some(bps) = profile.target_bps {
+            args.extend(["-b:v".into(), bps.to_string()]);
+        }
     }
     if profile.video_codec == "h265" {
         args.extend(["-tag:v".into(), "hvc1".into()]);
@@ -2467,7 +2603,11 @@ pub fn spawn(ffmpeg: &Path, plan: &RenderPlan) -> Result<Child, ProjectError> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
+        // Sin consola y en prioridad baja: el render cede CPU a la UI, al
+        // preview y a la IA mientras la persona sigue trabajando.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+        command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
     }
     command.spawn().map_err(|_| {
         ProjectError::message(
@@ -2690,6 +2830,7 @@ mod tests {
             audio_channels: 2,
             min_output_bytes: 100,
             duration_tolerance_frames: 10,
+            hardware_encoder: None,
         }
     }
 
@@ -2878,6 +3019,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         })
         .expect("el plan con capa de ajuste debería construirse");
         let graph = plan
@@ -2912,6 +3054,7 @@ mod tests {
                 include_captions: false,
                 temp_dir: &temp,
                 ffprobe: Path::new("ffprobe"),
+                motion_ass: None,
             })
             .expect("el plan debería construirse")
         };
@@ -2978,6 +3121,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         })
         .expect("el plan con clip desactivado debería construirse");
         let joined = plan.args.join(" ");
@@ -3026,6 +3170,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         })
         .expect("el plan con freeze debería construirse");
         let freeze_index = plan
@@ -3078,6 +3223,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         })
         .expect("el plan debería construirse");
         let graph = plan
@@ -3363,6 +3509,73 @@ mod tests {
     }
 
     #[test]
+    fn hardware_encoder_args_match_each_api() {
+        let mut amf = profile();
+        amf.hardware_encoder = Some("h264_amf".into());
+        let args = hardware_encoder_args(&amf).expect("AMF");
+        let text = args.join(" ");
+        assert!(text.contains("h264_amf") && text.contains("-rc cqp") && text.contains("-qp_i 20"));
+        assert!(!text.contains("libx264"));
+
+        let mut nvenc = profile();
+        nvenc.hardware_encoder = Some("h264_nvenc".into());
+        let text = hardware_encoder_args(&nvenc).expect("NVENC").join(" ");
+        assert!(text.contains("h264_nvenc") && text.contains("-cq 20") && text.contains("p5"));
+
+        let mut qsv = profile();
+        qsv.video_codec = "h265".into();
+        qsv.hardware_encoder = Some("hevc_qsv".into());
+        let text = hardware_encoder_args(&qsv).expect("QSV").join(" ");
+        assert!(text.contains("hevc_qsv") && text.contains("-global_quality 20"));
+
+        let mut bitrate = profile();
+        bitrate.crf = None;
+        bitrate.target_bps = Some(8_000_000);
+        bitrate.hardware_encoder = Some("h264_amf".into());
+        let text = hardware_encoder_args(&bitrate)
+            .expect("AMF por bitrate")
+            .join(" ");
+        assert!(text.contains("-b:v 8000000") && !text.contains("-rc cqp"));
+
+        assert!(hardware_encoder_args(&profile()).is_none());
+    }
+
+    #[test]
+    fn profile_validates_the_optional_hardware_encoder() {
+        let mut value = serde_json::json!({
+            "id": "p",
+            "name": "GPU",
+            "resolution": { "width": 1920, "height": 1080 },
+            "frameRate": { "num": 30, "den": 1 },
+            "videoCodec": "h264",
+            "bitrate": { "mode": "crf", "crf": 20 },
+            "qualityGate": { "minOutputBytes": 1 },
+            "hardwareEncoder": "h264_amf"
+        });
+        let parsed = parse_profile(&value).expect("AMF es un encoder conocido");
+        assert_eq!(parsed.hardware_encoder.as_deref(), Some("h264_amf"));
+
+        value["hardwareEncoder"] = serde_json::json!("encoder-inventado");
+        assert!(parse_profile(&value).is_err());
+
+        value["hardwareEncoder"] = serde_json::json!("hevc_amf");
+        assert!(
+            parse_profile(&value).is_err(),
+            "no se puede codificar HEVC en un perfil H.264"
+        );
+
+        value["videoCodec"] = serde_json::json!("h265");
+        let parsed = parse_profile(&value).expect("HEVC AMF coincide con H.265");
+        assert_eq!(parsed.hardware_encoder.as_deref(), Some("hevc_amf"));
+
+        value["resolution"] = serde_json::json!({ "width": 32_768, "height": 4_320 });
+        assert!(
+            parse_profile(&value).is_err(),
+            "AMF HEVC no debe aceptar 32K"
+        );
+    }
+
+    #[test]
     fn audio_suite_reaches_the_filter_chain() {
         let audio = serde_json::json!({
             "gainDb": -3,
@@ -3378,7 +3591,7 @@ mod tests {
             "fadeInFrames": 15,
             "fadeOutFrames": 30
         });
-        let filter = audio_filter(0, &profile(), 3.0, 0.0, 0.0, &audio, false, 1, 1);
+        let filter = audio_filter(0, &profile(), 3.0, 0.0, 0.0, &audio, false, 1, 1, 0.0);
         assert!(filter.contains("highpass=f=80.0"));
         assert!(filter.contains("lowpass=f=12000.0"));
         assert!(filter.contains("equalizer=f=100.0"));
@@ -3424,6 +3637,7 @@ mod tests {
             false,
             1,
             1,
+            0.0,
         );
         assert!(deep.contains("asetrate="));
         let echo = audio_filter(
@@ -3436,6 +3650,7 @@ mod tests {
             false,
             1,
             1,
+            0.0,
         );
         assert!(echo.contains("aecho="));
         let radio = audio_filter(
@@ -3448,6 +3663,7 @@ mod tests {
             false,
             1,
             1,
+            0.0,
         );
         assert!(radio.contains("lowpass=f=3200"));
     }
@@ -3724,6 +3940,7 @@ mod tests {
             true,
             1,
             1,
+            0.0,
         );
         assert!(audio.contains("areverse"));
     }
@@ -3760,7 +3977,18 @@ mod tests {
         assert!(visual.contains("scale=w='iw*("));
         assert!(visual.contains("eval=frame"));
         assert!(visual.contains("rotate=angle='("));
-        let audio = audio_filter(0, &profile(), 1.0, 0.0, 0.0, &clip["audio"], false, 1, 1);
+        let audio = audio_filter(
+            0,
+            &profile(),
+            1.0,
+            0.0,
+            0.0,
+            &clip["audio"],
+            false,
+            1,
+            1,
+            0.0,
+        );
         assert!(audio.contains("volume=volume='pow(10,"));
         assert!(audio.contains("eval=frame"));
     }
@@ -3901,6 +4129,94 @@ mod tests {
     }
 
     #[test]
+    fn track_gain_and_solo_shape_the_audio_mix() {
+        let root = std::env::temp_dir().join(format!("editor-ia-mix-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        std::fs::write(media.join("music.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let plan_for = |project: &Value| {
+            build_plan(BuildPlanInput {
+                project,
+                root: &root,
+                profile: &profile(),
+                output_path: &root.join("salida.mp4"),
+                include_captions: false,
+                temp_dir: &temp,
+                ffprobe: Path::new("ffprobe"),
+                motion_ass: None,
+            })
+            .expect("el plan debería construirse")
+        };
+        let mut project = project();
+        project["timeline"]["tracks"][1]["gainDb"] = serde_json::json!(-7.5);
+        let with_gain = plan_for(&project);
+        let gain_graph = with_gain
+            .args
+            .iter()
+            .find(|arg| arg.contains("[aout]"))
+            .expect("falta el grafo de audio");
+        assert!(
+            gain_graph.contains("volume=-7.50dB"),
+            "la ganancia de pista no llega al mix: {gain_graph}"
+        );
+
+        project["timeline"]["tracks"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "a2", "kind": "narration", "order": 2, "hidden": false, "muted": false
+            }));
+        project["timeline"]["clips"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "c3", "trackId": "a2", "kind": "audio",
+                "startFrame": 0, "durationFrames": 30,
+                "source": { "type": "asset", "assetId": "asset3", "inFrame": 0, "outFrame": 30 },
+                "audio": { "gainDb": -4.25 }
+            }));
+        project["assets"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "asset3", "status": "ready",
+                "rights": { "license": { "commercialUse": "allowed" } },
+                "source": { "path": "media/music.wav" }
+            }));
+        let both = plan_for(&project);
+        let both_graph = both
+            .args
+            .iter()
+            .find(|arg| arg.contains("[aout]"))
+            .expect("falta el grafo de audio");
+        assert!(
+            both_graph.contains("amix=inputs=2") && both_graph.contains("volume=-4.25dB"),
+            "sin solo deberían mezclarse las dos pistas: {both_graph}"
+        );
+
+        project["timeline"]["tracks"][1]["solo"] = serde_json::json!(true);
+        let solo = plan_for(&project);
+        let solo_graph = solo
+            .args
+            .iter()
+            .find(|arg| arg.contains("[aout]"))
+            .expect("falta el grafo de audio");
+        assert!(
+            !solo_graph.contains("volume=-4.25dB"),
+            "el solo de la pista A debería excluir la música: {solo_graph}"
+        );
+        assert!(
+            solo_graph.contains("volume=-7.50dB") && !solo_graph.contains("amix"),
+            "el solo debería dejar sólo la pista A: {solo_graph}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn render_external_project_when_requested() {
         let Some(project_path) = std::env::var("EDITORIA_RENDER_PROJECT").ok() else {
             return;
@@ -3927,6 +4243,7 @@ mod tests {
             include_captions: true,
             temp_dir: &temp_dir,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         })
         .expect("plan externo");
         let verification = execute_sync(Path::new("ffmpeg"), Path::new("ffprobe"), &plan, |_| {})
@@ -3983,8 +4300,44 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         });
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn a_graphic_clip_with_a_motion_ass_is_composited_before_captions() {
+        let mut project = project();
+        project["timeline"]["tracks"][0]["kind"] = serde_json::json!("graphic");
+        project["timeline"]["clips"][0]["kind"] = serde_json::json!("graphic");
+        project["timeline"]["clips"][0]["source"] =
+            serde_json::json!({ "type": "graphic", "motionId": "m" });
+        project["captions"] = serde_json::json!({
+            "styles": [],
+            "cues": [{ "trackId": "cap", "startFrame": 0, "endFrame": 30, "text": "hola" }]
+        });
+        let root = std::env::temp_dir().join(format!("editor-ia-motion-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let plan = build_plan(BuildPlanInput {
+            project: &project,
+            root: &root,
+            profile: &profile(),
+            output_path: &root.join("salida.mp4"),
+            include_captions: true,
+            temp_dir: &temp,
+            ffprobe: Path::new("ffprobe"),
+            motion_ass: Some("Dialogue: 0,0:00:00.00,0:00:02.00,Motion,,0,0,0,,hola\n"),
+        })
+        .expect("el clip gráfico con plan debe construir el plan");
+        let graph = plan.args.join(";");
+        assert!(graph.contains("ass=motion.ass"));
+        assert!(graph.contains("ass=captions.ass"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -4000,6 +4353,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         });
         assert!(matches!(result, Err(error) if error.code == ProjectErrorCode::EmptyTimeline));
     }
@@ -4037,6 +4391,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         });
         assert!(matches!(result, Err(error) if error.code == ProjectErrorCode::AssetNotReady));
         let _ = std::fs::remove_dir_all(&root);
@@ -4178,6 +4533,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
         })
         .expect("el plan con estabilización debería construirse");
         let graph = plan
@@ -4273,6 +4629,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: &ffprobe,
+            motion_ass: None,
         })
         .expect("el plan con freeze debería construirse");
         let verification = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
@@ -4397,6 +4754,7 @@ mod tests {
             audio_channels: 2,
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
+            hardware_encoder: None,
         };
         let output = root.join("out.mp4");
         let temp = root.join("temp");
@@ -4409,6 +4767,7 @@ mod tests {
             include_captions: true,
             temp_dir: &temp,
             ffprobe: &ffprobe,
+            motion_ass: None,
         })
         .expect("el plan debería construirse");
         assert!(plan
@@ -4571,6 +4930,7 @@ mod tests {
             audio_channels: 2,
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
+            hardware_encoder: None,
         };
         let output = root.join("out.mp4");
         let temp = root.join("temp");
@@ -4583,6 +4943,7 @@ mod tests {
             include_captions: false,
             temp_dir: &temp,
             ffprobe: &ffprobe,
+            motion_ass: None,
         })
         .expect("el plan estabilizado debería construirse");
         let verification = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
@@ -4598,6 +4959,160 @@ mod tests {
         assert_eq!(verification.height, 112);
         assert!((verification.duration_seconds - 1.5).abs() < 0.4);
         assert!(output.is_file());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    #[ignore]
+    fn render_live_motion_graphics_produces_visible_pixels() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_motion omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        use crate::render::motion::{build_motion_ass, MotionAssInput};
+
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editor-ia-motion-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let base = media.join("base.mp4");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30:duration=2",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-shortest",
+                &path_to_string(&base),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el video base");
+        assert!(status.success(), "no se pudo crear el video base");
+
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                    { "id": "g1", "kind": "graphic", "order": 1, "hidden": false, "muted": false }
+                ],
+                "clips": [
+                    { "id": "vclip", "trackId": "v1", "kind": "video", "startFrame": 0, "durationFrames": 60, "source": { "type": "asset", "assetId": "base", "inFrame": 0, "outFrame": 60 } },
+                    { "id": "gclip", "trackId": "g1", "kind": "graphic", "startFrame": 0, "durationFrames": 60, "source": { "type": "graphic", "motionId": "m" } }
+                ]
+            },
+            "assets": [
+                { "id": "base", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/base.mp4" }, "media": { "durationFrames": 60 } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let plans = serde_json::json!({
+            "gclip": {
+                "version": 1,
+                "width": 320,
+                "height": 180,
+                "fps": { "num": 30, "den": 1 },
+                "durationFrames": 60,
+                "layers": [
+                    { "kind": "rect", "x": 0.05, "y": 0.05, "width": 0.9, "height": 0.9, "color": "#ff0000", "opacity": 1, "animation": { "kind": "none" } },
+                    { "kind": "text", "x": 0.2, "y": 0.4, "width": 0.6, "height": 0.2, "text": "MOTION", "fontFamily": "Segoe UI", "fontSizePx": 40, "weight": 700, "color": "#ffffff", "align": "center", "animation": { "kind": "fade", "inFrames": 5 } }
+                ]
+            }
+        });
+        let ass = build_motion_ass(MotionAssInput {
+            project: &project,
+            plans: &plans,
+            render_width: 320,
+            render_height: 180,
+            project_width: 320,
+            project_height: 180,
+            project_fps: 30.0,
+        })
+        .expect("el ASS de motion debería generarse");
+        assert!(ass.contains("MOTION"));
+
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let output = root.join("out.mp4");
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let plan = build_plan(BuildPlanInput {
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: Some(&ass),
+        })
+        .expect("el plan de motion debería construirse");
+        let verification = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render real de motion debería verificarse");
+        assert!(output.is_file());
+        assert!(verification.output_bytes > 1_000);
+        assert_eq!(verification.width, 320);
+        assert_eq!(verification.height, 180);
+        assert!(
+            (verification.duration_seconds - 2.0).abs() < 0.4,
+            "duración inesperada: {}",
+            verification.duration_seconds
+        );
+
+        let frame = root.join("frame.png");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-ss",
+                "1",
+                "-i",
+                &path_to_string(&output),
+                "-frames:v",
+                "1",
+                &path_to_string(&frame),
+            ])
+            .status()
+            .expect("ffmpeg debería extraer un frame");
+        assert!(status.success(), "no se pudo extraer el frame");
+        let image = image::open(&frame)
+            .expect("el frame debería abrirse")
+            .to_rgba8();
+        let mut red = 0usize;
+        for pixel in image.pixels() {
+            if pixel[0] > 200 && pixel[1] < 80 && pixel[2] < 100 {
+                red += 1;
+            }
+        }
+        eprintln!(
+            "motion render: {} bytes, {:.3}s, {} píxeles rojos",
+            verification.output_bytes, verification.duration_seconds, red
+        );
+        assert!(
+            red > 1_000,
+            "el overlay de motion no aparece: {red} píxeles rojos"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

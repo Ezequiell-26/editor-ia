@@ -77,6 +77,16 @@ afterEach(() => {
   cleanup();
 });
 
+describe('Timeline · mezcla de pistas', () => {
+  it('activa y apaga solo desde el encabezado', () => {
+    renderTimeline();
+    const solo = screen.getByRole('button', { name: /Solo V1/i });
+    expect(solo.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(solo);
+    expect(solo.getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
 describe('Timeline · arrastre del cabezal', () => {
   it('el carril del ruler ocupa la superficie y no queda sin ancho', () => {
     const { container } = renderTimeline();

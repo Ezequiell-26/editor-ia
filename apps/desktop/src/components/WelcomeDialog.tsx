@@ -85,7 +85,7 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
         <p className="eyebrow">Bienvenido, {profile.name}</p>
         <h2 id="welcome-title">Crear video no tiene que ser complicado</h2>
         <p className="welcome-copy">
-          Editor IA hace el trabajo pesado: analiza, corta, limpia la voz, subtitula y arma el
+          Olyvia hace el trabajo pesado: analiza, corta, limpia la voz, subtitula y arma el
           montaje. Vos elegís el formato, los recursos y el destino. Todo queda en tu equipo.
         </p>
         <div className="welcome-options">

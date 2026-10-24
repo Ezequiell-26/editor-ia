@@ -1,23 +1,16 @@
 import { expect, type Page } from '@playwright/test';
 
 /**
- * En el navegador la app arranca en la pantalla de inicio (Montaje). Los tests
- * del shell entran por el botón Ajustes, que es una acción real de la pantalla
- * y no requiere crear un proyecto.
- *
- * Ajustes abre una ventana flotante: se cierra al entrar para que el resto de
- * los tests trabaje sobre el shell sin un modal bloqueando los clics.
+ * En el navegador la app arranca en el lanzador. Los tests del shell entran con
+ * Tutorial, que es una acción real de la pantalla y no requiere backend ni
+ * crear un proyecto. Ajustes ya no entra al shell: abre su ventana flotante
+ * sobre el lanzador.
  */
 export async function enterApp(page: Page): Promise<void> {
   await page.goto('/');
   await expect(page.locator('.start-window')).toBeVisible();
-  await page.getByRole('button', { name: 'Ajustes', exact: true }).click();
+  await page.getByRole('button', { name: 'Tutorial' }).click();
   await expect(page.locator('.app-shell')).toBeVisible();
-  const dialog = page.getByRole('dialog', { name: 'Configuración' });
-  if (await dialog.isVisible().catch(() => false)) {
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-  }
 }
 
 /** Entra al shell y abre la ventana de Configuración. */

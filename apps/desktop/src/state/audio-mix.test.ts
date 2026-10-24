@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import type { Track } from '@editor-ia/project-schema';
+import {
+  effectivePeakDb,
+  gainForTargetPeak,
+  hasSoloedAudioTrack,
+  isTrackAudible,
+  levelPercentFromDb,
+  peakDbFromPeaks,
+  trackGainDb,
+} from './audio-mix';
+
+function track(overrides: Partial<Track> = {}): Track {
+  return {
+    id: 't1',
+    kind: 'audio',
+    label: 'Música',
+    order: 0,
+    muted: false,
+    hidden: false,
+    locked: false,
+    ...overrides,
+  };
+}
+
+describe('mezcla de pistas en la preview', () => {
+  it('silencia una pista muteada aunque haya solo en otra', () => {
+    const muted = track({ id: 'a', muted: true });
+    const solo = track({ id: 'b', solo: true });
+    expect(hasSoloedAudioTrack([muted, solo])).toBe(true);
+    expect(isTrackAudible(muted, [muted, solo])).toBe(false);
+    expect(isTrackAudible(solo, [muted, solo])).toBe(true);
+  });
+
+  it('con una pista en solo apaga las demás pistas con señal', () => {
+    const voice = track({ id: 'v', kind: 'narration', solo: true });
+    const music = track({ id: 'm' });
+    const video = track({ id: 'x', kind: 'video' });
+    expect(isTrackAudible(music, [voice, music, video])).toBe(false);
+    expect(isTrackAudible(video, [voice, music, video])).toBe(false);
+    expect(isTrackAudible(voice, [voice, music, video])).toBe(true);
+  });
+
+  it('el solo de una pista muteada no cuenta', () => {
+    const mutedSolo = track({ id: 'm', solo: true, muted: true });
+    const other = track({ id: 'o' });
+    expect(hasSoloedAudioTrack([mutedSolo, other])).toBe(false);
+    expect(isTrackAudible(other, [mutedSolo, other])).toBe(true);
+  });
+
+  it('normaliza la ganancia de pista al rango del render', () => {
+    expect(trackGainDb(track({ gainDb: -6.5 }))).toBe(-6.5);
+    expect(trackGainDb(track({ gainDb: 30 }))).toBe(12);
+    expect(trackGainDb(track({ gainDb: -80 }))).toBe(-60);
+    expect(trackGainDb(track())).toBe(0);
+  });
+});
+
+describe('medición de picos y headroom', () => {
+  const peaks = (amplitude: number) => ({
+    assetId: 'a',
+    durationSeconds: 1,
+    buckets: 2,
+    peaks: [
+      { min: -amplitude, max: amplitude / 2 },
+      { min: -amplitude / 4, max: amplitude },
+    ],
+  });
+
+  it('convierte los picos del backend a dBFS', () => {
+    expect(peakDbFromPeaks(peaks(0.5))).toBeCloseTo(-6.02, 1);
+    expect(peakDbFromPeaks(peaks(0.25))).toBeCloseTo(-12.04, 1);
+    expect(peakDbFromPeaks(peaks(0))).toBeNull();
+  });
+
+  it('calcula la ganancia para llegar al objetivo sin salir del rango', () => {
+    expect(gainForTargetPeak(-12.04, -6)).toBeCloseTo(6.04, 1);
+    expect(gainForTargetPeak(-2, -6)).toBe(-4);
+    expect(gainForTargetPeak(-58, -6)).toBe(12);
+    expect(gainForTargetPeak(0, -60)).toBe(-60);
+  });
+
+  it('suma la ganancia de pista al pico y ubica el medidor en 0..100', () => {
+    expect(effectivePeakDb(-12, -3)).toBe(-15);
+    expect(effectivePeakDb(-2, 4)).toBe(2);
+    expect(levelPercentFromDb(-60)).toBe(0);
+    expect(levelPercentFromDb(-30)).toBeCloseTo(50, 0);
+    expect(levelPercentFromDb(0)).toBe(100);
+    expect(levelPercentFromDb(4)).toBe(100);
+  });
+});

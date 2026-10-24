@@ -67,7 +67,7 @@ function cleanText(text: string): string {
 /**
  * CapCut, Premiere and Resolve export styled subtitles as ASS/SSA. Importing
  * them keeps the text and the timing; the styling is intentionally dropped
- * because Editor IA owns caption styling per project.
+ * because Olyvia owns caption styling per project.
  */
 function detectAlphaFormat(content: string): 'ass' | 'ssa' | null {
   const looksAlpha =

@@ -20,6 +20,7 @@ import {
   type EffectPreset,
 } from '../../state/effect-presets';
 import { CLIP_COLORS } from '../../state/clip-colors';
+import { MotionClipInspector } from '../motion/MotionClipInspector';
 import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import {
@@ -1137,6 +1138,18 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             Capa de ajuste · se aplica al compuesto dentro de su tramo
           </p>
         )}
+        {clip.kind === 'graphic' && clip.source.type === 'graphic' ? (
+          (() => {
+            const motion = project.motion.find((item) => item.id === clip.source.motionId);
+            return motion ? (
+              <MotionClipInspector clip={clip} motion={motion} />
+            ) : (
+              <p className="notice notice-warning" role="alert">
+                Falta el motion item de este clip gráfico.
+              </p>
+            );
+          })()
+        ) : null}
         <div className="actions compact">
           <button
             type="button"
@@ -3533,6 +3546,23 @@ function TrackInspector({ track }: { track: Track }) {
       <p className="inspector-meta">
         {trackKindLabel(track.kind)} · orden {track.order}
       </p>
+      {track.kind === 'video' || track.kind === 'audio' || track.kind === 'narration' ? (
+        <>
+          <NumberField
+            label="Ganancia de pista (dB)"
+            value={track.gainDb ?? 0}
+            min={-60}
+            max={12}
+            step={0.5}
+            onCommit={(value) =>
+              store.update((current) => updateTrack(current, track.id, { gainDb: value }))
+            }
+          />
+          <p className="inspector-meta">
+            Se suma a la ganancia de cada clip y se aplica en la preview y en el render.
+          </p>
+        </>
+      ) : null}
       <div className="flag-row">
         <label className="check">
           <input
@@ -3542,6 +3572,18 @@ function TrackInspector({ track }: { track: Track }) {
           />
           <span>Silenciada</span>
         </label>
+        {track.kind === 'video' || track.kind === 'audio' || track.kind === 'narration' ? (
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={track.solo === true}
+              onChange={(event) =>
+                store.update((current) => updateTrack(current, track.id, { solo: event.target.checked }))
+              }
+            />
+            <span>Solo</span>
+          </label>
+        ) : null}
         <label className="check">
           <input
             type="checkbox"

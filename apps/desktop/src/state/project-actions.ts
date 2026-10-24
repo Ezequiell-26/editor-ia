@@ -16,6 +16,7 @@ import type {
   ClipMaskKeyframe,
   ClipAnimation,
   ClipColorTag,
+  MotionItem,
   ProjectDocument,
   Scene,
   Track,
@@ -435,7 +436,7 @@ export function markAssetReady(
     ...(commercialUse === 'requires-attribution'
       ? { attributionText: `Atribución requerida: ${asset.label}` }
       : {}),
-    notes: 'Licencia declarada por el usuario en Editor IA.',
+    notes: 'Licencia declarada por el usuario en Olyvia.',
   };
   touch(next);
   return next;
@@ -658,6 +659,90 @@ export function addAdjustmentLayer(
   return { project: next, clipId, trackId: track.id, startFrame };
 }
 
+/**
+ * Adds a motion item and its graphic clip. The props are validated by the
+ * template catalog before this action; the project schema only stores the
+ * template reference and the opaque props, so the renderer can evolve without
+ * migrating the project.
+ */
+export function addMotionGraphic(
+  project: ProjectDocument,
+  input: {
+    readonly templateId: string;
+    readonly templateVersion: string;
+    readonly props: Readonly<Record<string, unknown>>;
+    readonly durationFrames: number;
+    readonly atFrame: number;
+    readonly trackId?: string;
+    readonly label?: string;
+  },
+): {
+  project: ProjectDocument;
+  motionId: string;
+  clipId: string;
+  trackId: string;
+  startFrame: number;
+} {
+  const durationFrames = Math.max(1, Math.round(input.durationFrames));
+  const next = cloneProject(project);
+  let track = input.trackId
+    ? next.timeline.tracks.find((item) => item.id === input.trackId)
+    : next.timeline.tracks.find((item) => item.kind === 'graphic' && !item.locked);
+  if (input.trackId) {
+    if (!track || track.kind !== 'graphic') {
+      throw new ProjectActionError('la pista elegida no es una pista gráfica');
+    }
+    if (track.locked) throw new ProjectActionError('la pista gráfica está bloqueada');
+  } else if (!track) {
+    const created = addTrack(next, 'graphic', 'G1');
+    next.timeline = created.project.timeline;
+    track = next.timeline.tracks.find((item) => item.id === created.trackId);
+    if (!track) throw new ProjectActionError('no se pudo crear la pista gráfica');
+  }
+  const startFrame = findGap(
+    intervalsForTrack(next, track.id),
+    Math.max(0, Math.round(input.atFrame)),
+    durationFrames,
+  );
+  const motionId = newId();
+  const clipId = newId();
+  const motion: MotionItem = {
+    id: motionId,
+    template: {
+      id: input.templateId,
+      version: input.templateVersion,
+      source: 'bundled',
+    },
+    props: { ...input.props } as MotionItem['props'],
+    targetTrackId: track.id,
+  };
+  next.motion.push(motion);
+  next.timeline.clips.push({
+    id: clipId,
+    trackId: track.id,
+    kind: 'graphic',
+    label: input.label?.trim() || `Gráfico · ${input.templateId}`,
+    startFrame,
+    durationFrames,
+    source: { type: 'graphic', motionId },
+  });
+  touch(next);
+  return { project: next, motionId, clipId, trackId: track.id, startFrame };
+}
+
+export function updateMotionProps(
+  project: ProjectDocument,
+  motionId: string,
+  props: Readonly<Record<string, unknown>>,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const motion = next.motion.find((item) => item.id === motionId);
+  if (!motion) throw new ProjectActionError('el motion item no existe');
+  motion.props = { ...props } as MotionItem['props'];
+  touch(next);
+  return next;
+}
+
 function compatibleTrackKinds(kind: Clip['kind']): Track['kind'][] {
   switch (kind) {
     case 'video':
@@ -810,6 +895,28 @@ export function moveClip(
   clip.trackId = trackId;
   touch(next);
   return next;
+}
+
+/**
+ * Movimiento magnético: mueve el clip y cierra los huecos de la pista destino.
+ * Es el gesto de una timeline magnética cuando el imán está activo.
+ */
+export function magneticMoveClip(
+  project: ProjectDocument,
+  clipId: string,
+  targetStart: number,
+  targetTrackId?: string,
+): ProjectDocument | null {
+  const sourceTrackId = project.timeline.clips.find((item) => item.id === clipId)?.trackId;
+  const moved = moveClip(project, clipId, targetStart, targetTrackId);
+  if (!moved) return null;
+  const clip = moved.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) return moved;
+  let next = moved;
+  if (sourceTrackId && sourceTrackId !== clip.trackId) {
+    next = closeGaps(next, sourceTrackId).project;
+  }
+  return closeGaps(next, clip.trackId).project;
 }
 
 export function applySpeedRamp(
@@ -2800,7 +2907,7 @@ export function setClipSpeed(
 export function updateTrack(
   project: ProjectDocument,
   trackId: string,
-  patch: Partial<Pick<Track, 'label' | 'muted' | 'hidden' | 'locked'>>,
+  patch: Partial<Pick<Track, 'label' | 'muted' | 'hidden' | 'locked' | 'gainDb' | 'solo'>>,
 ): ProjectDocument {
   const next = cloneProject(project);
   const track = next.timeline.tracks.find((item) => item.id === trackId);
@@ -2817,6 +2924,13 @@ export function updateTrack(
   if (patch.muted !== undefined) track.muted = patch.muted;
   if (patch.hidden !== undefined) track.hidden = patch.hidden;
   if (patch.locked !== undefined) track.locked = patch.locked;
+  if (patch.gainDb !== undefined) {
+    if (!Number.isFinite(patch.gainDb) || patch.gainDb < -60 || patch.gainDb > 12) {
+      throw new ProjectActionError('la ganancia de pista debe estar entre -60 y 12 dB');
+    }
+    track.gainDb = patch.gainDb;
+  }
+  if (patch.solo !== undefined) track.solo = patch.solo;
   touch(next);
   return next;
 }

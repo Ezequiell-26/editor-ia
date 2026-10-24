@@ -14,7 +14,7 @@ export function ButtonGallery() {
   return (
     <div style={{ padding: '40px', background: '#0f1623', minHeight: '100vh' }}>
       <h1 style={{ color: '#eaf3ef', fontSize: '32px', marginBottom: '48px' }}>
-        Premium Buttons Gallery - Editor IA
+        Premium Buttons Gallery - Olyvia
       </h1>
 
       {/* Primary Buttons */}

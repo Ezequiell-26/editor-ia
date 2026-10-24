@@ -594,7 +594,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
               onChange={(event) => setApprovedCost(event.target.checked)}
             />
             <span>
-              Entiendo que esta llamada usa mi proveedor y puede consumir cuota. Editor IA no puede
+              Entiendo que esta llamada usa mi proveedor y puede consumir cuota. Olyvia no puede
               estimar el costo exacto.
             </span>
           </label>
@@ -704,7 +704,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
           </button>
         </div>
         <p className="fine-print">
-          Abrí el proyecto con tu propia sesión de Google. Editor IA no maneja tu cuenta; Flow
+          Abrí el proyecto con tu propia sesión de Google. Olyvia no maneja tu cuenta; Flow
           Queue genera en la pestaña activa de Flow.
         </p>
         {flowPrompts.length === 0 ? (

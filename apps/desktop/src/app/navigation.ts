@@ -5,6 +5,9 @@ export type ViewId =
   | 'production'
   | 'factory'
   | 'editor'
+  | 'text-edit'
+  | 'multicam'
+  | 'mixer'
   | 'script'
   | 'assets'
   | 'download'
@@ -16,6 +19,7 @@ export type ViewId =
   | 'thumbnails'
   | 'localization'
   | 'ai-hub'
+  | 'motion'
   | 'visuals'
   | 'background'
   | 'upscale'
@@ -44,6 +48,9 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'assets', label: 'Medios', hint: 'Paso 3 · Biblioteca multimedia, fotos, videos y licencias', group: 'ruta' },
   { id: 'production', label: 'Producción', hint: 'Paso 4 · Locución con voces IA, montaje de audio y exportación', group: 'ruta' },
   { id: 'editor', label: 'Editor', hint: 'Paso 5 · Editor multicapa, timeline, vista previa e inspector', group: 'ruta' },
+  { id: 'text-edit', label: 'Texto', hint: 'Edición por texto · Transcribí el video y cortá desde las frases', group: 'herramientas' },
+  { id: 'multicam', label: 'Multicámara', hint: 'Multicámara · Sincronizá cámaras y cambiá de ángulo en vivo', group: 'herramientas' },
+  { id: 'mixer', label: 'Mezcla', hint: 'Mezclador · Ganancia por pista, solo, mute y master', group: 'herramientas' },
   { id: 'download', label: 'Descargar', hint: 'Descargador web · Bajar videos, fotos y audio hasta 8K', group: 'herramientas' },
   { id: 'director', label: 'Director', hint: 'Director IA · Análisis automático de video, cortes y ritmo', group: 'herramientas' },
   { id: 'factory', label: 'Fábrica', hint: 'Fábrica de videos · Generación en lote de variantes desde un brief', group: 'herramientas' },
@@ -55,6 +62,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'thumbnails', label: 'Miniaturas', hint: 'Creador de miniaturas · Diseñar carátulas para YouTube y redes', group: 'herramientas' },
   { id: 'localization', label: 'Localización', hint: 'Subtítulos y traducción · Traducir a 8 idiomas con exportación SRT/VTT', group: 'herramientas' },
   { id: 'ai-hub', label: 'AI Hub', hint: 'Hub de IA · Prompts, briefs creativos y modelos locales con tokens', group: 'herramientas' },
+  { id: 'motion', label: 'Motion', hint: 'Motion graphics · Títulos, lower-thirds y cierres con render local', group: 'herramientas' },
   { id: 'visuals', label: 'Efectos', hint: 'Efectos y transiciones · Aplicar presets, ajustes y auditoría visual', group: 'herramientas' },
   { id: 'background', label: 'Fondo', hint: 'Quitar fondo · Recorte de silueta automático con IA local', group: 'herramientas' },
   { id: 'upscale', label: 'Upscale', hint: 'Mejora 4K · Super-resolución con IA Real-ESRGAN local', group: 'herramientas' },
@@ -77,6 +85,8 @@ export const PIPELINE_HIDDEN_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'thumbnails',
   'localization',
   'ai-hub',
+  'motion',
+  'mixer',
   'visuals',
   'background',
   'upscale',

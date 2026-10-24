@@ -8,14 +8,14 @@
  */
 
 /**
- * v2: la identidad visual pasó de la paleta menta/teal al grafito de DaVinci
- * Resolve. Se cambia la clave a propósito: la paleta guardada pertenecía al
- * tema anterior, así que se reinicia a los valores nuevos en vez de migrar
- * colores que ya no existen.
+ * v3: la identidad visual es Olyvia (azul/cian/violeta del emblema orbital).
+ * Se cambia la clave a propósito para que una instalación existente reciba el
+ * tema de marca en vez de conservar el grafito de la etapa Editor IA.
  */
-export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v2';
+export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v3';
 
 export type ThemePresetId =
+  | 'olyvia'
   | 'resolve'
   | 'mint'
   | 'ember'
@@ -51,6 +51,14 @@ export interface AppearanceSettings extends ThemeColors {
 }
 
 export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, ThemeColors>> = {
+  /** Olyvia: el emblema orbital en cian, azul y violeta sobre tinta nocturna. */
+  olyvia: {
+    accent: '#35d6ff',
+    info: '#a78bfa',
+    background: '#05070f',
+    surface: '#0a0f1e',
+    text: '#eef4ff',
+  },
   /**
    * DaVinci Resolve: grafito neutro, sin tinte azul ni verde, y un azul
    * desaturado como único acento. Los paneles se derivan mezclando la
@@ -127,8 +135,8 @@ export const MONO_FONTS: readonly { readonly id: string; readonly label: string 
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: 1,
-  preset: 'resolve',
-  ...THEME_PRESETS.resolve,
+  preset: 'olyvia',
+  ...THEME_PRESETS.olyvia,
   fontUi: 'Segoe UI Variable Text',
   fontDisplay: 'Segoe UI Variable Display',
   fontMono: 'Cascadia Mono',
@@ -136,7 +144,7 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   density: 'comfortable',
   sidebarLabels: false,
   sidebarWidth: 172,
-  radius: 3,
+  radius: 10,
   timelineRows: 48,
   showStatusbar: true,
   reduceMotion: false,
@@ -174,7 +182,8 @@ function density(value: unknown): Density {
 }
 
 function preset(value: unknown): ThemePresetId {
-  return value === 'resolve' ||
+  return value === 'olyvia' ||
+    value === 'resolve' ||
     value === 'mint' ||
     value === 'ember' ||
     value === 'violet' ||

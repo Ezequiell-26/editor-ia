@@ -12,6 +12,9 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   assets: 'assets',
   production: 'production',
   editor: 'editor',
+  'text-edit': 'text',
+  multicam: 'layers',
+  mixer: 'audio',
   download: 'download',
   director: 'director',
   factory: 'factory',
@@ -23,6 +26,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   thumbnails: 'thumbnails',
   localization: 'globe',
   'ai-hub': 'ai-hub',
+  motion: 'motion',
   visuals: 'filters',
   background: 'background',
   upscale: 'upscale',
@@ -48,27 +52,6 @@ export function Sidebar({ views, activeId, onSelect, projectName, phase }: Sideb
       className={`sidebar${appearance.sidebarLabels !== false ? ' expanded' : ''}`}
       aria-label="Vistas principales"
     >
-      <div
-        className="sidebar-brand"
-        onClick={() => onSelect('home')}
-        title="Montaje AI Studio"
-        role="button"
-        tabIndex={0}
-      >
-        <div className="sidebar-logo-box">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none">
-            <circle cx="7" cy="8" r="4" stroke="#e05252" strokeWidth="1.6" fill="rgba(224, 82, 82, 0.2)" />
-            <circle cx="17" cy="8" r="4" stroke="#48b85c" strokeWidth="1.6" fill="rgba(72, 184, 92, 0.2)" />
-            <circle cx="12" cy="16" r="4" stroke="#4881c2" strokeWidth="1.6" fill="rgba(72, 129, 194, 0.25)" />
-            <polygon points="11 14.5 14 16 11 17.5" fill="#4881c2" />
-          </svg>
-        </div>
-        <div className="sidebar-brand-text">
-          <span className="sidebar-brand-title">Montaje</span>
-          <span className="sidebar-brand-sub">AI Studio</span>
-        </div>
-      </div>
-
       <ul>
         {views.map((view, index) => (
           <Fragment key={view.id}>

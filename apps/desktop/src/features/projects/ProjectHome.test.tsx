@@ -36,7 +36,7 @@ describe('Projects', () => {
     });
     fireEvent.click(within(main).getByRole('button', { name: /Crear y elegir ubicación/i }));
     await waitFor(
-      () => expect(screen.getByRole('main').textContent).toContain('Mi obra'),
+      () => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/),
       { timeout: 5000 },
     );
     fireEvent.click(

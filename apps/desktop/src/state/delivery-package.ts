@@ -6,7 +6,7 @@ import { serializeSrt } from './subtitles';
  * Delivery package: one `.zip` a person can archive or hand to someone else.
  *
  * The package carries the portable project, the subtitle sidecar, the rights
- * table and a manifest. It deliberately does not copy media: an Editor IA
+ * table and a manifest. It deliberately does not copy media: an Olyvia
  * project references files by relative path and each asset already carries its
  * SHA-256, so duplicating gigabytes of video would add risk without adding
  * provenance. The readme says this in plain language.
@@ -45,7 +45,7 @@ function csv(rows: readonly (readonly string[])[]): string {
 
 function readme(project: ProjectDocument, generatedAt: string, hasSubtitles: boolean): string {
   return [
-    'Editor IA — paquete de entrega',
+    'Olyvia — paquete de entrega',
     '',
     `Proyecto: ${project.name}`,
     `Generado: ${generatedAt}`,

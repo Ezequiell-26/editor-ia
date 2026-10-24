@@ -281,11 +281,60 @@ pub struct HardwareEncoders {
 const HW_H264: &[&str] = &["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"];
 const HW_HEVC: &[&str] = &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"];
 
+#[cfg(test)]
 fn first_available(encoders: &str, wanted: &[&str]) -> Option<String> {
     wanted
         .iter()
         .find(|name| encoders.lines().any(|line| line.contains(**name)))
         .map(|name| (*name).to_owned())
+}
+
+/// Elige el primer encoder compilado que además pueda inicializar hardware.
+/// Estar en `ffmpeg -encoders` no garantiza que la GPU/driver exista.
+fn first_working_with<F>(encoders: &str, wanted: &[&str], mut probe: F) -> Option<String>
+where
+    F: FnMut(&str) -> bool,
+{
+    for name in wanted {
+        if encoders.lines().any(|line| line.contains(*name)) && probe(name) {
+            return Some((*name).to_owned());
+        }
+    }
+    None
+}
+
+fn encoder_works(ffmpeg: &Path, encoder: &str) -> bool {
+    let mut command = Command::new(ffmpeg);
+    command.args([
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=256x144:r=30:d=0.1",
+        "-an",
+        "-c:v",
+        encoder,
+        "-pix_fmt",
+        "yuv420p",
+        "-f",
+        "null",
+        "-",
+    ]);
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    crate::commands::hide_console(&mut command);
+    command
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn first_working(ffmpeg: &Path, encoders: &str, wanted: &[&str]) -> Option<String> {
+    first_working_with(encoders, wanted, |name| encoder_works(ffmpeg, name))
 }
 
 /// ¿La máquina tiene encoder de video por hardware? Se consulta una vez por
@@ -320,32 +369,48 @@ pub async fn hardware_encoders(
     })?;
     let text = String::from_utf8_lossy(&output.stdout);
     Ok(HardwareEncoders {
-        h264: first_available(&text, HW_H264),
-        hevc: first_available(&text, HW_HEVC),
+        h264: first_working(&ffmpeg, &text, HW_H264),
+        hevc: first_working(&ffmpeg, &text, HW_HEVC),
         checked: true,
     })
 }
 
 /// Encoder de video a usar para proxies: GPU si existe, libx264 si no.
 pub(crate) fn proxy_video_args(hardware: Option<&str>) -> Vec<String> {
-    match hardware {
-        Some(encoder) => vec![
-            "-c:v".into(),
-            encoder.to_owned(),
-            "-preset".into(),
-            "p1".into(),
-            "-cq".into(),
-            "30".into(),
-        ],
-        None => vec![
+    let Some(encoder) = hardware else {
+        return vec![
             "-c:v".into(),
             "libx264".into(),
             "-preset".into(),
             "veryfast".into(),
             "-crf".into(),
             "26".into(),
-        ],
+        ];
+    };
+    let mut args = vec!["-c:v".into(), encoder.to_owned()];
+    if encoder.ends_with("_nvenc") {
+        args.extend(["-preset".into(), "p1".into(), "-cq".into(), "30".into()]);
+    } else if encoder.ends_with("_amf") {
+        // AMF no comparte el preset textual de NVENC.
+        args.extend([
+            "-quality".into(),
+            "speed".into(),
+            "-rc".into(),
+            "cqp".into(),
+            "-qp_i".into(),
+            "30".into(),
+            "-qp_p".into(),
+            "30".into(),
+        ]);
+    } else if encoder.ends_with("_qsv") {
+        args.extend([
+            "-preset".into(),
+            "veryfast".into(),
+            "-global_quality".into(),
+            "30".into(),
+        ]);
     }
+    args
 }
 
 /// Encoder H.264 por hardware disponible, consultando FFmpeg directo.
@@ -364,7 +429,7 @@ pub(crate) fn hardware_h264(ffmpeg: &Path) -> Option<String> {
         return None;
     }
     let text = String::from_utf8_lossy(&output.stdout);
-    first_available(&text, HW_H264)
+    first_working(ffmpeg, &text, HW_H264)
 }
 
 #[cfg(test)]
@@ -392,11 +457,38 @@ mod tests {
     }
 
     #[test]
+    fn el_detector_solo_ofrece_encoders_que_funcionan() {
+        let list = "h264_nvenc
+h264_qsv
+h264_amf";
+        let mut probed: Vec<String> = Vec::new();
+        let chosen = first_working_with(list, HW_H264, |name| {
+            probed.push(name.to_owned());
+            name == "h264_amf"
+        });
+        assert_eq!(chosen.as_deref(), Some("h264_amf"));
+        assert_eq!(probed, vec!["h264_nvenc", "h264_qsv", "h264_amf"]);
+
+        let none = first_working_with(list, HW_H264, |_| false);
+        assert_eq!(none, None);
+    }
+
+    #[test]
     fn el_proxy_usa_gpu_cuando_existe() {
         let gpu = proxy_video_args(Some("h264_nvenc"));
         assert_eq!(gpu[1], "h264_nvenc");
         let cpu = proxy_video_args(None);
         assert_eq!(cpu[1], "libx264");
+    }
+
+    #[test]
+    fn el_proxy_usa_los_flags_de_cada_fabricante() {
+        let amf = proxy_video_args(Some("h264_amf")).join(" ");
+        assert!(amf.contains("-quality speed") && amf.contains("-rc cqp"));
+        assert!(!amf.contains("-preset p1") && !amf.contains("-cq 30"));
+        let qsv = proxy_video_args(Some("hevc_qsv")).join(" ");
+        assert!(qsv.contains("-global_quality 30") && qsv.contains("-preset veryfast"));
+        assert!(!qsv.contains("-cq"));
     }
 
     #[test]

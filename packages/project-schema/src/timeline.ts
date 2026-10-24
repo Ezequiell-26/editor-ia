@@ -41,6 +41,10 @@ export const TrackSchema = z
     muted: z.boolean().default(false),
     hidden: z.boolean().default(false),
     locked: z.boolean().default(false),
+    /** Ganancia de pista en dB; se suma a la ganancia de cada clip. */
+    gainDb: DecibelSchema.optional(),
+    /** Si hay alguna pista en solo, las demás pistas de audio se silencian. */
+    solo: z.boolean().optional(),
   })
   .strict();
 

@@ -26,7 +26,7 @@ export function PremiumComponentShowcase() {
           WebkitBackgroundClip: 'text',
           WebkitTextFillColor: 'transparent'
         }}>
-          Editor IA — Component System
+          Olyvia — Component System
         </h1>
         <p style={{ fontSize: '20px', color: '#b0c3ba', maxWidth: '640px', margin: '0 auto' }}>
           Sistema de componentes premium inspirado en Linear, Stripe y CapCut

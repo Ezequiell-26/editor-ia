@@ -24,7 +24,7 @@ use super::storage;
 
 pub const PROJECT_SCHEMA_VERSION: u64 = 1;
 
-const KNOWN_ROOT_KEYS: [&str; 19] = [
+const KNOWN_ROOT_KEYS: [&str; 20] = [
     "id",
     "name",
     "schemaVersion",
@@ -39,6 +39,7 @@ const KNOWN_ROOT_KEYS: [&str; 19] = [
     "captions",
     "scenes",
     "motion",
+    "markers",
     "audio",
     "renderProfiles",
     "exportVariants",
@@ -601,15 +602,13 @@ fn integrity_issues(document: &Value, issues: &mut Vec<ProjectIssue>) {
         }
     }
 
-    // Regla 3.
+    // Regla 3: `targetTrackId` es opcional; si existe, debe apuntar a una pista.
+    // El esquema TypeScript y PROJECT-FORMAT.md lo declaran opcional, y los
+    // proyectos anteriores a la vista Motion no lo tienen.
     for (index, item) in items(document, "motion").iter().enumerate() {
-        let path = format!("motion[{}].targetTrackId", index);
-        match text(item, "targetTrackId") {
-            None => missing(issues, path, "track"),
-            Some(track_id) => {
-                if !track_ids.contains(track_id) {
-                    missing(issues, path, "track");
-                }
+        if let Some(track_id) = text(item, "targetTrackId") {
+            if !track_ids.contains(track_id) {
+                missing(issues, format!("motion[{}].targetTrackId", index), "track");
             }
         }
     }

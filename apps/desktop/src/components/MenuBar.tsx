@@ -426,7 +426,7 @@ export function MenuBar({ activeId, onSelect, onOpenStart }: MenuBarProps) {
           },
         },
         { kind: 'separator', id: 'help-about' },
-        { kind: 'item', label: 'Acerca de Editor IA', action: () => void showAbout() },
+        { kind: 'item', label: 'Acerca de Olyvia', action: () => void showAbout() },
       ],
     },
   ];
@@ -530,10 +530,10 @@ export function MenuBar({ activeId, onSelect, onOpenStart }: MenuBarProps) {
             className="app-modal"
             role="dialog"
             aria-modal="true"
-            aria-label={modal === 'shortcuts' ? 'Atajos de teclado' : 'Acerca de Editor IA'}
+            aria-label={modal === 'shortcuts' ? 'Atajos de teclado' : 'Acerca de Olyvia'}
           >
             <header>
-              <h2>{modal === 'shortcuts' ? 'Atajos de teclado' : 'Acerca de Editor IA'}</h2>
+              <h2>{modal === 'shortcuts' ? 'Atajos de teclado' : 'Acerca de Olyvia'}</h2>
               <button
                 type="button"
                 className="icon-button"
@@ -574,7 +574,7 @@ export function MenuBar({ activeId, onSelect, onOpenStart }: MenuBarProps) {
             ) : (
               <div className="about-copy">
                 <p>
-                  <strong>Editor IA</strong> es un estudio de video local-first para Windows:
+                  <strong>Olyvia</strong> es un estudio de video local-first para Windows:
                   timeline por frames, Director automático, fábrica de variantes, conversión de
                   medios, subtítulos y render FFmpeg verificado.
                 </p>

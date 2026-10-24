@@ -1,6 +1,11 @@
 import type { ViewId } from '../../app/navigation';
 
-export type AiSkillCategory = 'guion' | 'crecimiento' | 'produccion' | 'localizacion';
+export type AiSkillCategory =
+  | 'guion'
+  | 'crecimiento'
+  | 'produccion'
+  | 'localizacion'
+  | 'motion';
 
 export interface AiSkill {
   readonly id: string;
@@ -108,6 +113,16 @@ export const AI_SKILLS: readonly AiSkill[] = [
     prompt:
       'Prepará indicaciones de voz para el brief: ritmo, pausas, énfasis y actitud por escena, sin acotaciones actorales excesivas. Devolvé JSON: {"voice": string, "scenes": [{"scene": string, "delivery": string, "pauseAfter": number}]}. Mantené cada indicación en una línea.',
   },
+  {
+    id: 'motion-brief',
+    name: 'Motion graphics',
+    summary: 'Elegí una plantilla y props listas para el estudio Motion.',
+    category: 'motion',
+    target: 'motion',
+    output: 'JSON con templateId, props y durationSeconds',
+    prompt:
+      'Elegí una plantilla de motion graphics para el brief. Plantillas disponibles: title-card (título/subtítulo/fondo/acento), lower-third (nombre/rol/acento), end-card (título/CTA/fondo/acento) y stat-callout (valor/etiqueta/acento). Devolvé JSON: {"templateId": string, "props": object, "durationSeconds": number, "reason": string}. Usá sólo las props documentadas, textos breves y colores #rrggbb. No inventes campos ni rutas.',
+  },
 ];
 
 export function aiSkill(id: string): AiSkill | null {
@@ -168,5 +183,6 @@ export function categoryLabel(category: AiSkillCategory): string {
     crecimiento: 'Crecimiento',
     produccion: 'Producción',
     localizacion: 'Localización',
+    motion: 'Motion',
   }[category];
 }

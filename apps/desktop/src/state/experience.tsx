@@ -33,6 +33,7 @@ const GUIDED_HIDDEN_VIEWS: ReadonlySet<string> = new Set([
   'factory',
   'compliance',
   'mcp',
+  'multicam',
 ]);
 
 export function isExperienceMode(value: unknown): value is ExperienceMode {

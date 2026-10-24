@@ -22,6 +22,7 @@ import {
   addTranscriptionCues,
   addClipFromAsset,
   addGeneratedNarration,
+  addMotionGraphic,
   addScene,
   applyScenePlan,
   captionsFromScenes,
@@ -35,6 +36,7 @@ import {
   freezeFrameInPlace,
   markAssetReady,
   moveClip,
+  magneticMoveClip,
   moveTrack,
   newId,
   removeAsset,
@@ -56,6 +58,7 @@ import {
   updateAssetMetadata,
   updateCaptionCue,
   updateClip,
+  updateMotionProps,
   updateAudioMix,
   toggleAssetFavorite,
   updateProjectLook,
@@ -512,6 +515,41 @@ describe('cerrar huecos', () => {
   });
 });
 
+describe('timeline magnética', () => {
+  it('mueve el clip y cierra el hueco de la pista', () => {
+    const asset = videoAsset(300);
+    const first = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 30,
+    });
+    const second = addClipFromAsset(first.project, asset, {
+      atFrame: 120,
+      durationFrames: 30,
+    });
+    const moved = magneticMoveClip(second.project, second.clipId, 200);
+    expect(moved).not.toBeNull();
+    const next = validated(moved!);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.trackId === first.trackId)
+      .sort((a, b) => a.startFrame - b.startFrame);
+    expect(clips.map((clip) => clip.startFrame)).toEqual([0, 30]);
+    expect(clips[1]?.id).toBe(second.clipId);
+  });
+
+  it('rechaza un movimiento que se superpone', () => {
+    const asset = videoAsset(300);
+    const first = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 30,
+    });
+    const second = addClipFromAsset(first.project, asset, {
+      atFrame: 60,
+      durationFrames: 30,
+    });
+    expect(magneticMoveClip(second.project, second.clipId, 0)).toBeNull();
+  });
+});
+
 describe('cortar clips en marcadores', () => {
   it('divide el video en cada marcador sin cambiar duraciones', () => {
     const asset = videoAsset(300);
@@ -579,6 +617,25 @@ describe('orden de pistas', () => {
     expect(() => moveTrack(next, '00000000-0000-4000-8000-000000000000', 'up')).toThrow(
       ProjectActionError,
     );
+  });
+});
+
+describe('mezcla de pistas', () => {
+  it('guarda ganancia y solo con validación', () => {
+    const track = addTrack(base(), 'audio', 'Música');
+    const updated = validated(
+      updateTrack(track.project, track.trackId, { gainDb: -6.5, solo: true }),
+    );
+    const mixed = updated.timeline.tracks.find((item) => item.id === track.trackId);
+    expect(mixed?.gainDb).toBe(-6.5);
+    expect(mixed?.solo).toBe(true);
+  });
+
+  it('rechaza una ganancia fuera del rango de audio', () => {
+    const track = addTrack(base(), 'audio', 'Música');
+    expect(() =>
+      updateTrack(track.project, track.trackId, { gainDb: 20 }),
+    ).toThrow(ProjectActionError);
   });
 });
 
@@ -1781,5 +1838,73 @@ describe('metadatos de organización de medios', () => {
     expect(() =>
       updateAssetMetadata(project, asset.id, { bin: 'x'.repeat(41) }),
     ).toThrow(ProjectActionError);
+  });
+});
+
+describe('motion graphics', () => {
+  it('agrega un motion item y un clip graphic en una pista nueva', () => {
+    const added = addMotionGraphic(base(), {
+      templateId: 'lower-third',
+      templateVersion: '1.0.0',
+      props: {
+        name: 'Ana',
+        role: 'Editora',
+        accent: '#7dd3c0',
+        side: 'left',
+        animation: 'fade',
+      },
+      durationFrames: 60,
+      atFrame: 0,
+    });
+    const project = validated(added.project);
+    const track = project.timeline.tracks.find((item) => item.id === added.trackId);
+    const clip = project.timeline.clips.find((item) => item.id === added.clipId);
+    expect(track?.kind).toBe('graphic');
+    expect(clip).toMatchObject({
+      kind: 'graphic',
+      trackId: added.trackId,
+      startFrame: 0,
+      durationFrames: 60,
+      source: { type: 'graphic', motionId: added.motionId },
+    });
+    expect(project.motion.find((item) => item.id === added.motionId)?.props.name).toBe('Ana');
+    expect(project.motion.find((item) => item.id === added.motionId)?.targetTrackId).toBe(
+      added.trackId,
+    );
+  });
+
+  it('actualiza props de un motion item y rechaza un id ausente', () => {
+    const added = addMotionGraphic(base(), {
+      templateId: 'title-card',
+      templateVersion: '1.0.0',
+      props: { title: 'Hola' },
+      durationFrames: 30,
+      atFrame: 0,
+    });
+    const updated = updateMotionProps(added.project, added.motionId, { title: 'Chau' });
+    expect(updated.motion.find((item) => item.id === added.motionId)?.props.title).toBe('Chau');
+    expect(() =>
+      updateMotionProps(updated, '00000000-0000-4000-8000-000000000099', {}),
+    ).toThrow(ProjectActionError);
+  });
+
+  it('reutiliza la pista gráfica y evita superponer clips', () => {
+    const first = addMotionGraphic(base(), {
+      templateId: 'title-card',
+      templateVersion: '1.0.0',
+      props: { title: 'Uno' },
+      durationFrames: 30,
+      atFrame: 0,
+    });
+    const second = addMotionGraphic(first.project, {
+      templateId: 'title-card',
+      templateVersion: '1.0.0',
+      props: { title: 'Dos' },
+      durationFrames: 30,
+      atFrame: 0,
+    });
+    expect(second.trackId).toBe(first.trackId);
+    expect(second.startFrame).toBe(30);
+    expect(validated(second.project).timeline.clips).toHaveLength(2);
   });
 });

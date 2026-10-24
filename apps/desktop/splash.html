@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Montaje · Cargando</title>
+    <title>Olyvia · Cargando</title>
     <style>
       :root {
         --bg: #141416;
@@ -325,39 +325,80 @@
         margin-top: 1px;
       }
     </style>
+
+    <style>
+      :root {
+        --bg: #05070f;
+        --panel: #0a0f1e;
+        --border: #1b2945;
+        --accent: #35d6ff;
+        --accent-strong: #8b5cf6;
+        --text: #eef4ff;
+        --muted: #93a4c4;
+      }
+      .splash-container { background: #05070f; border-color: #1b2945; }
+      .splash-bg-image {
+        display: block;
+        opacity: .92;
+        object-position: center right;
+        filter: saturate(.95) contrast(1.02);
+      }
+      .splash-aurora { opacity: .5;
+        position: absolute; inset: 0; pointer-events: none;
+        background:
+          radial-gradient(600px 360px at 8% -10%, rgba(53,214,255,.18), transparent 62%),
+          radial-gradient(620px 420px at 100% 0%, rgba(139,92,246,.2), transparent 64%),
+          radial-gradient(520px 380px at 55% 120%, rgba(211,92,255,.08), transparent 62%);
+      }
+      .splash-watermark { display: none; }
+      .splash-top, .splash-sysinfo, .splash-log, .splash-bottom { max-width: 640px; }
+      .splash-overlay {
+        background:
+          linear-gradient(90deg, rgba(5,7,15,.97) 0%, rgba(5,7,15,.92) 34%, rgba(5,7,15,.62) 56%, rgba(5,7,15,.15) 80%, transparent 100%),
+          linear-gradient(0deg, rgba(5,7,15,.92) 0%, transparent 58%) !important;
+      }
+      .splash-logo-box {
+        width: 48px; height: 48px; border-radius: 10px; overflow: hidden;
+        background: #05070f; border-color: rgba(53,214,255,.3);
+        box-shadow: 0 0 20px rgba(53,214,255,.16);
+      }
+      .splash-logo-box img { width: 100%; height: 100%; object-fit: cover; display: block; }
+      .splash-app-name {
+        background: linear-gradient(135deg, #35d6ff, #8b5cf6 70%, #d35cff);
+        -webkit-background-clip: text; background-clip: text;
+        color: transparent; letter-spacing: .16em;
+      }
+      .splash-app-subtitle { color: #93a4c4; }
+      .splash-badge { background: rgba(10,15,30,.82); border-color: rgba(96,137,255,.22); color: #b6c9e8; }
+      .splash-badge--accent { background: rgba(53,214,255,.1); border-color: rgba(53,214,255,.35); color: #8fe9ff; }
+      .splash-status-dot { background: #35d6ff; box-shadow: 0 0 12px rgba(53,214,255,.75); }
+      .splash-progress-track { background: #101a30; }
+      .splash-progress-bar {
+        background: linear-gradient(90deg, #35d6ff, #4f8dff 45%, #8b5cf6 75%, #d35cff);
+        box-shadow: 0 0 14px rgba(53,214,255,.45);
+      }
+    </style>
   </head>
   <body>
     <div class="splash-container">
-      <!-- Background Photo of Woman Video Editor -->
-      <img
-        src="./splash-bg.jpg"
-        alt="Estudio de Edición"
-        class="splash-bg-image"
-        onerror="this.style.display='none'"
-      />
+      <img src="./splash-bg.jpg" alt="" class="splash-bg-image" />
+      <div class="splash-aurora" aria-hidden="true"></div>
+      <img src="./olyvia-mark.png" alt="" class="splash-watermark" />
       <div class="splash-overlay" aria-hidden="true"></div>
 
       <!-- Top Branding -->
       <div class="splash-top">
         <div class="splash-brand">
-          <div class="splash-logo-box">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="none">
-              <!-- Geometric DaVinci-inspired color wheels & timeline play -->
-              <circle cx="7" cy="8" r="4" stroke="#e05252" stroke-width="1.6" fill="rgba(224, 82, 82, 0.18)" />
-              <circle cx="17" cy="8" r="4" stroke="#48b85c" stroke-width="1.6" fill="rgba(72, 184, 92, 0.18)" />
-              <circle cx="12" cy="16" r="4" stroke="#4881c2" stroke-width="1.6" fill="rgba(72, 129, 194, 0.22)" />
-              <polygon points="11 14.5 14 16 11 17.5" fill="#4881c2" />
-            </svg>
-          </div>
+          <div class="splash-logo-box"><img src="./olyvia-mark.png" alt="" /></div>
           <div class="splash-titles">
-            <h1 class="splash-app-name">MONTAJE</h1>
-            <span class="splash-app-subtitle">Estudio de Edición &amp; Postproducción NLE</span>
+            <h1 class="splash-app-name">OLYVIA</h1>
+            <span class="splash-app-subtitle">Estudio de creación local · IA</span>
           </div>
         </div>
 
         <div class="splash-badges">
           <span class="splash-badge splash-badge--accent">v0.1.0</span>
-          <span class="splash-badge">Motor FFmpeg 7</span>
+          <span class="splash-badge">FFmpeg local</span>
           <span class="splash-badge">Aceleración GPU</span>
           <span class="splash-badge">IA Local</span>
         </div>
@@ -376,10 +417,6 @@
             <span class="splash-status-dot" aria-hidden="true"></span>
             <span class="splash-status-text" id="status-text">Iniciando estudio de edición…</span>
           </div>
-          <div class="splash-status-right">
-            <span class="splash-elapsed" id="elapsed-time">0.0s</span>
-            <span class="splash-status-step" id="status-step">— / —</span>
-          </div>
         </div>
 
         <div class="splash-progress-track">
@@ -396,22 +433,13 @@
     <script>
       // ─── DOM refs ───
       var textEl    = document.getElementById('status-text');
-      var stepEl    = document.getElementById('status-step');
       var barEl     = document.getElementById('progress-bar');
-      var elapsedEl = document.getElementById('elapsed-time');
       var logEl     = document.getElementById('step-log');
       var sysinfoEl = document.getElementById('sysinfo-strip');
 
-      var startTime = performance.now();
       var receivedRealEvent = false;
       var completedSteps = [];
       var MAX_LOG = 4;
-
-      // ─── Elapsed timer ───
-      var elapsedTimer = window.setInterval(function () {
-        var elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-        elapsedEl.textContent = elapsed + 's';
-      }, 100);
 
       // ─── System info detection ───
       function detectSystemInfo() {
@@ -499,6 +527,14 @@
 
       // ─── Update UI ───
       function updateProgress(step, total, message, pct) {
+        // Si el motor repite el mismo hito (listener duplicado o reintento),
+        // no se agrega otra línea idéntica al log.
+        var lastEntry = logEl.lastElementChild;
+        if (lastEntry && lastEntry.textContent.trim() === message.trim()) {
+          textEl.textContent = message;
+          barEl.style.width = pct + '%';
+          return;
+        }
         // Mark previous active log as done
         var activeEntries = logEl.querySelectorAll('.log-entry--active');
         for (var i = 0; i < activeEntries.length; i++) {
@@ -509,22 +545,26 @@
           }
         }
 
-        // Add new active entry
-        addLogEntry(message, false);
+        // El hito final se muestra en el estado inferior, no otra vez en el log.
+        if (step < total) {
+          addLogEntry(message, false);
+        }
 
         // Update status bar
         textEl.textContent = message;
-        stepEl.textContent = step + ' / ' + total;
         barEl.style.width = pct + '%';
       }
 
       // ─── Listen for real Tauri events ───
       var tauriListenerReady = false;
+      var tauriListenerRegistered = false;
 
       function setupTauriListener() {
+        if (tauriListenerRegistered) return;
         if (typeof window.__TAURI_INTERNALS__ !== 'undefined') {
           try {
             if (window.__TAURI_INTERNALS__.transformCallback) {
+              tauriListenerRegistered = true;
               var callbackId = window.__TAURI_INTERNALS__.transformCallback(function (event) {
                 if (event && event.payload) {
                   var p = event.payload;
@@ -553,10 +593,12 @@
               }).then(function () {
                 tauriListenerReady = true;
               }).catch(function () {
+                tauriListenerRegistered = false;
                 // Fallback: Tauri events not available
               });
             }
           } catch (e) {
+            tauriListenerRegistered = false;
             // Tauri not available, fallback will handle it
           }
         }

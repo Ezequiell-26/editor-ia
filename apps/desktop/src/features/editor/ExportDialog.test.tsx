@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { ExportDialog } from './ExportDialog';
+import type { HardwareEncoders } from '../../services/project-service';
 import { ProjectProvider } from '../../state/project-store';
 import {
   addAsset,
@@ -14,7 +15,7 @@ import { createFakeService, readyAsset } from '../../test/fake-service';
 
 const NOW = '2026-10-19T00:00:00.000Z';
 
-function renderDialog() {
+function renderDialog(hardware?: HardwareEncoders) {
   const base = ensureDelivery(createEmptyProject('Lote masivo', NOW));
   const asset = readyAsset();
   const project = addClipFromAsset(addAsset(base, asset), asset, {
@@ -22,6 +23,8 @@ function renderDialog() {
     durationFrames: 90,
   }).project;
   const service = createFakeService();
+  service.hardwareEncoders = async () =>
+    hardware ?? { h264: null, hevc: null, checked: true };
   render(
     <ProjectProvider
       service={service}
@@ -109,6 +112,58 @@ describe('ExportDialog · lote de variantes', () => {
       target: { value: 'cover' },
     });
     expect(screen.getAllByText(/Recortar para llenar/i).length).toBeGreaterThan(0);
+  });
+
+  it('no usa la GPU detectada cuando el render corto no la necesita', async () => {
+    const { service } = renderDialog({
+      h264: 'h264_amf',
+      hevc: null,
+      checked: true,
+    });
+    const gpu = await screen.findByRole('checkbox', { name: /Acelerar con GPU/i });
+    expect(gpu.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText(/no recomendada para este render/i)).toBeTruthy();
+    expect(screen.getByText(/mantiene el encoder por software/i)).toBeTruthy();
+
+    const spy = vi.spyOn(service, 'startRenderTo');
+    fireEvent.click(screen.getByRole('button', { name: /Elegir carpeta y exportar lote/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[4]).toBeNull();
+  });
+
+  it('ofrece la GPU detectada para un preset pesado y la pasa al lote', async () => {
+    const { service } = renderDialog({
+      h264: 'h264_amf',
+      hevc: null,
+      checked: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Máxima calidad/i }));
+    const gpu = await screen.findByRole('checkbox', { name: /Acelerar con GPU/i });
+    await waitFor(() => expect(gpu.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(gpu);
+    const spy = vi.spyOn(service, 'startRenderTo');
+    fireEvent.click(screen.getByRole('button', { name: /Elegir carpeta y exportar lote/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[4]).toBe('h264_amf');
+  });
+
+  it('apaga la GPU al volver a un preset rápido', async () => {
+    renderDialog({
+      h264: 'h264_amf',
+      hevc: null,
+      checked: true,
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Máxima calidad/i }));
+    const gpu = await screen.findByRole('checkbox', { name: /Acelerar con GPU/i });
+    await waitFor(() => expect(gpu.hasAttribute('disabled')).toBe(false));
+    fireEvent.click(gpu);
+    expect((gpu as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: /^Equilibrado/i }));
+    await waitFor(() => {
+      expect(gpu.hasAttribute('disabled')).toBe(true);
+      expect((gpu as HTMLInputElement).checked).toBe(false);
+    });
   });
 
   it('se detiene si un render falla', async () => {

@@ -938,7 +938,7 @@ button.shortcuts-keys:hover {
 .settings-window-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 400;
+  z-index: 3000;
   background: rgba(4, 6, 9, 0.55);
 }
 
@@ -1018,6 +1018,7 @@ button.shortcuts-keys:hover {
 .settings-window .settings-nav {
   position: static;
   max-height: none;
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .settings-window .settings-nav-copy small {

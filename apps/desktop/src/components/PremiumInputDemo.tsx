@@ -10,7 +10,7 @@ export function PremiumInputDemo() {
   return (
     <div style={{ padding: '40px', background: '#0f1623', minHeight: '100vh' }}>
       <h1 style={{ color: '#eaf3ef', fontSize: '32px', marginBottom: '48px' }}>
-        Premium Inputs Gallery - Editor IA
+        Premium Inputs Gallery - Olyvia
       </h1>
 
       {/* Basic Input Types */}

@@ -59,6 +59,19 @@ describe('TrackSchema', () => {
   it('rejects an unknown track key', () => {
     expect(TrackSchema.safeParse(videoTrack({ volume: 1 })).success).toBe(false);
   });
+
+  it('acepta ganancia y solo por pista', () => {
+    const parsed = TrackSchema.safeParse(videoTrack({ gainDb: -6.5, solo: true }));
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.gainDb).toBe(-6.5);
+      expect(parsed.data.solo).toBe(true);
+    }
+  });
+
+  it('rechaza una ganancia de pista fuera del rango de audio', () => {
+    expect(TrackSchema.safeParse(videoTrack({ gainDb: 18 })).success).toBe(false);
+  });
 });
 
 describe('adjustment layers', () => {

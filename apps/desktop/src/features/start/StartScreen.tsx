@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { forgetRecent, loadRecents, type RecentProject } from '../../lib/recents';
@@ -12,12 +12,17 @@ import {
 import { detectNativeRuntime } from '../../services/project-service';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
+import { SettingsWindow } from '../../components/SettingsWindow';
 import { AppUpdaterModal } from '../updater/AppUpdaterModal';
 import {
   CURRENT_APP_VERSION,
   checkForUpdates,
   loadUpdaterConfig,
 } from '../updater/updater-service';
+
+const SettingsHome = lazy(() =>
+  import('../settings/SettingsHome').then((module) => ({ default: module.SettingsHome })),
+);
 
 export interface StartScreenProps {
   readonly onEnterApp: (view: ViewId) => void;
@@ -53,6 +58,19 @@ function getDefaultProjectName(): string {
   const day = today.getDate();
   const month = today.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '');
   return `Proyecto ${day} ${month}`;
+}
+
+// Portada sustituta para proyectos sin medios visuales: la inicial del nombre
+// sobre un tono estable, así cada tarjeta se distingue de las demás.
+function projectInitial(name: string): string {
+  const first = Array.from(name.trim())[0];
+  return first ? first.toLocaleUpperCase('es-ES') : 'O';
+}
+
+function projectTone(name: string): number {
+  let hash = 0;
+  for (const char of name) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0;
+  return hash % 6;
 }
 
 const QUICK_AI_TOOLS: readonly {
@@ -160,6 +178,9 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
 
   // Updater state
   const [showUpdaterModal, setShowUpdaterModal] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [recentThumbs, setRecentThumbs] = useState<Record<string, string>>({});
+  const requestedThumbs = useRef(new Set<string>());
   const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
 
   // Drag and drop overlay
@@ -191,12 +212,43 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
     }
   }, []);
 
+  // Portadas de los proyectos recientes: se piden de a una para no lanzar
+  // varios FFmpeg a la vez. Si un proyecto no tiene visual, queda el icono.
+  useEffect(() => {
+    let cancelled = false;
+    const missing = recents
+      .map((item) => item.path)
+      .filter((path) => !requestedThumbs.current.has(path));
+    if (missing.length === 0) return;
+    for (const path of missing) requestedThumbs.current.add(path);
+    void (async () => {
+      for (const path of missing) {
+        if (cancelled) return;
+        try {
+          const url = await store.service.recentProjectThumbnail(path);
+          if (!cancelled && url) {
+            setRecentThumbs((current) =>
+              current[path] ? current : { ...current, [path]: url },
+            );
+          }
+        } catch {
+          // Sin portada no se rompe el lanzador.
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recents, store.service]);
+
   // Ensure compact window size on mount (DaVinci Project Manager style: 900x580)
   useEffect(() => {
     if (!native) return;
     const appWindow = getCurrentWindow();
     void appWindow
       .unmaximize()
+      .then(() => appWindow.setResizable(false))
+      .then(() => appWindow.setMaximizable(false))
       .then(() => appWindow.setSize(new LogicalSize(900, 580)))
       .then(() => appWindow.center())
       .catch(() => {});
@@ -389,17 +441,17 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
         </div>
       )}
 
-      {/* DaVinci Resolve Project Manager window container */}
+      {/* Olyvia project manager window */}
       <div className="start-window">
         {/* ─── Window Header (Titlebar) ─── */}
         <header className="start-window-header" data-tauri-drag-region>
           <div className="start-window-brand">
             <div className="start-brand-box">
-              <Icon name="film" size={14} />
+              <img src="/olyvia-mark.png" alt="" />
             </div>
             <div className="start-brand-titles">
-              <span className="start-app-title">Montaje</span>
-              <span className="start-app-pill">Editor IA Local</span>
+              <span className="start-app-title">Olyvia</span>
+              <span className="start-app-pill">Creation Studio</span>
             </div>
 
             {/* Version & Update button */}
@@ -428,7 +480,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
               className="start-win-btn"
               title="Ajustes de la aplicación"
               aria-label="Ajustes"
-              onClick={() => transitionOut('settings')}
+              onClick={() => setShowSettings(true)}
             >
               <Icon name="settings" size={13} />
             </button>
@@ -444,17 +496,6 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                   }}
                 >
                   <Icon name="minus" size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="start-win-btn"
-                  title="Maximizar"
-                  aria-label="Maximizar"
-                  onClick={() => {
-                    void getCurrentWindow().toggleMaximize().catch(() => {});
-                  }}
-                >
-                  <Icon name="maximize" size={11} />
                 </button>
                 <button
                   type="button"
@@ -564,7 +605,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             {/* Status note */}
             <div className="start-privacy-note">
               <span className="start-privacy-dot" />
-              <span>100% Offline · FFmpeg 7</span>
+              <span>100% Offline · FFmpeg 9</span>
             </div>
           </aside>
 
@@ -639,9 +680,24 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                         if (e.key === 'Enter') void handleOpenRecent(project);
                       }}
                     >
-                      <div className="start-thumb-box">
-                        <Icon name="film" size={24} />
-                        <div className="start-thumb-badge">1080p</div>
+                      <div className={`start-thumb-box${recentThumbs[project.path] ? ' has-image' : ''}`}>
+                        {recentThumbs[project.path] ? (
+                          <img
+                            className="start-thumb-image"
+                            src={recentThumbs[project.path]}
+                            alt=""
+                          />
+                        ) : (
+                          <div
+                            className={`start-thumb-fallback tone-${projectTone(project.name)}`}
+                            aria-hidden="true"
+                          >
+                            <span className="start-thumb-initial">
+                              {projectInitial(project.name)}
+                            </span>
+                            <span className="start-thumb-hint">Sin vista previa</span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="start-project-info">
@@ -853,6 +909,12 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
         isOpen={showUpdaterModal}
         onClose={() => setShowUpdaterModal(false)}
       />
+
+      {showSettings ? (
+        <SettingsWindow onClose={() => setShowSettings(false)}>
+          <SettingsHome />
+        </SettingsWindow>
+      ) : null}
     </div>
   );
 }

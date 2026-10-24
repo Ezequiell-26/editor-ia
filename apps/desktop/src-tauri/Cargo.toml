@@ -49,6 +49,8 @@ rustface = "0.1.7"
 video-rs = { version = "0.12", default-features = false, features = ["ndarray"] }
 # Validación XML del FCPXML exportado. MIT.
 roxmltree = "0.21"
+# Lectura de paquetes ZIP para modelos ONNX con pesos externos (MIT).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
 # Cadena de diálogo DSP de FilmCraft (MIT OR Apache-2.0), sin dependencias.
 # Se usa desde el repositorio oficial fijado a un commit; no se copia código.
 filmcraft-audio-dsp = { git = "https://github.com/storytold/filmcraft", rev = "abf44fda9015f4b7a96dc338f6042499bf8e9d9f", package = "filmcraft-audio-dsp" }

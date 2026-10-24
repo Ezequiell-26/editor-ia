@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './Icon';
 
 interface SettingsWindowProps {
@@ -75,7 +76,7 @@ export function SettingsWindow({ onClose, children }: SettingsWindowProps) {
     dragRef.current = null;
   }
 
-  return (
+  return createPortal(
     <div
       className="settings-window-backdrop"
       onMouseDown={(event) => {
@@ -117,6 +118,7 @@ export function SettingsWindow({ onClose, children }: SettingsWindowProps) {
           <Suspense fallback={null}>{children}</Suspense>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

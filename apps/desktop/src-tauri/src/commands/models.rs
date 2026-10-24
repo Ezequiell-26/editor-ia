@@ -8,7 +8,7 @@
 //! Algunos modelos vienen en varios archivos (el ONNX con pesos externos, por
 //! ejemplo): el spec declara la lista completa y la verificación exige todos.
 
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -84,13 +84,13 @@ pub const MODELS: &[ModelSpec] = &[
         files: &[
             ModelFileSpec {
                 file_name: "real_esrgan_x4plus.onnx",
-                url: "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/real_esrgan_x4plus/releases/v0.65.0/real_esrgan_x4plus-onnx-float.zip#real_esrgan_x4plus.onnx",
+                url: "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/real_esrgan_x4plus/releases/v0.65.0/real_esrgan_x4plus-onnx-float.zip#real_esrgan_x4plus-onnx-float/real_esrgan_x4plus.onnx",
                 sha256: "0c40d89889e621d4f1a9a0a6d728e4ccd612a67a90927ca8b394eb0917329ed9",
                 bytes: 3_158_313,
             },
             ModelFileSpec {
                 file_name: "real_esrgan_x4plus.data",
-                url: "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/real_esrgan_x4plus/releases/v0.65.0/real_esrgan_x4plus-onnx-float.zip#real_esrgan_x4plus.data",
+                url: "https://qaihub-public-assets.s3.us-west-2.amazonaws.com/qai-hub-models/models/real_esrgan_x4plus/releases/v0.65.0/real_esrgan_x4plus-onnx-float.zip#real_esrgan_x4plus-onnx-float/real_esrgan_x4plus.data",
                 sha256: "28fada125730d3c87d504d48dd8332837f65811ec431a570ea4919ba3eee3287",
                 bytes: 66_737_664,
             },
@@ -217,18 +217,11 @@ pub fn list_models(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, Project
         .collect())
 }
 
-/// Un archivo pendiente de descargar dentro de un modelo.
-struct PendingFile {
-    path: PathBuf,
-    file_name: &'static str,
-    url: &'static str,
-    sha256: &'static str,
-    bytes: u64,
-}
-
-fn pending_files(state: &AppState, spec: &ModelSpec) -> Vec<PendingFile> {
+/// Archivos del modelo que faltan o están incompletos.
+fn pending_files(state: &AppState, spec: &ModelSpec) -> Vec<ModelFileSpec> {
     spec.files
         .iter()
+        .copied()
         .filter(|file| {
             let path = model_file(state, spec, file);
             !path.is_file()
@@ -236,21 +229,243 @@ fn pending_files(state: &AppState, spec: &ModelSpec) -> Vec<PendingFile> {
                     .map(|meta| meta.len() != file.bytes)
                     .unwrap_or(true)
         })
-        .map(|file| PendingFile {
-            path: model_file(state, spec, file),
-            file_name: file.file_name,
-            url: file.url,
-            sha256: file.sha256,
-            bytes: file.bytes,
-        })
         .collect()
+}
+
+/// Separa una URL de descarga de una entrada ZIP: `paquete.zip#ruta/interna`.
+/// El fragmento no viaja al servidor; lo usa la app para extraer el archivo.
+fn split_archive_url(url: &str) -> (&str, Option<&str>) {
+    match url.split_once('#') {
+        Some((base, entry)) if !entry.trim().is_empty() => (base, Some(entry.trim())),
+        Some((base, _)) => (base, None),
+        None => (url, None),
+    }
+}
+
+fn zip_cache_path(cache_dir: &Path, archive_url: &str) -> PathBuf {
+    let digest = Sha256::digest(archive_url.as_bytes());
+    cache_dir.join(format!(".archive-{:x}.zip", digest))
+}
+
+/// Resuelve la entrada del ZIP por ruta exacta o por nombre de archivo. El
+/// catálogo histórico usaba sólo el basename; se acepta igual.
+fn resolve_zip_entry<R: Read + Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    requested: &str,
+) -> Result<String, ProjectError> {
+    if archive.by_name(requested).is_ok() {
+        return Ok(requested.to_owned());
+    }
+    let base_name = requested.rsplit('/').next().unwrap_or(requested);
+    for index in 0..archive.len() {
+        let Ok(entry) = archive.by_index(index) else {
+            continue;
+        };
+        let Ok(name) = entry.name() else {
+            continue;
+        };
+        if name.rsplit('/').next() == Some(base_name) {
+            return Ok(name.into_owned());
+        }
+    }
+    Err(ProjectError::message(
+        ProjectErrorCode::InvalidProviderResponse,
+        format!("el paquete del modelo no contiene {requested}").as_str(),
+    ))
+}
+
+/// Descarga por HTTP y entrega cada bloque al consumidor, sin cargar el
+/// archivo entero en memoria.
+fn stream_download(
+    url: &str,
+    mut on_chunk: impl FnMut(&[u8]) -> Result<(), ProjectError>,
+) -> Result<(), ProjectError> {
+    let response = reqwest::blocking::Client::new()
+        .get(url)
+        .timeout(std::time::Duration::from_secs(1800))
+        .send()
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "no se pudo descargar el modelo; revisá la conexión",
+            )
+        })?;
+    if !response.status().is_success() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            format!("la descarga del modelo devolvió {}", response.status()).as_str(),
+        ));
+    }
+    let mut reader = response;
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let read = reader.read(&mut buffer).map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "la descarga del modelo se cortó")
+        })?;
+        if read == 0 {
+            break;
+        }
+        on_chunk(&buffer[..read])?;
+    }
+    Ok(())
+}
+
+/// Baja un paquete ZIP una sola vez y lo deja en la carpeta del modelo para
+/// reutilizarlo entre sus archivos. Se borra al terminar la descarga completa.
+fn ensure_archive(
+    base_url: &str,
+    cache_dir: &Path,
+    archives: &mut Vec<PathBuf>,
+) -> Result<PathBuf, ProjectError> {
+    let cache = zip_cache_path(cache_dir, base_url);
+    if cache.is_file() {
+        archives.push(cache.clone());
+        return Ok(cache);
+    }
+    let partial = cache.with_extension("zip.partial");
+    {
+        let target = std::fs::File::create(&partial).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo escribir el paquete del modelo",
+            )
+        })?;
+        let mut writer = BufWriter::new(target);
+        stream_download(base_url, |chunk| {
+            writer.write_all(chunk).map_err(|_| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "no se pudo guardar el paquete del modelo",
+                )
+            })
+        })?;
+        writer.flush().map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo guardar el paquete del modelo",
+            )
+        })?;
+    }
+    std::fs::rename(&partial, &cache).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo instalar el paquete del modelo",
+        )
+    })?;
+    archives.push(cache.clone());
+    Ok(cache)
+}
+
+/// Descarga un archivo del modelo (directo o dentro de un ZIP), verifica el
+/// SHA-256 y los bytes, y recién entonces lo mueve a su ruta final.
+fn download_file_verified(
+    file: &ModelFileSpec,
+    target: &Path,
+    cache_dir: &Path,
+    archives: &mut Vec<PathBuf>,
+    done_bytes: &mut u64,
+    total_bytes: u64,
+    on_progress: &mut dyn FnMut(i64),
+) -> Result<(), ProjectError> {
+    let partial_ext = target
+        .extension()
+        .map(|ext| ext.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let partial = target.with_extension(format!("{partial_ext}.partial"));
+    let (base_url, entry_name) = split_archive_url(file.url);
+    let mut hasher = Sha256::new();
+    let mut written: u64 = 0;
+
+    if let Some(entry_name) = entry_name {
+        let archive_path = ensure_archive(base_url, cache_dir, archives)?;
+        let handle = std::fs::File::open(&archive_path).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo abrir el paquete del modelo",
+            )
+        })?;
+        let mut archive = zip::ZipArchive::new(handle).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "el paquete del modelo no es un ZIP válido",
+            )
+        })?;
+        let resolved = resolve_zip_entry(&mut archive, entry_name)?;
+        let mut entry = archive.by_name(&resolved).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "no se pudo leer la entrada del paquete del modelo",
+            )
+        })?;
+        let target_file = std::fs::File::create(&partial).map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "no se pudo escribir el modelo")
+        })?;
+        let mut writer = BufWriter::new(target_file);
+        let mut buffer = [0u8; 64 * 1024];
+        loop {
+            let read = entry.read(&mut buffer).map_err(|_| {
+                ProjectError::message(ProjectErrorCode::Io, "no se pudo extraer el modelo")
+            })?;
+            if read == 0 {
+                break;
+            }
+            writer.write_all(&buffer[..read]).map_err(|_| {
+                ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el modelo")
+            })?;
+            hasher.update(&buffer[..read]);
+            written += read as u64;
+            *done_bytes += read as u64;
+            let percent = ((*done_bytes as f64 / total_bytes as f64) * 100.0) as i64;
+            on_progress(percent.min(99));
+        }
+        writer.flush().map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el modelo")
+        })?;
+    } else {
+        let target_file = std::fs::File::create(&partial).map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "no se pudo escribir el modelo")
+        })?;
+        let mut writer = BufWriter::new(target_file);
+        stream_download(base_url, |chunk| {
+            writer.write_all(chunk).map_err(|_| {
+                ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el modelo")
+            })?;
+            hasher.update(chunk);
+            written += chunk.len() as u64;
+            *done_bytes += chunk.len() as u64;
+            let percent = ((*done_bytes as f64 / total_bytes as f64) * 100.0) as i64;
+            on_progress(percent.min(99));
+            Ok(())
+        })?;
+        writer.flush().map_err(|_| {
+            ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el modelo")
+        })?;
+    }
+
+    let digest = format!("{:x}", hasher.finalize());
+    if digest != file.sha256 || written != file.bytes {
+        let _ = std::fs::remove_file(&partial);
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            format!(
+                "el archivo {} no coincide con el checksum esperado; se descartó",
+                file.file_name
+            )
+            .as_str(),
+        ));
+    }
+    std::fs::rename(&partial, target).map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "no se pudo instalar el modelo")
+    })?;
+    Ok(())
 }
 
 /// Descarga los archivos que falten del modelo, con progreso y verificación.
 ///
 /// Emite `model-download` con `{ id, percent }` (porcentaje sobre el total del
 /// modelo, no por archivo). Si un SHA-256 no coincide, ese archivo se borra: un
-/// modelo corrupto no se usa, se vuelve a bajar.
+/// modelo corrupto no se usa, se vuelve a bajar. Los modelos con pesos externos
+/// vienen en un ZIP: se baja una vez y se extraen sus entradas.
 #[tauri::command]
 pub async fn download_model(
     app: AppHandle,
@@ -281,72 +496,26 @@ pub async fn download_model(
     let model_id = spec.id.to_owned();
     tauri::async_runtime::spawn_blocking(move || -> Result<(), ProjectError> {
         let mut done_bytes: u64 = 0;
+        let mut archives: Vec<PathBuf> = Vec::new();
         for file in &pending {
-            let partial_ext = file
-                .path
-                .extension()
-                .map(|ext| ext.to_string_lossy().into_owned())
-                .unwrap_or_default();
-            let partial = file.path.with_extension(format!("{partial_ext}.partial"));
-            let response = reqwest::blocking::Client::new()
-                .get(file.url)
-                .timeout(std::time::Duration::from_secs(1800))
-                .send()
-                .map_err(|_| {
-                    ProjectError::message(
-                        ProjectErrorCode::ProviderUnavailable,
-                        "no se pudo descargar el modelo; revisá la conexión",
-                    )
-                })?;
-            if !response.status().is_success() {
-                return Err(ProjectError::message(
-                    ProjectErrorCode::ProviderUnavailable,
-                    format!("la descarga del modelo devolvió {}", response.status()).as_str(),
-                ));
-            }
-            let target = std::fs::File::create(&partial).map_err(|_| {
-                ProjectError::message(ProjectErrorCode::Io, "no se pudo escribir el modelo")
-            })?;
-            let mut writer = BufWriter::new(target);
-            let mut hasher = Sha256::new();
-            let mut reader = response;
-            let mut buffer = [0u8; 64 * 1024];
-            loop {
-                let read = reader.read(&mut buffer).map_err(|_| {
-                    ProjectError::message(ProjectErrorCode::Io, "la descarga del modelo se cortó")
-                })?;
-                if read == 0 {
-                    break;
-                }
-                writer.write_all(&buffer[..read]).map_err(|_| {
-                    ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el modelo")
-                })?;
-                hasher.update(&buffer[..read]);
-                done_bytes += read as u64;
-                let percent = ((done_bytes as f64 / total_bytes as f64) * 100.0) as i64;
-                let _ = app_handle.emit(
-                    "model-download",
-                    serde_json::json!({ "id": model_id, "percent": percent.min(99) }),
-                );
-            }
-            writer.flush().map_err(|_| {
-                ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el modelo")
-            })?;
-            let digest = format!("{:x}", hasher.finalize());
-            if digest != file.sha256 {
-                let _ = std::fs::remove_file(&partial);
-                return Err(ProjectError::message(
-                    ProjectErrorCode::InvalidProviderResponse,
-                    format!(
-                        "el archivo {} no coincide con el checksum esperado; se descartó",
-                        file.file_name
-                    )
-                    .as_str(),
-                ));
-            }
-            std::fs::rename(&partial, &file.path).map_err(|_| {
-                ProjectError::message(ProjectErrorCode::Io, "no se pudo instalar el modelo")
-            })?;
+            let target = dir.join(file.file_name);
+            download_file_verified(
+                file,
+                &target,
+                &dir,
+                &mut archives,
+                &mut done_bytes,
+                total_bytes,
+                &mut |percent| {
+                    let _ = app_handle.emit(
+                        "model-download",
+                        serde_json::json!({ "id": model_id, "percent": percent }),
+                    );
+                },
+            )?;
+        }
+        for archive in archives {
+            let _ = std::fs::remove_file(archive);
         }
         Ok(())
     })
@@ -372,4 +541,104 @@ pub fn delete_model(state: State<'_, AppState>, id: String) -> Result<bool, Proj
     std::fs::remove_dir_all(&dir)
         .map(|_| true)
         .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo borrar el modelo"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn splits_archive_urls_from_direct_urls() {
+        assert_eq!(
+            split_archive_url("https://cdn/model.zip#carpeta/pesos.onnx"),
+            ("https://cdn/model.zip", Some("carpeta/pesos.onnx"))
+        );
+        assert_eq!(
+            split_archive_url("https://cdn/model.onnx"),
+            ("https://cdn/model.onnx", None)
+        );
+        assert_eq!(
+            split_archive_url("https://cdn/model.zip#"),
+            ("https://cdn/model.zip", None)
+        );
+    }
+
+    #[test]
+    fn resolves_zip_entries_by_path_or_basename() {
+        let dir = std::env::temp_dir().join(format!("olyvia-zip-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp");
+        let zip_path = dir.join("modelo.zip");
+        {
+            let file = std::fs::File::create(&zip_path).expect("zip");
+            let mut writer = zip::ZipWriter::new(file);
+            writer
+                .start_file(
+                    "carpeta/pesos.onnx",
+                    zip::write::SimpleFileOptions::default(),
+                )
+                .expect("entrada");
+            writer.write_all(b"modelo").expect("contenido");
+            writer.finish().expect("cerrar");
+        }
+        let mut archive =
+            zip::ZipArchive::new(std::fs::File::open(&zip_path).expect("abrir")).expect("zip");
+        assert_eq!(
+            resolve_zip_entry(&mut archive, "carpeta/pesos.onnx").expect("ruta exacta"),
+            "carpeta/pesos.onnx"
+        );
+        assert_eq!(
+            resolve_zip_entry(&mut archive, "pesos.onnx").expect("basename"),
+            "carpeta/pesos.onnx"
+        );
+        assert!(resolve_zip_entry(&mut archive, "otro.onnx").is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Descarga real del modelo con pesos externos (62 MB) y verifica que el
+    /// ZIP se extraiga y que ambos archivos coincidan con su checksum.
+    #[test]
+    #[ignore = "descarga real de 62 MB; requiere red y EDITOR_IA_RUN_RENDER_TESTS=1"]
+    fn live_downloads_real_esrgan_zip_files() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("sin EDITOR_IA_RUN_RENDER_TESTS; se omite la descarga real");
+            return;
+        }
+        let spec = model_by_id("real-esrgan-x4plus").expect("spec");
+        let dir = std::env::temp_dir().join(format!("olyvia-esrgan-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp");
+        let total = total_bytes(spec);
+        let mut done = 0u64;
+        let mut archives = Vec::new();
+        for file in spec.files {
+            let target = dir.join(file.file_name);
+            download_file_verified(
+                file,
+                &target,
+                &dir,
+                &mut archives,
+                &mut done,
+                total,
+                &mut |_| {},
+            )
+            .expect("descarga verificada");
+            let meta = std::fs::metadata(&target).expect("archivo");
+            assert_eq!(meta.len(), file.bytes);
+            let mut hasher = Sha256::new();
+            let mut handle = std::fs::File::open(&target).expect("abrir");
+            let mut buffer = [0u8; 64 * 1024];
+            loop {
+                let read = handle.read(&mut buffer).expect("leer");
+                if read == 0 {
+                    break;
+                }
+                hasher.update(&buffer[..read]);
+            }
+            assert_eq!(format!("{:x}", hasher.finalize()), file.sha256);
+        }
+        for archive in archives {
+            let _ = std::fs::remove_file(archive);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        eprintln!("real-esrgan verificado: {done} bytes extraídos del ZIP");
+    }
 }

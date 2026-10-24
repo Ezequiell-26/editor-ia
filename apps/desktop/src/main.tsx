@@ -13,6 +13,7 @@ import './styles/settings.css';
 import './styles/home.css';
 import './styles/start-screen.css';
 import './styles/resolve-theme.css';
+import './styles/olyvia.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.

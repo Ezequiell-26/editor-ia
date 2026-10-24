@@ -28,6 +28,7 @@ import {
   fpsOf,
   markAssetReady,
   removeAsset,
+  setAssetProxy,
   toggleAssetFavorite,
   updateAssetLabel,
   updateAssetMetadata,
@@ -298,6 +299,9 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const [transitionFrames, setTransitionFrames] = useState(8);
   const [imageSeconds, setImageSeconds] = useState(5);
   const [busy, setBusy] = useState(false);
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const [proxyDone, setProxyDone] = useState(0);
+  const [proxyTotal, setProxyTotal] = useState(0);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [assetQuery, setAssetQuery] = useState('');
   const [assetFilter, setAssetFilter] = useState<AssetKindFilter>('all');
@@ -305,6 +309,55 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [smartBins, setSmartBins] = useState<SmartBin[]>([]);
   const [activeBinId, setActiveBinId] = useState<string | null>(null);
+
+  const pendingProxies = (project?.assets ?? []).filter(
+    (asset) =>
+      asset.kind === 'video' &&
+      asset.status === 'ready' &&
+      !(('proxy' in asset) && (asset as { proxy?: unknown }).proxy),
+  );
+
+  async function createProxies(): Promise<void> {
+    if (!project || pendingProxies.length === 0) return;
+    setProxyBusy(true);
+    setProxyTotal(pendingProxies.length);
+    setProxyDone(0);
+    setWarnings([]);
+    const createdProxies: { assetId: string; proxy: Awaited<ReturnType<typeof store.service.createVideoProxy>> }[] = [];
+    const applyCreated = (): void => {
+      if (createdProxies.length === 0) return;
+      store.update((current) =>
+        createdProxies.reduce(
+          (project, item) => setAssetProxy(project, item.assetId, item.proxy),
+          current,
+        ),
+      );
+    };
+    try {
+      for (let index = 0; index < pendingProxies.length; index += 1) {
+        const asset = pendingProxies[index]!;
+        const created = await store.service.createVideoProxy({ path: asset.source.path });
+        if (!created.path) {
+          throw new Error(`el proxy de ${asset.label} no devolvió una ruta`);
+        }
+        createdProxies.push({ assetId: asset.id, proxy: created });
+        setProxyDone(index + 1);
+      }
+      applyCreated();
+      store.setNotice(
+        `Proxies listos: ${pendingProxies.length}. La preview los usa; el render final sigue usando el original.`,
+      );
+    } catch (failure) {
+      applyCreated();
+      setWarnings([
+        failure instanceof Error
+          ? failure.message
+          : 'no se pudieron crear todos los proxies',
+      ]);
+    } finally {
+      setProxyBusy(false);
+    }
+  }
 
   async function importDropped(paths: readonly string[]): Promise<void> {
     const current = store.state.project;
@@ -581,6 +634,20 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
         label="Medios"
         actions={
           <>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => void createProxies()}
+              disabled={proxyBusy || pendingProxies.length === 0 || !store.service.available}
+              title="Crea versiones ligeras para la preview de todos los videos que aún no tienen proxy"
+            >
+              <Icon name="film" size={14} />
+              <span>
+                {proxyBusy
+                  ? `Proxies ${proxyDone}/${proxyTotal}…`
+                  : `Proxies (${pendingProxies.length})`}
+              </span>
+            </button>
             <button
               type="button"
               className="ghost icon-text"

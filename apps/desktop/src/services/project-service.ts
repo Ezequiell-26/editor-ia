@@ -106,6 +106,49 @@ export interface GenerateScriptRequest {
   readonly approvedCost: boolean;
 }
 
+export interface GenerateMotionRequest {
+  readonly brief: string;
+  readonly templateId: string;
+  readonly approvedCost: boolean;
+}
+
+export interface MotionSuggestion {
+  readonly templateId: string;
+  readonly props: Record<string, unknown>;
+  readonly providerId: string;
+  readonly model: string;
+  readonly simulated: boolean;
+}
+
+export interface AssistantMessage {
+  readonly role: 'user' | 'assistant';
+  readonly content: string;
+}
+
+export type AssistantAction =
+  | { readonly kind: 'navigate'; readonly view: string }
+  | { readonly kind: 'play' | 'pause' | 'save' | 'export' | 'status' | 'undo' | 'redo' }
+  | {
+      readonly kind: 'motion';
+      readonly templateId: string;
+      readonly text: string;
+      readonly secondary?: string;
+    };
+
+export interface AssistantChatRequest {
+  readonly messages: readonly AssistantMessage[];
+  readonly context?: Record<string, unknown>;
+  readonly approvedCost: boolean;
+}
+
+export interface AssistantChatReply {
+  readonly reply: string;
+  readonly action: AssistantAction | null;
+  readonly providerId: string;
+  readonly model: string;
+  readonly simulated: boolean;
+}
+
 export interface VoiceInfo {
   readonly id: string;
   readonly name: string;
@@ -1041,6 +1084,7 @@ export interface DesktopService {
     readonly seconds: number;
   }): Promise<SampledColor>;
   mediaThumbnail(path: string, isImage: boolean): Promise<string>;
+  recentProjectThumbnail(path: string): Promise<string | null>;
   checkAssetFiles(paths: string[]): Promise<AssetFileInfo[]>;
   detectScenes(assetId: string, threshold: number): Promise<SceneDetection>;
   analyzeStabilization(
@@ -1120,6 +1164,7 @@ export interface DesktopService {
     profileId: string;
     outputPath: string;
     includeCaptions: boolean;
+    motionPlans?: Record<string, unknown>;
   }): Promise<VariantRendered>;
   loadDirectorMemory(): Promise<unknown | null>;
   saveDirectorMemory(memory: unknown): Promise<void>;
@@ -1153,6 +1198,8 @@ export interface DesktopService {
   savePublicationManifest(manifest: unknown): Promise<string | null>;
   generateScript(request: GenerateScriptRequest): Promise<ScriptPlan>;
   generateVideoEffect(request: EffectRequest): Promise<EffectRecipe>;
+  generateMotion(request: GenerateMotionRequest): Promise<MotionSuggestion>;
+  assistantChat(request: AssistantChatRequest): Promise<AssistantChatReply>;
   listVoices(): Promise<VoiceInfo[]>;
   synthesizeNarration(input: {
     text: string;
@@ -1161,11 +1208,18 @@ export interface DesktopService {
     fpsDen: number;
     provider?: 'windows-sapi';
   }): Promise<NarrationResult>;
-  startRender(profileId: string | null, includeCaptions: boolean): Promise<RenderStarted | null>;
+  startRender(
+    profileId: string | null,
+    includeCaptions: boolean,
+    motionPlans?: Record<string, unknown>,
+    hardwareEncoder?: string | null,
+  ): Promise<RenderStarted | null>;
   startRenderTo(
     profileId: string,
     outputPath: string,
     includeCaptions: boolean,
+    motionPlans?: Record<string, unknown>,
+    hardwareEncoder?: string | null,
   ): Promise<RenderStarted | null>;
   chooseExportDirectory(): Promise<string | null>;
   cancelRender(jobId: string): Promise<void>;
@@ -1250,6 +1304,7 @@ export const PROJECT_COMMANDS = {
   createVideoProxy: 'create_video_proxy',
   sampleAssetColor: 'sample_asset_color',
   thumbnail: 'media_thumbnail',
+  recentProjectThumbnail: 'recent_project_thumbnail',
   checkAssets: 'check_asset_files',
   detectScenes: 'detect_scenes',
   analyzeStabilization: 'analyze_stabilization',
@@ -1331,6 +1386,8 @@ export const PROJECT_COMMANDS = {
   savePublicationManifest: 'save_publication_manifest',
   generateScript: 'generate_script',
   generateVideoEffect: 'generate_video_effect',
+  generateMotion: 'generate_motion',
+  assistantChat: 'assistant_chat',
   listVoices: 'list_voices',
   synthesizeNarration: 'synthesize_narration',
   startRender: 'start_render',
@@ -1342,7 +1399,7 @@ export const PROJECT_COMMANDS = {
 } as const;
 
 export const NATIVE_UNAVAILABLE_REASON =
-  'Abrí la app de escritorio de Editor IA para crear, importar y exportar. Esta ventana del navegador no tiene acceso al sistema de archivos.';
+  'Abrí la app de escritorio de Olyvia para crear, importar y exportar. Esta ventana del navegador no tiene acceso al sistema de archivos.';
 
 declare global {
   interface Window {
@@ -1824,6 +1881,10 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
       }
       return raw;
     },
+    async recentProjectThumbnail(path) {
+      const raw = await call(PROJECT_COMMANDS.recentProjectThumbnail, { path });
+      return typeof raw === 'string' ? raw : null;
+    },
     async checkAssetFiles(paths) {
       const raw = await call(PROJECT_COMMANDS.checkAssets, { paths });
       return Array.isArray(raw) ? (raw as AssetFileInfo[]) : [];
@@ -2003,6 +2064,7 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         profileId: input.profileId,
         outputPath: input.outputPath,
         includeCaptions: input.includeCaptions,
+        ...(input.motionPlans ? { motionPlans: input.motionPlans } : {}),
       })) as VariantRendered;
     },
     async loadDirectorMemory() {
@@ -2070,6 +2132,12 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async generateVideoEffect(request) {
       return (await call(PROJECT_COMMANDS.generateVideoEffect, { request })) as EffectRecipe;
     },
+    async generateMotion(request) {
+      return (await call(PROJECT_COMMANDS.generateMotion, { request })) as MotionSuggestion;
+    },
+    async assistantChat(request) {
+      return (await call(PROJECT_COMMANDS.assistantChat, { request })) as AssistantChatReply;
+    },
     async listVoices() {
       const raw = await call(PROJECT_COMMANDS.listVoices);
       return Array.isArray(raw) ? (raw as VoiceInfo[]) : [];
@@ -2083,17 +2151,21 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         provider: input.provider ?? null,
       })) as NarrationResult;
     },
-    async startRender(profileId, includeCaptions) {
+    async startRender(profileId, includeCaptions, motionPlans, hardwareEncoder) {
       return (await call(PROJECT_COMMANDS.startRender, {
         profileId,
         includeCaptions,
+        ...(motionPlans ? { motionPlans } : {}),
+        ...(hardwareEncoder ? { hardwareEncoder } : {}),
       })) as RenderStarted | null;
     },
-    async startRenderTo(profileId, outputPath, includeCaptions) {
+    async startRenderTo(profileId, outputPath, includeCaptions, motionPlans, hardwareEncoder) {
       return (await call(PROJECT_COMMANDS.startRenderTo, {
         profileId,
         outputPath,
         includeCaptions,
+        ...(motionPlans ? { motionPlans } : {}),
+        ...(hardwareEncoder ? { hardwareEncoder } : {}),
       })) as RenderStarted | null;
     },
     async chooseExportDirectory() {
@@ -2170,6 +2242,7 @@ function createUnavailableService(): DesktopService {
     createVideoProxy: async () => unavailable(),
     sampleAssetColor: async () => unavailable(),
     mediaThumbnail: async () => unavailable(),
+    recentProjectThumbnail: async () => null,
     checkAssetFiles: async () => unavailable(),
     detectScenes: async () => unavailable(),
     analyzeStabilization: async () => unavailable(),
@@ -2268,6 +2341,8 @@ function createUnavailableService(): DesktopService {
     savePublicationManifest: async () => unavailable(),
     generateScript: async () => unavailable(),
     generateVideoEffect: async () => unavailable(),
+    generateMotion: async () => unavailable(),
+    assistantChat: async () => unavailable(),
     listVoices: async () => unavailable(),
     synthesizeNarration: async () => unavailable(),
     startRender: async () => unavailable(),

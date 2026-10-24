@@ -80,6 +80,8 @@ const loadLocalization = () =>
   }));
 const loadAiHub = () =>
   import('./features/ai-hub/AiHubView').then((module) => ({ default: module.AiHubView }));
+const loadMotion = () =>
+  import('./features/motion/MotionView').then((module) => ({ default: module.MotionView }));
 const loadVisuals = () =>
   import('./features/visuals/VisualsView').then((module) => ({ default: module.VisualsView }));
 const loadBackground = () =>
@@ -88,6 +90,12 @@ const loadBackground = () =>
   }));
 const loadUpscale = () =>
   import('./features/ai/UpscaleView').then((module) => ({ default: module.UpscaleView }));
+const loadTextEdit = () =>
+  import('./features/text-edit/TextEditView').then((module) => ({ default: module.TextEditView }));
+const loadMulticam = () =>
+  import('./features/multicam/MulticamView').then((module) => ({ default: module.MulticamView }));
+const loadMixer = () =>
+  import('./features/mixer/MixerView').then((module) => ({ default: module.MixerView }));
 const loadDownload = () =>
   import('./features/download/DownloadView').then((module) => ({ default: module.DownloadView }));
 const loadCompliance = () =>
@@ -115,9 +123,13 @@ const DenoiseView = lazy(loadDenoise);
 const ThumbnailView = lazy(loadThumbnails);
 const LocalizationView = lazy(loadLocalization);
 const AiHubView = lazy(loadAiHub);
+const MotionView = lazy(loadMotion);
 const VisualsView = lazy(loadVisuals);
 const RemoveBackgroundView = lazy(loadBackground);
 const UpscaleView = lazy(loadUpscale);
+const TextEditView = lazy(loadTextEdit);
+const MulticamView = lazy(loadMulticam);
+const MixerView = lazy(loadMixer);
 const DownloadView = lazy(loadDownload);
 const ComplianceView = lazy(loadCompliance);
 const LearnView = lazy(loadLearn);
@@ -133,6 +145,9 @@ const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown
   editor: loadEditor,
   script: loadScript,
   assets: loadAssets,
+  'text-edit': loadTextEdit,
+  multicam: loadMulticam,
+  mixer: loadMixer,
   download: loadDownload,
   compliance: loadCompliance,
   convert: loadConvert,
@@ -142,6 +157,7 @@ const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown
   thumbnails: loadThumbnails,
   localization: loadLocalization,
   'ai-hub': loadAiHub,
+  motion: loadMotion,
   visuals: loadVisuals,
   background: loadBackground,
   upscale: loadUpscale,
@@ -385,7 +401,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   );
 
   useEffect(() => {
-    document.title = project ? `${project.name} — Editor IA` : 'Editor IA';
+    document.title = project ? `${project.name} — Olyvia` : 'Olyvia';
   }, [project]);
 
   useEffect(() => {
@@ -560,6 +576,12 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           return <ScriptView onNavigate={navigate} />;
         case 'assets':
           return <AssetsPanel onNavigate={navigate} />;
+        case 'text-edit':
+          return <TextEditView onNavigate={navigate} />;
+        case 'multicam':
+          return <MulticamView onNavigate={navigate} />;
+        case 'mixer':
+          return <MixerView onNavigate={navigate} />;
         case 'download':
           return <DownloadView onNavigate={navigate} />;
         case 'compliance':
@@ -578,6 +600,8 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           return <LocalizationView onNavigate={navigate} />;
         case 'ai-hub':
           return <AiHubView onNavigate={navigate} />;
+        case 'motion':
+          return <MotionView onNavigate={navigate} />;
         case 'visuals':
           return <VisualsView onNavigate={navigate} />;
         case 'background':
@@ -625,6 +649,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           activeId === 'thumbnails' ||
           activeId === 'localization' ||
           activeId === 'ai-hub' ||
+          activeId === 'motion' ||
           activeId === 'visuals' ||
           activeId === 'background' ||
           activeId === 'upscale' ||
@@ -673,9 +698,14 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
     setShowStart(false);
     if (detectNativeRuntime()) {
       const appWindow = getCurrentWindow();
-      void appWindow.maximize().catch(() => {
-        void appWindow.toggleMaximize().catch(() => {});
-      });
+      void appWindow
+        .setResizable(true)
+        .catch(() => {})
+        .then(() => appWindow.setMaximizable(true).catch(() => {}))
+        .then(() => appWindow.maximize())
+        .catch(() => {
+          void appWindow.toggleMaximize().catch(() => {});
+        });
     }
   }, []);
 
@@ -685,6 +715,8 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
       const appWindow = getCurrentWindow();
       void appWindow
         .unmaximize()
+        .then(() => appWindow.setResizable(false))
+        .then(() => appWindow.setMaximizable(false))
         .then(() => appWindow.setSize(new LogicalSize(900, 580)))
         .then(() => appWindow.center())
         .catch(() => {});

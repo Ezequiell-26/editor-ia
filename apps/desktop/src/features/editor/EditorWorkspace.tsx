@@ -3,7 +3,6 @@ import type { ViewId } from '../../app/navigation';
 import {
   deleteCaptionCue,
   deleteClip,
-  formatTimecode,
   fpsOf,
   splitClip,
   totalFrames,
@@ -103,13 +102,6 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
   return (
     <section className="editor-workspace">
       <div className="editor-toolbar">
-        <div className="editor-title">
-          <h2 title={project.name}>{project.name}</h2>
-          <span className="editor-meta">
-            {project.video.width}×{project.video.height} · {fps} fps ·{' '}
-            {formatTimecode(store.durationFrames, fps)}
-          </span>
-        </div>
         <div className="editor-toolbar-actions">
           <span
             className={`status-pill ${store.state.phase}`}

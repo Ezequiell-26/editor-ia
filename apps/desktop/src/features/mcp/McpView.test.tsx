@@ -108,7 +108,7 @@ describe('gestor MCP', () => {
     // La cola continua tiene su propia autorización; acá se busca la del
     // generador de una sola imagen.
     expect(
-      screen.getByText('Autorizo consumir créditos de Flow. El importe no lo puede calcular Editor IA.'),
+      screen.getByText('Autorizo consumir créditos de Flow. El importe no lo puede calcular Olyvia.'),
     ).toBeTruthy();
   });
 

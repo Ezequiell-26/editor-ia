@@ -28,7 +28,9 @@ import {
   addAdjustmentLayer,
   addTrack,
   deleteCaptionCue,
+  closeGaps,
   deleteClip,
+  magneticMoveClip,
   duplicateClip,
   formatTimecode,
   fpsOf,
@@ -973,13 +975,11 @@ export function Timeline() {
           .elementFromPoint(event.clientX, event.clientY)
           ?.closest('[data-lane-track-id]') as HTMLElement | null;
         const targetTrackId = hovered?.dataset.laneTrackId ?? current.previewTrackId;
+        const magnetic = latest.current.snapEnabled && !event.altKey;
         state.update((projectDoc) => {
-          const next = moveClip(
-            projectDoc,
-            current.clipId,
-            current.previewStart,
-            targetTrackId,
-          );
+          const next = magnetic
+            ? magneticMoveClip(projectDoc, current.clipId, current.previewStart, targetTrackId)
+            : moveClip(projectDoc, current.clipId, current.previewStart, targetTrackId);
           if (!next) {
             throw new ProjectActionError(
               'ese movimiento se superpone con otro clip o la pista no acepta el clip',
@@ -1223,13 +1223,13 @@ export function Timeline() {
           <button
             type="button"
             className={snapEnabled ? 'small ghost snap-toggle active' : 'small ghost snap-toggle'}
-            aria-label="Activar o desactivar snapping"
+            aria-label="Activar o desactivar timeline magnética"
             aria-pressed={snapEnabled}
-            title="Snapping a bordes, marcadores y playhead (Alt para desactivarlo mientras arrastrás)"
+            title="Timeline magnética: imán en bordes/marcadores/playhead y los movimientos cierran huecos (Alt para mover libre)"
             onClick={() => setSnapEnabled((value) => !value)}
           >
             <Icon name="magnet" size={13} />
-            <span className="tool-label">Imán</span>
+            <span className="tool-label">Magnética</span>
           </button>
           <label className="color-filter-field">
             <span className="tool-label">Color</span>
@@ -1393,6 +1393,33 @@ export function Timeline() {
           </button>
           <button
             type="button"
+            className="small ghost icon-text"
+            aria-label="Cerrar huecos de la pista del clip"
+            title="Mueve los clips de esta pista para eliminar los huecos entre ellos"
+            disabled={!selectedClip}
+            onClick={() => {
+              if (!selectedClip) return;
+              const trackId = selectedClip.trackId;
+              let moved = 0;
+              let removedFrames = 0;
+              store.update((current) => {
+                const result = closeGaps(current, trackId);
+                moved = result.moved;
+                removedFrames = result.removedFrames;
+                return result.project;
+              });
+              store.setNotice(
+                moved > 0
+                  ? `Huecos cerrados: ${moved} clip(s) movidos, ${removedFrames} frames recuperados.`
+                  : 'La pista no tenía huecos que cerrar.',
+              );
+            }}
+          >
+            <Icon name="magnet" size={13} />
+            <span className="tool-label">Cerrar huecos</span>
+          </button>
+          <button
+            type="button"
             className="small danger-ghost icon-text"
             aria-label="Borrar subtítulo"
             disabled={!selectedCueId}
@@ -1530,6 +1557,18 @@ export function Timeline() {
                     >
                       <Icon name="volume" size={12} />
                     </button>
+                    {track.kind === 'video' || track.kind === 'audio' || track.kind === 'narration' ? (
+                      <button
+                        type="button"
+                        aria-label={`Solo ${track.label}`}
+                        aria-pressed={track.solo === true}
+                        title="Solo: silencia las demás pistas con audio"
+                        className={track.solo ? 'flag solo active' : 'flag solo'}
+                        onClick={() => store.update((current) => updateTrack(current, track.id, { solo: !track.solo }))}
+                      >
+                        <span className="flag-letter">S</span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       aria-label={`Ocultar ${track.label}`}

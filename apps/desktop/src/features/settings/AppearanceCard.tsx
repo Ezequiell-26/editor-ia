@@ -9,6 +9,7 @@ import {
 } from '../../state/appearance';
 
 const PRESET_NAMES: Record<Exclude<ThemePresetId, 'custom'>, string> = {
+  olyvia: 'Olyvia',
   resolve: 'Resolve',
   mint: 'Menta',
   ember: 'Ámbar',

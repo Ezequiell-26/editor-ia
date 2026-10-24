@@ -555,7 +555,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
                 </div>
                 <p className="fine-print">
                   El render sigue siendo explícito: elegí el perfil y el destino en Editor →
-                  Exportar MP4. Editor IA no publica solo.
+                  Exportar MP4. Olyvia no publica solo.
                 </p>
               </>
             ) : (

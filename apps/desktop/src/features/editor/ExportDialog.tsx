@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { RenderFinishedEvent, RenderProgressEvent } from '../../services/project-service';
+import type {
+  HardwareEncoders,
+  RenderFinishedEvent,
+  RenderProgressEvent,
+} from '../../services/project-service';
 import { basename } from '../../lib/format';
 import {
   COMPRESSION_PRESETS,
@@ -28,6 +32,8 @@ import {
 import { useProjectStore } from '../../state/project-store';
 import { recordDirectorOutcome } from '../../state/editor-memory';
 import { evaluateProjectQuality } from '../../state/quality';
+import { buildProjectMotionPlans } from '../motion/plan';
+import { gpuRecommendation } from './gpu-policy';
 
 interface ExportDialogProps {
   readonly open: boolean;
@@ -69,6 +75,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const project = store.state.project;
   const [profileId, setProfileId] = useState('');
   const [includeCaptions, setIncludeCaptions] = useState(true);
+  const [hardware, setHardware] = useState<HardwareEncoders | null>(null);
+  const [useGpu, setUseGpu] = useState(false);
   const [starting, setStarting] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
   const [progress, setProgress] = useState<RenderProgressEvent | null>(null);
@@ -90,6 +98,41 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const folderRef = useRef<string | null>(null);
   jobRef.current = jobId;
 
+  function availableHardware(
+    profile:
+      | { readonly videoCodec: string; readonly resolution: { readonly width: number; readonly height: number } }
+      | undefined,
+  ): string | null {
+    if (!hardware || !profile) return null;
+    const encoder = profile.videoCodec === 'h265' ? hardware.hevc : hardware.h264;
+    if (!encoder) return null;
+    const maxSide = profile.videoCodec === 'h265' ? 8192 : 4096;
+    if (profile.resolution.width > maxSide || profile.resolution.height > maxSide) return null;
+    return encoder;
+  }
+
+  function hardwareForProfile(
+    profile:
+      | {
+          readonly videoCodec: string;
+          readonly resolution: { readonly width: number; readonly height: number };
+          readonly videoPreset: string;
+        }
+      | undefined,
+    durationSeconds: number,
+  ): string | null {
+    if (!useGpu) return null;
+    const encoder = availableHardware(profile);
+    if (!encoder || !profile) return null;
+    const decision = gpuRecommendation({
+      width: profile.resolution.width,
+      height: profile.resolution.height,
+      durationSeconds,
+      preset: profile.videoPreset,
+    });
+    return decision.recommended ? encoder : null;
+  }
+
   useEffect(() => {
     if (!open) return;
     setError(null);
@@ -98,6 +141,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     setJobId(null);
     jobRef.current = null;
     setIncludeCaptions((project?.captions.cues.length ?? 0) > 0);
+    setUseGpu(false);
     const profiles = project?.renderProfiles ?? [];
     const preferred =
       profiles.find((profile) => profile.name.startsWith('Formato del proyecto')) ?? profiles[0];
@@ -109,6 +153,42 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     // Only reset when the dialog opens, not on every project render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void store.service
+      .hardwareEncoders()
+      .then((result) => {
+        if (active) setHardware(result);
+      })
+      .catch(() => {
+        if (active) setHardware({ h264: null, hevc: null, checked: false });
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, store.service]);
+
+  useEffect(() => {
+    if (!open || !project || !useGpu) return;
+    const profiles = project.renderProfiles;
+    const selected = profiles.find((profile) => profile.id === profileId) ?? profiles[0];
+    if (!selected) {
+      setUseGpu(false);
+      return;
+    }
+    const durationSeconds = store.durationFrames / fpsOf(project);
+    const decision = gpuRecommendation({
+      width: selected.resolution.width,
+      height: selected.resolution.height,
+      durationSeconds,
+      preset: selected.videoPreset,
+    });
+    if (!availableHardware(selected) || !decision.recommended) setUseGpu(false);
+    // Al cambiar de perfil o de duración, la GPU se apaga si ya no conviene.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, project, profileId, useGpu, hardware, store.durationFrames]);
 
   // La cola se persiste en cada cambio para que un cierre abrupto no pierda
   // los pendientes; la hidratación ya ocurrió en el estado inicial.
@@ -126,6 +206,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     if (!entry) return;
     const currentProject = store.state.project;
     if (!currentProject) return;
+    const motionBundle = buildProjectMotionPlans(currentProject);
+    if (motionBundle.errors.length > 0) {
+      setQueue((current) => markFailed(current, entry.id, motionBundle.errors[0]!));
+      return;
+    }
     setQueueBusy(true);
     void (async () => {
       try {
@@ -147,10 +232,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         }
         setQueue((current) => markRunning(current, entry.id));
         const outputPath = joinOutputPath(folder, queueFileName(currentProject.name, entry.profileName));
+        const queueProfile = currentProject.renderProfiles.find(
+          (profile) => profile.id === entry.profileId,
+        );
+        const queueDuration = store.durationFrames / fpsOf(currentProject);
         const started = await store.service.startRenderTo(
           entry.profileId,
           outputPath,
           entry.includeCaptions,
+          motionBundle.plans,
+          hardwareForProfile(queueProfile, queueDuration),
         );
         if (!started) {
           setQueue((current) => markFailed(current, entry.id, 'el render no se inició'));
@@ -187,7 +278,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     })();
     // `waitForJob` y `fpsOf` son estables durante la vida del componente.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, queue, queueBusy, store]);
+  }, [open, queue, queueBusy, store, hardware, useGpu]);
 
   useEffect(() => {
     if (!open || !store.service.available) return;
@@ -262,6 +353,17 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const fps = fpsOf(project);
   const selectedBatchProfiles = profiles.filter((profile) => batchProfiles.has(profile.id));
   const compression = selected ? compressionPresetOf(selected) : 'custom';
+  const selectedHardware = availableHardware(selected);
+  const durationSeconds = store.durationFrames / fps;
+  const gpuDecision = selected
+    ? gpuRecommendation({
+        width: selected.resolution.width,
+        height: selected.resolution.height,
+        durationSeconds,
+        preset: selected.videoPreset,
+      })
+    : null;
+  const canUseGpu = Boolean(selectedHardware && gpuDecision?.recommended);
 
   async function learnBeforeExport(): Promise<void> {
     const opened = store.state.opened;
@@ -283,7 +385,14 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         return;
       }
       await learnBeforeExport();
-      const started = await store.service.startRender(selected?.id ?? null, includeCaptions);
+      const motionBundle = buildProjectMotionPlans(currentProject);
+      if (motionBundle.errors.length > 0) throw new Error(motionBundle.errors[0]);
+      const started = await store.service.startRender(
+        selected?.id ?? null,
+        includeCaptions,
+        motionBundle.plans,
+        hardwareForProfile(selected, store.durationFrames / fps),
+      );
       if (!started) {
         setStarting(false);
         return;
@@ -329,6 +438,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         return;
       }
       await learnBeforeExport();
+      const motionBundle = buildProjectMotionPlans(currentProject);
+      if (motionBundle.errors.length > 0) throw new Error(motionBundle.errors[0]);
       const folder = await store.service.chooseExportDirectory();
       if (!folder) return;
       const results: BatchResult[] = [];
@@ -339,6 +450,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
           profile.id,
           outputPath,
           includeCaptions,
+          motionBundle.plans,
+          hardwareForProfile(profile, store.durationFrames / fps),
         );
         if (!started) {
           results.push({
@@ -430,6 +543,32 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   ))}
                 </select>
               </label>
+              {hardware?.checked ? (
+                <div className="export-gpu">
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={useGpu}
+                      disabled={running || !canUseGpu}
+                      onChange={(event) => setUseGpu(event.target.checked)}
+                    />
+                    <span>
+                      Acelerar con GPU{' '}
+                      {selectedHardware && gpuDecision?.recommended
+                        ? `· ${selectedHardware}`
+                        : selectedHardware
+                          ? '· no recomendada para este render'
+                          : '· no disponible para este perfil'}
+                    </span>
+                  </label>
+                  <p className="export-gpu-hint">
+                    {gpuDecision?.reason}{' '}
+                    {gpuDecision?.recommended
+                      ? 'La calidad y el tamaño pueden diferir del encoder por software; no se usa en 32K ni si el perfil supera el límite del hardware.'
+                      : 'La app mantiene el encoder por software.'}
+                  </p>
+                </div>
+              ) : null}
               {selected ? (
                 <div className="export-compression">
                   <div className="export-compression-head">

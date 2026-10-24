@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import type { CapabilityInfo, ModelInfo } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
 
@@ -18,6 +19,7 @@ export function CapabilitiesCard() {
   const [capabilities, setCapabilities] = useState<readonly CapabilityInfo[]>([]);
   const [models, setModels] = useState<readonly ModelInfo[]>([]);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadPercent, setDownloadPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -45,8 +47,38 @@ export function CapabilitiesCard() {
     void refresh();
   }, [refresh, store.service.available]);
 
+  // Progreso real del backend durante la descarga del modelo (sin inventar %).
+  useEffect(() => {
+    if (!store.service.available) return;
+    let disposed = false;
+    let unlisten: (() => void) | null = null;
+    try {
+      void listen<{ id: string; percent: number }>('model-download', (event) => {
+        if (typeof event.payload?.percent === 'number') {
+          setDownloadPercent(
+            Math.max(0, Math.min(99, Math.round(event.payload.percent))),
+          );
+        }
+      })
+        .then((off) => {
+          if (disposed) off();
+          else unlisten = off;
+        })
+        .catch(() => {
+          // Sin Tauri o sin permisos de eventos: la descarga sigue funcionando.
+        });
+    } catch {
+      // Entorno de navegador/pruebas: no hay bus de eventos de Tauri.
+    }
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [store.service.available]);
+
   async function download(id: string): Promise<void> {
     setDownloadingId(id);
+    setDownloadPercent(0);
     setError(null);
     setNotice(null);
     try {
@@ -57,6 +89,7 @@ export function CapabilitiesCard() {
       setError(failure instanceof Error ? failure.message : 'la descarga del modelo falló');
     } finally {
       setDownloadingId(null);
+      setDownloadPercent(0);
     }
   }
 
@@ -137,7 +170,11 @@ export function CapabilitiesCard() {
                     onClick={() => void download(model.id)}
                     disabled={downloadingId !== null}
                   >
-                    {downloadingId === model.id ? 'Descargando…' : 'Descargar'}
+                    {downloadingId === model.id
+                      ? downloadPercent > 0
+                        ? `Descargando… ${downloadPercent}%`
+                        : 'Descargando…'
+                      : 'Descargar'}
                   </button>
                 )}
               </li>

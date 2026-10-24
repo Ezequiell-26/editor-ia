@@ -83,7 +83,7 @@ describe('respaldo de preferencias', () => {
 
     const foreign = parsePreferencesBundle({ kind: 'otra-cosa', version: 1 });
     expect(foreign.ok).toBe(false);
-    if (!foreign.ok) expect(foreign.error).toContain('Editor IA');
+    if (!foreign.ok) expect(foreign.error).toContain('Olyvia');
 
     const future = parsePreferencesBundle({
       kind: PREFERENCES_BUNDLE_KIND,

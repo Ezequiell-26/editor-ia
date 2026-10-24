@@ -32,6 +32,7 @@ export type IconName =
   | 'captions'
   | 'chevron'
   | 'sparkles'
+  | 'chat'
   | 'close'
   | 'volume'
   | 'eye'
@@ -70,6 +71,7 @@ export type IconName =
   | 'globe'
   | 'log-out'
   | 'mail'
+  | 'send'
   | 'director'
   | 'factory'
   | 'convert'
@@ -77,6 +79,7 @@ export type IconName =
   | 'denoise'
   | 'thumbnails'
   | 'ai-hub'
+  | 'motion'
   | 'background'
   | 'upscale';
 
@@ -300,6 +303,12 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M18.5 15l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z" />
     </>
   ),
+  chat: (
+    <>
+      <path d="M4 5h16v11H9l-5 4z" />
+      <path d="M8 9h8M8 12h5" />
+    </>
+  ),
   close: <path d="m6 6 12 12M18 6 6 18" />,
   volume: (
     <>
@@ -454,6 +463,12 @@ const paths: Record<IconName, ReactNode> = {
       <path d="M21 12H9" />
     </>
   ),
+  send: (
+    <>
+      <path d="M21 3 10 14" />
+      <path d="m21 3-7 18-4-7-7-4 18-7z" />
+    </>
+  ),
   mail: (
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -512,6 +527,12 @@ const paths: Record<IconName, ReactNode> = {
       <rect x="5" y="5" width="14" height="14" rx="2.5" />
       <circle cx="12" cy="12" r="3" />
       <path d="M9 1v4M15 1v4M9 19v4M15 19v4M1 9h4M1 15h4M19 9h4M19 15h4" />
+    </>
+  ),
+  motion: (
+    <>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M7 10h10M7 14h6" />
     </>
   ),
   background: (

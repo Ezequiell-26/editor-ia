@@ -3,6 +3,7 @@ import { NAV_VIEWS, type ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import type { ProviderInfo } from '../../services/project-service';
+import { addMotionGraphic, fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import {
   AI_BRIEF_LIMIT,
@@ -28,6 +29,8 @@ function targetLabel(target: ViewId): string {
       return 'Miniaturas';
     case 'production':
       return 'Producción';
+    case 'motion':
+      return 'Motion';
     default:
       return 'la vista';
   }
@@ -96,6 +99,14 @@ export function AiHubView({
         return;
       }
       setFeedback('Brief guardado. Guion lo va a cargar al abrirse.');
+    } else if (skill.target === 'motion') {
+      try {
+        localStorage.setItem('editoria.motion.brief', brief.replace(/\s+/g, ' ').trim());
+      } catch {
+        setFeedback('No se pudo guardar el brief en este equipo.');
+        return;
+      }
+      setFeedback('Brief guardado. Motion lo muestra al abrirse.');
     } else {
       setFeedback(
         `El prompt quedó listo para copiar. ${targetLabel(skill.target)} no acepta briefs de texto directamente todavía.`,
@@ -133,6 +144,71 @@ export function AiHubView({
       localStorage.setItem('editoria.factory.brief', action.topic);
       onNavigate('factory');
       reply = `Brief “${action.topic}” enviado a Fábrica. Elegí formato y variantes ahí para generarlo.`;
+    } else if (action.kind === 'motion') {
+      const project = store.state.project;
+      if (!project) {
+        reply = 'Abrí o creá un proyecto para agregar un gráfico.';
+      } else {
+        const props: Record<string, unknown> =
+          action.templateId === 'title-card'
+            ? {
+                title: action.text,
+                subtitle: '',
+                background: '#0f172a',
+                accent: '#7dd3c0',
+                align: 'left',
+                animation: 'slide-up',
+              }
+            : action.templateId === 'lower-third'
+              ? {
+                  name: action.text,
+                  role: action.secondary ?? '',
+                  accent: '#7dd3c0',
+                  side: 'left',
+                  animation: 'slide-left',
+                }
+              : action.templateId === 'end-card'
+                ? {
+                    title: action.text,
+                    cta: action.secondary ?? '',
+                    background: '#0f172a',
+                    accent: '#7dd3c0',
+                    animation: 'fade',
+                  }
+                : {
+                    value: action.text,
+                    label: action.secondary ?? 'dato',
+                    accent: '#7dd3c0',
+                    animation: 'pop',
+                  };
+        let clipId: string | null = null;
+        try {
+          const ok = store.mutate(
+            (current) => {
+              const added = addMotionGraphic(current, {
+                templateId: action.templateId,
+                templateVersion: '1.0.0',
+                props,
+                durationFrames: Math.max(1, Math.round(fpsOf(current) * 3)),
+                atFrame: store.state.playheadFrame,
+                label: action.text.slice(0, 80),
+              });
+              clipId = added.clipId;
+              return { project: added.project };
+            },
+            { notice: `Gráfico agregado: ${action.text}.` },
+          );
+          if (ok && clipId) {
+            store.setSelection({ kind: 'clip', id: clipId });
+            onNavigate('editor');
+            reply = `Gráfico agregado: ${action.text}.`;
+          } else {
+            reply = 'El gráfico no deja el proyecto en un estado válido.';
+          }
+        } catch (cause) {
+          reply = cause instanceof Error ? cause.message : 'no se pudo agregar el gráfico';
+        }
+      }
     } else if (action.kind === 'status') {
       const project = store.state.project;
       reply = project

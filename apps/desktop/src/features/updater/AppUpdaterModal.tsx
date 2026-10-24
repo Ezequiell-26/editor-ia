@@ -141,7 +141,7 @@ export function AppUpdaterModal({
             </span>
             <div>
               <h2 id="updater-title" className="updater-title">
-                Actualizador de Montaje
+                Actualizador de Olyvia
               </h2>
               <span className="updater-version-tag">
                 Versión instalada: v{CURRENT_APP_VERSION}
@@ -278,7 +278,7 @@ export function AppUpdaterModal({
               </span>
               <div className="updater-state-text">
                 <strong>¡Actualización descargada y verificada!</strong>
-                <span>Reinicia Montaje para aplicar las mejoras de la versión v{release?.version}.</span>
+                <span>Reinicia Olyvia para aplicar las mejoras de la versión v{release?.version}.</span>
               </div>
             </div>
           )}

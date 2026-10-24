@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Editor IA desktop: Tauri 2, React 19, timeline, media import, AI script, local narration and verified FFmpeg export.",
+  "description": "Olyvia desktop: Tauri 2, React 19, timeline, media import, AI script, local narration and verified FFmpeg export.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

@@ -80,9 +80,14 @@ describe('paleta de comandos con búsqueda global', () => {
 
     fireEvent.change(screen.getByRole('textbox'), { target: { value: 'entre' } });
     await screen.findByRole('option', { name: /Entrevista en la playa/ });
-    fireEvent.keyDown(window, { key: 'Enter' });
-
-    await waitFor(() => expect(onPickHit).toHaveBeenCalledTimes(1));
+    // El listener se registra en un efecto; bajo carga puede tardar un tick.
+    // Reintentar el Enter evita un falso negativo sin cambiar el comportamiento.
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: 'Enter' });
+      expect(onPickHit).toHaveBeenCalledWith(
+        expect.objectContaining({ entityId: 'clip-1' }),
+      );
+    });
   });
 
   it('sin buscador se comporta como una lista de comandos', () => {

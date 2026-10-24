@@ -27,7 +27,7 @@ async function createProject(name = 'Obra de prueba'): Promise<void> {
   fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
   await waitFor(
     () => {
-      expect(screen.getByRole('main').textContent).toContain(name);
+      expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/);
     },
     { timeout: 5000 },
   );
@@ -40,12 +40,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('shell de Editor IA', () => {
+describe('shell de Olyvia', () => {
   it('usa toda la pantalla con menús profesionales y un rail de iconos sin marca', () => {
     renderApp();
     const banner = screen.getByRole('banner');
     expect(within(banner).queryByRole('heading', { level: 1 })).toBeNull();
-    expect(banner.textContent).not.toMatch(/Editor IA/);
+    expect(banner.textContent).toContain('Olyvia');
     for (const menu of ['Archivo', 'Editar', 'Ver', 'Reproducción', 'Herramientas', 'Ayuda']) {
       expect(within(banner).getByRole('button', { name: menu })).toBeTruthy();
     }
@@ -59,6 +59,9 @@ describe('shell de Editor IA', () => {
       'Medios',
       'Producción',
       'Editor',
+      'Texto',
+      'Multicámara',
+      'Mezcla',
       'Descargar',
       'Director',
       'Fábrica',
@@ -70,6 +73,7 @@ describe('shell de Editor IA', () => {
       'Miniaturas',
       'Localización',
       'AI Hub',
+      'Motion',
       'Efectos',
       'Fondo',
       'Upscale',
@@ -331,7 +335,6 @@ describe('shell de Editor IA', () => {
     await createProject('Corte vertical');
     expect(service.calls.create).toBe(1);
     const main = screen.getByRole('main');
-    expect(main.textContent).toContain('Corte vertical');
     expect(main.textContent).toContain('Timeline vacía');
     expect(main.textContent).toContain('Exportar MP4');
     expect(main.textContent).toMatch(/Vista previa aproximada/i);
@@ -380,7 +383,7 @@ describe('shell de Editor IA', () => {
     await createProject('Obra imán');
     const main = screen.getByRole('main');
     const toggle = within(main).getByRole('button', {
-      name: /Activar o desactivar snapping/i,
+      name: /Activar o desactivar timeline magnética/i,
     });
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(toggle);

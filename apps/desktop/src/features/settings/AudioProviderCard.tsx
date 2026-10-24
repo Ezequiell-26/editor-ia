@@ -124,7 +124,7 @@ export function AudioProviderCard() {
       <h3>Proveedor de narración</h3>
       <p className="muted">
         SAPI local es gratis y sin red. ElevenLabs usa su API oficial y puede consumir
-        créditos. La web externa es un puente manual: Editor IA la abre, vos descargás el
+        créditos. La web externa es un puente manual: Olyvia la abre, vos descargás el
         audio y lo importás en Medios; no automatiza ni evade los límites del sitio.
       </p>
       <div className="form-grid">

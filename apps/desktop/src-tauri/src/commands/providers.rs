@@ -85,7 +85,7 @@ fn keyring_entry() -> Result<keyring::Entry, ProjectError> {
     })
 }
 
-fn read_key() -> Option<String> {
+pub(crate) fn read_key() -> Option<String> {
     keyring_entry()
         .ok()
         .and_then(|entry| entry.get_password().ok())
@@ -190,7 +190,7 @@ fn parse_provider_url(base_url: &str) -> Option<reqwest::Url> {
 /// Loopback is the only place a plain-http provider is accepted. Compare the
 /// parsed host exactly: a prefix check would treat 127.0.0.1.evil.example as
 /// local and leak the API key over an unencrypted connection.
-fn is_local_endpoint(base_url: &str) -> bool {
+pub(crate) fn is_local_endpoint(base_url: &str) -> bool {
     let Some(url) = parse_provider_url(base_url) else {
         return false;
     };
@@ -203,7 +203,7 @@ fn is_local_endpoint(base_url: &str) -> bool {
     )
 }
 
-fn validate_provider_base_url(base_url: &str) -> Result<(), ProjectError> {
+pub(crate) fn validate_provider_base_url(base_url: &str) -> Result<(), ProjectError> {
     let Some(url) = parse_provider_url(base_url) else {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
@@ -237,7 +237,7 @@ fn validate_provider_base_url(base_url: &str) -> Result<(), ProjectError> {
     Ok(())
 }
 
-fn chat_endpoint(base_url: &str) -> String {
+pub(crate) fn chat_endpoint(base_url: &str) -> String {
     let trimmed = base_url.trim_end_matches('/');
     if trimmed.ends_with("/chat/completions") {
         trimmed.to_owned()
@@ -278,7 +278,7 @@ fn clean_intent(value: Option<String>) -> String {
     }
 }
 
-fn extract_json(text: &str) -> Option<&str> {
+pub(crate) fn extract_json(text: &str) -> Option<&str> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
     (end > start).then_some(&text[start..=end])

@@ -170,7 +170,7 @@ const SECTIONS: readonly LearnSection[] = [
     id: 'mcp',
     eyebrow: '12 · MCP',
     title: 'Conectá herramientas locales',
-    body: 'Agregá un servidor MCP por stdio con comando y argumentos. Editor IA guarda los nombres de las variables y sus valores en el Administrador de credenciales de Windows. Probá el handshake, mirá las herramientas y ejecutalas con JSON.',
+    body: 'Agregá un servidor MCP por stdio con comando y argumentos. Olyvia guarda los nombres de las variables y sus valores en el Administrador de credenciales de Windows. Probá el handshake, mirá las herramientas y ejecutalas con JSON.',
     tips: ['Nada se ejecuta al guardar; sólo al pulsar Probar o Ejecutar.'],
     action: { label: 'Abrir MCP', view: 'mcp' },
   },

@@ -1251,7 +1251,9 @@ export function LocalizationView({
               <p className="fine-print">
                 El motor debe aceptar `{'{'} video_path, audio_path, output_format {'}'}` y devolver MP4.
                 El adaptador incluido escucha en <code>127.0.0.1:8765</code>; la app no
-                redistribuye pesos. En CPU puede tardar 10–30 veces la duración
+                redistribuye pesos ni inicia el proceso: corré
+                <code>scripts/lipsync-engine/start.ps1</code> y dejá esa ventana abierta
+                mientras sincronizás. En CPU puede tardar 10–30 veces la duración
                 del clip. Wav2Lip es sólo para uso personal o de investigación:
                 para publicar comercialmente usá MuseTalk u otro motor con
                 licencia compatible.

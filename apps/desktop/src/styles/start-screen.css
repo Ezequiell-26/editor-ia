@@ -584,6 +584,97 @@
   color: #6e6f72;
 }
 
+.start-thumb-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.start-thumb-box.has-image {
+  background: #05070f;
+}
+
+.start-thumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background:
+    radial-gradient(circle at 24% 18%, rgba(255, 255, 255, 0.09), transparent 55%),
+    linear-gradient(135deg, var(--tone-a, #1b1e26), var(--tone-b, #0d1016));
+}
+
+.start-thumb-fallback::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 100% 14px;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.start-thumb-initial {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-ui, sans-serif);
+  font-size: 27px;
+  font-weight: 650;
+  line-height: 1;
+  color: var(--tone-fg, #9fb6d8);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.45);
+}
+
+.start-thumb-hint {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-ui, sans-serif);
+  font-size: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(226, 231, 240, 0.42);
+}
+
+.start-thumb-fallback.tone-0 {
+  --tone-a: #1d2433;
+  --tone-b: #0c111a;
+  --tone-fg: #8fb7ff;
+}
+
+.start-thumb-fallback.tone-1 {
+  --tone-a: #2a2030;
+  --tone-b: #120e18;
+  --tone-fg: #c79ce8;
+}
+
+.start-thumb-fallback.tone-2 {
+  --tone-a: #1c2a25;
+  --tone-b: #0b1210;
+  --tone-fg: #7fd6b2;
+}
+
+.start-thumb-fallback.tone-3 {
+  --tone-a: #2d2618;
+  --tone-b: #141008;
+  --tone-fg: #e5c07a;
+}
+
+.start-thumb-fallback.tone-4 {
+  --tone-a: #2b1d22;
+  --tone-b: #150d10;
+  --tone-fg: #ec9fb0;
+}
+
+.start-thumb-fallback.tone-5 {
+  --tone-a: #182a2e;
+  --tone-b: #091315;
+  --tone-fg: #85d3dd;
+}
+
 .start-thumb-badge {
   position: absolute;
   bottom: 3px;

@@ -182,7 +182,7 @@ export const TITLE_TEMPLATES: readonly TitleTemplate[] = [
     id: 'scroll',
     name: 'Scroll',
     description: 'Créditos que suben, serif sobrio',
-    sample: 'Guion y dirección\nEditor IA',
+    sample: 'Guion y dirección\nOlyvia',
     style: {
       fontFamily: 'Georgia',
       fontSizePx: 46,

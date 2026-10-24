@@ -5,7 +5,7 @@ import { createEmptyProject, type Asset } from '@editor-ia/project-schema';
 import { AssetsPanel } from './AssetsPanel';
 import { ProjectProvider } from '../../state/project-store';
 import { ensureDelivery, newId } from '../../state/project-actions';
-import { createFakeService } from '../../test/fake-service';
+import { createFakeService, readyAsset } from '../../test/fake-service';
 
 const NOW = '2026-10-19T00:00:00.000Z';
 
@@ -182,5 +182,19 @@ describe('AssetsPanel · organización de medios', () => {
     expect(bins?.textContent).toContain('favorita');
     expect(screen.getByText('favorita.png')).toBeTruthy();
     expect(screen.queryByText('otra.png')).toBeNull();
+  });
+});
+
+describe('AssetsPanel · proxies por lote', () => {
+  it('crea un proxy por cada video sin proxy y lo informa', async () => {
+    const assets = [readyAsset({ label: 'Toma A' }), readyAsset({ label: 'Toma B' })];
+    const { service } = renderPanel(assets);
+    const spy = vi.spyOn(service, 'createVideoProxy');
+    fireEvent.click(screen.getByRole('button', { name: /Proxies \(2\)/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    const remaining = (await screen.findByRole('button', {
+      name: /Proxies \(0\)/i,
+    })) as HTMLButtonElement;
+    expect(remaining.disabled).toBe(true);
   });
 });

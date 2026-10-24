@@ -2,11 +2,10 @@ import { useEffect, useRef, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Icon } from './Icon';
 import { MenuBar } from './MenuBar';
-import { PipelineBar } from './PipelineBar';
 import { WindowControls } from './WindowControls';
-import { NAV_VIEWS, PIPELINE_HIDDEN_VIEWS, type ViewId } from '../app/navigation';
+import { AssistantDock } from '../features/assistant/AssistantDock';
+import { NAV_VIEWS, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
-import { usePipeline } from '../state/usePipeline';
 
 interface AppShellProps {
   readonly activeId: ViewId;
@@ -27,7 +26,6 @@ export function AppShell({
   const project = store.state.project;
   const error = store.state.error;
   const notice = store.state.notice;
-  const pipeline = usePipeline();
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
   // Las vistas quedan montadas: cada una conserva su propia posición de scroll
@@ -62,6 +60,10 @@ export function AppShell({
   return (
     <div className="app-shell">
       <header className="topbar">
+        <div className="topbar-brand" title="Olyvia">
+          <img src="/olyvia-mark.png" alt="" />
+          <span>Olyvia</span>
+        </div>
         {onReturnToStart && (
           <button
             type="button"
@@ -79,22 +81,7 @@ export function AppShell({
           onSelect={onSelect}
           {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
         />
-        <div className="topbar-center" data-tauri-drag-region>
-          {project ? (
-            <div className="topbar-project-pill" title={`Proyecto: ${project.name} (${project.video.width}×${project.video.height})`}>
-              <span className={`topbar-project-dot phase-${store.state.phase}`} aria-hidden="true" />
-              <strong className="topbar-project-title">{project.name}</strong>
-              <span className="topbar-project-spec">
-                {project.video.width}×{project.video.height} · {(project.video.frameRate.num / project.video.frameRate.den).toFixed(0)}fps
-              </span>
-            </div>
-          ) : (
-            <div className="topbar-project-pill empty">
-              <span className="topbar-project-dot" aria-hidden="true" />
-              <span className="topbar-project-title">Sin proyecto activo</span>
-            </div>
-          )}
-        </div>
+        <div className="topbar-center" data-tauri-drag-region aria-hidden="true" />
         <div className="topbar-actions">
           <button
             type="button"
@@ -129,13 +116,6 @@ export function AppShell({
           >
             <Icon name="save" size={16} />
           </button>
-          <div className="topbar-gpu-gauge" title="Aceleración por GPU local activa">
-            <span className="gpu-label">GPU</span>
-            <div className="gpu-track">
-              <div className="gpu-fill" style={{ width: '92%' }} />
-            </div>
-            <span className="gpu-pct">97%</span>
-          </div>
           <button
             type="button"
             className={`topbar-export-btn${hasClip ? ' ready' : ''}`}
@@ -187,9 +167,6 @@ export function AppShell({
           </button>
         </div>
       ) : null}
-      {!PIPELINE_HIDDEN_VIEWS.has(activeId) ? (
-        <PipelineBar progress={pipeline} activeId={activeId} onSelect={onSelect} />
-      ) : null}
       <div className="app-body">
         <Sidebar
           views={NAV_VIEWS}
@@ -200,6 +177,7 @@ export function AppShell({
         />
         <main ref={mainRef} className={flush ? 'content content-flush' : 'content'}>{content}</main>
       </div>
+      <AssistantDock activeId={activeId} onSelect={onSelect} />
       <footer className="app-statusbar">
         <span className={`statusbar-dot phase-${store.state.phase}`} aria-hidden="true" />
         <span className="statusbar-project">{project?.name ?? 'Sin proyecto abierto'}</span>

@@ -5,9 +5,13 @@ import { captionMotionAt } from '../../state/caption-motion';
 import { cueWordsAt } from '../../state/subtitles';
 import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
 import { FORMAT_PRESETS } from '../../state/video-format';
+import { isTrackAudible, trackGainDb } from '../../state/audio-mix';
 import { useProjectStore } from '../../state/project-store';
 import { loadEditorPreferences } from '../../state/editor-preferences';
 import { Icon } from '../../components/Icon';
+import { buildMotionPlan } from '../motion/plan';
+import { MotionPreview } from '../motion/MotionPreview';
+import { templateById } from '../motion/templates';
 import { ScopesPanel } from './ScopesPanel';
 import type { PreviewFrameResult } from '../../services/project-service';
 
@@ -363,6 +367,7 @@ function VideoLayer({
   playheadFrame,
   playing,
   muted,
+  trackGain = 0,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
@@ -370,6 +375,7 @@ function VideoLayer({
   readonly playheadFrame: number;
   readonly playing: boolean;
   readonly muted: boolean;
+  readonly trackGain?: number;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
@@ -392,7 +398,7 @@ function VideoLayer({
         clipGainAtFrame(
           clip,
           Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
-        ),
+        ) + trackGain,
       );
 
   useEffect(() => {
@@ -475,30 +481,58 @@ function ImageLayer({
 function GraphicLayer({
   clip,
   project,
+  playheadFrame,
 }: {
   readonly clip: Clip;
   readonly project: ProjectDocument;
+  readonly playheadFrame: number;
 }) {
   const motionId = clip.source.type === 'graphic' ? clip.source.motionId : null;
   const motion = project.motion.find((item) => item.id === motionId);
+  const layerStyle = {
+    position: 'absolute' as const,
+    inset: 0,
+    ...transformStyle(clip, project, playheadFrame),
+  };
   if (!motion) {
-    return null;
-  }
-  if (motion.template.id === 'lower-third') {
-    const label = typeof motion.props.label === 'string' ? motion.props.label : 'Editor IA';
-    const accent = typeof motion.props.accentColor === 'string' ? motion.props.accentColor : '#7dd3c0';
     return (
-      <div className="lower-third" style={{ ...transformStyle(clip, project), borderColor: accent }}>
-        <span style={{ background: accent }} />
-        <strong>{label}</strong>
+      <div className="graphic-placeholder" style={layerStyle}>
+        Gráfico sin motion item
       </div>
     );
   }
-  return (
-    <div className="graphic-placeholder" style={transformStyle(clip, project)}>
-      Plantilla {motion.template.id} sin motor de preview
-    </div>
-  );
+  const template = templateById(motion.template.id);
+  if (!template) {
+    return (
+      <div className="graphic-placeholder" style={layerStyle}>
+        Plantilla {motion.template.id} desconocida
+      </div>
+    );
+  }
+  try {
+    const plan = buildMotionPlan(template, motion.props, {
+      width: project.video.width,
+      height: project.video.height,
+      fpsNum: project.video.frameRate.num,
+      fpsDen: project.video.frameRate.den,
+      durationFrames: clip.durationFrames,
+    });
+    const progress = Math.max(
+      0,
+      Math.min(1, (playheadFrame - clip.startFrame) / Math.max(1, clip.durationFrames)),
+    );
+    return (
+      <div style={layerStyle}>
+        <MotionPreview plan={plan} progress={progress} />
+      </div>
+    );
+  } catch (error) {
+    return (
+      <div className="graphic-placeholder" style={layerStyle}>
+        Gráfico inválido: {error instanceof Error ? error.message : 'props inválidas'}
+      </div>
+    );
+  }
 }
 
 function AudioLayer({
@@ -507,12 +541,14 @@ function AudioLayer({
   project,
   playheadFrame,
   playing,
+  trackGain = 0,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
   readonly playing: boolean;
+  readonly trackGain?: number;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
@@ -532,7 +568,7 @@ function AudioLayer({
           clipGainAtFrame(
             clip,
             Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
-          ),
+          ) + trackGain,
         );
 
   useEffect(() => {
@@ -721,7 +757,7 @@ export function Preview() {
     if (!project) return [];
     return project.timeline.clips.filter((clip) => {
       const track = trackById(project, clip.trackId);
-      if (!track || track.muted) return false;
+      if (!track || !isTrackAudible(track, project.timeline.tracks)) return false;
       if (!['audio', 'narration'].includes(track.kind)) return false;
       if (clip.enabled === false) return false;
       return playhead >= clip.startFrame && playhead < clip.startFrame + clip.durationFrames;
@@ -1065,7 +1101,8 @@ export function Preview() {
                   project={project}
                   playheadFrame={playhead}
                   playing={playing}
-                  muted={track?.muted ?? false}
+                  muted={!track || !isTrackAudible(track, project.timeline.tracks)}
+                  trackGain={track ? trackGainDb(track) : 0}
                 />
               );
             }
@@ -1081,21 +1118,32 @@ export function Preview() {
               );
             }
             if (clip.kind === 'graphic') {
-              return <GraphicLayer key={clip.id} clip={clip} project={project} />;
+              return (
+                <GraphicLayer
+                  key={clip.id}
+                  clip={clip}
+                  project={project}
+                  playheadFrame={playhead}
+                />
+              );
             }
             return null;
           })}
         </div>
-        {audioClips.map((clip) => (
-          <AudioLayer
-            key={clip.id}
-            clip={clip}
-            asset={clip.source.type === 'asset' ? assetById(project, clip.source.assetId) : undefined}
-            project={project}
-            playheadFrame={playhead}
-            playing={playing}
-          />
-        ))}
+        {audioClips.map((clip) => {
+          const track = trackById(project, clip.trackId);
+          return (
+            <AudioLayer
+              key={clip.id}
+              clip={clip}
+              asset={clip.source.type === 'asset' ? assetById(project, clip.source.assetId) : undefined}
+              project={project}
+              playheadFrame={playhead}
+              playing={playing}
+              trackGain={track ? trackGainDb(track) : 0}
+            />
+          );
+        })}
         <CaptionOverlay project={project} playheadFrame={playhead} previewWidth={frameWidth} />
         {realFrame ? (
           <div className="preview-real-frame-wrap">

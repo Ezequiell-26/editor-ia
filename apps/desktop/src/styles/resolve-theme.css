@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Editor IA — Piel DaVinci Resolve
+   Olyvia — Piel DaVinci Resolve
    ═══════════════════════════════════════════════════════════════════
    Plano: sin glow, sin blur, sin gradientes, sin sombras decorativas.
    Paneles contiguos separados por líneas de 1 px, etiquetas en
@@ -508,88 +508,6 @@ body {
 
 .sidebar button[aria-current='page']::before {
   display: none !important;
-}
-
-/* ─── 7 · Pipeline Bar (Resolve page tabs) ─── */
-.pipeline-bar {
-  background: #17181c !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  padding: 0 16px !important;
-  min-height: 28px !important;
-  height: 28px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-}
-
-.pipeline-steps {
-  display: flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-  list-style: none !important;
-  margin: 0 !important;
-  padding: 0 !important;
-}
-
-.pipeline-step-item {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-}
-
-.pipeline-arrow {
-  color: #4a4d55 !important;
-  font-size: 11px !important;
-  user-select: none !important;
-}
-
-.pipeline-step {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  padding: 2px 7px !important;
-  height: 22px !important;
-  border-radius: 3px !important;
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  color: #8c8f96 !important;
-  font-size: 10px !important;
-  font-weight: 500 !important;
-  cursor: pointer !important;
-  transition: all 0.1s ease !important;
-}
-
-.pipeline-step:hover {  color: #ffffff !important;
-}
-
-.pipeline-step.active,
-.pipeline-step[aria-current='step'] {
-  border: 1px solid #3b82f6 !important;
-  background: #162438 !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-}
-
-.pipeline-step.done .pipeline-dot {
-  background: #2563eb !important;
-  color: #ffffff !important;
-  border-color: #3b82f6 !important;
-}
-
-.pipeline-next {
-  background: var(--color-accent-strong) !important;
-  color: #f0f2f5 !important;
-  border: 1px solid var(--color-accent) !important;
-  border-radius: 2px !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  padding: 3px 10px !important;
-  box-shadow: none !important;
-}
-
-.pipeline-next:hover:not(:disabled) {  background: var(--color-accent) !important;
-  transform: none !important;
-  box-shadow: none !important;
 }
 
 /* ─── 8 · Editor Workspace ─── */

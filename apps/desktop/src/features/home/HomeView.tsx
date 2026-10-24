@@ -213,7 +213,7 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
 
       <header className="home-hero">
         <div className="home-hero-copy">
-          <p className="eyebrow">Editor IA</p>
+          <p className="eyebrow">OLYVIA</p>
           <h1>{project ? 'Seguimos donde quedaste' : 'Tu estudio, listo para crear'}</h1>
           <p>
             {project

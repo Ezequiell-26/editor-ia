@@ -1,8 +1,14 @@
-# Editor IA
+# Olyvia
 
-Editor de video local-first para Windows, con timeline multipista, asistencia de
-IA opcional y exportación MP4 verificada. El proyecto, los medios y las claves se
-quedan en tu equipo; la nube no es obligatoria.
+Estudio de creación local-first para Windows: edición de video multicapa,
+motion graphics, voz, contenido asistido por IA opcional y exportación MP4
+verificada. El proyecto, los medios y las claves se quedan en tu equipo; la nube
+no es obligatoria.
+
+> **Marca:** la app se llama **Olyvia** y usa el emblema orbital cian/violeta.
+> El repositorio, el identificador Tauri `com.editoria.desktop`, los paquetes
+> `@editor-ia/*` y las claves de almacenamiento conservan el nombre técnico
+> anterior para no romper proyectos ni instalaciones existentes.
 
 ## Qué existe hoy (verificado)
 
@@ -85,10 +91,10 @@ quedan en tu equipo; la nube no es obligatoria.
   No identifica personas ni sigue perfiles con fiabilidad.
 - **Ruta de producción de punta a punta**: el rail está ordenado como se
   trabaja —Proyecto → Guion → Medios → Voz → Edición → Exportar— y separado de
-  las herramientas. Una **franja de ruta** sobre el área de trabajo muestra el
-  paso actual, cuáles ya están hechos y un botón **Siguiente** que lleva ahí; en
-  **Inicio** la misma ruta se explica paso por paso. El avance se calcula del
-  proyecto (escenas, medios, audios, clips) y de los renders completados.
+  las herramientas. La ruta completa se explica paso por paso en **Inicio**; el
+  editor ya no reserva una franja superior para el progreso, así que todo el alto
+  queda para la timeline. El avance se calcula del proyecto (escenas, medios,
+  audios, clips) y de los renders completados.
 - **Inicio profesional**: la app abre en un panel de estudio con estado de
   instalación (yt-dlp, FFmpeg, FFprobe, SAPI), acciones para instalar o cambiar
   herramientas, preparación guiada de la extensión de Chrome/Edge, proyectos
@@ -568,7 +574,7 @@ fuente vigente es el addendum de la matriz.
   señales de imagen; no “entiende” personas, objetos ni intención. Faster-Whisper
   sí se ejecuta localmente para transcribir. No hay alineación forzada
   palabra-imagen en la vista Producción.
-- **Generación de imágenes dentro de Editor IA**: el autopiloto puede generar
+- **Generación de imágenes dentro de Olyvia**: el autopiloto puede generar
   una foto o un video por escena del guion, importarlos y montarlos en una sola
   corrida con autorización de créditos. La generación real no se verificó en esta
   máquina porque el Chrome dedicado no tenía sesión de Google ni créditos; el
@@ -790,10 +796,11 @@ fuente vigente es el addendum de la matriz.
   disponibles. Devuelve hallazgos con severidad y `clipId`.
 - **Pruebas de Rust:** el binario de tests enlaza Tauri/rfd e importa
   `TaskDialogIndirect` de comctl32; sin manifiesto Windows carga v5 y el proceso
-  muere con `STATUS_ENTRYPOINT_NOT_FOUND`. `scripts/rust-test.mjs` agrega
-  `tests.manifest` (Common-Controls v6) al link de los tests `--lib` sin tocar
-  el build de la app. Resultado: **215 passed, 0 failed, 7 ignored**;
-  `cargo check -p editor-ia-desktop` y `cargo fmt --check` verdes.
+  muere con `STATUS_ENTRYPOINT_NOT_FOUND`. `scripts/rust-env.mjs` marca las
+  corridas de test y `build.rs` enlaza `resource.lib` (Common-Controls v6) sólo
+  en ese ejecutable; no se pasa un segundo manifiesto por `RUSTFLAGS` (el link
+  falla con CVT1100 por recurso duplicado). Resultado: **237 passed, 0 failed,
+  15 ignored**; `cargo check -p editor-ia-desktop` y `cargo fmt --check` verdes.
 - **Doblaje real:** test ignorado ejecutado con `DUB_VOICE="Microsoft Zira Desktop"`:
   video sintético de 5 s, dos cues en inglés, salida 320×180 con audio mezclado
   y duración verificada. No se guardó el archivo de prueba en el proyecto.
@@ -817,8 +824,8 @@ fuente vigente es el addendum de la matriz.
   catálogo local para no romper la pantalla.
 - **Auditoría**: muestra hallazgos de `audit_visuals` con severidad, clip y
   mensaje. No repara nada: informa antes del render.
-- **Verificación**: **860 tests en 96 archivos** en la raíz, **504 tests en 74
-  archivos** en la app, Rust **215 passed, 0 failed, 7 ignored**; typecheck,
+- **Verificación**: **871 tests en 98 archivos** en la raíz, **504 tests en 74
+  archivos** en la app, Rust **237 passed, 0 failed, 15 ignored**; typecheck,
   build y `cargo fmt --check` verdes. QA visual con dos clips a 1376×788:
   preset Noir aplicado a ambos (4 efectos cada uno) y disolvencia de entrada
   actualizada en ambos. Bundle: entrada **326,04 kB JS**, `VisualsView`
@@ -844,7 +851,7 @@ fuente vigente es el addendum de la matriz.
   informa progreso y entrega el WAV verificado con hash de referencia.
 - **QA de clonación** con audio demo y servicio simulado: mostró **2,2 s**,
   **1,14 MB**, motor XTTS y ruta del WAV; no se probó contra un motor real.
-- **Pruebas:** **860 tests/96 archivos** raíz, Rust **215 passed, 0 failed, 7
+- **Pruebas:** **871 tests/98 archivos** raíz, Rust **237 passed, 0 failed, 15
   ignored**; typecheck, build y fmt verdes. `LocalizationView` **27,69 kB**.
 - **Límite**: la QA usó el servicio simulado; SAPI real se validó por backend y
   clonación real depende del motor externo. Sin lip-sync, multi-voz por cue ni
@@ -988,9 +995,9 @@ fuente vigente es el addendum de la matriz.
   `EDITOR_IA_RUN_RENDER_TESTS=1`; el de Playwright MCP con
   `EDITOR_IA_MCP_PLAYWRIGHT_CLI=<ruta a cli.js>`.
 - **Playwright e2e**: `npx playwright test` en `apps/desktop` — **11/11** contra
-  el Chrome del sistema; incluye la franja de ruta de producción.
+  el Chrome del sistema; incluye la guía de ruta en Inicio y el chat flotante.
 - **Compilación nativa y ruta al escritorio**: `npm run tauri:build` y, después,
-  reemplazo de `Editor IA.exe` e instalador en el Escritorio (convención
+  reemplazo de `Olyvia.exe` e instalador en el Escritorio (convención
   registrada).
 - **Ronda DaVinci (2026-10-22)**: rueda Offset, scope Parade, cola de entregas
   persistente, Smart Bins y tres plantillas de título. Detalle y lo que falta en
@@ -1134,7 +1141,7 @@ fuente vigente es el addendum de la matriz.
   frames sin desbordar. Capturas:
   `editor-ia-shots\app-ui-editor-final-2026-10-19.png` y
   `app-ui-editor-compact-1100-2026-10-19.png`.
-- Instalador NSIS local actual (decimoséptima pasada): `Editor IA_0.1.0_x64-setup.exe`, **4.268.571 bytes (4,07 MiB)**, sha256 `496f59d52d04fb4b1b07dd9030d347d37234f06f91dcc54d958878c30ff74900`. Exe release: **15.957.504 bytes**, sha256 `f0b69af147cea2294c2fb87246f52d39ae937c44c35a67b52f26d1de39b07b0e`; build Vite **663.780 bytes JS / 107.560 bytes CSS**. El instalador anterior (4.237.585 bytes, `6eea12c7…`) queda como histórico. **La fuente está adelantada al instalador**: curvas/tono y encuadre cover están en el código con tests, pero no se reempaquetó el instalador porque el usuario pidió no rebuildear sin pedirlo.
+- **Instalador NSIS actual (2026-10-24)**: `Olyvia_0.1.0_x64-setup.exe`, **204.287.240 bytes**, sha256 `b62a915044dd68850f5bf421754a5fb53ceddb6037b851ca566f8d61a7fbf83e`, firma Authenticode válida con el certificado local CN=Editor IA (Self-Signed). Se instaló con `/S` y se probó la app instalada sin Vite. El artefacto anterior `Editor IA_0.1.0_x64-setup.exe` se eliminó de la carpeta.
 - **UI y tutorial (2026-10-19)**: se verificaron en navegador la vista Aprender, el filtro/progreso, el formato/fps personalizado y el perfil con foto redimensionada (JPEG 256 px, 1.551 caracteres) y nombre/rol persistentes. En la app nativa se observó la ruta de aprendizaje y el llavero `editor-ia.welcome.v1` quedó en `seen`. La automatización de Computer Use se detuvo con Escape antes de una captura final del release; no se afirma una revisión visual nativa completa de la última compilación.
 - **Re-auditoría REA y batch de color/encuadre (2026-10-20)**: `inspect_pe_resources`
   confirmó el inventario de `CapCut.exe` y `BMDDavUI.dll`; el artefacto de CapCut
@@ -1190,17 +1197,17 @@ fuente vigente es el addendum de la matriz.
   exportados, almacenamiento corrupto) y 4 de la franja.
 - **Compilación nativa**: `npm run tauri:build` genera
   `target/release/editor-ia-desktop.exe` (**30,5 MB**) y el instalador NSIS
-  `target/release/bundle/nsis/Editor IA_0.1.0_x64-setup.exe` (**84,5 MB**).
+  `target/release/bundle/nsis/Olyvia_0.1.0_x64-setup.exe` (**84,5 MB**).
   Después de compilar, ambos se copian al Escritorio reemplazando los anteriores
-  (`Editor IA.exe` para ejecutar, `Editor IA_0.1.0_x64-setup.exe` para
-  distribuir). Verificado: el `.exe` arranca, abre la ventana “Editor IA”
+  (`Olyvia.exe` para ejecutar, `Olyvia_0.1.0_x64-setup.exe` para
+  distribuir). Verificado: el `.exe` arranca, abre la ventana “Olyvia”
   (59,6 MB en memoria) y muestra la guía con los seis pasos y el rail
   reordenado; el portable del Escritorio también abre (66,4 MB).
 - **App instalada**: el instalador NSIS en modo `currentUser` deja la app en
-  `%LOCALAPPDATA%\Editor IA\` con su desinstalador y el acceso del Menú Inicio.
+  `%LOCALAPPDATA%\Olyvia\` con su desinstalador y el acceso del Menú Inicio.
   El instalador **no crea el acceso del Escritorio** (ni en modo silencioso ni
   por defecto), así que se copia el `.lnk` del Menú Inicio al Escritorio como
-  `Editor IA.lnk`. Verificado: al abrirlo muestra el diálogo de bienvenida
+  `Olyvia.lnk`. Verificado: al abrirlo muestra el diálogo de bienvenida
   “Crear video no tiene que ser complicado” con los tres caminos (crear,
   tutorial, abrir) y corre en 31,8 MB.
 - **Verificación visual**: Chromium real a 1360×860. Inicio muestra la guía con
@@ -1720,7 +1727,7 @@ fuente vigente es el addendum de la matriz.
   38 en amplia), iconos de 17 px, avatar de perfil de 24 px y separadores más
   cortos. El modo con etiquetas conserva el ancho configurable.
 - **Loop de mejora continua**: la automatización local
-  **Editor IA · mejora continua cada 30 min** trabaja sobre este repo: elige una
+  **Olyvia · mejora continua cada 30 min** trabaja sobre este repo: elige una
   sola brecha medible, implementa, verifica con typecheck, Vitest, Rust y
   Playwright, y documenta. No commitea, no pushea y no genera instaladores. Se
   pausa si falla tres veces seguidas.
@@ -2198,7 +2205,7 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
 - [Tutorial completo de uso](docs/TUTORIAL.md)
 - [Google Flow MCP: fotos y videos desde la app](docs/integrations/GOOGLE-FLOW-MCP.md)
 - [Gestor de servidores MCP](docs/reference/MCP-MANAGER-2026-10-19.md)
-- [Integración Flow Queue ↔ Editor IA](docs/integrations/FLOW-QUEUE.md)
+- [Integración Flow Queue ↔ Olyvia](docs/integrations/FLOW-QUEUE.md)
 - [Web TTS Bridge: automatización de webs de voz](docs/integrations/WEB-TTS-BRIDGE.md)
 - [Stack MIT: repos evaluados e integrados](docs/integrations/MIT-STACK-2026-10-21.md)
 - [Avisos de terceros](THIRD-PARTY-NOTICES.md)
@@ -2207,7 +2214,7 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
 
 ## Licencia
 
-[MIT](LICENSE), sólo sobre el código fuente propio de Editor IA.
+[MIT](LICENSE), sólo sobre el código fuente propio de Olyvia.
 
 ## Monitor 1:1 nativo con video-rs (2026-10-23)
 
@@ -2237,11 +2244,11 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   instalación, junto al `.exe`; `FFMPEG-LICENSE.txt` queda al lado. Son ~150 MB
   sin comprimir, así que el instalador crece respecto del build anterior. El
   `ffmpeg.exe` estático que renderiza sigue siendo un proceso separado.
-- **Instalador verificado (2026-10-23)**: `Editor IA_0.1.0_x64-setup.exe`,
+- **Instalador verificado (2026-10-23)**: `Olyvia_0.1.0_x64-setup.exe`,
   **180,66 MiB** (189.436.896 bytes), SHA-256
   `AB716BBC67781F354EA0B20269C9C700E32BCAE417FA0E213961BCE4A044FFD5`,
   firma Authenticode válida. Instalado en
-  `C:\Users\ofici\AppData\Local\Editor IA`; la app arrancó y el proceso cargó
+  `C:\Users\ofici\AppData\Local\Olyvia`; la app arrancó y el proceso cargó
   las **siete DLLs desde esa carpeta** (verificado con la tabla de módulos). El
   ejecutable y `avcodec-63.dll` verifican con `signtool /pa`.
 - **Pruebas**: Rust **232 passed, 0 failed, 13 ignored**; frontend **869/869**
@@ -2273,7 +2280,402 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   puede referenciar archivos absolutos: importá sólo archivos de fuentes
   confiables porque esos medios se copian al proyecto. Límites: 1.000 clips,
   200 medios y 64 pistas por importación.
-- **Medición**: `cargo test -p editor-ia-desktop`: **236 passed, 0 failed, 15
+- **Medición**: `cargo test -p editor-ia-desktop`: **250 passed, 0 failed, 16
   ignored**; los tests live de EDL y OTIO/FCPXML con video real (160×90,
-  ffprobe y copia a `media/`) pasaron **2/2**. Frontend **871/871 en 98
+  ffprobe y copia a `media/`) pasaron **2/2**. Frontend **889/889 en 102
   archivos**, typecheck limpio y Playwright **11/11**.
+
+## Motion Graphics nativo (2026-10-23)
+
+- **Vista Motion**: galería de cuatro plantillas incluidas (`title-card`,
+  `lower-third`, `end-card`, `stat-callout`), formulario de props, preview con
+  scrub y duración, y **Agregar a la timeline**. Crea una pista gráfica, un
+  `MotionItem` y un clip `graphic`; el Inspector permite seguir editando props.
+- **Render real**: el clip gráfico se convierte a ASS/libass y se quema antes
+  de los subtítulos con el mismo FFmpeg del proyecto. No hay Node, Chromium ni
+  Remotion en el instalador. Las animaciones disponibles son aparecer, subir,
+  deslizar y pop; los rectángulos y textos se generan desde el plan neutral.
+- **Sin fingir**: si falta el motion item, la plantilla o el plan, la preview y
+  el render muestran un error; un clip gráfico sin plan falla el export en vez
+  de omitirse. Los clips gráficos se queman sobre el compuesto: no se pueden
+  poner debajo de una pista de video superior.
+- **Calidad de entrega**: el perfil YouTube exige 500.000 bytes. Un video de
+  pocos segundos con solo un título puede quedar por debajo; el render se
+  rechaza con un mensaje claro en vez de publicar un archivo dudoso. Agregá
+  contenido o ajustá el `qualityGate` del proyecto.
+- **Capa inteligente**: AI Hub suma la skill **Motion graphics**; el operador
+  local acepta `crear título`, `crear lower third`, `crear cierre` y
+  `crear dato` sin gastar tokens. La vista Motion también tiene **Generar con
+  IA**: usa el proveedor configurado, exige confirmación de costo para
+  proveedores remotos, valida las props contra la plantilla y muestra el
+  resultado en la preview antes de agregarlo. El simulador responde sin red.
+- **MCP**: `apps/motion-mcp/src/server.mjs` es un servidor stdio MIT con
+  `motion_list_templates`, `motion_create` y `motion_validate`. No renderiza ni
+  escribe archivos: devuelve el plan neutral y el render sigue en la app. Se
+  registra desde Ajustes → Servidores MCP; ver
+  [`docs/integrations/MOTION-MCP.md`](docs/integrations/MOTION-MCP.md).
+- **Licencias**: el motor es código propio; FFmpeg/libass ya estaban
+  documentados. Motion Canvas y Revideo (MIT) quedan como adaptadores
+  opcionales para composiciones personalizadas; el servidor MCP de motion usa
+  sólo Node y no agrega dependencias. Remotion sigue fuera.
+- **Medición**: **252 tests Rust** (0 fallos, 18 ignorados) y **902 tests
+  frontend en 105 archivos**, typecheck y build verdes. El test live de motion
+  renderizó **2,000 s, 51.779 bytes, 320×180** y encontró **47.529 píxeles
+  rojos** del overlay en un frame extraído a 1 s. El render real desde la UI
+  (3 clips de video + title card, 6 s) verificó **1.364.121 bytes, 1920×1080,
+  30 fps**, y el frame a 1,5 s muestra el título quemado sobre el video.
+
+## Asistente flotante Olyvia (2026-10-23)
+
+- **Chat flotante** abajo a la derecha, disponible en todas las vistas. Muestra
+  el proveedor y el modelo conectado; el botón **Configurar proveedor** abre
+  Ajustes.
+- **El pet vive dentro del chat** (`public/olyvia-pet.webp`): es la foto
+  original recortada con el motor U²-Net de la app, no una mascota generada.
+  Sobre el peluche se dibujan párpados, iris y puntos de la burbuja; abre los
+  ojos al abrir el chat o al escribir, la mirada sigue al puntero, respira y se
+  balancea al pensar; al responder rebota. Fuera del panel no queda ningún muñeco
+  flotando, solo el botón compacto de chat. Respeta `prefers-reduced-motion`.
+- **Usar la app desde el chat**: primero intenta el operador local determinista
+  (`abrir editor`, `estado`, `guardar`, `exportar`, `deshacer`, `crear título`,
+  etc.) sin gastar tokens. Si el pedido no es un comando, llama al proveedor
+  OpenAI-compatible configurado (Ollama/local, free tier o API de pago) y valida
+  la respuesta.
+- **Acciones acotadas**: navegar, reproducir/pausar, guardar, exportar,
+  deshacer/rehacer, consultar estado o crear un gráfico. El modelo devuelve un
+  JSON con una acción allowlisted; Rust la limpia, el frontend la vuelve a
+  validar y la ejecuta con las mismas APIs que la UI. No hay shell, borrado ni
+  publicación autónoma.
+- **Privacidad y costo**: el proveedor remoto exige marcar “Permitir llamada
+  remota”; la clave sigue en Windows Credential Manager. En modo simulado no hay
+  red. El chat no guarda la conversación en el proyecto.
+- **Medición**: **902 tests frontend en 105 archivos** y **252 tests Rust**
+  (0 fallos, 18 ignorados); typecheck y build verdes. Las pruebas del asistente
+  cubren el comando local (`abrir editor`), la respuesta del proveedor simulado
+  y el pet: presencia dentro del panel, cambio de estado y reacción al foco.
+  La prueba live del asistente hizo una **ronda real contra Ollama**
+  (`qwen2.5:3b`, `127.0.0.1:11435`) por el mismo código del comando: con el
+  prompt que describe la app, respondió en **24,0 s** con JSON válido
+  (“Podemos crear un guion de video y editar el contenido en la app.”) en una
+  CPU sin GPU.
+
+## Ajustes de interfaz (2026-10-23)
+
+- **Se quitó la franja superior de ruta** (paso 6 de 6, porcentaje y
+  **Siguiente: Exportar**). La ruta sigue disponible en Inicio y en el rail.
+- **El chat usa un botón compacto**; el peluche aparece únicamente dentro del
+  encabezado del panel y desaparece al cerrarlo.
+- **El splash permanece un mínimo de 4 s** y sus pasos tardan 2,9 s, para que la
+  carga se pueda apreciar antes de abrir la ventana principal. Medido en la app
+  de desarrollo: el splash aparece a los 0,76 s y la ventana principal a los
+  4,87 s del arranque.
+
+## Auditoría del backend (2026-10-23)
+
+- **Inventario**: **108 comandos Tauri** registrados en **46 módulos**; sin
+  `todo!`, `unimplemented!` ni respuestas simuladas fuera del modo mock
+  explícito.
+- **Suite**: **252 tests Rust** (0 fallos, 18 ignorados), **886 frontend en 101
+  archivos** y Playwright **11/11**; `cargo fmt --check`, typecheck y build
+  verdes.
+- **Pruebas live ejecutadas**: preview normal/nativo/rotado, extracción de tres
+  miniaturas, DSP de diálogo, EDL/OTIO/FCPXML con media real, doblaje SAPI,
+  descarga pública con yt-dlp, cuatro renders FFmpeg, inferencia U²-Net,
+  upscale Real-ESRGAN, ronda real con Ollama, detección facial, smart reframe
+  y lip-sync con el motor Wav2Lip. **Los 18 tests ignorados pasaron en corridas
+  manuales con sus fixtures.**
+  - Freeze: 12.703 bytes, 320×180, 2,0 s.
+  - Pipeline compacto: 65.379 bytes, 320×180, 2,5 s.
+  - Estabilización: 21.205 bytes, 200×112, 1,5 s.
+  - Motion: 51.779 bytes, 2,0 s, 47.529 píxeles rojos.
+  - yt-dlp: probe + descarga pública en 57,9 s, archivos reales.
+  - Real-ESRGAN: 128→512 en 3,71 s; U²-Net: máscara con varianza real.
+  - Ollama: 24,0 s con JSON válido.
+  - SeetaFace: 1 rostro sobre un retrato sintético (no una persona real).
+  - Smart reframe: 5 rostros y 5 muestras; el track mueve x de 367 a 1895 px.
+  - Wav2Lip: MP4 de 284.685 bytes en 82,6 s (3 s, 512×512, CPU).
+- **Bug encontrado y corregido**: la descarga de Real-ESRGAN apuntaba a un ZIP
+  con fragmento, pero el backend guardaba el ZIP completo como si fuera el ONNX
+  y el fragmento omitía la carpeta interna; el checksum fallaba siempre. Ahora
+  se separa URL/entrada, se baja el ZIP una vez, se resuelve la entrada por ruta
+  o basename, se verifica SHA-256 y tamaño, y recién entonces se instala. Se
+  agregó la dependencia MIT **`zip` 9**. Ronda live: **69.895.977 bytes
+  extraídos en 14,78 s**, ambos hashes coinciden.
+- **Modelos instalados tras verificar**: `u2netp` (4.574.861 bytes) y
+  `real-esrgan-x4plus` (69.895.977 bytes) en
+  `%APPDATA%\com.editoria.desktop\models`, con hashes iguales al catálogo.
+  Quitar fondo y Upscale 4K quedan listos sin volver a descargar.
+- **Dependencias externas medidas**: FFmpeg 9/FFprobe en PATH, yt-dlp
+  administrado en `tools`, voces SAPI Sabina/Zira, Ollama en 11435, motor
+  Wav2Lip en 8765 (health con checkpoint verificado), MCP Google Flow v1.2.0
+  responde `initialize` + `tools/list`, y el puente local en 127.0.0.1:47615
+  responde `/v1/health` y `/v1/ping`.
+- **Detección facial, smart reframe y lip-sync**: se verificaron con un retrato
+  sintético generado para la prueba (no una persona real) y una voz SAPI. El
+  motor Wav2Lip es un proceso Python aparte: la app no lo inicia sola. Para
+  sincronizar labios hay que dejar `scripts/lipsync-engine/start.ps1` escuchando
+  en `127.0.0.1:8765`; el health confirma checkpoint y Python. La licencia de
+  Wav2Lip sigue siendo sólo personal/investigación, no comercial.
+## Edición pro: texto, timeline magnética y proxies (2026-10-24)
+
+- **Edición basada en texto (nueva vista Texto)**: transcribe un video con
+  Faster-Whisper local, muestra cada segmento con su tiempo, permite
+  incluir/omitir frases y arma un corte secuencial no destructivo en una pista
+  nueva llamada «Texto». Las pistas y el material originales no se tocan. Es
+  una v1 por segmentos: todavía no edita palabra por palabra ni pega texto
+  nuevo.
+- **Timeline magnética**: el botón «Magnética» mantiene el snapping y además
+  hace que mover un clip cierre los huecos de la pista de origen y destino.
+  Se agregó «Cerrar huecos» para compactar manualmente la pista del clip
+  seleccionado. Alt al arrastrar sigue permitiendo el movimiento libre.
+- **Proxies por lote**: en Medios, «Proxies (N)» crea una versión ligera para
+  cada video listo que aún no tiene proxy, secuencialmente y con progreso
+  `n/total`. La preview usa el proxy; el render final sigue usando el original.
+- **Medición de esta tanda**: **551 tests de la app en 82 archivos**,
+  **910 tests del workspace en 105 archivos**, **252 Rust** (18 ignorados),
+  Playwright **11/11**, typecheck y build verdes.
+- **Multicámara v1**: vista nueva con 2+ cámaras, punto de entrada manual por
+  cámara, monitor en vivo con el video activo, botones CAM para cambiar de
+  ángulo mientras reproducís y grabación de cada cambio como corte. Al aplicar,
+  se monta una pista «Multicámara» nueva con los tramos y offsets elegidos; el
+  material original no se toca. La sincronización **automática por audio** ya
+  está: el botón analiza hasta 120 s de las envolventes de sonido (ventana de
+  ±10 s) y calcula los puntos de entrada; el ajuste manual queda disponible.
+  La sincronización por **timecode** sigue pendiente porque los assets todavía
+  no guardan ese metadato.
+- **Verificación real en la app instalada (2026-10-24)**: se generaron dos
+  videos de 10 s con el mismo patrón de audio y la cámara B retrasada **1,2 s**.
+  El botón analizó ambos con FFmpeg real y mostró «Multicámara sincronizada por
+  audio: 2 cámaras, confianza 100%»; las entradas quedaron en **0 s** y
+  **1,2 s**. «Crear pista multicámara» montó la pista «Multicámara» con el clip
+  `CAM 1 · Cámara A`, sin tocar las pistas originales. Capturas:
+  [`olyvia-multicam-audio-2026-10-24.png`](editor-ia-shots/olyvia-multicam-audio-2026-10-24.png)
+  y
+  [`olyvia-multicam-pista-2026-10-24.png`](editor-ia-shots/olyvia-multicam-pista-2026-10-24.png).
+
+## Portadas de proyectos recientes (2026-10-24)
+
+- **Miniatura real en el lanzador**: cada tarjeta reciente muestra un frame
+  JPEG de 480 px del primer visual de la timeline (o del primer asset de video/
+  imagen si el proyecto no tiene clips). Lo genera FFmpeg desde el proyecto
+  guardado, se cachea en memoria y, si no hay visual o falla, la tarjeta muestra
+  la inicial del proyecto sobre un tono estable («Sin vista previa»), de modo
+  que un proyecto vacío también se distingue de los demás.
+- **Lectura sin sesión**: el comando `recent_project_thumbnail` valida el
+  `.editoria.json`, resuelve el asset dentro de la raíz del proyecto y no abre
+  ni modifica nada. Prioriza video sobre audio y salta assets sin derechos.
+- **Carga secuencial**: el lanzador pide las portadas de a una para no lanzar
+  varios FFmpeg en paralelo al abrir la pantalla.
+- **Pruebas**: 3 tests Rust del selector de portada y 2 tests de UI: uno
+  verifica la imagen y otro la inicial cuando el proyecto no tiene visuales.
+- **Verificado en la app instalada**: el lanzador mostró portadas reales de los
+  proyectos con video y la inicial **P** para «Proyecto 22 oct», que no tiene
+  medios, y **D** para «Demo E2E». Captura:
+  [`olyvia-lanzador-portadas-2026-10-24.png`](editor-ia-shots/olyvia-lanzador-portadas-2026-10-24.png).
+
+## Mezclador de audio por pistas (Fairlight v1, 2026-10-24)
+
+- **Vista Mezcla**: un canal por pista de video, audio o narración, ordenados
+  por capa, más un canal **Master**. Cada canal tiene fader de **-60 a +12 dB**,
+  mute, solo y un botón **0** para volver a 0 dB. El master ajusta la salida
+  completa y muestra el objetivo LUFS, el limitador y el estado del ducking.
+- **Modelo**: `TrackSchema` acepta `gainDb` opcional (validado por
+  `DecibelSchema`) y `solo` opcional; el JSON Schema publicado se regeneró.
+  `updateTrack` valida el rango `-60..12` y rechaza valores fuera de él.
+- **Render real**: la ganancia de pista se suma a la ganancia de cada clip con
+  un `volume` extra en la cadena de audio. Si hay una pista en solo, las demás
+  pistas con audio —incluido el audio embebido de los videos— quedan fuera del
+  mix; el mute siempre gana. El ajuste también respeta el ducking existente.
+- **Preview**: la ganancia y el solo se aplican en la reproducción (video y
+  audio); el volumen de la preview no supera 1.0, pero el render conserva los
+  dB configurados.
+- **Medición de picos**: **Medir picos** analiza cada clip con FFmpeg
+  (`audio_peaks`), muestra el pico en dBFS y el pico resultante con el fader,
+  marca clipping y permite **Normalizar <pista> a -6 dBFS**. La medición
+  incluye la ganancia del clip y el fader; es puntual, no un medidor en vivo.
+  Funciona con audio y con el audio embebido de videos.
+- **UI adicional**: botón **S** en el encabezado de cada pista de la timeline y
+  ganancia/solo en el Inspector de pista. La vista Mezcla muestra cuántas
+  pistas están en solo y permite volver al editor.
+- **Verificación en la app instalada**: se abrió el proyecto Demo completa, se
+  puso **V1 en -7,5 dB**, **Narración en -3 dB**, **Master en -2 dB** y
+  **Narración en solo**; la vista mostró «1 pista en solo», los valores y el
+  estado del ducking. Después se devolvieron los faders a 0 y se apagó el solo
+  para no dejar cambios en el proyecto. En una segunda prueba, **Medir picos**
+  devolvió **-17,9 dBFS** para V1 y **-2,0 dBFS** para Narración con FFmpeg real,
+  y habilitó la normalización a -6 dB. Capturas:
+  [`olyvia-mezclador-2026-10-24.png`](editor-ia-shots/olyvia-mezclador-2026-10-24.png)
+  y
+  [`olyvia-mezclador-picos-2026-10-24.png`](editor-ia-shots/olyvia-mezclador-picos-2026-10-24.png).
+- **Pruebas**: 7 tests del helper de mezcla y picos, 4 de la vista, 1 del
+  encabezado de la timeline, 2 de acciones, 2 del esquema y 1 del grafo de
+  render que verifica la ganancia y la exclusión por solo. Suite completa:
+  **565 tests de la app en 84 archivos**, **926 del workspace en 107 archivos**,
+  **256 Rust** (18 ignorados), typecheck y build verdes.
+- **Límites**: v1 no tiene pan, EQ por pista ni automatización de fader; los
+  picos son una medición puntual, no medidores en tiempo real. El
+  EQ/compresor/denoise siguen siendo por clip. La sincronización por timecode y
+  los nodos VFX continúan pendientes.
+
+## Lanzador fijo y ajustes en el lugar (2026-10-24)
+
+- **Ventana inicial estática**: el lanzador queda en 900×580 y la ventana no se
+  puede achicar, agrandar ni maximizar; se quitó el botón Maximizar. Al entrar
+  al estudio se habilita el redimensionado y la maximización; al volver al
+  lanzador se vuelve a fijar. Requiere `core:window:allow-set-resizable`.
+- **Ajustes sin saltar al editor**: el engranaje del lanzador abre la misma
+  `SettingsWindow` flotante ahí mismo, por portal sobre el lanzador (z-index
+  3000). Se arrastra, se cierra con Esc o con la X y no navega a la pantalla
+  grande del editor.
+- **Configuración ordenada en ventana chica**: en la ventana de 900×580 la
+  navegación de secciones vuelve a una sola columna (se pisaba con el modo
+  responsive de 3 columnas); las 8 secciones —Apariencia, Editor, Atajos, IA,
+  Voz, Herramientas, Datos y Alcance— quedan legibles y con scroll interno.
+  Probado en preview real: navegación de 168 px por ítem y sección Herramientas
+  funcional.
+- **Barra superior del estudio**: el orden pasó a **logo + Olyvia → Inicio →
+  Archivo/Editar/Ver/…**, con el logo pegado al extremo izquierdo.
+- **Medición**: **551 tests de la app en 82 archivos**, **910 del workspace en
+  105 archivos**, typecheck y build verdes.
+- **Verificado en la app instalada**: el engranaje abrió la ventana flotante
+  sobre el lanzador, sin entrar al estudio; la navegación quedó en una columna
+  y la sección Apariencia respondió. Captura:
+  [`olyvia-ajustes-ventana-2026-10-24.png`](editor-ia-shots/olyvia-ajustes-ventana-2026-10-24.png).
+
+## Splash Olyvia con foto y carga limpia (2026-10-24)
+
+- **Más ancho**: la ventana de bienvenida pasó de 680×380 a **1040×560** para
+  dejar entrar la foto de la editora (`public/splash-bg.jpg`) en el costado
+  derecho, con degradado hacia el panel de contenido. Se ocultó el watermark
+  grande para no tapar la foto.
+- **Carga sin ruido**: se eliminaron el cronómetro (`3.3s`) y el contador
+  (`6/6`); queda el estado textual y la **barra de progreso**. El log muestra
+  hitos únicos y el hito final sólo aparece en el estado inferior, no duplicado.
+- **Causa de las cuatro líneas repetidas**: el splash registraba el listener de
+  eventos de Tauri más de una vez; ahora la registración es idempotente y,
+  además, `updateProgress` descarta mensajes consecutivos iguales.
+
+## Optimización para trabajo simultáneo (2026-10-24)
+
+- **Hijos pesados en prioridad baja**: FFmpeg (render, conversión, denoise,
+  preview), FFprobe, yt-dlp, el Python de transcripción y PowerShell/SAPI se
+  lanzan con `CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS`. Sin contención
+  usan todos los núcleos; cuando la UI o un modelo local compiten por CPU, el
+  sistema atiende primero a la app. No se baja la calidad ni se recorta el
+  render.
+- **Un render a la vez**: `start_render` rechaza un segundo trabajo con
+  `RenderBusy`; la descarga y la IA pueden seguir en paralelo.
+- **Preview nativa**: el scrubbing 1:1 usa `video-rs` en proceso; no levanta un
+  FFmpeg por cuadro salvo el fallback de rotación/SAR.
+- **Descarga**: yt-dlp usa 4 fragmentos concurrentes y el puente local mantiene
+  un solo trabajo a la vez.
+- **Medición**: durante la prueba live del pipeline, los procesos FFmpeg del
+  render aparecieron como `BelowNormal`; el test igual produjo el MP4 y pasó
+  (4,22 s). Los FFmpeg del fixture de prueba (generación/probe) quedaron en
+  `Normal`.
+- **Límite honesto**: Ollama es un proceso externo y conserva su prioridad; al
+  generar puede usar todos los núcleos. La app no lo throttlea ni lo reinicia.
+
+## Render por GPU (2026-10-24)
+
+- **Detección real**: Exportar consulta `hardware_encoders` y prueba cada
+  candidato con un encode de 256×144 antes de ofrecerlo. En este equipo
+  `h264_nvenc` y `h264_qsv` figuran compilados pero fallan sin driver/GPU, así
+  que la app elige **h264_amf/hevc_amf**. El interruptor aparece solo cuando el
+  encode de prueba funciona; si no, el render sigue por software.
+- **Aplicación**: la elección viaja como `hardwareEncoder` al comando de render,
+  se valida contra el códec del perfil y los límites de hardware (4096 px para
+  H.264, 8192 para HEVC) y se usa en el `-c:v` final. AMF usa CQP (`-qp_i/-qp_p`
+  con `-quality quality`), NVENC usa CQ + `p5`, QSV usa `-global_quality`; en
+  modo bitrate objetivo se usa `-b:v`. La elección no se guarda en el proyecto:
+  se decide por exportación.
+- **Proxies**: el mismo detector elige el encoder real. Los flags son por
+  fabricante: AMF (`-quality speed -rc cqp`), NVENC (`p1 -cq 30`) y QSV
+  (`veryfast -global_quality 30`).
+- **Medición real (2026-10-24)**: mismo proyecto de 5 s, salida 1920×1080/30.
+  GPU `h264_amf`: **2,8 s**, **5.199.536 bytes**. Software `libx264`: **2,8 s**,
+  **2.326.995 bytes**. Ambos MP4 duran 5,000 s; el tag de encoder confirma
+  `h264_amf` y `libx264`. En un clip corto 1080p la GPU no acelera y deja un
+  archivo más grande; la ventaja esperada es liberar CPU en timelines largas o
+  presets pesados.
+- **Selección automática corregida**: la GPU solo se habilita cuando conviene:
+  **4K o más**, timeline de **5 minutos o más**, o preset
+  `medium`/`slow`/`slower`. En un clip corto 1080p el interruptor queda
+  deshabilitado con el motivo y el render usa software. Si se cambia a un
+  perfil que no conviene, el check se apaga solo; el lote y la cola también
+  filtran cada perfil con la misma regla. La decisión no se guarda en el
+  proyecto.
+- **Límites de presets lentos verificados (2026-10-24)**: benchmark real de un
+  clip de 5 s, 1280×720 escalado a 1920×1080, audio incluido, CRF/CQP 18:
+  - `medium` (Máxima calidad): CPU **2,45 s / 4.505.839 bytes**; AMF GPU
+    **1,42 s / 8.138.809 bytes**.
+  - `slow`: CPU **2,47 s**; AMF **1,42 s**.
+  - `slower`: CPU **5,20 s**; AMF **1,42 s**.
+  La UI solo ofrece hasta `medium` («Máxima calidad»); `slow`/`slower` son
+  válidos en un perfil importado y también habilitan GPU. El encode AMF es más
+  rápido pero deja un archivo más grande en este contenido.
+- **Límites de hardware**: H.264 por GPU hasta **4096 px**, HEVC hasta
+  **8192 px**; 32K y perfiles por encima del límite quedan en software. No hay
+  fallback automático si el driver falla; el error pide desactivar GPU.
+- **Pruebas**: 4 tests Rust nuevos (parseo/validación, argumentos por API, probe
+  real y flags de proxy) y 6 tests de UI nuevos: 4 de la política y 3 de
+  ExportDialog para clip corto, preset pesado y apagado automático (uno
+  reemplaza al test anterior de paso al lote). Suite: **572 tests de la app en
+  85 archivos**, **933 del workspace en 108 archivos**, **260 Rust** (18
+  ignorados), typecheck y build verdes.
+
+## Instalador Olyvia 0.1.0 verificado (2026-10-24)
+
+- **Artefacto final**: `target/release/bundle/nsis/Olyvia_0.1.0_x64-setup.exe`,
+  **215.812.440 bytes** (205,81 MiB), SHA-256
+  `dc565d3e92434695bfd99931fcc4d83d148651e3ed43d5be2d99a03d57504ecf`.
+  Firma Authenticode **válida** con `CN=Editor IA (Self-Signed)` (huella
+  `5820…3954`), válida hasta 2028. Es confianza local, no un certificado
+  público.
+- **Sin sello de tiempo**: el primer intento de bundle falló porque
+  `timestamp.digicert.com` no respondió al firmar las DLLs de FFmpeg. Se quitó
+  `timestampUrl` de `tauri.conf.json` para que la firma local no dependa de la
+  red; `signtool verify /pa` pasa e informa «File is not timestamped».
+- **Instalación real**: `/S` salió **0**. El ejecutable instalado quedó en
+  `%LOCALAPPDATA%\Olyvia\editor-ia-desktop.exe` con **119.564.768 bytes**,
+  SHA-256 `394448636d4675f7619fbfafc2c14bb6a9e51a9a7853e9231af78d28c410e599`
+  y firma válida. El lanzador abrió en **916×619** (contenido 900×580), con el
+  desinstalador y el acceso `Olyvia.lnk` en el Menú Inicio.
+- **Aceptación en la app instalada**:
+  - portadas reales en recientes y monograma «P»/«D» en proyectos sin visual;
+  - el engranaje abre la configuración flotante sobre el lanzador, sin entrar
+    al estudio y con la navegación en una columna;
+  - multicámara real: dos videos de 10 s con **1,2 s** de desfase, sync por
+    audio al **100 %**, entradas 0/1,2 s y pista «Multicámara» creada con
+    `CAM 1 · Cámara A`;
+  - mezclador real con el proyecto Demo completa: V1 en **-7,5 dB**, Narración
+    en **-3 dB**, Master en **-2 dB** y Narración en solo, con el resumen
+    «1 pista en solo» (los faders se devolvieron a 0 al terminar la prueba);
+  - render GPU real: el proyecto de prueba de 5 s y 1920×1080 se exportó con
+    **h264_amf** activado en Exportar; el MP4 resultante pesa **5.199.536
+    bytes**, dura **5,000 s** y su metadato de encoder es `h264_amf`;
+  - política GPU verificada en la app instalada con Demo completa: en el perfil
+    1080p corto el check aparece **deshabilitado** («no recomendada para este
+    render») y el texto confirma que se mantiene el encoder por software. Al
+    elegir **Máxima calidad** (preset pesado) el mismo check se habilita con
+    `h264_amf`; al volver a un preset rápido se apaga solo.
+  Capturas:
+  [`olyvia-lanzador-portadas-2026-10-24.png`](editor-ia-shots/olyvia-lanzador-portadas-2026-10-24.png),
+  [`olyvia-ajustes-ventana-2026-10-24.png`](editor-ia-shots/olyvia-ajustes-ventana-2026-10-24.png),
+  [`olyvia-multicam-audio-2026-10-24.png`](editor-ia-shots/olyvia-multicam-audio-2026-10-24.png)
+  y
+  [`olyvia-multicam-pista-2026-10-24.png`](editor-ia-shots/olyvia-multicam-pista-2026-10-24.png),
+  más
+  [`olyvia-mezclador-2026-10-24.png`](editor-ia-shots/olyvia-mezclador-2026-10-24.png)
+  y
+  [`olyvia-render-gpu-policy-2026-10-24.png`](editor-ia-shots/olyvia-render-gpu-policy-2026-10-24.png).
+- **Medición**: **572 tests de la app en 85 archivos** y **933 del workspace en
+  108 archivos** (0 fallos), **260 Rust** (18 ignorados), typecheck y build
+  verdes. La compilación nativa terminó a las 10:12. Playwright **11/11**
+  pertenece a la corrida anterior; este pase cambió la política GPU del
+  frontend y agregó tests de recomendación, pero no re-ejecutó los e2e.
+- **Límites**: la firma es autofirmada y sin sello de tiempo, así que SmartScreen
+  puede mostrar «editor desconocido» fuera de este equipo. Los motores externos
+  (Ollama, Wav2Lip, Whisper, clonación XTTS/GPT-SoVITS) y los modelos en
+  `%APPDATA%` no viajan dentro del instalador. La sincronización multicámara
+  por **timecode** sigue pendiente; la automática por audio ya está verificada.

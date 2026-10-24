@@ -893,7 +893,7 @@ export function McpView() {
                       onChange={(event) => setFlowCredits(event.target.checked)}
                     />
                     <span>
-                      Autorizo consumir créditos de Flow. El importe no lo puede calcular Editor IA.
+                      Autorizo consumir créditos de Flow. El importe no lo puede calcular Olyvia.
                     </span>
                   </label>
                   <div className="actions">

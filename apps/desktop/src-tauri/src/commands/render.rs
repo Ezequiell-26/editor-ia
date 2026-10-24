@@ -20,6 +20,7 @@ use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
     self, build_plan, parse_profile, sanitize_log, BuildPlanInput, RenderPlan,
 };
+use crate::render::motion::{build_motion_ass, has_visible_graphic_clips, MotionAssInput};
 use crate::state::{AppState, RenderJob, Session};
 
 #[derive(Debug, Clone, Serialize)]
@@ -226,6 +227,8 @@ fn start_render_with_output(
     state: &AppState,
     profile_id: Option<String>,
     include_captions: bool,
+    motion_plans: Option<Value>,
+    hardware_encoder: Option<String>,
     requested_output: Option<PathBuf>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
     let session = state.require_session()?;
@@ -271,7 +274,7 @@ fn start_render_with_output(
             "el proyecto no tiene perfiles de exportación",
         ));
     }
-    let profile_json = match profile_id.as_deref() {
+    let mut profile_json = match profile_id.as_deref() {
         Some(id) if !id.is_empty() => profiles
             .iter()
             .find(|profile| profile["id"].as_str() == Some(id))
@@ -284,7 +287,37 @@ fn start_render_with_output(
             })?,
         _ => profiles[0].clone(),
     };
+    if let Some(encoder) = hardware_encoder.filter(|value| !value.is_empty()) {
+        profile_json["hardwareEncoder"] = Value::String(encoder);
+    }
     let profile = parse_profile(&profile_json)?;
+    let project_width = project["video"]["width"].as_u64().unwrap_or(1920) as u32;
+    let project_height = project["video"]["height"].as_u64().unwrap_or(1080) as u32;
+    let project_fps = project["video"]["frameRate"]["num"].as_u64().unwrap_or(30) as f64
+        / project["video"]["frameRate"]["den"]
+            .as_u64()
+            .unwrap_or(1)
+            .max(1) as f64;
+    let motion_ass = match motion_plans {
+        Some(plans) => build_motion_ass(MotionAssInput {
+            project: &project,
+            plans: &plans,
+            render_width: profile.width,
+            render_height: profile.height,
+            project_width,
+            project_height,
+            project_fps,
+        })?,
+        None => {
+            if has_visible_graphic_clips(&project) {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "hay clips gráficos sin plan de motion; volvé a exportar desde el editor",
+                ));
+            }
+            String::new()
+        }
+    };
     let project_name = project["name"].as_str().unwrap_or("proyecto");
     let suggested = format!(
         "{}-{}.mp4",
@@ -331,6 +364,11 @@ fn start_render_with_output(
         include_captions,
         temp_dir: &temp_dir,
         ffprobe: &ffprobe,
+        motion_ass: if motion_ass.is_empty() {
+            None
+        } else {
+            Some(motion_ass.as_str())
+        },
     }) {
         Ok(plan) => plan,
         Err(error) => {
@@ -566,8 +604,18 @@ pub async fn start_render(
     state: State<'_, AppState>,
     profile_id: Option<String>,
     include_captions: bool,
+    motion_plans: Option<Value>,
+    hardware_encoder: Option<String>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
-    start_render_with_output(&app, &state, profile_id, include_captions, None)
+    start_render_with_output(
+        &app,
+        &state,
+        profile_id,
+        include_captions,
+        motion_plans,
+        hardware_encoder,
+        None,
+    )
 }
 
 #[tauri::command]
@@ -577,6 +625,8 @@ pub async fn start_render_to(
     profile_id: String,
     include_captions: bool,
     output_path: String,
+    motion_plans: Option<Value>,
+    hardware_encoder: Option<String>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
     let path = PathBuf::from(output_path);
     if !path
@@ -595,7 +645,15 @@ pub async fn start_render_to(
             "ya existe un archivo con ese nombre en la carpeta elegida",
         ));
     }
-    start_render_with_output(&app, &state, Some(profile_id), include_captions, Some(path))
+    start_render_with_output(
+        &app,
+        &state,
+        Some(profile_id),
+        include_captions,
+        motion_plans,
+        hardware_encoder,
+        Some(path),
+    )
 }
 
 #[tauri::command]

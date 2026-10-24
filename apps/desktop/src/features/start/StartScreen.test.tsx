@@ -1,16 +1,19 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StartScreen } from './StartScreen';
 import { ProjectProvider } from '../../state/project-store';
+import { AppearanceProvider } from '../../state/AppearanceProvider';
 import { createFakeService } from '../../test/fake-service';
 
-function renderStartScreen(onEnterApp = vi.fn()) {
-  const service = createFakeService();
+function renderStartScreen(onEnterApp = vi.fn(), injectedService?: ReturnType<typeof createFakeService>) {
+  const service = injectedService ?? createFakeService();
   const result = render(
-    <ProjectProvider service={service}>
-      <StartScreen onEnterApp={onEnterApp} />
-    </ProjectProvider>,
+    <AppearanceProvider>
+      <ProjectProvider service={service}>
+        <StartScreen onEnterApp={onEnterApp} />
+      </ProjectProvider>
+    </AppearanceProvider>,
   );
   return { ...result, service, onEnterApp };
 }
@@ -27,8 +30,8 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     renderStartScreen();
 
     // Título y branding de la ventana compacta
-    expect(screen.getByText('Montaje')).toBeTruthy();
-    expect(screen.getByText('Editor IA Local')).toBeTruthy();
+    expect(screen.getByText('Olyvia')).toBeTruthy();
+    expect(screen.getByText('Creation Studio')).toBeTruthy();
 
     // Botón de versión y actualizador
     expect(screen.getByRole('button', { name: /actualizador/i })).toBeTruthy();
@@ -103,7 +106,7 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     fireEvent.click(updaterBtn);
 
     // Modal del actualizador visible
-    expect(screen.getByRole('heading', { name: /Actualizador de Montaje/i })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /Actualizador de Olyvia/i })).toBeTruthy();
     expect(screen.getByText(/Versión instalada:/i)).toBeTruthy();
   });
 
@@ -119,5 +122,73 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
       },
       { timeout: 1000 },
     );
+  });
+});
+
+describe('StartScreen · Ajustes en ventana flotante', () => {
+  it('abre la configuración ahí mismo sin entrar al editor', async () => {
+    const { onEnterApp } = renderStartScreen();
+    fireEvent.click(screen.getByRole('button', { name: 'Ajustes' }));
+
+    expect(await screen.findByRole('dialog', { name: 'Configuración' })).toBeTruthy();
+    expect(onEnterApp).not.toHaveBeenCalled();
+
+    // SettingsHome se carga en diferido: con la suite completa compitiendo por
+    // CPU el chunk puede tardar más que el timeout por defecto de 1 s.
+    const sections = await screen.findByRole(
+      'navigation',
+      { name: /Secciones de Ajustes/i },
+      { timeout: 5000 },
+    );
+    fireEvent.click(within(sections).getByRole('button', { name: /Herramientas/i }));
+    expect(
+      await screen.findByRole('heading', { name: 'Herramientas', level: 2 }, { timeout: 5000 }),
+    ).toBeTruthy();
+  });
+});
+
+describe('StartScreen · portada de proyectos recientes', () => {
+  it('muestra la imagen del proyecto guardado', async () => {
+    window.localStorage.setItem(
+      'editoria.recent.v1',
+      JSON.stringify([
+        {
+          path: 'C:\tester\proyecto.editoria.json',
+          label: 'proyecto.editoria.json',
+          name: 'Proyecto con portada',
+          openedAt: new Date().toISOString(),
+        },
+      ]),
+    );
+    const { container } = renderStartScreen();
+    expect(await screen.findByText('Proyecto con portada')).toBeTruthy();
+    await waitFor(() => {
+      const image = container.querySelector('.start-thumb-image');
+      expect(image?.getAttribute('src')).toMatch(/^data:image/);
+    });
+  });
+
+  it('muestra la inicial del proyecto cuando todavía no tiene visuales', async () => {
+    window.localStorage.setItem(
+      'editoria.recent.v1',
+      JSON.stringify([
+        {
+          path: 'C:\\tester\\vacio.editoria.json',
+          label: 'vacio.editoria.json',
+          name: 'Proyecto 22 oct',
+          openedAt: new Date().toISOString(),
+        },
+      ]),
+    );
+    const service = {
+      ...createFakeService(),
+      recentProjectThumbnail: async () => null,
+    };
+    const { container } = renderStartScreen(vi.fn(), service);
+
+    expect(await screen.findByText('Proyecto 22 oct')).toBeTruthy();
+    expect(container.querySelector('.start-thumb-image')).toBeNull();
+    expect(container.querySelector('.start-thumb-initial')?.textContent).toBe('P');
+    expect(screen.getByText('Sin vista previa')).toBeTruthy();
   });
 });

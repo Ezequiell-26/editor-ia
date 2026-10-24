@@ -240,7 +240,7 @@ export function createFakeService(): FakeService {
       return {
         port: 47615,
         token: 'token-de-prueba',
-        downloadsDir: 'C:\\Users\\tester\\Downloads\\Editor IA',
+        downloadsDir: 'C:\\Users\\tester\\Downloads\\Olyvia',
         running: true,
       };
     },
@@ -356,6 +356,9 @@ export function createFakeService(): FakeService {
       return { r: 120, g: 100, b: 90 };
     },
     async mediaThumbnail() {
+      return THUMB;
+    },
+    async recentProjectThumbnail() {
       return THUMB;
     },
     async checkAssetFiles(paths: string[]) {
@@ -885,6 +888,60 @@ export function createFakeService(): FakeService {
         name: 'Cine IA',
         description: 'Contraste y viñeta generados sin red.',
         effects: { contrast: 1.15, vignette: 0.2 },
+        providerId: 'mock',
+        model: 'mock',
+        simulated: true,
+      };
+    },
+    async generateMotion(request) {
+      const text = request.brief.slice(0, 60);
+      const props =
+        request.templateId === 'lower-third'
+          ? { name: text, role: 'Olyvia', accent: '#7dd3c0', side: 'left', animation: 'slide-left' }
+          : request.templateId === 'end-card'
+            ? { title: text, cta: 'Suscribite', background: '#0f172a', accent: '#7dd3c0', animation: 'fade' }
+            : request.templateId === 'stat-callout'
+              ? { value: '+120%', label: text, accent: '#7dd3c0', animation: 'pop' }
+              : {
+                  title: text,
+                  subtitle: 'Generado localmente',
+                  background: '#0f172a',
+                  accent: '#7dd3c0',
+                  align: 'left',
+                  animation: 'slide-up',
+                };
+      return {
+        templateId: request.templateId,
+        props,
+        providerId: 'mock',
+        model: 'mock',
+        simulated: true,
+      };
+    },
+    async assistantChat(request) {
+      const last = [...request.messages].reverse().find((message) => message.role === 'user');
+      const text = last?.content.toLowerCase() ?? '';
+      if (text.includes('editor')) {
+        return {
+          reply: 'Abriendo el editor.',
+          action: { kind: 'navigate', view: 'editor' },
+          providerId: 'mock',
+          model: 'mock',
+          simulated: true,
+        };
+      }
+      if (text.includes('estado')) {
+        return {
+          reply: 'Te muestro el estado del proyecto.',
+          action: { kind: 'status' },
+          providerId: 'mock',
+          model: 'mock',
+          simulated: true,
+        };
+      }
+      return {
+        reply: 'Hola. Soy Olyvia en modo simulado. Puedo ayudarte a navegar por la app.',
+        action: null,
         providerId: 'mock',
         model: 'mock',
         simulated: true,

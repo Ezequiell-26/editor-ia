@@ -407,7 +407,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </div>
             <p className="fine-print">
               {engine?.available
-                ? 'El motor es un ejecutable oficial de yt-dlp. Editor IA no incluye ni redistribuye yt-dlp.'
+                ? 'El motor es un ejecutable oficial de yt-dlp. Olyvia no incluye ni redistribuye yt-dlp.'
                 : engine?.hint ??
                   'Instalá el motor para descargar. Sólo se acepta contenido público o con permiso.'}
             </p>

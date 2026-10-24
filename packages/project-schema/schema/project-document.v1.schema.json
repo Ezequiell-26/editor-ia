@@ -1091,6 +1091,14 @@
               "locked": {
                 "type": "boolean",
                 "default": false
+              },
+              "gainDb": {
+                "type": "number",
+                "minimum": -60,
+                "maximum": 12
+              },
+              "solo": {
+                "type": "boolean"
               }
             },
             "required": [
@@ -1238,9 +1246,7 @@
                     "type": "object",
                     "properties": {
                       "gainDb": {
-                        "type": "number",
-                        "minimum": -60,
-                        "maximum": 12
+                        "$ref": "#/properties/timeline/properties/tracks/items/properties/gainDb"
                       },
                       "muted": {
                         "type": "boolean"
@@ -1312,7 +1318,7 @@
                               "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
                             },
                             "gainDb": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio/properties/gainDb"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainDb"
                             },
                             "easing": {
                               "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/easing"
@@ -2388,7 +2394,7 @@
           "type": "object",
           "properties": {
             "gainDb": {
-              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio/properties/gainDb",
+              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainDb",
               "default": 0
             },
             "limiter": {
@@ -2406,7 +2412,7 @@
               "$ref": "#/properties/id"
             },
             "gainDb": {
-              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/audio/properties/gainDb",
+              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainDb",
               "default": -18
             },
             "fadeInFrames": {

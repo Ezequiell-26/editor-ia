@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Editor IA",
+  "productName": "Olyvia",
   "version": "0.1.0",
   "identifier": "com.editoria.desktop",
   "build": {
@@ -13,12 +13,12 @@
     "windows": [
       {
         "label": "main",
-        "title": "Editor IA",
+        "title": "Olyvia",
         "width": 900,
         "height": 580,
         "minWidth": 760,
         "minHeight": 500,
-        "resizable": true,
+        "resizable": false,
         "fullscreen": false,
         "maximized": false,
         "visible": false,
@@ -27,15 +27,16 @@
         "shadow": true,
         "dragDropEnabled": true,
         "theme": "Dark",
-        "backgroundColor": "#1a1a1d",
-        "additionalBrowserArgs": "--in-process-gpu"
+        "backgroundColor": "#05070f",
+        "additionalBrowserArgs": "--in-process-gpu",
+        "maximizable": false
       },
       {
         "label": "splash",
-        "title": "Editor IA",
+        "title": "Olyvia",
         "url": "splash.html",
-        "width": 680,
-        "height": 380,
+        "width": 1040,
+        "height": 560,
         "resizable": false,
         "fullscreen": false,
         "center": true,
@@ -44,7 +45,7 @@
         "shadow": true,
         "dragDropEnabled": false,
         "theme": "Dark",
-        "backgroundColor": "#1a1a1d",
+        "backgroundColor": "#05070f",
         "additionalBrowserArgs": "--in-process-gpu"
       }
     ],
@@ -96,7 +97,6 @@
       },
       "certificateThumbprint": "58204858E163CE7DA173DB8AB09CD9B8359C3954",
       "digestAlgorithm": "sha256",
-      "timestampUrl": "http://timestamp.digicert.com",
       "tsp": false
     }
   }

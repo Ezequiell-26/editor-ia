@@ -79,6 +79,7 @@ fn profile_for(project: &Value) -> Result<Profile, ProjectError> {
         audio_channels: 2,
         min_output_bytes: 1,
         duration_tolerance_frames: 1,
+        hardware_encoder: None,
     })
 }
 
@@ -771,6 +772,7 @@ mod tests {
             audio_channels: 2,
             min_output_bytes: 1,
             duration_tolerance_frames: 1,
+            hardware_encoder: None,
         };
         let native = at_dimensions(&profile, 3841, 2161);
         assert_eq!((native.width, native.height), (3840, 2160));

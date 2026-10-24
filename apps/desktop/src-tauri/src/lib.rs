@@ -21,7 +21,7 @@ static REVEAL: std::sync::OnceLock<std::sync::Arc<dyn Fn() + Send + Sync>> =
 
 /// Tiempo mínimo que el splash permanece en pantalla, aunque la app ya esté
 /// lista: la bienvenida es parte de la identidad, no un parpadeo.
-const MIN_SPLASH_MS: u64 = 2500;
+const MIN_SPLASH_MS: u64 = 4000;
 
 fn maybe_reveal_after_page_load(window_label: &str) {
     if window_label != "main" {
@@ -137,32 +137,32 @@ pub fn run() {
             }
 
             // Hilo de progreso del splash: avance realista y visible estilo DaVinci NLE
-            // durante la ventana de arranque (MIN_SPLASH_MS = 2500ms)
+            // durante la ventana de arranque (MIN_SPLASH_MS = 4000ms)
             let splash_handle = handle.clone();
             std::thread::spawn(move || {
                 let steps: [(&str, u32, u64); 6] = [
-                    ("Inicializando subsistemas del motor de video…", 15, 180),
+                    ("Inicializando subsistemas del motor de video…", 15, 220),
                     (
                         "Detectando aceleración de hardware y decodificadores GPU…",
                         32,
-                        380,
+                        520,
                     ),
                     (
                         "Cargando preferencias, atajos y configuración NLE…",
                         52,
-                        420,
+                        560,
                     ),
                     (
                         "Iniciando puente de descarga y servicios en segundo plano…",
                         70,
-                        420,
+                        560,
                     ),
                     (
                         "Comprobando catálogo de proyectos y medios locales…",
                         88,
-                        420,
+                        560,
                     ),
-                    ("Estudio de edición listo.", 100, 320),
+                    ("Estudio de edición listo.", 100, 480),
                 ];
 
                 for (idx, (msg, pct, delay)) in steps.iter().enumerate() {
@@ -188,6 +188,7 @@ pub fn run() {
             commands::projects::save_project,
             commands::projects::save_project_as,
             commands::projects::close_project,
+            commands::projects::recent_project_thumbnail,
             commands::media::import_assets,
             commands::media::import_media_paths,
             commands::media::import_lut,
@@ -216,6 +217,7 @@ pub fn run() {
             commands::convert::probe_any_file,
             commands::denoise::denoise_media,
             commands::providers::generate_video_effect,
+            commands::motion_ai::generate_motion,
             commands::fcpxml::export_fcpxml,
             commands::otio::export_otio,
             commands::edl::export_edl,
@@ -265,6 +267,7 @@ pub fn run() {
             commands::providers::save_provider,
             commands::providers::clear_provider_key,
             commands::providers::generate_script,
+            commands::assistant::assistant_chat,
             commands::providers::translate_subtitles,
             commands::localization::save_localized_subtitle,
             commands::shorts::export_short,

@@ -10,6 +10,7 @@ import {
 } from './project-actions';
 import { prepareAutoEdit, type NarrationCandidate } from './auto-edit';
 import { artifactPaths, flowProviderId, sceneVisualPrompt } from './flow';
+import { buildProjectMotionPlans } from '../features/motion/plan';
 
 /**
  * End-to-end orchestrator: brief -> script -> voice -> (optional) Flow media ->
@@ -494,11 +495,16 @@ export async function runOrchestratorJob(
       emit({ stage: 'render', progress: 0.88 });
       if (!profileId) throw new Error('el proyecto no declara un perfil de render');
       const videoPath = `${job.options.outputDir.replace(/[\\/]+$/, '')}\\${outputName(job)}.mp4`;
+      const motionBundle = project ? buildProjectMotionPlans(project) : null;
+      if (motionBundle && motionBundle.errors.length > 0) {
+        throw new Error(motionBundle.errors[0]);
+      }
       const rendered = await deps.service.renderProjectVariant({
         projectPath,
         profileId,
         outputPath: videoPath,
         includeCaptions: job.options.includeCaptions,
+        ...(motionBundle ? { motionPlans: motionBundle.plans } : {}),
       });
       log('info', `MP4 verificado: ${rendered.width}x${rendered.height}, ${rendered.bytes} bytes.`);
       emit({

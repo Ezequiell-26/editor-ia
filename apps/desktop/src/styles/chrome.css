@@ -1834,6 +1834,22 @@
   background: color-mix(in srgb, var(--color-panel-2) 70%, transparent);
 }
 
+.export-gpu {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--color-panel-2) 55%, transparent);
+}
+
+.export-gpu-hint {
+  margin: 0;
+  color: var(--color-empty);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
 .export-compression-head {
   display: flex;
   align-items: baseline;
@@ -2689,141 +2705,6 @@
   flex: none;
   color: var(--color-empty);
   font-variant-numeric: tabular-nums;
-}
-
-/* ------------------------------------------------------------------ */
-/* Ruta de producción                                                  */
-/* ------------------------------------------------------------------ */
-
-.pipeline-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 5px 12px;
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-panel);
-  min-height: 34px;
-}
-
-.pipeline-title {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  flex: none;
-  font-size: var(--text-xs);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-.pipeline-eyebrow {
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  font-size: 9.5px;
-  color: var(--color-empty);
-}
-
-.pipeline-title strong {
-  color: var(--color-text);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.pipeline-steps {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.pipeline-steps::-webkit-scrollbar {
-  display: none;
-}
-
-.pipeline-step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-  padding: 3px 9px 3px 4px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-empty);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.pipeline-step:hover {
-  color: var(--color-text);
-  background: var(--color-panel-2);
-}
-
-.pipeline-dot {
-  display: grid;
-  place-items: center;
-  width: 17px;
-  height: 17px;
-  border-radius: 999px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg);
-  font-size: 9.5px;
-  font-variant-numeric: tabular-nums;
-}
-
-.pipeline-step.done {
-  color: var(--color-text-muted);
-}
-
-.pipeline-step.done .pipeline-dot {
-  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
-  color: var(--color-accent);
-}
-
-.pipeline-step.current {
-  color: var(--color-text);
-  border-color: color-mix(in srgb, var(--color-accent) 45%, transparent);
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-}
-
-.pipeline-step.current .pipeline-dot {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.pipeline-step.active {
-  border-color: var(--color-border-strong);
-  color: var(--color-text);
-}
-
-.pipeline-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
-
-.pipeline-percent {
-  font-size: var(--text-xs);
-  color: var(--color-empty);
-  font-variant-numeric: tabular-nums;
-}
-
-.pipeline-next {
-  padding: 4px 10px;
-  font-size: var(--text-xs);
-}
-
-.pipeline-complete {
-  font-size: var(--text-xs);
-  color: var(--color-accent);
 }
 
 /* --- Guía completa, en Inicio --- */

@@ -9,6 +9,12 @@ export type OperatorAction =
   | { readonly kind: 'save' }
   | { readonly kind: 'export' }
   | { readonly kind: 'create'; readonly topic: string }
+  | {
+      readonly kind: 'motion';
+      readonly templateId: 'title-card' | 'lower-third' | 'end-card' | 'stat-callout';
+      readonly text: string;
+      readonly secondary?: string;
+    }
   | { readonly kind: 'status' }
   | { readonly kind: 'help' }
   | { readonly kind: 'unknown'; readonly message: string };
@@ -48,6 +54,46 @@ export function parseOperatorCommand(
   if (/^(rehacer|redo)/.test(text)) return { kind: 'redo' };
   if (/^(guardar|save|guardar proyecto)/.test(text)) return { kind: 'save' };
   if (/^(exportar|export|renderizar|render)/.test(text)) return { kind: 'export' };
+
+  // Los comandos de motion conservan el texto original (tildes y mayúsculas).
+  const raw = input.trim();
+  const motionParts = (value: string): { text: string; secondary?: string } => {
+    const parts = value
+      .split(/\s*[,;]\s*/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return parts.length > 1
+      ? { text: parts[0]!, secondary: parts.slice(1).join(', ') }
+      : { text: parts[0] ?? '' };
+  };
+  const title = raw.match(
+    /^(?:crear|hacer|generar)\s+(?:un\s+)?(?:título|titulo|title|placa de apertura)\s+(.+)$/i,
+  );
+  if (title?.[1]?.trim()) {
+    return { kind: 'motion', templateId: 'title-card', text: title[1].trim() };
+  }
+  const lower = raw.match(
+    /^(?:crear|hacer|generar)\s+(?:un\s+)?(?:lower third|lower-third|placa|nombre)\s+(.+)$/i,
+  );
+  if (lower?.[1]?.trim()) {
+    const parts = motionParts(lower[1]);
+    if (parts.text) return { kind: 'motion', templateId: 'lower-third', ...parts };
+  }
+  const end = raw.match(
+    /^(?:crear|hacer|generar)\s+(?:un\s+)?(?:cierre|end card|endcard|outro)\s+(.+)$/i,
+  );
+  if (end?.[1]?.trim()) {
+    const parts = motionParts(end[1]);
+    if (parts.text) return { kind: 'motion', templateId: 'end-card', ...parts };
+  }
+  const stat = raw.match(
+    /^(?:crear|hacer|generar)\s+(?:un\s+)?(?:dato|stat|estadística|estadistica)\s+(.+)$/i,
+  );
+  if (stat?.[1]?.trim()) {
+    const parts = motionParts(stat[1]);
+    if (parts.text) return { kind: 'motion', templateId: 'stat-callout', ...parts };
+  }
+
   const create = text.match(/^(?:crear|hacer|generar)\s+(?:un\s+)?(?:video|short|reel|contenido)\s+(?:sobre|de|con)\s+(.+)$/);
   if (create) return { kind: 'create', topic: create[1]!.trim() };
   const navigation = text.match(
@@ -73,4 +119,4 @@ export function parseOperatorCommand(
 }
 
 export const OPERATOR_HELP =
-  'Comandos: abrir <vista>, crear un video sobre <tema>, reproducir, pausar, guardar, exportar, deshacer, rehacer, estado. Es un operador local determinista: no usa IA ni tokens.';
+  'Comandos: abrir <vista>, crear un video sobre <tema>, crear título <texto>, crear lower third <nombre, rol>, crear cierre <texto>, crear dato <valor, etiqueta>, reproducir, pausar, guardar, exportar, deshacer, rehacer, estado. Es un operador local determinista: no usa IA ni tokens.';

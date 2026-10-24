@@ -1,5 +1,5 @@
 /**
- * Updater Service for Editor IA / Montaje Desktop.
+ * Updater Service for Olyvia / Montaje Desktop.
  * Manages checking for releases, downloading simulation/payloads,
  * local update preferences, and auto-check policies.
  */

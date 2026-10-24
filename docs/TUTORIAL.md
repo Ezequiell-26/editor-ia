@@ -1,11 +1,11 @@
-# Tutorial completo de Editor IA
+# Tutorial completo de Olyvia
 
 Esta guía lleva un proyecto desde la idea hasta un MP4 verificado. También está
 disponible dentro de la app en **Aprender**, con accesos directos a cada vista.
 
 ## 1. Antes de empezar
 
-Editor IA es local-first: proyectos, medios, subtítulos y claves se quedan en tu
+Olyvia es local-first: proyectos, medios, subtítulos y claves se quedan en tu
 equipo. Necesitás:
 
 - Windows 10/11 con WebView2.
@@ -17,7 +17,7 @@ equipo. Necesitás:
 El instalador no incluye FFmpeg ni modelos de transcripción. La app avisa cuando
 falta una herramienta.
 
-Al abrir Editor IA vas a ver **Inicio**: muestra el estado de yt-dlp, FFmpeg,
+Al abrir Olyvia vas a ver **Inicio**: muestra el estado de yt-dlp, FFmpeg,
 FFprobe y SAPI; permite instalar o cambiar las herramientas, preparar la
 extensión de Chrome/Edge, retomar proyectos recientes y pegar una URL para
 descargar incluso sin un proyecto abierto.
@@ -82,7 +82,7 @@ Alternativas:
 
 - **ElevenLabs** por API oficial: la clave va al Administrador de credenciales de
   Windows y la app pide confirmar créditos antes de llamar.
-- **Web externa manual**: Editor IA abre una URL HTTPS; vos generás y descargás el
+- **Web externa manual**: Olyvia abre una URL HTTPS; vos generás y descargás el
   audio, y después lo importás en Medios. No inicia sesión, no paga y no evade
   captchas.
 
@@ -416,6 +416,13 @@ En el editor, **Exportar video**:
   - **Máxima calidad**: `medium`, CRF 18, AAC 192 kbps.
 - **Códec**: H.264 es lo más compatible. H.265/HEVC genera archivos más chicos,
   pero algunos reproductores o plataformas lo recomprimen o lo rechazan.
+- **Acelerar con GPU**: si la app detecta un encoder de GPU que realmente
+  funciona, aparece el interruptor **solo cuando el render lo justifica**:
+  4K o más, timeline de 5 minutos o más, o preset `medium`/`slow`/`slower`.
+  En clips cortos 1080p queda deshabilitado porque el software ya es rápido y
+  hace archivos más chicos. Libera CPU; el tamaño y la calidad pueden diferir.
+  No se ofrece para 32K ni por encima del límite del hardware. Si la GPU falla,
+  desactivalo y volvé a exportar por software.
 - **Encuadre**: `Contener` muestra el canvas completo con barras; `Recortar para
   llenar` escala y recorta centrado para que un 16:9 llene un 9:16 o 1:1. No es
   smart reframe: no detecta caras ni sujeto.
@@ -478,7 +485,7 @@ en sus términos.
 ### Extensión de Chrome y Edge
 
 La carpeta `extensions/editor-ia-downloader` es una extensión MV3. En **Inicio**
-pulsá **Instalar extensión**: Editor IA copia la extensión a una carpeta estable
+pulsá **Instalar extensión**: Olyvia copia la extensión a una carpeta estable
 y la abre. Después, en `chrome://extensions` activá **Modo desarrollador**, elegí
 **Cargar descomprimida** y seleccioná esa carpeta. Copiá la conexión (puerto +
 token) desde Inicio o desde Descargar y pegala una vez en la extensión. El paso
@@ -736,7 +743,94 @@ dobles, no con una generación real en esta máquina. El instalador no está
 firmado. MCP es local, por stdio, y el Director todavía no llama herramientas
 MCP.
 
+## Motion graphics sin salir de la app
+
+1. Abrí **Motion** en Herramientas y elegí una plantilla: título de apertura,
+   lower third, cierre o dato destacado.
+2. Completá las props (texto, rol, colores, lado y animación), ajustá la
+   duración y mové el control de preview para ver la entrada.
+3. Opcional: escribí un brief y pulsá **Generar con IA**. Si el proveedor es
+   remoto, autorizá expresamente la posible cuota; la app valida las props y las
+   muestra en la preview. Nada se agrega sin tu confirmación.
+4. Pulsá **Agregar a la timeline**. Se crea una pista gráfica con el clip; podés
+   editar las props desde el Inspector del clip.
+5. Exportá normalmente. El gráfico se quema antes que los subtítulos con
+   FFmpeg/libass; no necesita Node ni conexión.
+
+Para agentes externos, el servidor MCP de motion se registra en **Ajustes →
+Servidores MCP** con el comando `node` y el argumento
+`apps/motion-mcp/src/server.mjs`. Expone `motion_list_templates`,
+`motion_create` y `motion_validate`; el render sigue siendo de la app.
+
+Los gráficos quedan por encima del video compuesto. Si necesitás un gráfico
+debajo de otra pista, hoy no está soportado. Las transiciones, efectos y clips
+conectados no se aplican al clip gráfico.
+
 REA 6.4.0 analizó el PE de CapCut 9.4 y extrajo **184 tipos de keyframe** y **52
 flags** de funciones. El inventario completo, con rutas, hashes y límites, está
 en
 [`docs/reference/CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md`](reference/CAPCUT-9.4-FEATURE-INVENTORY-2026-10-20.md).
+
+
+## Edición por texto, timeline magnética y proxies
+
+- **Cortar desde el texto**: importá un video en Medios y confirmá sus derechos.
+  En **Texto**, elegí el video y pulsá **Transcribir** (Whisper local, modelo
+  small). Desmarcá las frases que sobran y pulsá **Crear corte por texto**: se
+  agrega una pista nueva «Texto» al principio de la timeline, en orden, sin
+  borrar el material ni las pistas originales. Silenciá u ocultá la pista
+  original antes de exportar.
+- **Timeline magnética**: el botón **Magnética** del timeline mantiene el imán y
+  cierra los huecos al mover un clip. **Cerrar huecos** compacta la pista del
+  clip seleccionado. Mantené **Alt** mientras arrastrás para mover libre.
+- **Proxies por lote**: en **Medios**, **Proxies (N)** crea versiones ligeras
+  para todos los videos listos que aún no tienen proxy. La preview las usa; el
+  MP4 final siempre usa el original.
+
+## Multicámara
+
+- En **Multicámara**, marcá dos o más videos. Cada cámara tiene un **punto de
+  entrada en segundos**: el instante de su material que coincide con el inicio
+  del programa. Usalo para alinear el mismo aplauso o referencia.
+- Pulsá **Reproducir** y cambiá de ángulo con los botones **CAM 1/2/3**. Cada
+  cambio se graba como un corte en el tiempo actual; la cámara activa es la que
+  suena. Podés quitar cortes desde la lista.
+- **Sincronizar por audio** compara hasta 120 s de las envolventes de sonido
+  (ventana de ±10 s) y completa el punto de entrada de cada cámara. También
+  podés ajustarlo a mano. La sincronización por timecode todavía no está.
+- **Crear pista multicámara** agrega una pista nueva con los tramos; las pistas
+  originales quedan intactas.
+
+## Mezcla de audio
+
+- Abrí **Mezcla** en Herramientas. Hay un canal por pista de video, audio o
+  narración, más el **Master**.
+- Mové el fader de un canal para cambiar su ganancia entre **-60 y +12 dB**; el
+  valor se suma a la ganancia de cada clip. **M** silencia la pista y **S** deja
+  esa pista en solo: mientras haya un solo activo, las demás pistas con audio se
+  silencian. **0** devuelve el canal a 0 dB.
+- **Medir picos** analiza los clips con FFmpeg, muestra el pico en dBFS, el pico
+  con el fader y una alerta si llega a clipping. **Normalizar <pista> a -6 dBFS**
+  ajusta el fader para dejar headroom. La medición es puntual (no en vivo) e
+  incluye la ganancia de cada clip.
+- El **Master** ajusta la salida completa. El limitador, la normalización LUFS y
+  el ducking se configuran en el Inspector del proyecto, dentro del editor.
+- Los cambios se escuchan en la preview y se aplican al render. La misma
+  ganancia y el mismo solo están disponibles en el Inspector de pista y en los
+  botones del encabezado de la timeline.
+
+## Asistente flotante Olyvia
+
+El botón de chat, abajo a la derecha, abre el panel en cualquier vista. Dentro
+aparece el peluche de Olyvia.
+
+- El pet es exactamente la foto del peluche: al abrir el chat o escribirle abre
+  los ojos y mira hacia el puntero; mientras piensa se balancea y al responder
+  rebota. Al cerrar el panel desaparece del escritorio.
+- Escribí un comando corto: `abrir editor`, `estado`, `guardar`, `exportar`,
+  `deshacer`, `rehacer`, `crear título …`, `crear lower third …`.
+- Esos comandos se ejecutan localmente, sin tokens.
+- Para preguntas libres, configurá un proveedor OpenAI-compatible en Ajustes.
+  Si es remoto, marcá **Permitir llamada remota** antes de enviar.
+- El asistente puede navegar, guardar, exportar o crear un gráfico, pero no
+  borra archivos, no publica ni ejecuta comandos del sistema.

@@ -431,6 +431,44 @@ fn claves_desconocidas_en_el_nivel_raiz_solo_bajo_prefijo_x() {
 }
 
 #[test]
+fn acepta_motion_sin_target_track_id_como_el_esquema_de_typescript() {
+    let dir = TempDir::new("motion-no-target");
+    let mut project = valid_project();
+    project["motion"][0]
+        .as_object_mut()
+        .expect("el fixture debe tener motion")
+        .remove("targetTrackId");
+    assert!(
+        save_project(&dir.file("sin-target.editoria.json"), &project).is_ok(),
+        "targetTrackId es opcional y no debe bloquear el guardado"
+    );
+}
+
+#[test]
+fn acepta_markers_en_la_raiz_como_el_esquema_de_typescript() {
+    let dir = TempDir::new("root-markers");
+
+    let mut empty = valid_project();
+    empty["markers"] = json!([]);
+    assert!(
+        save_project(&dir.file("sin-marcas.editoria.json"), &empty).is_ok(),
+        "un proyecto con la coleccion markers vacia debe guardarse"
+    );
+
+    let mut marked = valid_project();
+    marked["markers"] = json!([{
+        "id": ghost_id(),
+        "frame": 12,
+        "label": "Corte de prueba",
+        "color": "blue"
+    }]);
+    assert!(
+        save_project(&dir.file("con-marca.editoria.json"), &marked).is_ok(),
+        "markers es una clave raiz conocida desde la paridad con CapCut"
+    );
+}
+
+#[test]
 fn rechaza_credenciales_en_cualquier_nivel_incluso_dentro_de_x() {
     let mut at_root = valid_project();
     at_root["api_key"] = json!("no");

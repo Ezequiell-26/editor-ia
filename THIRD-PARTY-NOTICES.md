@@ -1,6 +1,6 @@
-# Avisos de terceros — Editor IA
+# Avisos de terceros — Olyvia
 
-Editor IA se distribuye bajo licencia MIT **sólo para su código propio**. Este
+Olyvia se distribuye bajo licencia MIT **sólo para su código propio**. Este
 archivo enumera las dependencias directas y las herramientas externas que el
 producto usa, con la licencia verificada en su ecosistema (npm registry o
 crates.io) el 2026-10-21.
@@ -33,6 +33,7 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 | `reqwest` | MIT OR Apache-2.0 | Llamadas HTTP a proveedores |
 | `keyring` | MIT OR Apache-2.0 | Administrador de credenciales de Windows |
 | `uuid` | Apache-2.0 OR MIT | Identificadores |
+| `zip` | MIT | Lectura de paquetes ZIP de modelos con pesos externos |
 
 ## Herramientas externas (no se distribuyen dentro del binario)
 
@@ -42,8 +43,9 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 | yt-dlp | Unlicense | Descarga de contenido público |
 | Faster-Whisper | MIT | Transcripción local |
 | Windows SAPI | Componente del sistema operativo | Voz local por PowerShell |
+| FFmpeg/libass | LGPL-2.1-or-later o GPL según la compilación elegida | Motion graphics y subtítulos quemados; ya cubierto por la entrada de FFmpeg |
 
-Editor IA no enlaza FFmpeg: lo ejecuta como proceso externo y el usuario elige
+Olyvia no enlaza FFmpeg: lo ejecuta como proceso externo y el usuario elige
 qué compilación instalar. Si redistribuís una compilación GPL de FFmpeg junto con
 la app, las obligaciones de esa licencia recaen sobre esa distribución.
 
@@ -106,7 +108,7 @@ cargo tree --depth 1
 
 ## Agregados 2026-10-23 (motor de lip-sync)
 
-- **Adaptador `scripts/lipsync-engine/server.py`**: código propio de Editor IA
+- **Adaptador `scripts/lipsync-engine/server.py`**: código propio de Olyvia
   bajo MIT. No incluye modelos ni descarga pesos.
 - **Wav2Lip** (código y checkpoint `wav2lip_gan.pth`): uso **personal,
   investigación y no comercial**; el README oficial prohíbe expresamente el uso

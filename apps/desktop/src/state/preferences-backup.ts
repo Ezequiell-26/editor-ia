@@ -129,7 +129,7 @@ export function parsePreferencesBundle(raw: string | unknown): PreferencesParseR
   if (source.kind !== PREFERENCES_BUNDLE_KIND) {
     return {
       ok: false,
-      error: 'El archivo no es un respaldo de Editor IA (falta la marca del paquete).',
+      error: 'El archivo no es un respaldo de Olyvia (falta la marca del paquete).',
     };
   }
   if (typeof source.version === 'number' && source.version > PREFERENCES_BUNDLE_VERSION) {

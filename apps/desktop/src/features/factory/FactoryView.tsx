@@ -11,6 +11,7 @@ import {
   type FactoryVariantResult,
 } from '../../state/batch-factory';
 import { useProjectStore } from '../../state/project-store';
+import { buildProjectMotionPlans } from '../motion/plan';
 import { AutopilotPanel } from './AutopilotPanel';
 
 interface FactoryImage {
@@ -208,11 +209,14 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
           if (renderVideos) {
             setStage(`Renderizando ${plan.index + 1}/${plans.length} · ${plan.name}`);
             try {
+              const motionBundle = buildProjectMotionPlans(assembled);
+              if (motionBundle.errors.length > 0) throw new Error(motionBundle.errors[0]);
               const rendered = await store.service.renderProjectVariant({
                 projectPath: written.path,
                 profileId: assembled.renderProfiles[0]?.id ?? '',
                 outputPath: `${outputDir}\${slug(plan.name)}-${runId}.mp4`,
                 includeCaptions: true,
+                motionPlans: motionBundle.plans,
               });
               videoPath = rendered.path;
               videoBytes = rendered.bytes;

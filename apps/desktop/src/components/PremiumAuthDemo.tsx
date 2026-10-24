@@ -38,7 +38,7 @@ export function PremiumAuthDemo() {
             {isLogin ? 'Welcome Back' : 'Create Account'}
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px' }}>
-            {isLogin ? 'Sign in to continue to Editor IA' : 'Get started with your free account'}
+            {isLogin ? 'Sign in to continue to Olyvia' : 'Get started with your free account'}
           </p>
         </div>
 

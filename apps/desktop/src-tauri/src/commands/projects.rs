@@ -12,9 +12,104 @@ use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::media::copy_project_assets;
+use crate::commands::system::resolve_tools;
+use crate::media::{copy_project_assets, resolve_inside_root, thumbnail_data_url};
 use crate::projects::service::{self, OpenedProject, ProjectError, ProjectErrorCode};
 use crate::state::{AppState, Session};
+
+/// Miniatura de portada para un proyecto reciente, sin abrir una sesión.
+///
+/// Prioriza el primer clip visual de la timeline; si el proyecto no tiene
+/// clips, usa el primer asset de video o imagen. Los errores se convierten en
+/// `None` para que el lanzador siga funcionando aunque un proyecto esté roto.
+#[tauri::command]
+pub async fn recent_project_thumbnail(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<String>, ProjectError> {
+    Ok(recent_thumbnail_inner(&state, Path::new(&path)))
+}
+
+fn recent_thumbnail_inner(state: &AppState, project_path: &Path) -> Option<String> {
+    if !project_path.is_file() {
+        return None;
+    }
+    let opened = service::open_project(project_path).ok()?;
+    let root = project_path.parent()?;
+    let ffmpeg = {
+        let settings = state.settings_snapshot().ok()?;
+        resolve_tools(&settings).0?
+    };
+    let (asset_path, is_image) = thumbnail_source(&opened.project)?;
+    let source = resolve_inside_root(root, asset_path).ok()?;
+    let metadata = std::fs::metadata(&source).ok()?;
+    let cache_key = format!(
+        "project:{}:{}:{}",
+        source.to_string_lossy(),
+        metadata.len(),
+        metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0)
+    );
+    if let Ok(cache) = state.thumbnails.lock() {
+        if let Some(hit) = cache.get(&cache_key) {
+            return Some(hit.clone());
+        }
+    }
+    let data_url = thumbnail_data_url(&ffmpeg, &source, is_image).ok()?;
+    if let Ok(mut cache) = state.thumbnails.lock() {
+        cache.insert(cache_key, data_url.clone());
+    }
+    Some(data_url)
+}
+
+/// Devuelve la ruta relativa y si es imagen del visual que mejor representa
+/// el proyecto: el primer clip visual de la timeline o, si no hay, el primer
+/// asset visual listo.
+fn thumbnail_source(project: &Value) -> Option<(&str, bool)> {
+    let assets = project["assets"].as_array()?;
+    let asset_for = |id: &str| {
+        assets
+            .iter()
+            .find(|asset| asset["id"].as_str() == Some(id))
+            .filter(|asset| asset["status"].as_str() == Some("ready"))
+    };
+    let mut clips = project["timeline"]["clips"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|clip| {
+                    let start = clip["startFrame"].as_u64().unwrap_or(0);
+                    let id = clip["source"]["assetId"].as_str()?;
+                    Some((start, id))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    clips.sort_by_key(|(start, _)| *start);
+    for (_, id) in clips {
+        if let Some(asset) = asset_for(id) {
+            let kind = asset["kind"].as_str().unwrap_or("");
+            if (kind == "video" || kind == "image") && asset["source"]["path"].as_str().is_some() {
+                return Some((asset["source"]["path"].as_str()?, kind == "image"));
+            }
+        }
+    }
+    for asset in assets {
+        if asset["status"].as_str() != Some("ready") {
+            continue;
+        }
+        let kind = asset["kind"].as_str().unwrap_or("");
+        if (kind == "video" || kind == "image") && asset["source"]["path"].as_str().is_some() {
+            return Some((asset["source"]["path"].as_str()?, kind == "image"));
+        }
+    }
+    None
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -328,5 +423,60 @@ mod tests {
     fn an_asset_path_cannot_escape_the_project() {
         let root = std::env::temp_dir();
         assert!(crate::media::resolve_inside_root(&root, "../fuera.mp4").is_err());
+    }
+}
+
+#[cfg(test)]
+mod thumbnail_tests {
+    use super::*;
+
+    fn project_with(assets: Value, clips: Value) -> Value {
+        serde_json::json!({ "assets": assets, "timeline": { "clips": clips } })
+    }
+
+    fn asset(id: &str, kind: &str, status: &str, path: &str) -> Value {
+        serde_json::json!({
+            "id": id,
+            "kind": kind,
+            "status": status,
+            "source": { "path": path }
+        })
+    }
+
+    #[test]
+    fn prefiere_el_primer_clip_visual_de_la_timeline() {
+        let project = project_with(
+            serde_json::json!([
+                asset("img", "image", "ready", "media/portada.png"),
+                asset("vid", "video", "ready", "media/toma.mp4")
+            ]),
+            serde_json::json!([
+                { "startFrame": 180, "source": { "assetId": "img" } },
+                { "startFrame": 0, "source": { "assetId": "vid" } }
+            ]),
+        );
+        assert_eq!(thumbnail_source(&project), Some(("media/toma.mp4", false)));
+    }
+
+    #[test]
+    fn sin_clips_usa_el_primer_visual_listo() {
+        let project = project_with(
+            serde_json::json!([
+                asset("audio", "audio", "ready", "media/voz.wav"),
+                asset("sin", "video", "unverified", "media/sin.mp4"),
+                asset("img", "image", "ready", "media/foto.jpg")
+            ]),
+            serde_json::json!([]),
+        );
+        assert_eq!(thumbnail_source(&project), Some(("media/foto.jpg", true)));
+    }
+
+    #[test]
+    fn sin_visuales_no_hay_portada() {
+        let project = project_with(
+            serde_json::json!([asset("audio", "audio", "ready", "media/voz.wav")]),
+            serde_json::json!([]),
+        );
+        assert_eq!(thumbnail_source(&project), None);
     }
 }

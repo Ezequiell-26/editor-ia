@@ -3,7 +3,7 @@ import type { ProjectDocument } from '@editor-ia/project-schema';
 /**
  * Image prompts for the Flow Queue extension.
  *
- * The extension imports one prompt per line. Editor IA keeps the scene title as
+ * The extension imports one prompt per line. Olyvia keeps the scene title as
  * the anchor and uses the visual note first, falling back to the narrated line.
  * The style is user-editable; nothing is sent to a provider from this module.
  */

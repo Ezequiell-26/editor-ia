@@ -36,4 +36,34 @@ describe('operador local', () => {
     const action = parseOperatorCommand('abrir ovnis', views);
     expect(action.kind).toBe('unknown');
   });
+
+  it('crea títulos, lower thirds, cierres y datos sin IA', () => {
+    expect(parseOperatorCommand('crear titulo Hola mundo', views)).toMatchObject({
+      kind: 'motion',
+      templateId: 'title-card',
+      text: 'Hola mundo',
+    });
+    expect(parseOperatorCommand('crear título Apertura épica', views)).toMatchObject({
+      kind: 'motion',
+      templateId: 'title-card',
+      text: 'Apertura épica',
+    });
+    expect(parseOperatorCommand('crear lower third Ana Pérez, Editora', views)).toMatchObject({
+      kind: 'motion',
+      templateId: 'lower-third',
+      text: 'Ana Pérez',
+      secondary: 'Editora',
+    });
+    expect(parseOperatorCommand('crear cierre Gracias por ver', views)).toMatchObject({
+      kind: 'motion',
+      templateId: 'end-card',
+      text: 'Gracias por ver',
+    });
+    expect(parseOperatorCommand('crear dato +120%, más retención', views)).toMatchObject({
+      kind: 'motion',
+      templateId: 'stat-callout',
+      text: '+120%',
+      secondary: 'más retención',
+    });
+  });
 });
