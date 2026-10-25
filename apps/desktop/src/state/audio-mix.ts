@@ -77,3 +77,39 @@ export function gainForTargetPeak(sourcePeakDb: number, targetDb: number): numbe
 export function levelPercentFromDb(db: number): number {
   return Math.max(0, Math.min(100, ((db + 60) / 60) * 100));
 }
+
+/**
+ * Ganancias L/R de paneo de CLIP en un frame dado, para los medidores. Mantiene
+ * el mismo balance lineal del export (`pan=stereo|c0=(1-pan)*c0|c1=(1+pan)*c1`):
+ * centro = 1.0/1.0 y pan 0.5 atenúa el izquierdo a 0.5 (−6 dB). El `frame` está
+ * en la firma por compatibilidad con la automatización futura de paneo.
+ */
+export function samplePanGain(pan: number | undefined, frame: number): [number, number] {
+  void frame;
+  const value = Math.max(-1, Math.min(1, pan ?? 0));
+  return [panGains(value).left, panGains(value).right];
+}
+
+/** Etiquetas de atenuación por canal para el medidor: cuánto baja cada lado. */
+export function panPanLabels(clipPan: number | undefined): { left: string; right: string } {
+  const pan = Math.max(-1, Math.min(1, clipPan ?? 0));
+  if (pan > 0.005) {
+    return { left: `−${Math.round(pan * 100)}%`, right: '0%' };
+  }
+  if (pan < -0.005) {
+    return { left: '0%', right: `−${Math.round(-pan * 100)}%` };
+  }
+  return { left: '0%', right: '0%' };
+}
+
+/** dBFS → amplitud RMS lineal; silencio por debajo de −120 dBFS. */
+export function dbfsToRms(dbfs: number): number {
+  if (!Number.isFinite(dbfs) || dbfs <= -120) return 0;
+  return 10 ** (dbfs / 20);
+}
+
+/** Amplitud RMS lineal → dBFS; silencio digital = −Infinity. */
+export function rmsToDbfs(rms: number): number {
+  if (rms <= 0 || !Number.isFinite(rms)) return Number.NEGATIVE_INFINITY;
+  return 20 * Math.log10(rms);
+}

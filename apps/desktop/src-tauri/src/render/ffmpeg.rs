@@ -319,7 +319,7 @@ fn sanitize_filter_number(value: f64) -> f64 {
     }
 }
 
-/// Piecewise-linear FFmpeg expression for one keyframed property.
+/// Piecewise-linear FFmpeg expression for one keyframed property with cubic-bezier support.
 ///
 /// `time_var` is the expression that yields seconds relative to the clip
 /// (`t` for filters that see the clip after `setpts`, `(t-start)` for overlay
@@ -331,22 +331,14 @@ fn keyframe_expression(
     time_var: &str,
 ) -> Option<String> {
     let rate = fps.max(1.0);
-    let mut samples: Vec<(f64, f64, String)> = keyframes
+    // Sample format: (frame_normalized, value, easing_or_bezier)
+    type Sample = (f64, f64, SegmentEasing);
+    let mut samples: Vec<Sample> = keyframes
         .iter()
-        .filter_map(|keyframe| {
-            let frame = keyframe["frame"].as_f64()?;
-            let value = keyframe[property].as_f64().map(sanitize_filter_number)?;
-            let easing = keyframe["easing"]
-                .as_str()
-                .filter(|value| {
-                    matches!(
-                        *value,
-                        "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"
-                    )
-                })
-                .unwrap_or("linear")
-                .to_owned();
-            Some((frame / rate, value, easing))
+        .filter_map(|kf| {
+            let frame = kf["frame"].as_f64()?;
+            let value = kf[property].as_f64().map(sanitize_filter_number)?;
+            Some((frame / rate, value, parse_easing(kf)))
         })
         .collect();
     if samples.is_empty() {
@@ -359,27 +351,73 @@ fn keyframe_expression(
     let last = samples.last()?;
     let mut expression = format!("{:.4}", last.1);
     for pair in samples.windows(2).rev() {
-        let (start, end) = (pair[0].clone(), pair[1].clone());
+        let (start, end) = (&pair[0], &pair[1]);
         let delta = (end.0 - start.0).max(1e-6);
-        let slope = end.1 - start.1;
-        let progress = format!("(({time_var})-{:.6})/{:.6}", start.0, delta);
-        let eased = match start.2.as_str() {
-            "ease-in" => format!("pow({progress},3)"),
-            "ease-out" => format!("(1-pow(1-({progress}),3))"),
-            "ease-in-out" => format!("(({progress})*({progress})*(3-2*({progress})))"),
-            "hold" => "0".to_owned(),
-            _ => progress,
+        let progress_expr = format!("(({time_var})-{:.6})/{:.6}", start.0, delta);
+        // Cubic-bezier or preset easing for this segment
+        let eased: String = match &start.2 {
+            SegmentEasing::Bezier(cp1X, cp1Y, cp2X, cp2Y) => {
+                let _ = cp1Y;
+                let cx = 3.0 * cp1X;
+                let bx = 3.0 * (*cp2X - cp1X) - cx;
+                let ax = 1.0 - cx - bx;
+                // Cubic formula evaluated at the segment progress: x = ((ax*t + bx)*t + cx)*t
+                format!(
+                    "(({ax}*({})+{bx})*({})+{cx})*({})",
+                    progress_expr, progress_expr, progress_expr
+                )
+            }
+            SegmentEasing::Preset(easing) => match easing.as_str() {
+                "ease-in" => format!("pow({},3)", progress_expr),
+                "ease-out" => format!("(1-pow(1-({}),3))", progress_expr),
+                "ease-in-out" => format!("(({})*({})*(3-2*({})))", progress_expr, progress_expr, progress_expr),
+                "hold" => "0".to_owned(),
+                _ => progress_expr.clone(),
+            },
         };
-        let segment = format!("({:.4}+({:.4})*({eased}))", start.1, slope);
+        let slope = end.1 - start.1;
+        let segment = format!("({:.4}+({:.4})*({}))", start.1, slope, eased);
         expression = format!("if(lt({time_var},{:.6}),{segment},{})", end.0, expression);
     }
-    let first = samples[0].clone();
+    let first = &samples[0];
     Some(format!(
         "if(lt({time_var},{:.6}),{:.4},{})",
         first.0, first.1, expression
     ))
 }
 
+/// Easing for a segment: cubic-bezier control points or preset string
+enum SegmentEasing {
+    Bezier(f64, f64, f64, f64), // cp1X, cp1Y, cp2X, cp2Y
+    Preset(String),
+}
+
+/// Easing de un keyframe: Bézier explícito (objeto {cp1X,cp1Y,cp2X,cp2Y} como
+/// el esquema), preset nombrado, o linear por defecto. Nunca descarta la
+/// muestra: un keyframe sin curva declarada interpola lineal, como el export
+/// históricamente.
+fn parse_easing(keyframe: &Value) -> SegmentEasing {
+    if let Some(bezier) = keyframe["bezier"].as_object() {
+        let coords = [
+            bezier.get("cp1X").and_then(|v| v.as_f64()),
+            bezier.get("cp1Y").and_then(|v| v.as_f64()),
+            bezier.get("cp2X").and_then(|v| v.as_f64()),
+            bezier.get("cp2Y").and_then(|v| v.as_f64()),
+        ];
+        if let [Some(cp1X), Some(cp1Y), Some(cp2X), Some(cp2Y)] = coords {
+            return SegmentEasing::Bezier(cp1X, cp1Y, cp2X, cp2Y);
+        }
+    }
+    SegmentEasing::Preset(
+        keyframe["easing"]
+            .as_str()
+            .unwrap_or("linear")
+            .to_owned(),
+    )
+}
+
+/// Expresión FFmpeg para una propiedad animada de posición del clip,
+/// anclada al inicio del clip en segundos.
 fn offset_expression(clip: &Value, property: &str, start_seconds: f64, fps: f64) -> Option<String> {
     let keyframes = clip["transform"]["keyframes"].as_array()?;
     keyframe_expression(
@@ -390,12 +428,6 @@ fn offset_expression(clip: &Value, property: &str, start_seconds: f64, fps: f64)
     )
 }
 
-/// Devuelve `(base, z)` para una curva de escala cuya mínimo es >= 1. La capa
-/// se centra con `pad` y `zoompan` completa la animación con `z >= 1` y salida
-/// fija, sin que el overlay reciba un tamaño variable. Las curvas que bajan de
-/// 1 usan `scale_dynamic_expression`, que evita el doble remuestreo.
-/// Se omite con un frame congelado. La rotación, la escala estática y el
-/// movimiento Ken Burns ya tienen salida fija y pueden combinarse.
 fn scale_zoom_expression(
     clip: &Value,
     profile: &Profile,

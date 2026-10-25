@@ -335,6 +335,13 @@
       "taskId": "doc",
       "status": "rejected",
       "reason": "Se declaró done con archivos que no existen: inexistente.md"
+    },
+    {
+      "at": "2026-10-25T16:22:55.913Z",
+      "taskId": "ciclo-2026-10-25",
+      "status": "done",
+      "note": "Iteracion con 8 agentes en paralelo (workflow) + integracion manual. Audio pro en preview (grafo Web Audio por pista + medidores en vivo), 5 plantillas motion pro, presets de speed ramp, atajos pro (docs/ATAJOS-PRO.md), pase visual app.css AA, 3 docs de diseno en docs/research/. Integracion: curvas Bezier completas (schema+muestreo+editor+persistencia+render), clonacion de voz local reparada (parse_easing, tokio multi_thread), audio-mix reconciliado sin copias, vitest excluye .worktrees. Verificacion: typecheck limpio, Vitest 1027/1027 (119 archivos), cargo test 337/0 (46 ignorados). Bloqueo resuelto: zombis cargo.exe con lock en target/ -> CARGO_TARGET_DIR=target-loop.",
+      "verifyRan": true
     }
   ]
 }

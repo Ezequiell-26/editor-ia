@@ -4,6 +4,10 @@
  * El usuario puede reasignar cualquier atajo desde Ajustes → Atajos. Los
  * cambios persisten en localStorage y se avisan con un evento global para que
  * los listeners de larga vida (App) relean el mapa sin recargar.
+ *
+ * Los atajos "pro" (shuttle, paso a frame, timeline) sólo registran acciones
+ * que ya existen en la app; la tabla por área, qué teclas ya operan hoy y los
+ * pendientes están documentados en docs/ATAJOS-PRO.md.
  */
 
 export const SHORTCUTS_STORAGE_KEY = 'editoria.shortcuts.v1';
@@ -29,7 +33,23 @@ export type ShortcutId =
   | 'edit.duplicateClip'
   | 'edit.rippleDelete'
   | 'edit.deselect'
-  | 'playback.playPause';
+  | 'playback.playPause'
+  // Atajos "pro" (paridad CapCut / DaVinci / Premiere): sólo acciones que ya
+  // existen en la app. Detalle por área, estado de cableado y pendientes en
+  // docs/ATAJOS-PRO.md.
+  | 'playback.shuttleForward'
+  | 'playback.shuttlePause'
+  | 'playback.framePrev'
+  | 'playback.frameNext'
+  | 'playback.goToStart'
+  | 'playback.goToEnd'
+  | 'timeline.splitAtPlayhead'
+  | 'timeline.toggleMarker'
+  | 'timeline.trimIn'
+  | 'timeline.trimOut'
+  | 'timeline.zoomIn'
+  | 'timeline.zoomOut'
+  | 'timeline.zoomFit';
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'palette.toggle': 'Paleta de comandos',
@@ -52,6 +72,19 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'edit.rippleDelete': 'Eliminar clip y cerrar hueco',
   'edit.deselect': 'Deseleccionar todo',
   'playback.playPause': 'Reproducir / Pausar',
+  'playback.shuttleForward': 'Shuttle: reproducir hacia adelante',
+  'playback.shuttlePause': 'Shuttle: pausar',
+  'playback.framePrev': 'Frame anterior',
+  'playback.frameNext': 'Frame siguiente',
+  'playback.goToStart': 'Ir al inicio de la timeline',
+  'playback.goToEnd': 'Ir al final de la timeline',
+  'timeline.splitAtPlayhead': 'Dividir clip en el playhead',
+  'timeline.toggleMarker': 'Marcador en el playhead',
+  'timeline.trimIn': 'Recortar entrada del clip al playhead',
+  'timeline.trimOut': 'Recortar salida del clip al playhead',
+  'timeline.zoomIn': 'Acercar timeline',
+  'timeline.zoomOut': 'Alejar timeline',
+  'timeline.zoomFit': 'Ajustar zoom a la duración',
 };
 
 export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
@@ -75,6 +108,19 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'edit.rippleDelete': 'Editar',
   'edit.deselect': 'Editar',
   'playback.playPause': 'Reproducción',
+  'playback.shuttleForward': 'Reproducción',
+  'playback.shuttlePause': 'Reproducción',
+  'playback.framePrev': 'Reproducción',
+  'playback.frameNext': 'Reproducción',
+  'playback.goToStart': 'Reproducción',
+  'playback.goToEnd': 'Reproducción',
+  'timeline.splitAtPlayhead': 'Timeline',
+  'timeline.toggleMarker': 'Timeline',
+  'timeline.trimIn': 'Timeline',
+  'timeline.trimOut': 'Timeline',
+  'timeline.zoomIn': 'Timeline',
+  'timeline.zoomOut': 'Timeline',
+  'timeline.zoomFit': 'Timeline',
 };
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
@@ -98,6 +144,23 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'edit.rippleDelete': 'Ctrl+Shift+Delete',
   'edit.deselect': 'Escape',
   'playback.playPause': 'Space',
+  // Shuttle: L reproduce (setPlaying(true)), K pausa (setPlaying(false)).
+  // J no se registra: el motor de reproducción no soporta ir hacia atrás.
+  'playback.shuttleForward': 'L',
+  'playback.shuttlePause': 'K',
+  'playback.framePrev': ',',
+  'playback.frameNext': '.',
+  'playback.goToStart': 'Home',
+  'playback.goToEnd': 'End',
+  // S y M ya operan hoy vía handlers propios del editor (EditorWorkspace y
+  // Timeline); el registro documenta esa tecla y permite reasignarla.
+  'timeline.splitAtPlayhead': 'S',
+  'timeline.toggleMarker': 'M',
+  'timeline.trimIn': '[',
+  'timeline.trimOut': ']',
+  'timeline.zoomIn': '+',
+  'timeline.zoomOut': '-',
+  'timeline.zoomFit': 'F',
 };
 
 const ALL_IDS = Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[];
@@ -174,6 +237,9 @@ export function eventToBinding(event: KeyboardEvent): string {
 
 /** Normaliza un binding guardado al formato canónico. */
 export function normalizeBinding(binding: string): string {
+  // La tecla '+' es a la vez el separador del formato canónico: sin este caso
+  // especial, '+'.split('+') devolvería una lista vacía y el binding se perdería.
+  if (binding.trim() === '+') return '+';
   const raw = binding
     .split('+')
     .map((part) => part.trim())

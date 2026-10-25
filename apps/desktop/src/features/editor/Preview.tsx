@@ -5,7 +5,14 @@ import { captionMotionAt } from '../../state/caption-motion';
 import { cueWordsAt } from '../../state/subtitles';
 import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
 import { FORMAT_PRESETS } from '../../state/video-format';
-import { isTrackAudible, trackGainDb } from '../../state/audio-mix';
+import {
+  attachPreviewAudio,
+  detachPreviewAudio,
+  isTrackAudible,
+  resumePreviewAudio,
+  syncPreviewAudioFromProject,
+  trackGainDb,
+} from '../mixer/usePreviewAudio';
 import { useProjectStore } from '../../state/project-store';
 import { loadEditorPreferences } from '../../state/editor-preferences';
 import { Icon } from '../../components/Icon';
@@ -378,6 +385,7 @@ function VideoLayer({
   playheadFrame,
   playing,
   muted,
+  trackId = '',
   trackGain = 0,
 }: {
   readonly clip: Clip;
@@ -386,11 +394,15 @@ function VideoLayer({
   readonly playheadFrame: number;
   readonly playing: boolean;
   readonly muted: boolean;
+  readonly trackId?: string;
   readonly trackGain?: number;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
   const ref = useRef<HTMLVideoElement | null>(null);
+  // Enrutado por Web Audio: true sólo si el elemento quedó conectado al grafo
+  // de su pista; en caso contrario la preview usa `element.volume` como siempre.
+  const [routed, setRouted] = useState(false);
   const fps = fpsOf(project);
   const alphaCutout =
     asset !== undefined && asset.kind === 'video' && asset.media?.alpha === true;
@@ -405,14 +417,31 @@ function VideoLayer({
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
-  const volume = muted || clip.audio?.muted === true
-    ? 0
-    : volumeFromDb(
-        clipGainAtFrame(
-          clip,
-          Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
-        ) + trackGain,
-      );
+  const clipGainDb = clipGainAtFrame(
+    clip,
+    Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
+  );
+  // Con Web Audio, la ganancia de pista la aplica el fader del grafo (sin el
+  // tope de 1.0 del elemento) y el elemento sólo lleva la ganancia del clip.
+  // Sin grafo, el volumen combinado va en `element.volume` como siempre.
+  const volume =
+    muted || clip.audio?.muted === true ? 0 : volumeFromDb(clipGainDb + (routed ? 0 : trackGain));
+
+  // Enruta el elemento al grafo de audio de su pista (fader, paneo y EQ). Si
+  // no hay Web Audio disponible, attach devuelve false y sigue el camino de
+  // siempre con `element.volume`: degradación silenciosa.
+  useEffect(() => {
+    const media = ref.current;
+    if (!media || !url || trackId === '') {
+      setRouted(false);
+      return;
+    }
+    const ok = attachPreviewAudio(trackId, media);
+    setRouted(ok);
+    return () => {
+      if (ok) detachPreviewAudio(trackId, media);
+    };
+  }, [trackId, url]);
 
   useEffect(() => {
     const video = ref.current;
@@ -425,6 +454,7 @@ function VideoLayer({
       }
     }
     if (playing) {
+      resumePreviewAudio();
       void video.play().catch(() => {
         // Autoplay can be denied; the scrub still works and the user can press play again.
       });
@@ -554,6 +584,7 @@ function AudioLayer({
   project,
   playheadFrame,
   playing,
+  trackId = '',
   trackGain = 0,
 }: {
   readonly clip: Clip;
@@ -561,11 +592,15 @@ function AudioLayer({
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
   readonly playing: boolean;
+  readonly trackId?: string;
   readonly trackGain?: number;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
   const ref = useRef<HTMLAudioElement | null>(null);
+  // Enrutado por Web Audio: true sólo si el elemento quedó conectado al grafo
+  // de su pista; si no, el volumen combinado va en `element.volume`.
+  const [routed, setRouted] = useState(false);
   const fps = fpsOf(project);
   const windowed = clip.kind === 'audio';
   const source = windowed ? clip.source : null;
@@ -574,15 +609,27 @@ function AudioLayer({
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
   const url = asset ? store.service.mediaUrl(root, asset.source.path) : '';
-  const volume =
-    clip.audio?.muted === true
-      ? 0
-      : volumeFromDb(
-          clipGainAtFrame(
-            clip,
-            Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
-          ) + trackGain,
-        );
+  const clipGainDb = clipGainAtFrame(
+    clip,
+    Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
+  );
+  const volume = clip.audio?.muted === true ? 0 : volumeFromDb(clipGainDb + (routed ? 0 : trackGain));
+
+  // Enruta el elemento al grafo de audio de su pista (fader, paneo y EQ). Si
+  // no hay Web Audio disponible, attach devuelve false y sigue el camino de
+  // siempre con `element.volume`: degradación silenciosa.
+  useEffect(() => {
+    const media = ref.current;
+    if (!media || !url || trackId === '') {
+      setRouted(false);
+      return;
+    }
+    const ok = attachPreviewAudio(trackId, media);
+    setRouted(ok);
+    return () => {
+      if (ok) detachPreviewAudio(trackId, media);
+    };
+  }, [trackId, url]);
 
   useEffect(() => {
     const audio = ref.current;
@@ -595,6 +642,7 @@ function AudioLayer({
       }
     }
     if (playing) {
+      resumePreviewAudio();
       void audio.play().catch(() => {});
     } else {
       audio.pause();
@@ -606,7 +654,9 @@ function AudioLayer({
   }, [volume]);
 
   if (!url) return null;
-  return <audio ref={ref} src={url} preload="auto" />;
+  // crossOrigin como en los <video>: sin CORS limpio, Web Audio enmudecería
+  // al enrutar el elemento al grafo.
+  return <audio ref={ref} src={url} crossOrigin="anonymous" preload="auto" />;
 }
 
 function CaptionOverlay({
@@ -750,6 +800,12 @@ export function Preview() {
     setMonitorZoom(1);
     setMonitorPan({ x: 0, y: 0 });
   }, [project?.id, project?.video.width, project?.video.height]);
+
+  // El grafo de audio de la preview sigue el proyecto: fader, paneo y EQ de
+  // pista más ganancia master, aunque se muevan desde la vista Mezcla.
+  useEffect(() => {
+    if (project) syncPreviewAudioFromProject(project);
+  }, [project]);
 
   const visualClips = useMemo(() => {
     if (!project) return [];
@@ -1117,6 +1173,7 @@ export function Preview() {
                   playheadFrame={playhead}
                   playing={playing}
                   muted={!track || !isTrackAudible(track, project.timeline.tracks)}
+                  trackId={track ? track.id : ''}
                   trackGain={track ? trackGainDb(track) : 0}
                 />
               );
@@ -1155,6 +1212,7 @@ export function Preview() {
               project={project}
               playheadFrame={playhead}
               playing={playing}
+              trackId={track ? track.id : ''}
               trackGain={track ? trackGainDb(track) : 0}
             />
           );

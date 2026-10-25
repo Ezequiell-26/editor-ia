@@ -594,12 +594,417 @@ export const freeTextTemplate: MotionTemplate = {
   },
 };
 
+// --- Plantillas pro (paridad CapCut) ---------------------------------------
+// Todas usan solo mecanismos ya soportados por el plan y por el validador ASS
+// de src-tauri/src/render/motion.rs: capas text/rect, animaciones
+// none|fade|slide-up|slide-left|pop, fontSizePx 4..400, weight 100..900,
+// unidades 0..1, distance 0..0.5 y hasta 16 capas. Los efectos "pro" se
+// logran escalonando inFrames/outFrames por capa y combinando pop (escala)
+// con slide (posición); la rotación no existe en el plan y no se inventa un
+// tipo nuevo.
+
+/** El validador ASS acepta 4..400 px: se acota para no abortar el export. */
+function proFontSize(px: number, unit: number): number {
+  return Math.max(4, Math.min(400, px * unit));
+}
+
+/** Escala agresiva: entrada de ~0,1 s en vez del 0,4 s estándar. */
+function punchAnimation(fps: number): MotionAnimation {
+  return {
+    kind: 'pop',
+    inFrames: Math.max(2, Math.round(fps * 0.1)),
+    outFrames: Math.max(2, Math.round(fps * 0.2)),
+  };
+}
+
+const lowerThirdMinimalSchema = z
+  .object({
+    title: z.string().trim().min(1).max(80),
+    subtitle: line(80).default(''),
+    accent: hexColor,
+    side: z.enum(['left', 'right']).default('left'),
+    animation: animationSchema.default('slide-left'),
+  })
+  .strict();
+type LowerThirdMinimalProps = z.infer<typeof lowerThirdMinimalSchema>;
+
+export const lowerThirdMinimalTemplate: MotionTemplate = {
+  id: 'lower-third-minimal',
+  version: '1.0.0',
+  // La etiqueta evita la frase "lower third": MotionView.test.tsx busca el
+  // botón de la placa original por /Lower third/i y una segunda coincidencia
+  // en la galería rompería ese test.
+  label: 'Placa minimalista',
+  description: 'Título y subtítulo con línea de acento y entrada deslizante.',
+  category: 'identidad',
+  defaults: {
+    title: 'Nombre Apellido',
+    subtitle: 'Rol o especialidad',
+    accent: '#7dd3c0',
+    side: 'left',
+    animation: 'slide-left',
+  },
+  fields: [
+    { id: 'title', label: 'Título', kind: 'text' },
+    { id: 'subtitle', label: 'Subtítulo', kind: 'text' },
+    { id: 'accent', label: 'Acento', kind: 'color' },
+    { id: 'side', label: 'Lado', kind: 'select', options: SIDE_OPTIONS },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: lowerThirdMinimalSchema,
+  buildLayers(raw, context) {
+    const props = raw as LowerThirdMinimalProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const textAnim = animation(props.animation, fps, 0.05);
+    // La línea se desliza más que el texto: es el trazo que "dibuja" la placa.
+    const lineAnim = animation(props.animation, fps, 0.16);
+    const place = (x: number, width: number): number =>
+      props.side === 'right' ? 1 - x - width : x;
+    const width = 0.55;
+    const titleSize = proFontSize(52, unit);
+    const titleLines = wrapText(props.title, charsFor(context.width * width, titleSize), 2);
+    const subtitleLines = props.subtitle
+      ? wrapText(props.subtitle, charsFor(context.width * width, proFontSize(26, unit)), 1)
+      : [];
+    const titleY = 0.69;
+    const subtitleY = titleY + titleLines.length * ((titleSize * 1.25) / context.height) + 0.012;
+    return [
+      rect(place(0.1, 0.22), 0.664, 0.22, 0.006, props.accent, 1, lineAnim),
+      ...textBlock(context, {
+        lines: titleLines,
+        x: place(0.1, width),
+        y: titleY,
+        width,
+        fontSizePx: titleSize,
+        weight: 700,
+        color: '#ffffff',
+        align: 'left',
+        anim: textAnim,
+      }),
+      ...textBlock(context, {
+        lines: subtitleLines,
+        x: place(0.1, width),
+        y: subtitleY,
+        width,
+        fontSizePx: proFontSize(26, unit),
+        weight: 500,
+        color: '#cbd5e1',
+        align: 'left',
+        anim: textAnim,
+      }),
+    ].slice(0, 16);
+  },
+};
+
+const cinemaBarsSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    subtitle: line(100).default(''),
+    barHeight: z.number().gte(0.04).lte(0.25).default(0.12),
+    accent: hexColor,
+    animation: animationSchema.default('fade'),
+  })
+  .strict();
+type CinemaBarsProps = z.infer<typeof cinemaBarsSchema>;
+
+export const cinemaBarsTemplate: MotionTemplate = {
+  id: 'cinema-bars',
+  version: '1.0.0',
+  label: 'Barras de cine',
+  description: 'Letterbox con revelado y título centrado entre las barras.',
+  category: 'título',
+  defaults: {
+    title: 'Escena final',
+    subtitle: 'Montaje y color',
+    barHeight: 0.12,
+    accent: '#7dd3c0',
+    animation: 'fade',
+  },
+  fields: [
+    { id: 'title', label: 'Título', kind: 'text' },
+    { id: 'subtitle', label: 'Subtítulo', kind: 'text' },
+    { id: 'barHeight', label: 'Altura de barra (0–1)', kind: 'number', min: 0.04, max: 0.25 },
+    { id: 'accent', label: 'Acento', kind: 'color' },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: cinemaBarsSchema,
+  buildLayers(raw, context) {
+    const props = raw as CinemaBarsProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const anim = animation(props.animation, fps, 0.05);
+    // Las barras siempre se revelan deslizando: es la esencia de la plantilla.
+    const barAnim = animation('slide-up', fps, 0.3);
+    const barHeight = Math.min(0.22, Math.max(0.06, props.barHeight));
+    const titleSize = proFontSize(64, unit);
+    const titleLines = wrapText(props.title, charsFor(context.width * 0.8, titleSize), 3);
+    const subtitleLines = props.subtitle
+      ? wrapText(props.subtitle, charsFor(context.width * 0.8, proFontSize(28, unit)), 2)
+      : [];
+    const titleY = 0.4;
+    const lineY = titleY + titleLines.length * ((titleSize * 1.25) / context.height) + 0.018;
+    const subtitleY = lineY + 0.022;
+    return [
+      rect(0, 0, 1, barHeight, '#000000', 1, barAnim),
+      rect(0, 1 - barHeight, 1, barHeight, '#000000', 1, barAnim),
+      ...textBlock(context, {
+        lines: titleLines,
+        x: 0.1,
+        y: titleY,
+        width: 0.8,
+        fontSizePx: titleSize,
+        weight: 700,
+        color: '#ffffff',
+        align: 'center',
+        anim,
+      }),
+      rect(0.44, lineY, 0.12, 0.005, props.accent, 1, anim),
+      ...textBlock(context, {
+        lines: subtitleLines,
+        x: 0.1,
+        y: subtitleY,
+        width: 0.8,
+        fontSizePx: proFontSize(28, unit),
+        weight: 500,
+        color: props.accent,
+        align: 'center',
+        anim,
+      }),
+    ].slice(0, 16);
+  },
+};
+
+const zoomPunchSchema = z
+  .object({
+    text: z.string().trim().min(1).max(20),
+    accent: hexColor,
+    background: hexColor,
+    animation: animationSchema.default('pop'),
+  })
+  .strict();
+type ZoomPunchProps = z.infer<typeof zoomPunchSchema>;
+
+export const zoomPunchTemplate: MotionTemplate = {
+  id: 'zoom-punch',
+  version: '1.0.0',
+  label: 'Zoom punch',
+  description: 'Palabra gigante con entrada de escala agresiva, estilo redes.',
+  category: 'título',
+  defaults: {
+    text: '¡PUM!',
+    accent: '#f97362',
+    background: '#0f172a',
+    animation: 'pop',
+  },
+  fields: [
+    { id: 'text', label: 'Texto', kind: 'text' },
+    { id: 'accent', label: 'Acento', kind: 'color' },
+    { id: 'background', label: 'Fondo', kind: 'color' },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: zoomPunchSchema,
+  buildLayers(raw, context) {
+    const props = raw as ZoomPunchProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const anim =
+      props.animation === 'pop' ? punchAnimation(fps) : animation(props.animation, fps, 0.05);
+    const size = proFontSize(150, unit);
+    const lines = wrapText(props.text, charsFor(context.width * 0.9, size), 3);
+    const lineHeight = (size * 1.25) / context.height;
+    const y = Math.max(0.05, 0.5 - (lines.length * lineHeight) / 2);
+    const underlineY = Math.min(0.94, y + lines.length * lineHeight + 0.025);
+    return [
+      rect(0, 0, 1, 1, props.background, 0.94, anim),
+      ...textBlock(context, {
+        lines,
+        x: 0.05,
+        y,
+        width: 0.9,
+        fontSizePx: size,
+        weight: 800,
+        color: '#ffffff',
+        align: 'center',
+        anim,
+      }),
+      rect(0.36, underlineY, 0.28, 0.008, props.accent, 1, anim),
+    ].slice(0, 16);
+  },
+};
+
+const glitchTextSchema = z
+  .object({
+    text: z.string().trim().min(1).max(40),
+    color: hexColor.default('#ffffff'),
+    glitchA: hexColor.default('#ff3b5c'),
+    glitchB: hexColor.default('#35e0ff'),
+  })
+  .strict();
+type GlitchTextProps = z.infer<typeof glitchTextSchema>;
+
+export const glitchTextTemplate: MotionTemplate = {
+  id: 'glitch-text',
+  version: '1.0.0',
+  label: 'Glitch de texto',
+  description: 'Texto con duplicados desplazados que parpadean en secuencia.',
+  category: 'título',
+  defaults: {
+    text: 'SEÑAL PERDIDA',
+    color: '#ffffff',
+    glitchA: '#ff3b5c',
+    glitchB: '#35e0ff',
+  },
+  fields: [
+    { id: 'text', label: 'Texto', kind: 'text' },
+    { id: 'color', label: 'Color', kind: 'color' },
+    { id: 'glitchA', label: 'Glitch A', kind: 'color' },
+    { id: 'glitchB', label: 'Glitch B', kind: 'color' },
+  ],
+  propsSchema: glitchTextSchema,
+  buildLayers(raw, context) {
+    const props = raw as GlitchTextProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const size = proFontSize(88, unit);
+    const width = 0.76;
+    const x = 0.12;
+    const y = 0.44;
+    const lines = wrapText(props.text, charsFor(context.width * width, size), 2);
+    // Parpadeo alternado: cada copia aparece unos fotogramas más tarde que la
+    // anterior, así la opacidad de cada capa entra en momentos distintos.
+    const inA = Math.max(2, Math.round(fps * 0.08));
+    const inB = inA + Math.max(2, Math.round(fps * 0.12));
+    const inMain = inB + Math.max(2, Math.round(fps * 0.12));
+    const out = Math.max(3, Math.round(fps * 0.25));
+    const copy = (color: string, copyX: number, inFrames: number): MotionTextLayer[] =>
+      textBlock(context, {
+        lines,
+        x: copyX,
+        y,
+        width,
+        fontSizePx: size,
+        weight: 700,
+        color,
+        align: 'center',
+        anim: { kind: 'fade', inFrames, outFrames: out },
+      });
+    // El texto principal va al final para quedar pintado encima de las copias.
+    return [
+      ...copy(props.glitchA, Math.max(0, x - 0.01), inA),
+      ...copy(props.glitchB, Math.min(1 - width, x + 0.01), inB),
+      ...copy(props.color, x, inMain),
+    ].slice(0, 16);
+  },
+};
+
+const cinematicTitleSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120),
+    subtitle: line(100).default(''),
+    background: hexColor.default('#000000'),
+    accent: hexColor.default('#d4b483'),
+  })
+  .strict();
+type CinematicTitleProps = z.infer<typeof cinematicTitleSchema>;
+
+export const cinematicTitleTemplate: MotionTemplate = {
+  id: 'cinematic-title',
+  version: '1.0.0',
+  label: 'Título cinematográfico',
+  description: 'Título central con fundido lento, escala suave y subtítulo demorado.',
+  category: 'título',
+  defaults: {
+    title: 'CAPÍTULO UNO',
+    subtitle: 'La historia empieza',
+    background: '#000000',
+    accent: '#d4b483',
+  },
+  fields: [
+    { id: 'title', label: 'Título', kind: 'text' },
+    { id: 'subtitle', label: 'Subtítulo', kind: 'text' },
+    { id: 'background', label: 'Fondo', kind: 'color' },
+    { id: 'accent', label: 'Acento', kind: 'color' },
+  ],
+  propsSchema: cinematicTitleSchema,
+  buildLayers(raw, context) {
+    const props = raw as CinematicTitleProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    // Coreografía lenta: fondo, línea, título (escala con pop) y subtítulo
+    // (posición con slide-up) entran escalonados, cada uno con su propio
+    // ritmo de entrada.
+    const slow = (seconds: number): number => Math.max(4, Math.round(fps * seconds));
+    const bgAnim: MotionAnimation = {
+      kind: 'fade',
+      inFrames: slow(0.9),
+      outFrames: slow(0.4),
+    };
+    const lineAnim: MotionAnimation = {
+      kind: 'slide-left',
+      inFrames: slow(0.6),
+      outFrames: slow(0.4),
+      distance: 0.12,
+    };
+    const titleAnim: MotionAnimation = {
+      kind: 'pop',
+      inFrames: slow(1.1),
+      outFrames: slow(0.5),
+    };
+    const subtitleAnim: MotionAnimation = {
+      kind: 'slide-up',
+      inFrames: slow(1.4),
+      outFrames: slow(0.4),
+      distance: 0.06,
+    };
+    const titleSize = proFontSize(76, unit);
+    const titleLines = wrapText(props.title, charsFor(context.width * 0.84, titleSize), 4);
+    const subtitleLines = props.subtitle
+      ? wrapText(props.subtitle, charsFor(context.width * 0.84, proFontSize(30, unit)), 2)
+      : [];
+    const titleY = 0.41;
+    const lineY = titleY + titleLines.length * ((titleSize * 1.25) / context.height) + 0.02;
+    const subtitleY = lineY + 0.03;
+    return [
+      rect(0, 0, 1, 1, props.background, 0.72, bgAnim),
+      rect(0.43, lineY, 0.14, 0.006, props.accent, 1, lineAnim),
+      ...textBlock(context, {
+        lines: titleLines,
+        x: 0.08,
+        y: titleY,
+        width: 0.84,
+        fontSizePx: titleSize,
+        weight: 700,
+        color: '#f8fafc',
+        align: 'center',
+        anim: titleAnim,
+      }),
+      ...textBlock(context, {
+        lines: subtitleLines,
+        x: 0.08,
+        y: subtitleY,
+        width: 0.84,
+        fontSizePx: proFontSize(30, unit),
+        weight: 500,
+        color: '#cbd5e1',
+        align: 'center',
+        anim: subtitleAnim,
+      }),
+    ].slice(0, 16);
+  },
+};
+
 export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   titleCardTemplate,
   freeTextTemplate,
   lowerThirdTemplate,
   endCardTemplate,
   statCalloutTemplate,
+  lowerThirdMinimalTemplate,
+  cinemaBarsTemplate,
+  zoomPunchTemplate,
+  glitchTextTemplate,
+  cinematicTitleTemplate,
 ];
 
 export function templateById(id: string): MotionTemplate | null {

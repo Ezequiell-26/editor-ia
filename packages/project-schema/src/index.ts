@@ -97,6 +97,7 @@ export {
   ClipMotionSchema,
   ClipTransformKeyframeSchema,
   ClipGainKeyframeSchema,
+  CubicBezierSchema,
   ChromaKeySchema,
   ClipTransitionSchema,
   KeyframeEasingSchema,
@@ -125,6 +126,7 @@ export type {
   ClipMotion,
   ClipTransformKeyframe,
   ClipGainKeyframe,
+  CubicBezier,
   ChromaKey,
   ClipTransition,
   KeyframeEasing,
@@ -146,8 +148,10 @@ export {
   hasTransformKeyframes,
   keyframeFrameAt,
   sampleGainKeyframes,
-  sampleTransformKeyframes,
   sampleMaskKeyframes,
+  samplePanGain,
+  cubicBezierProgress,
+  getBezierFromEasing,
 } from './keyframes.ts';
 export type { SampledMask } from './keyframes.ts';
 export type { SampledTransform } from './keyframes.ts';

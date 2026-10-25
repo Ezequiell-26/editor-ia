@@ -990,7 +990,7 @@ fuente vigente es el addendum de la matriz.
   idénticos al compuesto completo, diff **0,000/255**); comparación ventana vs.
   completo en los frames 30 y 600. La UI muestra “compuesto” o “clip” en la
   etiqueta del frame. Verificación completa: **942 tests Vitest en 110
-  archivos**, typecheck limpio y Rust **327 passed, 0 failed, 45 ignored**.
+  archivos**, typecheck limpio y Rust **336 passed, 0 failed, 46 ignored**.
 - **Escala animada centrada (2026-10-24)**: las curvas de escala se resuelven
   sin cambiar el tamaño de la capa que recibe `overlay`. Se pre-escala
   estáticamente por el mínimo de la curva (hasta 1×, con Lanczos), se centra
@@ -1222,9 +1222,17 @@ fuente vigente es el addendum de la matriz.
   Un render real de 320×180 mide la banda de 300 Hz: con ducking **−31,3 dB**
   dentro de la locución y **−23,8 dB** fuera (**7,5 dB** de reducción); sin
   ducking, −23,7/−23,8 dB (plano) y la salida dura 3 s. Tests:
-  `ducking_pads_the_sidechain_so_the_bed_survives_the_voice` (grafo) y
+  `ducking_pads_the_sidechain_so_the_bed_survives_the_voice` (grafo),
   `render_live_ducking_keeps_the_bed_and_lowers_it_under_the_voice`
-  (`EDITOR_IA_RUN_RENDER_TESTS=1`).
+  (`EDITOR_IA_RUN_RENDER_TESTS=1`) y `fcpxml_exports_audio_as_a_connected_lane`
+  (el exportador escribe lanes `-1` ahora).
+- **Clonación de voz local por HTTP (2026-10-24)**: adaptador para motores
+  **XTTS API Server** / **GPT‑SoVITS** por loopback. Valida muestra
+  (3–30 s), acota texto (2000 caracteres) y verifica WAV en respuesta; guarda
+  el resultado como `media/voz-clonada-*.wav`. Los parámetros se aceptan desde
+  UI; no acepta URLs remotas ni claves en disco. Test unitario de URL
+  `engine_urls_are_loopback_and_get_the_right_path`; mock HTTP con test
+  `xtts_adapter_receives_a_wave_from_mock_server` (comprobado tras build limpio).
 - **Importador FCPXML de Final Cut (2026-10-24)**: el parser sólo aceptaba
   `<clip><video ref=...>`; Final Cut y Resolve exportan la storyline con
   `<asset-clip ref=...>`, así que un FCPXML real se importaba **vacío**. Ahora

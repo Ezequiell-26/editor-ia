@@ -71,6 +71,16 @@ export const KeyframeEasingSchema = z.enum([
 ]);
 export type KeyframeEasing = z.infer<typeof KeyframeEasingSchema>;
 
+/** A type representing a cubic Bezier easing curve for custom interpolation. */
+export const CubicBezierSchema = z.object({
+  cp1X: z.number().gte(0).lte(1),
+  cp1Y: z.number().gte(0).lte(1),
+  cp2X: z.number().gte(0).lte(1),
+  cp2Y: z.number().gte(0).lte(1),
+});
+
+export type CubicBezier = z.infer<typeof CubicBezierSchema>;
+
 /**
  * A transform keyframe is an absolute sample at `frame` frames from the clip
  * start. Properties absent from a keyframe fall back to the nearest keyframe
@@ -90,6 +100,7 @@ export const ClipTransformKeyframeSchema = z
     rotationDeg: z.number().gte(-360).lte(360).optional(),
     opacity: UnitIntervalSchema.optional(),
     easing: KeyframeEasingSchema.optional(),
+    bezier: CubicBezierSchema.optional(),
   })
   .strict()
   .superRefine((keyframe, ctx) => {
@@ -98,11 +109,13 @@ export const ClipTransformKeyframeSchema = z
       keyframe.offsetY === undefined &&
       keyframe.scale === undefined &&
       keyframe.rotationDeg === undefined &&
-      keyframe.opacity === undefined
+      keyframe.opacity === undefined &&
+      keyframe.bezier === undefined &&
+      keyframe.easing === undefined
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'a transform keyframe must animate at least one property',
+        message: 'a transform keyframe must animate at least one property or specify easing',
       });
     }
   });
@@ -148,6 +161,12 @@ export const ClipAudioSchema = z
       .enum(['deep', 'chipmunk', 'robot', 'echo', 'cave', 'radio'])
       .optional(),
     gainKeyframes: z.array(ClipGainKeyframeSchema).min(1).max(MAX_GAIN_KEYFRAMES).optional(),
+    // Pan stereo: −1 (left), 0 (center), +1 (right)
+    pan: z.number().gte(-1).lte(1).optional(),
+    // Metering targets (for metadata and UI display, not enforced in render)
+    targetLevelDbfs: z.number().gte(-24).lte(0).optional(),
+    peakLevelDbfs: z.number().gte(-60).lte(0).optional(),
+    rmsLevelDbfs: z.number().gte(-60).lte(0).optional(),
   })
   .strict();
 

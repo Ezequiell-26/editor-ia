@@ -2585,6 +2585,14 @@ function normalizeTransformPatch(patch: TransformKeyframePatch): TransformKeyfra
     }
     clean.easing = patch.easing;
   }
+  if (patch.bezier !== undefined) {
+    const { cp1X, cp1Y, cp2X, cp2Y } = patch.bezier;
+    const coords = [cp1X, cp1Y, cp2X, cp2Y];
+    if (coords.some((c) => !Number.isFinite(c) || c < 0 || c > 1)) {
+      throw new ProjectActionError('los puntos de control de la curva deben estar entre 0 y 1');
+    }
+    clean.bezier = { cp1X, cp1Y, cp2X, cp2Y };
+  }
   if (Object.keys(clean).length === 0) {
     throw new ProjectActionError('la clave necesita al menos una propiedad animada');
   }

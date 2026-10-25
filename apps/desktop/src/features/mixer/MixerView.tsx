@@ -8,13 +8,15 @@ import {
   levelPercentFromDb,
   panLabel,
   peakDbFromPeaks,
+  samplePanGain,
   trackEqDb,
   trackGainDb,
   trackPan,
-} from '../../state/audio-mix';
+} from './usePreviewAudio';
 import { updateAudioMix, updateTrack } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LoudnessMonitor } from './LoudnessMonitor';
+import { LiveMeters } from './LiveMeters';
 
 export interface MixerViewProps {
   readonly onNavigate: (view: ViewId) => void;
@@ -312,6 +314,25 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                     </button>
                   </div>
                 ) : null}
+                <div className="mixer-pan-block">
+                  <label className="field" aria-label={`Paneo de ${track.label}`}>
+                    <span>Paneo</span>
+                    <input
+                      type="range"
+                      min="-1" max="1" step="0.01"
+                      value={trackPan(track)}
+                      onChange={(event) =>
+                        store.update((current) =>
+                          updateTrack(current, track.id, {
+                            pan: Number(event.target.value),
+                          }),
+                        )
+                      }
+                      style={{ accentColor: 'var(--color-accent)' }}
+                    />
+                    <small>{panLabel(trackPan(track))}</small>
+                  </label>
+                </div>
                 <div className="mixer-flags">
                   <button
                     type="button"
@@ -396,6 +417,8 @@ export function MixerView({ onNavigate }: MixerViewProps) {
         </article>
       </div>
 
+      <LiveMeters tracks={tracks} />
+
       <LoudnessMonitor />
 
       <footer className="mixer-footer">
@@ -404,10 +427,12 @@ export function MixerView({ onNavigate }: MixerViewProps) {
         </span>
         <span>La ganancia de pista se suma a la ganancia de cada clip.</span>
         <span>
-          Paneo y EQ de pista se aplican en el export; la preview reproduce ganancia y solo.
+          Paneo y EQ de pista se aplican en la preview (con Web Audio) y en el export; sin Web
+          Audio la preview reproduce ganancia y solo.
         </span>
         <span>
-          Los picos se miden con FFmpeg sobre el material completo e incluyen ganancia de clip + fader; no son medidores en vivo.
+          Los picos de «Medir picos» se miden con FFmpeg sobre el material completo e incluyen
+          ganancia de clip + fader; para niveles en tiempo real usá los medidores en vivo.
         </span>
         {measureError ? <span className="mixer-error">{measureError}</span> : null}
       </footer>

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Track } from '@editor-ia/project-schema';
 import {
+  dbfsToRms,
   effectivePeakDb,
   gainForTargetPeak,
   hasSoloedAudioTrack,
@@ -8,7 +9,10 @@ import {
   levelPercentFromDb,
   panGains,
   panLabel,
+  panPanLabels,
   peakDbFromPeaks,
+  rmsToDbfs,
+  samplePanGain,
   trackEqDb,
   trackGainDb,
   trackPan,
@@ -120,5 +124,48 @@ describe('medición de picos y headroom', () => {
     expect(levelPercentFromDb(-30)).toBeCloseTo(50, 0);
     expect(levelPercentFromDb(0)).toBe(100);
     expect(levelPercentFromDb(4)).toBe(100);
+  });
+});
+
+describe('samplePanGain (medidores de paneo de clip)', () => {
+  it('el centro deja ambos canales a 1.0 como el export', () => {
+    expect(samplePanGain(0, 10)).toEqual([1, 1]);
+    expect(samplePanGain(undefined, 10)).toEqual([1, 1]);
+  });
+
+  it('los extremos silencian el canal opuesto', () => {
+    expect(samplePanGain(1, 10)).toEqual([0, 1]);
+    expect(samplePanGain(-1, 10)).toEqual([1, 0]);
+  });
+
+  it('balance lineal: pan 0.5 atenúa el izquierdo a 0.5 (−6 dB)', () => {
+    const [left, right] = samplePanGain(0.5, 10);
+    expect(left).toBeCloseTo(0.5, 9);
+    expect(right).toBeCloseTo(1, 9);
+    const [left2, right2] = samplePanGain(-0.7, 10);
+    expect(left2).toBeCloseTo(1, 9);
+    expect(right2).toBeCloseTo(0.3, 9);
+  });
+});
+
+describe('panPanLabels', () => {
+  it('centro sin atenuación en ningún canal', () => {
+    expect(panPanLabels(0)).toEqual({ left: '0%', right: '0%' });
+    expect(panPanLabels(undefined)).toEqual({ left: '0%', right: '0%' });
+  });
+
+  it('paneo a la derecha atenúa el izquierdo y viceversa', () => {
+    expect(panPanLabels(0.5)).toEqual({ left: '−50%', right: '0%' });
+    expect(panPanLabels(-0.7)).toEqual({ left: '0%', right: '−70%' });
+  });
+});
+
+describe('dbfsToRms y rmsToDbfs', () => {
+  it('convierten y vuelven con ida y vuelta consistente', () => {
+    expect(dbfsToRms(0)).toBe(1);
+    expect(dbfsToRms(-20)).toBeCloseTo(0.1, 9);
+    expect(dbfsToRms(-120)).toBe(0);
+    expect(rmsToDbfs(0)).toBe(Number.NEGATIVE_INFINITY);
+    expect(rmsToDbfs(0.1)).toBeCloseTo(-20, 6);
   });
 });

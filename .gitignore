@@ -34,3 +34,8 @@ apps/desktop/src-tauri/resources/onnxruntime/
 .tmp-*/
 .tmp-*.log
 .tmp-*.mjs
+
+# Estado de ejecucion del loop y targets alternativos de compilacion
+.editoria-loop/LOOP.lock
+target-loop/
+.worktrees/

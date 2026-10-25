@@ -57,6 +57,14 @@ pub struct LoudnessSample {
     pub short_term_lufs: f64,
 }
 
+impl PartialEq for LoudnessSample {
+    fn eq(&self, other: &Self) -> bool {
+        (self.seconds - other.seconds).abs() < 0.001
+            && (self.momentary_lufs - other.momentary_lufs).abs() < 0.01
+            && (self.short_term_lufs - other.short_term_lufs).abs() < 0.01
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MixLoudnessReport {
@@ -67,7 +75,9 @@ pub struct MixLoudnessReport {
     pub max_short_term_lufs: f64,
     pub sample_peak_dbfs: f64,
     pub true_peak_dbtp: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_lufs: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_delta_db: Option<f64>,
     pub samples: Vec<LoudnessSample>,
 }
@@ -371,9 +381,9 @@ pub async fn analyze_mix_loudness(
                 return Err(ProjectError::message(
                     ProjectErrorCode::RenderFailed,
                     if detail.is_empty() {
-                        "ffmpeg no pudo decodificar la mezcla".to_owned()
+                        "ffmpeg no pudo decodificar la mezcla"
                     } else {
-                        detail
+                        detail.as_str()
                     },
                 ));
             }

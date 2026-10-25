@@ -19,6 +19,10 @@ import {
   applyEffectPreset,
   type EffectPreset,
 } from '../../state/effect-presets';
+import {
+  SPEED_RAMP_PRESETS,
+  applySpeedRampPreset,
+} from '../../state/speed-ramp-presets';
 import { CLIP_COLORS } from '../../state/clip-colors';
 import { MotionClipInspector } from '../motion/MotionClipInspector';
 import { polygonAroundCenter } from '../vfx/face-mask';
@@ -26,6 +30,7 @@ import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
+import { KeyframeCurveEditor } from './KeyframeCurveEditor';
 import {
   addAsset,
   addCaptionCue,
@@ -2319,6 +2324,45 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               reverse.
             </p>
           </div>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Presets de rampa</p>
+                <span className="fine-print">Curvas de velocidad listas para aplicar</span>
+              </div>
+              <div className="actions compact">
+                {SPEED_RAMP_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    className="small"
+                    title={preset.descripcion}
+                    onClick={() => {
+                      const result = store.mutate((current) =>
+                        applySpeedRampPreset(current, clip.id, preset),
+                      );
+                      if (result) {
+                        store.setSelection({ kind: 'clip', id: result.clipIds[0]! });
+                        store.setNotice(
+                          `Preset “${preset.nombre}” aplicado (${result.clipIds.length} tramos): ${result.velocidades
+                            .map((value) => `${value.toFixed(2)}x`)
+                            .join(' → ')}.`,
+                        );
+                      }
+                    }}
+                  >
+                    {preset.nombre}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="fine-print">
+              Divide el clip en tramos contiguos y aplica la velocidad de cada tramo con el
+              mismo control de velocidad: los tramos lentos ocupan más tiempo en la pista y
+              los clips siguientes se desplazan. Requiere un clip de video o audio sin
+              keyframes, Ken Burns ni reverse.
+            </p>
+          </div>
           {clip.kind === 'video' ? (
             <div className="keyframe-panel">
               <div className="production-card-head">
@@ -2363,6 +2407,29 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               </p>
             </div>
           ) : null}
+        </Section>
+      ) : null}
+
+      {transformKeyframes.length >= 2 ? (
+        <Section title="Curvas" group="video">
+          <p className="fine-print">
+            Edita las curvas de interpolación entre keyframes. Arrastra los puntos naranjas para definir un easing
+            Bézier propio del segmento que empieza en cada clave.
+          </p>
+          <KeyframeCurveEditor
+            keyframes={transformKeyframes}
+            property="scale"
+            onEditBezier={(index, bezier) => {
+              const ordenados = [...transformKeyframes].sort((a, b) => a.frame - b.frame);
+              const inicio = ordenados[index];
+              if (!inicio) return;
+              store.update((current) => setTransformKeyframe(current, clip.id, inicio.frame, { bezier }));
+            }}
+          />
+          <p className="fine-print inspector-full">
+            La vista previa y el export respetan las curvas Bézier guardadas; sin curva específica se usa el preset de
+            la clave (linear, ease-in, ease-out, ease-in-out o hold).
+          </p>
         </Section>
       ) : null}
 

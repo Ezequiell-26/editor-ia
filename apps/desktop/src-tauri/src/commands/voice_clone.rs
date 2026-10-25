@@ -438,6 +438,47 @@ mod tests {
         assert!(local_engine_url("http://127.0.0.1:8020?x=1", CloneEngine::Xtts).is_err());
     }
 
+    // multi_thread: el mock acepta con `listener.accept()` bloqueante dentro de
+    // la tarea; con el runtime de un solo hilo el accept congelaría al único
+    // worker antes de que el cliente conecte y el test se colgaría.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn xtts_adapter_receives_a_wave_from_mock_server() {
+        use std::io::{Read, Write};
+        use std::net::{TcpListener, TcpStream};
+        let listener = TcpListener::bind("127.0.0.1:0").expect("binding");
+        let port = listener.local_addr().unwrap().port();
+        let sample_wav = include_bytes!("../../resources/test/clonacion.wav");
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().expect("accept");
+            let mut buffer = [0u8; 4096];
+            let _ = sock.read(&mut buffer).ok();
+            let response = b"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\n\r\n";
+            let _ = sock.write_all(response);
+            let _ = sock.write_all(sample_wav);
+        });
+        let url = format!("http://127.0.0.1:{}/tts_to_audio/", port);
+        let tmp = std::env::temp_dir().join(format!("voice-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&tmp).expect("tmp");
+        let ref_path = tmp.join("ref.wav");
+        std::fs::write(&ref_path, &sample_wav[..20_000]).expect("sample");
+        let reference = tmp.join("reference.wav");
+        std::fs::copy(&ref_path, &reference).expect("copy");
+        let body = json!({
+            "text": "hola mundo",
+            "speaker_wav": reference.to_string_lossy(),
+            "language": "es",
+        });
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("client");
+        let res = client.post(&url).json(&body).send().await.expect("request");
+        assert!(res.status().is_success());
+        let bytes = res.bytes().await.expect("bytes");
+        assert!(bytes.len() > 1000, "audio devuelto: {}", bytes.len());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn languages_and_text_are_bounded() {
         assert_eq!(normalize_language("es-AR").expect("es"), "es");

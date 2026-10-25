@@ -11,6 +11,8 @@ export default defineConfig({
       // puede resolver su runner y los reportaba como archivos fallidos.
       'apps/desktop/e2e/**',
       '.tmp-vitest/**',
+      // Worktrees locales de experimentos: duplican la suite sin node_modules.
+      '.worktrees/**',
     ],
   },
 });

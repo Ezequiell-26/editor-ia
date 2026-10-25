@@ -11165,3 +11165,394 @@ button.primary:disabled {
   color: var(--color-text-muted);
   font-size: 11px;
 }
+
+/* ================================================================
+   ORGANIZACIÓN VISUAL · pase de jerarquía y consistencia
+   ---------------------------------------------------------------
+   Pase aditivo: afina espaciado sobre base 4/8, unifica la
+   jerarquía tipográfica entre vistas (Editor, Mezcla, Motion, VFX),
+   cohexiona los estados de interacción y eleva a AA el contraste
+   del texto secundario y los placeholders. No renombra ni elimina
+   clases y no cambia las tipografías base.
+   ================================================================ */
+
+/* 1. Contraste AA · texto secundario sobre paneles oscuros.
+   Mantiene la familia gris-azulada (pizarra) y sube la luminosidad
+   hasta >= 4.5:1 medido sobre el fondo real de cada superficie. */
+
+.brand-note,
+.sidebar-section-label,
+.nav-index {
+  color: #7f93a8;
+}
+
+.sidebar-project-meta,
+.statusbar-meta,
+.ruler-corner,
+.transport-time > span,
+.transport-frames,
+.director-cut-index {
+  color: #728499;
+}
+
+.lane-hint,
+.ruler-tick,
+.zoom-readout,
+.smart-bins-label,
+.smart-bin-remove,
+.library-search,
+.rail-search,
+.rail-view-hint {
+  color: #7f93a8;
+}
+
+/* Etiquetas de formulario y pistas que usaban --color-empty
+   (≈4.0–4.4:1 en los temas cálidos): pasan al secundario estándar. */
+.field > span,
+label.field > span,
+.timeline-menu-hint,
+.vfx-node-index {
+  color: var(--color-text-muted);
+}
+
+.vfx-node .vfx-node-hint {
+  color: var(--color-text-muted) !important;
+}
+
+/* Placeholders con color propio y AA (antes quedaban al gris por
+   defecto del navegador, por debajo de 4.5:1 sobre los inputs). */
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+/* 2. Jerarquía visual consistente entre vistas.
+   Micro-etiquetas (una sola voz): mayúsculas, 9.5px, peso 650,
+   tracking 0.1em y color secundario; títulos de franja/nodo: 12px,
+   650 y color principal; valores numéricos: mono tabular. */
+
+.mixer-control-label,
+.mixer-channel-kind,
+.vfx-node-kind,
+.vfx-switch,
+.motion-template-category,
+.motion-field > span {
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.loudness-readouts dt {
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+}
+
+.mixer-strip-head strong,
+.vfx-node header strong,
+.vfx-stage-head strong,
+.motion-template strong {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text);
+}
+
+.loudness-head h2 {
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.mixer-db,
+.mixer-eq-db,
+.mixer-pan-value,
+.mixer-peak,
+.vfx-frame-readout,
+.zoom-readout,
+.timeline-duration,
+.transport-readout,
+.transport-time,
+.preview-timecode,
+.loudness-readouts dd {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 3. Densidad y espaciado sobre base 4/8 en paneles, cabeceras de
+   sección y controles (sustituye valores impares 5/7/9/11 px). */
+
+.view-toolbar,
+.view-toolbar-main,
+.view-toolbar-actions {
+  gap: 8px;
+}
+
+.actions {
+  gap: 8px;
+}
+
+.actions.compact {
+  gap: 4px;
+}
+
+.topbar-actions,
+.editor-toolbar-actions {
+  gap: 4px;
+}
+
+.editor-toolbar {
+  padding: 4px 12px;
+}
+
+.inspector-head {
+  padding: 0 12px;
+}
+
+.inspector-section {
+  padding: 12px;
+}
+
+.inspector-grid {
+  gap: 8px;
+}
+
+.rail-head {
+  padding: 0 12px;
+}
+
+.timeline-toolbar {
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.timeline-tools {
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.transport {
+  gap: 12px;
+  padding: 8px 12px;
+}
+
+.preview-hud {
+  top: 8px;
+  left: 8px;
+}
+
+.preview-tools {
+  top: 8px;
+  right: 8px;
+}
+
+.preview-timecode-chip {
+  left: 8px;
+  bottom: 8px;
+}
+
+/* Mezcla */
+.mixer-view {
+  padding: 16px 24px 24px;
+}
+
+.mixer-board {
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.mixer-strip {
+  gap: 8px;
+  padding: 12px;
+}
+
+.mixer-strip-head {
+  gap: 8px;
+}
+
+.mixer-pan-wrap {
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mixer-eq {
+  gap: 4px;
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.mixer-eq-row {
+  gap: 8px;
+}
+
+.mixer-footer {
+  gap: 8px 24px;
+  margin-top: 16px;
+  padding-top: 12px;
+}
+
+.mixer-meter-block {
+  gap: 4px;
+  padding: 8px 0 4px;
+}
+
+.mixer-empty {
+  gap: 8px;
+  padding: 16px;
+}
+
+/* VFX */
+.vfx-view {
+  padding: 16px 24px 24px;
+}
+
+.vfx-actions {
+  gap: 8px;
+}
+
+.vfx-stage {
+  gap: 8px;
+  padding: 12px;
+}
+
+.vfx-stage-head,
+.vfx-stage-controls {
+  gap: 8px;
+}
+
+.vfx-chain {
+  gap: 8px;
+}
+
+.vfx-node {
+  gap: 8px;
+  padding: 8px 12px 8px 24px;
+}
+
+.vfx-node-fields {
+  gap: 4px 8px;
+}
+
+.vfx-node-actions {
+  gap: 4px;
+}
+
+.vfx-status {
+  margin: 12px 0 0;
+  padding: 8px 12px;
+}
+
+/* Motion */
+.motion-ai {
+  gap: 8px;
+}
+
+.motion-ai textarea {
+  padding: 8px 12px;
+}
+
+.motion-fields {
+  gap: 12px;
+}
+
+.motion-range,
+.motion-duration {
+  gap: 12px;
+}
+
+.motion-preview-frame {
+  padding: 16px;
+}
+
+/* 4. Estados de interacción coherentes.
+   El anillo de foco vuelve a seguir el acento del tema (aparencia
+   local) en lugar del cian fijo; las filas y fichas ganan hover de
+   borde y los controles con input oculto reciben focus-visible. */
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.rail-asset {
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+
+.rail-asset:hover {
+  border-color: var(--color-border-strong);
+}
+
+.motion-template {
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.motion-template:hover {
+  border-color: var(--color-border-strong);
+}
+
+/* La plantilla activa usaba un cian fijo de un tema antiguo: pasa al
+   token de acento para respetar la apariencia elegida. */
+.motion-template.active {
+  border-color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.preset:has(input:focus-visible),
+.check:has(input:focus-visible),
+.director-toggle:has(input:focus-visible),
+.factory-image:has(input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* 5. Barras de scroll y separadores refinados.
+   Pulgar más fino con recorte interior (se ve igual sobre cualquier
+   panel), con estados hover/active; separadores normalizados al
+   token de borde. */
+
+* {
+  scrollbar-color: #33475c transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-color: #33475c;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: #43596f;
+}
+
+::-webkit-scrollbar-thumb:active {
+  background-color: #526b83;
+}
+
+.timeline-menu-separator,
+.dropdown-separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border);
+}
+
+.timeline-tools,
+.ruler-corner,
+.track-head {
+  border-right-color: var(--color-border);
+}
+
+.ruler-row {
+  border-bottom-color: var(--color-border);
+}

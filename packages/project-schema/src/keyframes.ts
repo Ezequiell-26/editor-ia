@@ -3,6 +3,7 @@ import type {
   ClipGainKeyframe,
   ClipMaskKeyframe,
   KeyframeEasing,
+  CubicBezier,
 } from './timeline.ts';
 
 /**
@@ -28,7 +29,73 @@ const TRANSFORM_KEYS: readonly TransformKey[] = [
 
 export type SampledTransform = Partial<Record<TransformKey, number>>;
 
-type Point = { frame: number; value: number; easing: KeyframeEasing };
+type Point = { frame: number; value: number; easing: KeyframeEasing; bezier?: CubicBezier };
+
+/**
+ * Curve presets only as starting handle positions for the curve editor; the
+ * sampler never derives a bezier from a preset, so `hold` stays a step and the
+ * preset formulas in `easingProgress` keep their exact legacy values.
+ */
+export function getBezierFromEasing(easing: string | undefined): CubicBezier {
+  switch (easing) {
+    case 'ease-in':
+      return { cp1X: 0.42, cp1Y: 0, cp2X: 1, cp2Y: 1 };
+    case 'ease-out':
+      return { cp1X: 0, cp1Y: 0, cp2X: 0.58, cp2Y: 1 };
+    case 'ease-in-out':
+      return { cp1X: 0.42, cp1Y: 0, cp2X: 0.58, cp2Y: 1 };
+    case 'linear':
+    default:
+      return { cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 1 };
+  }
+}
+
+type BezierCoefficients = { ax: number; bx: number; cx: number; ay: number; by: number; cy: number };
+
+function bezierCoefficients(cp1X: number, cp1Y: number, cp2X: number, cp2Y: number): BezierCoefficients {
+  const cx = 3 * cp1X;
+  const bx = 3 * (cp2X - cp1X) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * cp1Y;
+  const by = 3 * (cp2Y - cp1Y) - cy;
+  const ay = 1 - cy - by;
+  return { ax, bx, cx, ay, by, cy };
+}
+
+/**
+ * Eased progress of a CSS-style cubic-bezier curve for a segment progress
+ * `t`: solves the parameter u with x(u) = t (Newton, bisection fallback) and
+ * returns y(u). With the (0,0,1,1) control points this is the identity.
+ */
+export function cubicBezierProgress(t: number, cp1X: number, cp1Y: number, cp2X: number, cp2Y: number): number {
+  const clamped = Math.min(1, Math.max(0, t));
+  if (clamped <= 0) return 0;
+  if (clamped >= 1) return 1;
+  const { ax, bx, cx, ay, by, cy } = bezierCoefficients(cp1X, cp1Y, cp2X, cp2Y);
+  const sampleX = (u: number) => ((ax * u + bx) * u + cx) * u;
+  const sampleY = (u: number) => ((ay * u + by) * u + cy) * u;
+  const derivativeX = (u: number) => (3 * ax * u + 2 * bx) * u + cx;
+
+  let u = clamped;
+  for (let i = 0; i < 8; i += 1) {
+    const x = sampleX(u) - clamped;
+    if (Math.abs(x) < 1e-6) return sampleY(u);
+    const d = derivativeX(u);
+    if (Math.abs(d) < 1e-6) break;
+    u -= x / d;
+  }
+  let low = 0;
+  let high = 1;
+  u = clamped;
+  for (let i = 0; i < 24; i += 1) {
+    const x = sampleX(u);
+    if (Math.abs(x - clamped) < 1e-6) break;
+    if (x < clamped) low = u;
+    else high = u;
+    u = (low + high) / 2;
+  }
+  return sampleY(u);
+}
 
 function easingProgress(progress: number, easing: KeyframeEasing): number {
   switch (easing) {
@@ -44,6 +111,15 @@ function easingProgress(progress: number, easing: KeyframeEasing): number {
     default:
       return progress;
   }
+}
+
+function bezierOf(raw: unknown): CubicBezier | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const candidate = raw as Record<string, unknown>;
+  const coords = [candidate.cp1X, candidate.cp1Y, candidate.cp2X, candidate.cp2Y];
+  if (coords.some((c) => typeof c !== 'number' || !Number.isFinite(c))) return undefined;
+  const [cp1X, cp1Y, cp2X, cp2Y] = coords as [number, number, number, number];
+  return { cp1X, cp1Y, cp2X, cp2Y };
 }
 
 function pointsFor<K extends string>(
@@ -62,7 +138,10 @@ function pointsFor<K extends string>(
         keyframe.easing === 'hold'
           ? keyframe.easing
           : 'linear';
-      points.push({ frame, value, easing });
+      const point: Point = { frame, value, easing };
+      const bezier = bezierOf(keyframe.bezier);
+      if (bezier) point.bezier = bezier;
+      points.push(point);
     }
   }
   return points.sort((a, b) => a.frame - b.frame);
@@ -81,10 +160,12 @@ function samplePoints(points: readonly Point[], frame: number): number | undefin
       const span = current.frame - previous.frame;
       if (span <= 0) return current.value;
       const progress = (frame - previous.frame) / span;
-      return (
-        previous.value +
-        (current.value - previous.value) * easingProgress(progress, previous.easing)
-      );
+      // Como `easing`, el bezier del keyframe donde empieza el segmento es el
+      // que lo gobierna; el de un keyframe intermedio no contamina al siguiente.
+      const eased = previous.bezier
+        ? cubicBezierProgress(progress, previous.bezier.cp1X, previous.bezier.cp1Y, previous.bezier.cp2X, previous.bezier.cp2Y)
+        : easingProgress(progress, previous.easing);
+      return previous.value + (current.value - previous.value) * eased;
     }
   }
   return last.value;

@@ -1298,6 +1298,38 @@
                                 "ease-in-out",
                                 "hold"
                               ]
+                            },
+                            "bezier": {
+                              "type": "object",
+                              "properties": {
+                                "cp1X": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                "cp1Y": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                "cp2X": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                },
+                                "cp2Y": {
+                                  "type": "number",
+                                  "minimum": 0,
+                                  "maximum": 1
+                                }
+                              },
+                              "required": [
+                                "cp1X",
+                                "cp1Y",
+                                "cp2X",
+                                "cp2Y"
+                              ],
+                              "additionalProperties": false
                             }
                           },
                           "required": [
@@ -1401,6 +1433,26 @@
                         },
                         "minItems": 1,
                         "maxItems": 96
+                      },
+                      "pan": {
+                        "type": "number",
+                        "minimum": -1,
+                        "maximum": 1
+                      },
+                      "targetLevelDbfs": {
+                        "type": "number",
+                        "minimum": -24,
+                        "maximum": 0
+                      },
+                      "peakLevelDbfs": {
+                        "type": "number",
+                        "minimum": -60,
+                        "maximum": 0
+                      },
+                      "rmsLevelDbfs": {
+                        "type": "number",
+                        "minimum": -60,
+                        "maximum": 0
                       }
                     },
                     "additionalProperties": false

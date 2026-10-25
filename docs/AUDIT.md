@@ -1,4 +1,4 @@
-# Auditoría funcional de Olyvia (2026-10-24)
+# Auditoría funcional de Olyvia (actualizada 2026-10-25)
 
 Auditoría del repositorio real (`apps/desktop`, `packages/project-schema`,
 `apps/desktop/src-tauri`) y de la build instalada. No se tomaron como ciertas
@@ -6,15 +6,14 @@ las limitaciones del README sin comprobar el código.
 
 ## Estado medido
 
-- **Pruebas**: 958 Vitest en 110 archivos, Rust **283 passed / 41 ignorados**,
-  0 fallos (2026-10-24, con cámara lenta, recorte de fondo, glow, motion blur,
-  seguimiento de rostro y texto libre). Build nativo verde. Playwright 11/11 es
-  de una corrida anterior; no se re-ejecutó.
+- **Pruebas**: 1027 Vitest en 119 archivos, Rust **337 passed / 46 ignorados**,
+  0 fallos (2026-10-25, con curvas Bézier en keyframes, clonación de voz local
+  por HTTP, medidores de audio en vivo y paneo/EQ de pista en la preview).
+  Typecheck de los 3 paquetes limpio.
 - **Instalador**: 218.731.520 bytes, SHA-256 `e089c498…a264678`, firma local
-  válida. Ejecutable instalado: 124.049.376 bytes, SHA-256 `4307D86D…C86676`.
-- **Export VFX verificado**: clip 1080p de 5 s con máscara poligonal, 259.685
-  bytes, 150 frames, luma 118–125 dentro contra 25 fuera. Gate de bytes
-  corregido para clips cortos/enmascarados.
+  válida (build del 2026-10-24; pendiente re-empaquetar con este ciclo).
+- **Export VFX verificado** (2026-10-24): clip 1080p de 5 s con máscara
+  poligonal, 259.685 bytes, 150 frames, luma 118–125 dentro contra 25 fuera.
 
 ## Lo que ya es real
 
@@ -27,36 +26,60 @@ las limitaciones del README sin comprobar el código.
   rampa y curva por tramos, y **cámara lenta con interpolación** de movimiento
   (`minterpolate`) verificada a 0,5× con 60 frames en 2 s (2026-10-24).
   Contrato duración/fuente validado por esquema. Falta time-remap por frame.
+- **Curvas Bézier de keyframes (2026-10-25)**: el campo `bezier`
+  (`{cp1X,cp1Y,cp2X,cp2Y}`, 0–1) es parte del esquema; la preview y los helpers
+  de muestreo resuelven `y(x=t)` con Newton + bisección (`cubicBezierProgress`),
+  y la convención es la misma que `easing`: la curva del keyframe de inicio
+  gobierna su segmento. El Inspector ganó la sección **Curvas** con
+  `KeyframeCurveEditor` (arrastre de manejadores con pointer events, spans
+  reales por frames, degradación sin canvas) que persiste con
+  `setTransformKeyframe`. El render FFmpeg evalúa la Bézier de cada segmento.
+  Los presets (`linear`, `ease-in/out/in-out`) y `hold` (escalón) se mantienen
+  exactos; sin curva explícita no cambia nada.
 - **Fondo automático**: segmentación local con u2netp (ONNX Runtime) sobre
   imágenes, frames congelados y tramos de video. El video se exporta como VP9
   con alfa y audio, limitado a 1080p y 3.600 frames por pasada; el render fuerza
   el decoder de libvpx para conservar el alfa (verificado end-to-end).
 - **Funciones aprendidas del canal Visuals Luciano (2026-10-24)**: glow con
   preset **Glow viral**, motion blur de 2–12 frames, seguimiento de rostro y
-  plantilla **Texto libre**. La matriz de paridad, la evidencia (subtítulos, no
-  video completo) y los gaps restantes viven en
+  plantilla **Texto libre**. La matriz de paridad y los gaps viven en
   `docs/research/VISUALS-LUCIANO-2026-10-24.md`.
 - **Audio**: ganancia/mute/solo por pista y master; por clip: fades, high/low
   pass, EQ de 3 bandas, compresor, deesser, gate, denoise y efectos de voz.
-  Ducking, loudness y medición puntual de picos. Sin paneo ni EQ por pista, sin
-  automatización y sin medidores en vivo.
+  Ducking y loudness. **Panorámica y EQ de pista** en export (balance lineal,
+  verificado con FFmpeg: pan −0.5 → 6 dB de diferencia; EQ 120 Hz −12 dB →
+  −11,9 dB) **y en la preview** con un grafo Web Audio por pista (EQ lowshelf/
+  peaking/highshelf 120/1k/8k → fader → paneo con splitter+gains para conservar
+  la imagen estéreo) espejo de `track_audio_filters` en `ffmpeg.rs`.
+  **Medidores en vivo sincronizados al playhead** (RMS/pico por pista y master
+  con `AnalyserNode`, panel en la vista Mezcla) y monitor de loudness de la
+  mezcla (BS.1770-4 / EBU R128 con `filmcraft-audio-dsp`). Pendiente:
+  automatización de fader/pan.
 - **Vídeo**: transiciones, transformaciones con keyframes (posición, escala,
-  rotación, opacidad), máscaras (incluida poligonal), chroma, LUT/intensidad,
-  curvas, **glow/halo**, **motion blur**, scopes, títulos, subtítulos, motion
-  graphics (incluida la plantilla **Texto libre**), **seguimiento de rostro**
-  que crea keyframes de encuadre, proxies, multicámara con sync por audio, GPU
-  (AMF), EDL/OTIO/FCPXML y VFX con roto y tracking facial.
+  rotación, opacidad) con curvas, máscaras (incluida poligonal), chroma,
+  LUT/intensidad, curvas, glow/halo, motion blur, scopes, títulos, subtítulos,
+  motion graphics (texto libre + 5 plantillas pro: placa minimalista, barras de
+  cine, zoom punch, glitch de texto y título cinematográfico), seguimiento de
+  rostro, proxies, multicámara con sync por audio, GPU (AMF), EDL/OTIO/FCPXML y
+  VFX con roto y tracking facial.
+- **Clonación de voz local por HTTP (2026-10-25)**: adaptador para motores
+  **XTTS API Server** / **GPT-SoVITS** por loopback (rechaza URLs remotas y
+  credenciales en disco), valida muestra 3–30 s y texto ≤2000 caracteres,
+  verifica el WAV de respuesta y lo guarda como `media/voz-clonada-*.wav`.
 - **IA local**: Ollama, narración SAPI, dubbing, lip-sync Wav2Lip, upscale y
   denoise, con requisitos externos documentados.
-- **UX**: atajos configurables, paleta de comandos, 226 `aria-label` y diálogos
-  con `role="dialog"`; el foco y la navegación completa por teclado no están
-  auditados.
+- **UX**: atajos de teclado pro documentados y probados (`docs/ATAJOS-PRO.md`),
+  paleta de comandos, 226 `aria-label` y diálogos con `role="dialog"`. El pase
+  de organización visual (2026-10-25) normaliza espaciado 4/8 px, jerarquía de
+  secciones y sube a AA los grises secundarios. La auditoría de foco/teclado
+  con plan de 6 fases vive en `docs/research/ACCESIBILIDAD-2026-10-24.md`.
 
 ## Carencias priorizadas
 
 ### P1 — Integridad y flujos principales
 
-1. **Cobertura E2E desactualizada**: Playwright no corre desde la build VFX.
+1. **Cobertura E2E desactualizada**: Playwright no corre desde la build con
+   curvas Bézier y medidores.
 2. **Rendimiento de timelines largas** sin perfilado medido (memoria, preview,
    export, proyectos con cientos de clips).
 3. **Recuperación ante cierre inesperado**: el autoguardado cubre hasta el
@@ -64,91 +87,89 @@ las limitaciones del README sin comprobar el código.
 
 ### P2 — Edición fundamental incompleta
 
-4. **Paneo y EQ por pista** (Fairlight v2): implementado en este ciclo. Hoy
-   existe paneo, EQ de 3 bandas, fader, mute y solo por pista; faltan
-   automatización y preview procesada.
-5. **Automatización de fader/pan** y medidores en tiempo real.
-6. **Time-remap por frame** más allá de la rampa/curva por tramos.
-7. **Multicámara por timecode**; la sincronización automática por audio ya
+4. **Automatización de fader/pan por keyframes** (los medidores y el paneo/EQ
+   de pista ya funcionan en export y preview).
+5. **Time-remap por frame** más allá de la rampa/curva por tramos.
+6. **Multicámara por timecode**; la sincronización automática por audio ya
    funciona.
-8. **Secuencias anidadas / clips compuestos** y multicámara con ángulos
+7. **Secuencias anidadas / clips compuestos** y multicámara con ángulos
    editables como clips.
 
 ### P3 — Herramientas profesionales de alto impacto
 
-9. **Gestión de color HDR/ACES, 10 bits y monitores de referencia**.
-10. **Tracking de objetos/planar y rotoscopía deformable**; el tracking actual
-    es facial y el polígono es rígido.
-11. **Paint, clonado y object removal**.
-12. **VFX como grafo DAG** con ramas y compositing multicapa real.
-13. **Workspace de código** y automatizaciones externas.
+8. **Gestión de color HDR/ACES, 10 bits y monitores de referencia**. Diseño en
+   `docs/research/COLOR-HDR-VFX-DAG-2026-10-24.md`.
+9. **Tracking de objetos/planar y rotoscopía deformable**; el tracking actual
+   es facial y el polígono es rígido. Diseño por fases en
+   `docs/research/TRACKING-PLANAR-2026-10-24.md`.
+10. **Paint, clonado y object removal**.
+11. **VFX como grafo DAG** con ramas y compositing multicapa real (diseño en el
+    mismo documento de color/VFX).
+12. **Workspace de código** y automatizaciones externas.
 
 ### P4 — Productividad, accesibilidad y distribución
 
-14. Auditoría de foco/teclado/contraste y navegación completa sin mouse.
-15. Medidores en vivo durante reproducción. El **monitor de loudness de la
-    mezcla** (EBU R128 sobre el grafo real del export, con `filmcraft-audio-dsp`)
-    ya existe en la vista Mezcla; falta el medidor en tiempo real sincronizado
-    al playhead.
-16. Firma pública con sello de tiempo y estrategia de actualizaciones.
-17. Motores/IA externos fuera del instalador: onboarding claro y verificación de
-    modelos por hash.
+13. Auditoría de foco/teclado/contraste: el **plan de corrección** está en
+    `docs/research/ACCESIBILIDAD-2026-10-24.md` (bloqueantes: trampa de foco en
+    diálogos, trim/mover sin teclado, Space global roba activación); ejecutar
+    sus fases.
+14. Firma pública con sello de tiempo y estrategia de actualizaciones.
+15. Motores/IA externos fuera del instalador: onboarding claro y verificación
+    de modelos por hash.
+16. **Precisión Bézier del export**: el render evalúa `y(u=t)` (el progreso del
+    segmento como parámetro) mientras la preview resuelve `y(x=t)`; para curvas
+    suaves la diferencia es pequeña, pero conviene pre-muestrear la curva en
+    Rust (Newton, igual que la preview) y emitir la expresión por tramos.
 
-## Implementado en este ciclo
+## Implementado en este ciclo (2026-10-25)
 
-Monitor de loudness de la mezcla (BS.1770-4 / EBU R128) con `filmcraft-audio-dsp`:
-- `build_plan_range` ganó un modo `audio_only`: arma sólo el grafo de audio de la
-  mezcla (DSP por clip, EQ/paneo por pista, ducking, ganancia master) y emite
-  PCM f32le por stdout, sin cadena de video y sin loudnorm/limitador de entrega;
-- el comando `analyze_mix_loudness` abre el proyecto **guardado** (como el
-  export), alimenta el `LoudnessMeter` de filmcraft por sub-bloques de 100 ms y
-  emite `loudness-analysis-progress` durante la medición;
-- el reporte devuelve integrated (doble compuerta), LRA, máximos momentary y
-  short-term, pico digital y pico real (dBTP), el delta contra el objetivo
-  configurado y el historial diezmado a ≤1200 muestras;
-- la vista Mezcla ganó el panel **Loudness de la mezcla**: guarda, mide y
-  dibuja las curvas momentary/short-term con la línea del objetivo, con el
-  consejo de cuánto subir/bajar el master (o qué hará la normalización);
-- pruebas Rust: calibración del tono de alineación 997 Hz −23 dBFS → −23 LUFS
-  (±0,1), silencio sin infinitos serializables, diezmo del historial, delta
-  redondeado, plan audio-only sin `-progress`/loudnorm/`-c:v`, y live opcional
-  con `EDITOR_IA_FFMPEG`; pruebas Vitest del panel (medición, delta, error de
-  guardado, sin objetivo).
+Ocho agentes en paralelo + integración manual, sobre el ciclo de loudness del
+2026-10-24 (monitor EBU R128 y paneo/EQ por pista, ya descritos arriba):
 
-Paneo y EQ de 3 bandas por pista:
-- campos opcionales en `TrackSchema` (`pan`, `eqLowDb`, `eqMidDb`, `eqHighDb`);
-- validación en acciones y JSON Schema regenerado;
-- filtros FFmpeg reales por pista en el render (`equalizer` 120/1k/8k y `pan`
-  de balance lineal) después del DSP de clip y antes del fader;
-- controles en la vista Mezcla con reset de EQ;
-- pruebas de esquema, acciones, helpers, UI y grafo de render.
+1. **Audio pro en la preview**: grafo Web Audio por pista (EQ 3 bandas, fader,
+   paneo lineal con splitter→gains→merger, bus master con analizador) espejo
+   del export, con degradación silenciosa a `element.volume`; medidores en vivo
+   RMS/pico por pista y master en la vista Mezcla (`LiveMeters`,
+   `usePreviewAudio`). `state/audio-mix.ts` restauró sus helpers canónicos y
+   sumó `samplePanGain`/`panPanLabels` (balance lineal) y conversiones
+   dBFS↔RMS; `usePreviewAudio` re-exporta sin copias.
+2. **5 plantillas de motion graphics pro** en `templates.ts` (placa
+   minimalista, barras de cine, zoom punch, glitch de texto, título
+   cinematográfico) con 9 tests que replican las invariantes del plan.
+3. **Presets de speed ramp** (`speed-ramp-presets.ts`: Héroe, Montaje rítmico,
+   Congela y sigue, Entrada lenta, Salida rápida) y fila de botones en la
+   sección Velocidad del Inspector.
+4. **Atajos de teclado pro** (`shortcuts.ts` + `docs/ATAJOS-PRO.md` +
+   `shortcuts-pro.test.ts`): shuttle J/K/L, paso a frame, marcador, splits,
+   ripple delete, zoom, Home/End — sin reasignar existentes.
+5. **Organización visual**: pase aditivo de 391 líneas en `app.css` (espaciado
+   4/8 px, jerarquía de secciones, 11 grises subidos a AA, focus-visible,
+   scrollbars).
+6. **Investigación/diseño** (cero código): tracking planar + roto deformable,
+   color HDR/10-bit + VFX grafo DAG, y auditoría de accesibilidad con plan de
+   6 fases (`docs/research/`).
+7. **Curvas Bézier** (integración del MVP de otro pase): matemática corregida
+   en `cubicBezierProgress` (resuelve y(x=t) con Newton + bisección), muestreo
+   conectado al esquema, convención start-keyframe-gobierna-segmento, editor
+   con arrastre real, persistencia por `setTransformKeyframe` (con validación
+   de puntos de control en `normalizeTransformPatch`) y render FFmpeg por
+   segmento. 20 tests nuevos.
+8. **Clonación de voz local** (integración de otro pase): compilación reparada
+   (código muerto eliminado, `format!` corregido, moves ilegales, `parse_easing`
+   con default linear y Bézier como objeto del esquema) y el test del mock HTTP
+   corregido a runtime `multi_thread` (el `accept()` bloqueante colgaba el
+   runtime de un solo hilo).
 
-Medición real con el FFmpeg instalado (tono 440 Hz, 1 s, 48 kHz):
-- paneo -0.5: izquierda **-24,1 dB** de media, derecha **-30,1 dB** (6,0 dB de
-  diferencia, exactamente el 0,5 de ganancia);
-- EQ de 120 Hz a -12 dB: media **-24,1 → -36,0 dB** (-11,9 dB efectivos).
-
-Límite: la preview reproduce ganancia y solo; el paneo y EQ de pista se aplican
-en el export, igual que el DSP de clip que la preview no simula.
-
-**Defecto de suite corregido**: el test `visual_effects_reach_the_filter_chain`
-todavía esperaba `sendcmd`/`colorchannelmixer@fade0` de una implementación
-anterior de los fades. Ahora verifica los `fade=t=in/out` reales; la suite
-completa volvió a 274/0 fallos. También se agregó un test live opcional que mide
-el paneo y el EQ con FFmpeg (`EDITOR_IA_FFMPEG`).
+Verificación del ciclo: `npm run typecheck` limpio; **Vitest 1027/1027** en 119
+archivos; **cargo test 337/0 fallos** (46 ignorados).
 
 ## Continuidad
 
-1. Reproducir paneo/EQ de pista en la preview con Web Audio (o declarar el
-   límite en la UI del monitor).
-2. Automatización de fader/pan y medidores **en vivo sincronizados a la
-   reproducción** (el monitor de loudness de la mezcla ya está en la vista
-   Mezcla desde este pase).
-3. Time-remap por frame (la rampa/curva por tramos ya está).
-4. Multicámara por timecode.
-5. Empaquetar la build con este pase y verificar el export desde la app
-   instalada.
-6. El test `empaqueta el proyecto desde Archivo…` de `App.test.tsx` falla
-   también en HEAD limpio (verificado en worktree aparte): quedó atascado el
-   flujo de creación en ese test. Es un fallo preexistente del commit
-   `98a5c22`, no de este pase; conviene arreglarlo antes de empaquetar.
+1. Ejecutar las fases 0–2 del plan de accesibilidad (trampa de foco en
+   diálogos, teclado para mover/trim, Space global).
+2. Automatización de fader/pan por keyframes (P2 #4).
+3. Pre-muestrear la Bézier en el render Rust para exactitud `y(x=t)` (P4 #16).
+4. Time-remap por frame (P2 #5).
+5. Multicámara por timecode (P2 #6) y secuencias anidadas (P2 #7).
+6. Re-empaquetar la build con este ciclo y verificar export desde la app
+   instalada; renovar Playwright E2E (P1 #1).
