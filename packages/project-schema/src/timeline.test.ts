@@ -69,6 +69,26 @@ describe('TrackSchema', () => {
     }
   });
 
+  it('acepta paneo y EQ de 3 bandas por pista', () => {
+    const parsed = TrackSchema.safeParse(
+      videoTrack({ pan: -0.4, eqLowDb: 3.5, eqMidDb: -2, eqHighDb: 6 }),
+    );
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.pan).toBe(-0.4);
+      expect(parsed.data.eqLowDb).toBe(3.5);
+      expect(parsed.data.eqMidDb).toBe(-2);
+      expect(parsed.data.eqHighDb).toBe(6);
+    }
+  });
+
+  it('rechaza paneo y EQ fuera de rango', () => {
+    expect(TrackSchema.safeParse(videoTrack({ pan: 1.2 })).success).toBe(false);
+    expect(TrackSchema.safeParse(videoTrack({ pan: -1.2 })).success).toBe(false);
+    expect(TrackSchema.safeParse(videoTrack({ eqLowDb: -18 })).success).toBe(false);
+    expect(TrackSchema.safeParse(videoTrack({ eqHighDb: 13 })).success).toBe(false);
+  });
+
   it('rechaza una ganancia de pista fuera del rango de audio', () => {
     expect(TrackSchema.safeParse(videoTrack({ gainDb: 18 })).success).toBe(false);
   });

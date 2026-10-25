@@ -561,8 +561,9 @@ fuente vigente es el addendum de la matriz.
   separación de voz con un modelo neuronal.
 - **Remotion**: sigue fuera de alcance hasta validar su licencia para uso
   comercial automatizado; no se integra a ciegas.
-- **Motor de clips gráficos**: el formato los admite, pero el renderer nativo
-  rechaza un clip gráfico visible en vez de omitirlo en silencio.
+- **Motor de clips gráficos**: el formato los admite. El export rechaza un clip
+  gráfico visible si falta su plan de motion; el frame real compone el resto y
+  avisa que omitió el gráfico.
 - **Descarga de contenido público por URL** ya existe en la vista Descargar
   (yt-dlp, hasta 8K, con compresión local). Siguen faltando el stock con
   licencias, la descarga autenticada con cookies, la investigación con fuentes,
@@ -915,11 +916,336 @@ fuente vigente es el addendum de la matriz.
   relight, lente, LUT y transformación) y lo muestra como PNG sobre el canvas.
 - **Medición real**: test live con un video `testsrc2` 320×180, máscara elipse y
   relight; FFmpeg produjo un PNG **320×180** con los efectos aplicados.
-- **Límite**: es el clip activo, no el compuesto de todas las pistas: no incluye
-  subtítulos, títulos gráficos, otras capas, transiciones ni el look global. La
-  preview CSS sigue siendo la referencia interactiva; el frame real es la
-  comprobación contra FFmpeg.
+- **Límite (superado el 2026-10-24)**: en esa pasada era el clip activo, no el
+  compuesto de todas las pistas. El frame compuesto actual sí incluye otras
+  capas, ajustes, look global y subtítulos.
 - **Pruebas**: Rust **224 passed, 0 failed, 11 ignored**; frontend **865/97**.
+
+### Monitor de loudness de la mezcla con filmcraft (2026-10-24)
+
+- **Qué es**: la vista Mezcla mide el **loudness real de la mezcla** según
+  ITU-R BS.1770-4 / EBU R128 con el `LoudnessMeter` de `filmcraft-audio-dsp`
+  (K-weighting a cualquier tasa de muestreo, ventanas momentary 400 ms y
+  short-term 3 s cada 100 ms, integrated con doble compuerta, LRA con histograma
+  exacto y pico real por sobremuestreo).
+- **Lo que se mide es lo que se exporta**: el render graph ganó un modo
+  `audio_only` que arma el mismo grafo de audio del export (DSP por clip,
+  EQ/paneo por pista, ducking, ganancia master) y lo decodifica a PCM f32le por
+  stdout — sin cadena de video. La medición es **previa** a loudnorm y al
+  limitador: mide la mezcla, no la entrega.
+- **Reporte completo**: integrated, LRA, máximos momentary/short-term, pico
+  digital (dBFS), pico real (dBTP), el **delta contra el objetivo** del proyecto
+  y el historial de la medición (≤1200 muestras) que la UI dibuja como curvas
+  momentary/short-term con la línea del objetivo.
+- **Panel "Loudness de la mezcla"**: guarda el proyecto, mide con progreso
+  (`loudness-analysis-progress`), y aconseja — "subí el master ≈ 2,2 dB" o "la
+  normalización subirá ≈ 2,2 dB al exportar" — según si hay objetivo activo.
+  Los −inf del estándar se floorean a −70 LUFS / −120 dB para que el reporte sea
+  siempre JSON serializable.
+- **Verificado**: el tono de alineación de BS.1770 (seno estéreo 997 Hz a
+  −23 dBFS) mide **−23,0 LUFS ± 0,1** integrado y short-term ± 0,2; el silencio
+  se floorea sin `null`; el plan audio-only no lleva `-progress` (stdout es PCM),
+  `loudnorm`, `-c:v` ni `alimiter`. Live opcional con `EDITOR_IA_FFMPEG`.
+- **Pruebas**: 6 Rust nuevas (calibración, silencio, diezmo, delta, plan,
+  live) + 4 Vitest del panel (medición, delta, error de guardado, sin
+  objetivo).
+
+### Frame real compuesto (2026-10-24)
+
+- **Qué cambió**: **Frame real** ya no muestra sólo el clip seleccionado. El
+  comando `render_preview_frame` compone por defecto las pistas visuales
+  visibles, las capas de ajuste, el look global y los subtítulos en el playhead,
+  con el mismo plan de render de FFmpeg. `native: true` sigue siendo el clip a
+  resolución nativa para la inspección 1:1.
+- **Camino rápido**: el proyecto se reencuadra a un solo frame. Se conservan
+  únicamente los clips activos, se rebasan sus keyframes de transformación y
+  máscara, se congela Ken Burns en el instante pedido, se recortan los subtítulos
+  activos y se eliminan las pistas/clips de audio (un PNG no los necesita). La
+  salida se pide con `-frames:v 1`, sin recorrer la timeline desde cero.
+- **Fallback honesto**: si el frame cae en una transición no congelable (por
+  ejemplo un tipo de transición desconocido) o en un subtítulo con revelado por
+  palabra, se usa el compuesto completo (correcto pero más lento). Los leads de dissolve,
+  fade-black/white y slide, y los frames desde el corte, usan la ventana con
+  ambos clips. Los fades activos ya no fuerzan el compuesto completo: la ventana
+  congela su factor. Los clips
+  gráficos activos ya no descartan toda la composición: la ventana omite el
+  gráfico (no puede quemarlo sin su plan de motion), compone el resto y lo
+  informa en `fallbackReason`; si el gráfico es la única capa visual, cae al
+  preview del clip. Un gráfico fuera del frame no bloquea el compuesto. El
+  preview relaja en memoria el estado/derechos de los medios
+  (nunca se exporta ni se guarda); el export final sigue exigiendo derechos
+  resueltos y materiales listos.
+- **Medición real** sobre `demo-full.editoria.json` (1920×1080, 30 fps, 6
+  imágenes con Ken Burns, subtítulos y audio) en los frames 30 y 600:
+  **0,21–0,25 s** con el camino rápido frente a **1,5 s** (frame 30) y
+  **10,3 s** (frame 600) del compuesto completo sin audio (24,45 s en la
+  primera versión con audio). La diferencia de píxeles contra el compuesto
+  completo es de **1,2/255 de media** (peor canal 20), por selección de frame de
+  origen y antialiasing. El compuesto completo usa un `trim` final en vez de
+  `-ss` de salida, porque el seek reinicia los contadores `n`/`N` y evalúa mal
+  los keyframes.
+- **Pruebas**: live 320×180 con dos pistas y subtítulo → PNG compuesto en
+  0,39 s con el píxel central del overlay correcto; fade activo → ventana con
+  factor congelado (**[56,57,62]** en el frame 3 y **[98,99,102]** en el 24,
+  idénticos al compuesto completo, diff **0,000/255**); comparación ventana vs.
+  completo en los frames 30 y 600. La UI muestra “compuesto” o “clip” en la
+  etiqueta del frame. Verificación completa: **942 tests Vitest en 110
+  archivos**, typecheck limpio y Rust **327 passed, 0 failed, 45 ignored**.
+- **Escala animada centrada (2026-10-24)**: las curvas de escala se resuelven
+  sin cambiar el tamaño de la capa que recibe `overlay`. Se pre-escala
+  estáticamente por el mínimo de la curva (hasta 1×, con Lanczos), se centra
+  con `pad` al lienzo y `zoompan` completa la animación con `z = escala/base
+  ≥ 1` y salida fija. Cubre subida, bajada y cruces de 1× sin el recorte lateral
+  anterior. Medición MP4 real (cuadrado de 100 px): 1,0→1,3 → ancho
+  **102→115**, 1,0→0,7 → **99→86**, 0,8→1,3 → **82→106**, con centro
+  **160/161**. El compuesto completo 1→1,3 contra el estático 1,15 quedó en
+  **6,417/255** (antes 57,0); `zoompan` conserva alfa. Las curvas con mínimo <1
+  usan la ruta de lienzo máximo (ver «Nitidez de escala bajo 1×»); este camino
+  queda para mínimo ≥1.
+- **Rotación animada (2026-10-24)**: el filtro `rotate` evalúa el ángulo con
+  `t` (segundos locales), no con `n`; el render usaba `n` y los keyframes de
+  rotación quedaban congelados. Ahora usa `(t - lead)` y una salida fija al
+  lienzo (`c=black@0:ow=W:oh=H`), por lo que la capa no cambia de tamaño y el
+  overlay la centra. MP4 real con rotación 0→90°: ancho **104 → 140** y centro
+  **159,89** en los frames 0,05 s y 1,0 s. La rotación estática usa el mismo
+  lienzo fijo.
+- **Escala + rotación (2026-10-24)**: como `rotate` entrega una capa fija al
+  lienzo, la escala animada se puede aplicar después de la rotación. MP4 real
+  con escala 1→1,3 y rotación 0→90° simultáneas: ancho **106 → 162** y centro
+  **160,90** en los frames 0,05 s y 1,0 s.
+- **Escala estática + keyframes (2026-10-24)**: el lienzo final de rotación y
+  zoom usa `ceil(perfil × scaleX/Y)` redondeado a par, para no normalizar la
+  escala estática a 1×. MP4 real con escala estática 1,15 y keyframes 1→1,3:
+  ancho **118 → 132** y centro **160,90**.
+- **Ken Burns + escala (2026-10-24)**: el `zoompan` de movimiento entrega una
+  capa fija que se ajusta al lienzo antes del zoom final de escala. MP4 real con
+  Ken Burns zoom-in 0,2 y keyframes de escala 1→1,3: ancho **104 → 128** y
+  centro **161,91**.
+- **Velocidad + escala (2026-10-24)**: el `on` de `zoompan` cuenta frames ya
+  retimados por el `setpts` de velocidad, no frames de origen; el reloj de los
+  keyframes de escala pasó a `on/fps` (con el lead restado). MP4 real a 2× con
+  keyframes 1→1,3 en 30 frames de timeline: ancho **103 → 115** y centro
+  **160,90 / 161,90** en los frames 0,05 s y 0,5 s.
+- **Nitidez de escala bajo 1× (2026-10-24)**: las curvas que bajan de 1× ya no
+  se pre-escalan al mínimo para volver a subir con `zoompan`. La capa se
+  pre-escala una vez al máximo (Lanczos) y cada frame se reduce dentro de un
+  lienzo fijo (`scale ... eval=frame` + `pad ... eval=frame`), así el overlay
+  sigue recibiendo un tamaño constante. Medición sobre un tablero de 8 px:
+  varianza laplaciana **8.337,7** frente a **10.054,1** de una escala estática
+  de referencia (**0,829**; la ruta anterior daba **0,267**). MP4 real 0,8→1,3:
+  ancho **84→106** y centro **159**; 1→0,7: **99→84**; a 2× el cruce da
+  **84→106** (centro **159/88**) porque el reloj usa la tasa retimada de frames;
+  el resto de las combinaciones sigue verde.
+- **Fade en la ventana de un frame (2026-10-24)**: los frames con fade activo ya
+  no caen al compuesto completo. La ventana evalúa el factor lineal en el
+  instante pedido (entrada × salida), anula los `fadeIn/OutFrames` recortados y
+  lo aplica como multiplicación de alfa constante. Live 320×180 con un PNG gris
+  y fondo `#0f1319`: frame 3 → **[56,57,62]** y frame 24 → **[98,99,102]**,
+  idénticos al compuesto completo, diferencia media **0,000/255**.
+- **Fade de alfa sin doble oscurecido (2026-10-24)**: el render usaba `fade`
+  sobre RGBA; FFmpeg también bajaba el alfa, así que el RGB y la opacidad se
+  fundían a la vez y el clip se oscurecía dos veces sobre otra capa (el gris 180
+  al 25 % daba 22 en lugar de 56). Los fades de clip ahora usan
+  `fade ...:alpha=1`: el RGB se conserva y sólo cambia la opacidad, igual que
+  las animaciones de entrada/salida. MP4 real de 1 s con fades de 12 frames:
+  10 % → **56**, 40 % → **180**, 80 % → **98** (esperado 56/180/98). Con
+  velocidad 2× y rotación animada, la ventana y el compuesto completo coinciden
+  en **[56,57,62]** y **[98,99,102]**, diff **0,000/255**.
+- **Transiciones congeladas antes y después del corte (2026-10-24)**: la
+  ventana rápida conserva ambos clips desde el inicio del lead hasta el final
+  del clip entrante. Quita el `transitionIn` y congela la transición en
+  `transitionFrozen`: alfa para dissolve, RGB+alfa para fade-black, barrido a
+  blanco para fade-white (conserva alfa) y desplazamiento x/y para slide.
+  Ajusta el origen al tiempo local del solape
+  (`max(in - lead × velocidad, 0) + local × velocidad`) y cuenta la pista
+  entrante en la metadata. Live rojo + patrón animado, 12 frames y corte en 24:
+  en el frame 18 dissolve **1,152/255**, fade-black **1,079**, fade-white
+  **0,612** y slide-left **0,000**; con Ken Burns zoom-in 0,2, dissolve
+  **1,158** y slide-left **0,000**; zoom-out **1,162**; pan-right **1,044**;
+  con reverse, dissolve **1,161**; con opacidad animada, **1,152**; con
+  animación slide, **0,000**; con motion que excede el clip, frame 46
+  **0,000**; el resto de los frames medidos, **0,000**. Los cuatro sentidos del
+  slide se cubren por unitario; `motion` con lead se congela incluso si excede
+  el clip (zoom-in, zoom-out y pan); los tipos desconocidos se delegan.
+- **Opacidad animada en la ventana (2026-10-24)**: los keyframes de opacidad ya
+  no fuerzan el compuesto completo. La ventana congela el valor interpolado con
+  el mismo easing (`opacity_at`) y conserva el resto de keyframes; el render
+  completo recibió además una corrección real: `sendcmd` va antes del
+  `colorchannelmixer`, así el valor del frame se aplica a ese frame y no al
+  siguiente (antes la opacidad del export quedaba desfasada). Live gris +
+  escala/rotación y opacidad 0→1: frames 3/15/24 diff **0,238 / 0,274 /
+  2,466/255**; unitario de easing lineal, ease-in y hold. Con un dissolve, el
+  frame 18 combinado queda en **1,152/255**.
+- **Animaciones de entrada/salida en la ventana (2026-10-24)**: las animaciones
+  activas ya no fuerzan el compuesto completo. `animation_freeze` congela el
+  desplazamiento de los slide y el alfa de los fade con el tiempo del clip; el
+  overlay suma x/y y el filtro multiplica alfa. Live con slide-left de entrada
+  y fade de salida: frames 3/6/24/27 diff **0,000/255**; slide-right de salida:
+  **0,000** en 24/27; unitario: x **240** en el frame 25 y alfa **0,5** en el
+  46. Con un dissolve, **0,000/255** en los cuatro frames medidos.
+- **Clips invertidos en la ventana (2026-10-24)**: los clips con reverse ya no
+  caen al compuesto completo. La ventana toma el frame desde el final del
+  bloque de entrada (`último - local × velocidad`) y quita el filtro `reverse`;
+  el `outFrame` forward conserva su contrato. Live con patrón animado: frames
+  0/3/15/29 diff **0,000/255**; con dissolve, frame 18 **1,161/255** y el resto
+  **0,000**; con transform+motion, frames 1/15/29 **4,915 / 3,572 / 4,809**
+  frente a **4,874 / 3,666 / 5,316** sin reverse, o sea la diferencia es el
+  remuestreo de la escala, no el reverse (el frame 0, 7,441, queda como borde);
+  unitario: inFrame **19**, outFrame **20** en el frame 20 de un clip de 30.
+- **Gráfico activo en la ventana (2026-10-24)**: si un clip gráfico está activo,
+  la ventana ya no cae al preview del clip. Omite el gráfico (el motion todavía
+  necesita su plan), compone el resto de las capas y lo informa en
+  `fallbackReason`; si el gráfico es la única capa visual, mantiene el fallback
+  al clip. Live: mismo proyecto con y sin el gráfico, diff **0,000/255**. El
+  export sigue rechazando un gráfico sin plan en vez de omitirlo.
+- **Compuestos en la ventana rápida (2026-10-24)**: la ventana expande los clips
+  compuestos a sus clips internos con la misma función del render completo
+  (`expand_compounds`) antes de congelar; antes los ignoraba y perdía esas
+  capas. Live con un video gris dentro de un compuesto: frames 3/15/29 diff
+  **0,000/255**; unitario: el plan conserva el clip interno y descarta el
+  compuesto.
+- **Compuesto en pista oculta (2026-10-24)**: ocultar la pista del compuesto no
+  bastaba, porque `expand_compounds` devolvía sus clips internos a sus pistas
+  originales y una pista interna visible los renderizaba igual. La expansión
+  ahora descarta el compuesto cuando su pista exterior está oculta, para el
+  export y la ventana rápida. Unitario: el compuesto oculto no aporta clips; al
+  volver a mostrarlo, el clip interno reaparece desplazado a su posición.
+- **Audio de un compuesto en pista muda (2026-10-24)**: el mute de la pista
+  exterior tampoco llegaba a los clips internos, que usan sus propias pistas.
+  La expansión marca `audio.muted` en los clips internos de video y audio;
+  así el plan reemplaza el mix por silencio (`anullsrc`) sin tocar la imagen.
+  Unitario: los clips internos heredan el mute y lo pierden al reactivar la
+  pista; prueba de plan: con mute no entra `audio.wav`, sin mute sí.
+- **Intercambio con compuestos (2026-10-24)**: EDL y FCPXML descartaban los
+  clips compuestos y OTIO los emitía como un clip sin medio. Los tres
+  exportadores expanden los compuestos antes de armar la salida, así los clips
+  internos conservan pista, posición y fuente. Unitarios:
+  `edl_expands_compound_clips`, `fcpxml_expands_compound_clips` (exporta Toma,
+  no Grupo) y `otio_expands_compound_clips` (`clip_id` interno y ruta del
+  medio). Límite: EDL y FCPXML son una sola spine, así que un compuesto con
+  clips en varias pistas puede advertir solape.
+- **Pistas ocultas fuera del intercambio (2026-10-24)**: OTIO y el render
+  omitían las pistas ocultas, pero EDL y FCPXML exportaban sus clips, así que
+  reabrir la timeline en otra app mostraba material que acá no se ve. Los dos
+  exportadores filtran por `trackId` contra las pistas con `hidden: true`; los
+  clips sin `trackId` siguen exportándose. Unitarios:
+  `edl_skips_clips_on_hidden_tracks` y `fcpxml_skips_clips_on_hidden_tracks`.
+- **Solo de compuesto (2026-10-24)**: con la pista exterior en solo, los clips
+  internos se silenciaban porque la mezcla decide por pista y las pistas
+  internas no estaban en solo. La expansión marca `audio.solo` en los clips
+  internos de video y audio y la mezcla los deja pasar; el resto sigue
+  excluido y el mute tiene prioridad. Unitario:
+  `compound_audio_follows_the_outer_track_solo` (hereda y revierte). Prueba de
+  plan: con solo entra el audio interno y no la música; sin solo suenan ambos.
+- **Clips desactivados fuera del intercambio (2026-10-24)**: el render, el
+  motion y la preview descartan los clips con `enabled: false`, pero EDL,
+  FCPXML y OTIO los seguían escribiendo. Los tres exportadores filtran por
+  `enabled` después de expandir compuestos. Unitarios:
+  `edl_skips_disabled_clips`, `fcpxml_skips_disabled_clips` y
+  `otio_skips_disabled_clips`.
+- **Gaps reales en FCPXML (2026-10-24)**: el hueco entre dos clips separados se
+  calculaba con el `last_end` ya extendido por el clip actual, así que el
+  cursor terminaba en su inicio y no se escribía ningún `<gap>`. Ahora el gap
+  va del final del clip anterior al inicio del siguiente; los clips
+  solapados siguen sin gap y con aviso. Unitario:
+  `fcpxml_writes_a_gap_between_separated_clips` (30 frames + hueco de 10 +
+  30 frames → `<gap offset="1.000000s" duration="0.333333s"/>`).
+- **FCPXML honesto con media rota y efectos (2026-10-24)**: el contador
+  devolvía `clips.len()`, así que una timeline con solo clips de duración 0
+  pasaba el guardia de timeline vacía y exportaba una spine sin clips; un clip
+  sin asset escribía `src="file:///"`; y velocidad, reverse y transición se
+  perdían sin aviso. Ahora se cuentan solo los clips escritos, los clips sin
+  asset se omiten con aviso (el hueco que dejan sigue en la spine), la
+  duración de la secuencia sale del final real, y velocidad/reverse y
+  `transitionIn` avisan igual que en el EDL. Unitarios:
+  `fcpxml_rejects_a_timeline_with_only_zero_duration_clips`,
+  `fcpxml_skips_clips_without_a_resolvable_asset` y
+  `fcpxml_warns_about_speed_reverse_and_transitions`.
+- **OTIO honesto con media rota y efectos (2026-10-24)**: un clip cuyo
+  `assetId` ya no resuelve escribía `target_url: "file:///"`; ahora emite
+  `MissingReference.1` con aviso y conserva el tiempo del clip. Reverse y
+  `transitionIn` también avisan, como en el EDL y el FCPXML; la velocidad ya
+  avisaba y sigue guardada en `metadata.editor_ia.speed`. Unitarios:
+  `otio_marks_missing_assets_as_missing_reference` y
+  `otio_warns_about_speed_reverse_and_transitions`.
+- **Avisos de material que no viaja al intercambio (2026-10-24)**: los tres
+  exportadores descartaban gráficos y capas de ajuste sin decirlo, y EDL y
+  FCPXML también el audio. Ahora cuentan los clips visibles (no en pista
+  oculta ni desactivados) de esos tipos y agregan un aviso por tipo con la
+  cantidad; OTIO exporta el audio, así que solo avisa por gráficos y ajustes.
+  Los subtítulos tampoco viajan a ninguno de los tres, así que también se
+  cuentan los cues visibles. Unitarios:
+  `edl_warns_about_graphics_adjustments_and_audio`,
+  `fcpxml_warns_about_graphics_adjustments_and_audio` y
+  `otio_warns_about_graphics_and_adjustments`.
+- **Round-trip exportador → importador (2026-10-24)**: tres pruebas exportan
+  con el escritor real y parsean con el importador real: EDL (inicio 1 s,
+  origen 0,5 s, duración 2 s y `media/toma.mp4`), OTIO (el mismo caso con gap
+  de entrada) y FCPXML (dos clips separados: el segundo empieza en 40/30 s,
+  dura 1 s y referencia `file:///media/toma.mp4`). Cubren el bug de gaps de
+  FCPXML desde el lado del importador. Unitarios:
+  `our_edl_export_round_trips_timing_and_media`,
+  `our_otio_export_round_trips_gap_and_media` y
+  `our_fcpxml_export_round_trips_gaps_and_media`.
+- **`frameDuration` correcto en FCPXML (2026-10-24)**: el `<format>` escribía
+  `frameDuration="30/1s"` (la tasa), cuando el atributo es la duración de un
+  cuadro: una NLE leería 30 segundos por cuadro. Ahora escribe `den/num`
+  (`1/30s`, `1001/30000s`), que es como el propio importador ya lo leía.
+  Unitarios: `fcpxml_has_resources_spine_and_clip` (`1/30s`) y
+  `fcpxml_writes_the_frame_duration_not_the_rate` (29,97 → `1001/30000s` y
+  30 frames = 1,001 s).
+- **Importador EDL con drop-frame y fps real (2026-10-24)**: el parser leía
+  `00:10:00;00` como NDF y además dividía los timecodes por el fps nominal
+  (30 en un proyecto 29,97), así que cada hora desplazaba **108 cuadros
+  (3,6 s)**. Ahora lee `FCM: DROP FRAME` y el separador `;`, aplica la regla
+  SMPTE (2 cuadros menos por minuto salvo cada 10: `00:10:00;00` = cuadro
+  **17982**, no 18000), rechaza timecodes que no existen en drop-frame
+  (`00:01:00;00`) y convierte a segundos con el fps real: el frame index se
+  recupera exacto al materializar. En 25/24/50 fps avisa **una sola vez** y
+  lee NDF. Unitarios: `edl_drop_frame_skips_the_smpte_dropped_frames`,
+  `edl_drop_frame_rejects_a_timecode_that_does_not_exist`,
+  `edl_timecodes_without_drop_frame_convert_with_the_real_fps`,
+  `edl_drop_frame_warns_once_when_the_rate_cannot_drop` y el round-trip
+  `our_edl_export_round_trips_ntsc_frames` (30/60/15 cuadros exactos).
+- **Pistas de audio del intercambio (2026-10-24)**: un evento EDL `A` o un
+  `Track` OTIO `kind: Audio` suele apuntar al mismo archivo que la pista de
+  video. El materializador usaba el tipo del *asset*, así que montaba un clip
+  de video duplicado en una pista nueva. Ahora el tipo de la pista manda: audio
+  + asset de video → clip `audio` en su pista, sin duplicar el video; audio +
+  imagen se omite con aviso. Unitarios:
+  `edl_audio_track_reuses_the_video_asset_as_audio` y
+  `edl_audio_event_on_an_image_is_omitted`.
+- **Ducking que no corta la música (2026-10-24)**: `sidechaincompress` termina
+  con la entrada más corta, así que la cama duckeada se cortaba justo al
+  terminar la voz (medido fuera del render: 3 s de música + 1 s de voz →
+  **1 s** de salida). El sidechain ahora pasa por `apad` antes del compresor.
+  Un render real de 320×180 mide la banda de 300 Hz: con ducking **−31,3 dB**
+  dentro de la locución y **−23,8 dB** fuera (**7,5 dB** de reducción); sin
+  ducking, −23,7/−23,8 dB (plano) y la salida dura 3 s. Tests:
+  `ducking_pads_the_sidechain_so_the_bed_survives_the_voice` (grafo) y
+  `render_live_ducking_keeps_the_bed_and_lowers_it_under_the_voice`
+  (`EDITOR_IA_RUN_RENDER_TESTS=1`).
+- **Importador FCPXML de Final Cut (2026-10-24)**: el parser sólo aceptaba
+  `<clip><video ref=...>`; Final Cut y Resolve exportan la storyline con
+  `<asset-clip ref=...>`, así que un FCPXML real se importaba **vacío**. Ahora
+  acepta ambos, lee `start`/`audioStart` y usa `hasVideo` del asset para montar
+  los clips sin video en una pista de audio. Los clips conectados (`lane`) se
+  avisan y siguen sin importarse. El exportador también escribe la spine con
+  `<asset-clip>` (el elemento canónico), así el round-trip usa el mismo formato
+  que Final Cut. Tests: `parses_final_cut_asset_clips`,
+  `parses_an_audio_only_asset_clip_into_an_audio_track`,
+  `warns_about_connected_video_lanes` y
+  `fcpxml_has_resources_spine_and_clip` (exige `<asset-clip ref=` y ningún
+  `<video ref=`).
+- **Lanes de audio conectados en FCPXML (2026-10-24)**: Final Cut guarda la
+  música y la voz en clips conectados (`<asset-clip lane="-1">`) hijos del
+  clip ancla; antes se descartaban con un aviso. Ahora se importan como clips
+  de audio, con `offset` relativo al inicio del ancla y `audioStart` como
+  origen. Los lanes de video o títulos siguen avisándose y no se importan.
+  Tests: `imports_connected_audio_lanes_with_the_anchor_offset` (ancla en 1 s +
+  offset 0,5 s → audio en 1,5 s con origen 0,25 s),
+  `imports_audio_lanes_anchored_to_a_gap` (cortina sobre un `<gap>`, antes del
+  primer clip) y `warns_about_connected_video_lanes`.
 
 ### 32K, voz DSP, máscaras y transiciones nuevas (2026-10-23)
 
@@ -1141,7 +1467,9 @@ fuente vigente es el addendum de la matriz.
   frames sin desbordar. Capturas:
   `editor-ia-shots\app-ui-editor-final-2026-10-19.png` y
   `app-ui-editor-compact-1100-2026-10-19.png`.
-- **Instalador NSIS actual (2026-10-24)**: `Olyvia_0.1.0_x64-setup.exe`, **204.287.240 bytes**, sha256 `b62a915044dd68850f5bf421754a5fb53ceddb6037b851ca566f8d61a7fbf83e`, firma Authenticode válida con el certificado local CN=Editor IA (Self-Signed). Se instaló con `/S` y se probó la app instalada sin Vite. El artefacto anterior `Editor IA_0.1.0_x64-setup.exe` se eliminó de la carpeta.
+- **Instalador NSIS de este pase (2026-10-24)**: el artefacto vigente y sus
+  hashes están documentados al final de este README; las cifras de esta lista
+  corresponden a la build de ese día y no a la última.
 - **UI y tutorial (2026-10-19)**: se verificaron en navegador la vista Aprender, el filtro/progreso, el formato/fps personalizado y el perfil con foto redimensionada (JPEG 256 px, 1.551 caracteres) y nombre/rol persistentes. En la app nativa se observó la ruta de aprendizaje y el llavero `editor-ia.welcome.v1` quedó en `seen`. La automatización de Computer Use se detuvo con Escape antes de una captura final del release; no se afirma una revisión visual nativa completa de la última compilación.
 - **Re-auditoría REA y batch de color/encuadre (2026-10-20)**: `inspect_pe_resources`
   confirmó el inventario de `CapCut.exe` y `BMDDavUI.dll`; el artefacto de CapCut
@@ -2268,15 +2596,20 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   nuevas, agrega los assets a Medios y deja el resultado listo para el editor
   con undo. También permite **Abrir editor**.
 - **Qué importa**: eventos CMX 3600 (cortes, ventanas de origen y récord), OTIO
-  `Timeline/Track/Clip/Gap` y FCPXML 1.11 (asset, `media-rep`, spine, gap y
-  clip). Convierte los tiempos al fps del proyecto, resuelve rutas relativas
+  `Timeline/Track/Clip/Gap` y FCPXML 1.11 (asset, `media-rep`, spine, gap,
+  `<clip>`, `<asset-clip>` y lanes de audio conectados; los assets con
+  `hasVideo="0"` van a una pista de audio). Convierte los tiempos al fps del
+  proyecto, resuelve rutas relativas
   contra la raíz del proyecto y la carpeta de la timeline, reutiliza assets ya
   presentes por ruta canónica y copia los medios nuevos con el importador de
-  Medios y provenance `timeline-import`.
-- **Límites honestos**: transiciones, efectos, wipes, clips conectados y stacks
-  anidados no se representan; se avisan y se importan como cortes o se omiten.
-  El EDL no declara fps (se usa el del proyecto) y el drop-frame se interpreta
-  como NDF. Los medios que no se encuentran se omiten con un aviso. Una timeline
+  Medios y provenance `timeline-import`. Los eventos o pistas de audio montan
+  clips de audio aunque apunten al mismo archivo de video, sin duplicar la
+  imagen; si apuntan a una imagen se omiten con aviso.
+- **Límites honestos**: transiciones, efectos, wipes, lanes de video/títulos y
+  stacks anidados no se representan; se avisan y se importan como cortes o se
+  omiten. El EDL no declara fps (se usa el del proyecto); el drop-frame se decodifica
+  con la regla SMPTE a 29,97/59,94 y en otros fps se lee NDF con un aviso. Los
+  medios que no se encuentran se omiten con un aviso. Una timeline
   puede referenciar archivos absolutos: importá sólo archivos de fuentes
   confiables porque esos medios se copian al proyecto. Límites: 1.000 clips,
   200 medios y 64 pistas por importación.
@@ -2514,8 +2847,8 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   **256 Rust** (18 ignorados), typecheck y build verdes.
 - **Límites**: v1 no tiene pan, EQ por pista ni automatización de fader; los
   picos son una medición puntual, no medidores en tiempo real. El
-  EQ/compresor/denoise siguen siendo por clip. La sincronización por timecode y
-  los nodos VFX continúan pendientes.
+  EQ/compresor/denoise siguen siendo por clip. La sincronización por timecode
+  sigue pendiente; los nodos VFX se agregaron en el pase siguiente (ver arriba).
 
 ## Lanzador fijo y ajustes en el lugar (2026-10-24)
 
@@ -2624,58 +2957,176 @@ vulnerabilidades. Las dependencias directas y sus licencias están en
   85 archivos**, **933 del workspace en 108 archivos**, **260 Rust** (18
   ignorados), typecheck y build verdes.
 
-## Instalador Olyvia 0.1.0 verificado (2026-10-24)
+## VFX, rotoscopía y seguimiento facial (2026-10-24)
+
+- **Vista VFX**: nueva cadena de nodos por clip con el orden real del render:
+  entrada → chroma → roto → color → detalle → salida. Cada nodo escribe los
+  campos reales del clip y el MP4 los aplica con FFmpeg; no hay una maqueta.
+- **Rotoscopía poligonal**: `ClipMask` acepta `shape: "polygon"` con 3–16 puntos
+  normalizados (0..1). El renderer genera una cobertura por número de cruces en
+  `geq`, con inversión. En el visor se agregan y arrastran vértices, y se pueden
+  guardar claves x/y. La vista previa dibuja el mismo polígono.
+- **Seguimiento facial**: usa el motor SeetaFace ya incluido. El track se
+  convierte en un polígono de 8 vértices alrededor de la primera cara más claves
+  x/y para todo el clip (máximo 48). Es seguimiento de rostro, no de objetos
+  arbitrarios.
+- **Export real verificado**: con la build instalada se exportó un clip de 5 s
+  (150 frames, 1920×1080, 30 fps) con un polígono de 4 vértices que enmarca el
+  30–70 % vertical y el 35–65 % horizontal. El MP4 quedó en **259.685 bytes**
+  (253,6 KB) con audio AAC; el fotograma de 2,5 s muestra el contenido solo
+  dentro del polígono y el fondo `#0b0e13` fuera. Luma medida: **118–125 YAVG**
+  dentro contra **25 YAVG** en la esquina y la banda izquierda, igual en 0,5 s,
+  2,5 s y 4,5 s. Evidencia:
+  [`olyvia-vfx-roto-frame-2026-10-24.png`](editor-ia-shots/olyvia-vfx-roto-frame-2026-10-24.png)
+  y
+  [`olyvia-vfx-roto-export-2026-10-24.mp4`](editor-ia-shots/olyvia-vfx-roto-export-2026-10-24.mp4).
+- **Gate de bytes corregido**: el mínimo de 500 KB del perfil rechazaba ese
+  export válido porque la máscara deja casi todo el cuadro en fondo. El guardia
+  ahora escala con la duración (10 KB por segundo, sin superar el valor del
+  perfil): un clip de 5 s exige 50 KB y uno de 60 s conserva los 500 KB. El
+  archivo se sigue validando con ffprobe (duración y resolución), así que un MP4
+  vacío o truncado sigue fallando.
+- **Límites honestos**: esta v1 es una cadena lineal, no un grafo DAG con
+  ramas; el polígono es rígido (se traslada, no deforma sus vértices por frame),
+  el feather poligonal es duro y no hay tracking planar. El seguimiento de
+  objetos, la rotoscopía deformable y el compositing con múltiples capas siguen
+  pendientes.
+- **Pruebas**: 1 test de esquema, 2 tests Rust del `geq` poligonal (uno live con
+  FFmpeg real, ignorado por defecto), 5 tests del conversor de track a máscara,
+  3 tests de la vista y 1 test del gate por duración. Suites: **580 tests de la
+  app en 87 archivos**, **942 del workspace en 110 archivos**, **272 Rust** (26
+  ignorados), typecheck y build verdes.
+
+## Paneo y EQ de 3 bandas por pista (Fairlight v2 parcial, 2026-10-24)
+
+- **Modelo**: `TrackSchema` acepta `pan` (-1 izquierda … 1 derecha) y
+  `eqLowDb`/`eqMidDb`/`eqHighDb` (-12…12 dB). El JSON Schema publicado se
+  regeneró y `updateTrack` valida los rangos; los valores pasan por undo/redo y
+  autoguardado como el resto de la pista.
+- **Render real**: `track_audio_filters` agrega `equalizer` a 120 Hz, 1 kHz y
+  8 kHz y un `pan` de balance lineal después del DSP del clip y antes del fader
+  de pista. Se aplica tanto al audio embebido de videos como a los clips de
+  audio y narración, y el centro deja ambos canales a 1.0.
+- **Mesa**: cada canal muestra paneo y tres bandas con etiquetas, valor en dB y
+  **EQ 0** para volver al plano. Los controles son sliders nativos accesibles.
+- **Medición real** con el FFmpeg instalado (tono 440 Hz, 48 kHz, 1 s):
+  paneo **-0.5** → izquierda **-24,1 dB** de media y derecha **-30,1 dB**
+  (6,0 dB de diferencia, exactamente el 0,5 de ganancia). EQ de 120 Hz a
+  **-12 dB** → media **-24,1 → -36,0 dB** (-11,9 dB efectivos).
+- **Pruebas**: 2 tests de esquema, 3 de los helpers de paneo/EQ, 2 de acciones,
+  1 de la mesa, 2 del grafo de render y 1 live opcional que mide canales con
+  FFmpeg. Suites: **950 tests del workspace en 110 archivos**, **586 de la app
+  en 87 archivos**, **274 Rust** (32 ignorados), typecheck y build verdes.
+- **Defecto de suite corregido**: `visual_effects_reach_the_filter_chain`
+  esperaba la implementación vieja de fades (`sendcmd`/`colorchannelmixer`) y
+  fallaba contra los `fade=t=in/out` reales. Ahora verifica los filtros vigentes
+  y la suite completa volvió a verde.
+- **Límite**: la preview reproduce ganancia y solo; el paneo y EQ de pista se
+  aplican en el export, igual que el DSP de clip que la preview no simula.
+
+## Emojis completos en títulos y subtítulos (2026-10-24)
+
+- **Set**: se generó un catálogo desde Unicode **18.0** con **3.963 emojis
+  fully-qualified**, 10 grupos, nombres para búsqueda, variantes de tono de piel
+  y banderas. La fuente y los términos quedaron documentados en
+  `apps/desktop/src/features/emoji/emoji-data.ts`.
+- **Dos estilos**: **Android** con Noto Color Emoji (OFL 1.1) y **abierto** con
+  Twemoji Mozilla (arte CC-BY 4.0, código Apache 2.0). Los archivos, hashes y
+  licencias están en `apps/desktop/src/assets/fonts/`; **no se empaquetan glifos
+  de Apple** (son propietarios). En macOS el stack cae a Apple Color Emoji si el
+  sistema lo tiene.
+- **Selector**: buscador, categorías, recientes persistidos y cambio de estilo en
+  caliente. Se abre como diálogo centrado (portal), cierra con Escape o clic
+  afuera y usa botones con nombre accesible por emoji.
+- **Integración**: botón de emoji en **Texto → Texto personalizado**, en el
+  campo de **Subtítulos** del Inspector, en el de **Títulos** y en el texto de
+  cada cue. Inserta en el cursor o reemplaza la selección y mantiene el foco.
+  La preferencia de estilo se guarda en `editoria.editor-prefs.v1`.
+- **Preview**: los títulos y subtítulos usan el stack `familia propia + emoji
+  elegido`, así que la preview muestra color con la fuente elegida.
+- **Límite real del export**: el FFmpeg/libass incluido renderiza emojis en
+  **monocromo** (probado con Noto CBDT y Twemoji COLR; ninguno da color en
+  libass). El selector y el diálogo de exportación lo advierten antes de
+  renderizar. Para color en el MP4 falta un pase de overlays raster; no se
+  declara hecho.
+- **Pruebas**: 3 tests del set/inserción, 4 del selector y 2 de preferencias;
+  la integración en los campos de Texto/Inspector se verificó en la build
+  instalada. Suites: **971 tests del workspace en 112 archivos**, **602 de la
+  app en 89 archivos**, Rust **309/45**, typecheck y build verdes.
+
+## Editor con organización CapCut (solo estructura, 2026-10-24)
+
+- **Editor inmersivo**: al abrir el editor se ocultan la barra lateral global y la
+  barra de estado; queda una sola barra superior con marca, Inicio, menús,
+  nombre del proyecto + estado al centro, deshacer/rehacer/guardar/exportar,
+  ajustes y controles de ventana.
+- **Panel izquierdo**: las herramientas reales van en una tira horizontal sobre
+  el contenido: Medios, Audio, Texto, Stickers, Efectos, Transiciones, Filtros y
+  Ajustes. La tira se desplaza horizontalmente; no se inventaron pestañas sin
+  contenido.
+- **Centro**: Player con su transporte y controles de preview; **Detalles** a la
+  derecha (el antiguo Inspector, renombrado).
+- **Timeline**: ocupa todo el ancho, con la pestaña **Timeline 01** y el resumen
+  de proyecto/duración arriba; la toolbar y las pistas existentes quedan debajo.
+- **Navegación**: se sale con **Inicio** y se cambia de herramienta desde el
+  menú **Ver** (que ya lista todas las vistas). No se copió el aspecto visual de
+  CapCut: se mantienen los colores, tipografía y controles planos de Olyvia.
+- **Capturas**: la build instalada quedó en
+  [`olyvia-editor-organizacion-instalada-2026-10-24.png`](editor-ia-shots/olyvia-editor-organizacion-instalada-2026-10-24.png)
+  (contenido 1360×720, topbar único, herramientas a la izquierda, Player al
+  centro, Detalles a la derecha y Timeline 01 a todo el ancho). La captura de desarrollo
+  es [`olyvia-editor-organizacion-2026-10-24.png`](editor-ia-shots/olyvia-editor-organizacion-2026-10-24.png).
+- **Pruebas**: **972 tests del workspace en 112 archivos**, **603 de la app en
+  89 archivos**, Rust **309/45**, typecheck y build verdes. La build instalada
+  se abrió desde `%LOCALAPPDATA%\Olyvia` y se verificó visualmente.
+
+## Instalador Olyvia 0.1.0 con layout CapCut verificado (2026-10-24)
 
 - **Artefacto final**: `target/release/bundle/nsis/Olyvia_0.1.0_x64-setup.exe`,
-  **215.812.440 bytes** (205,81 MiB), SHA-256
-  `dc565d3e92434695bfd99931fcc4d83d148651e3ed43d5be2d99a03d57504ecf`.
+  **230.790.824 bytes** (220,10 MiB), SHA-256
+  `8a87c219c5b19983a79ca2c860331c7e4026690cd5c93c5c264fac306777630f`.
   Firma Authenticode **válida** con `CN=Editor IA (Self-Signed)` (huella
   `5820…3954`), válida hasta 2028. Es confianza local, no un certificado
   público.
-- **Sin sello de tiempo**: el primer intento de bundle falló porque
-  `timestamp.digicert.com` no respondió al firmar las DLLs de FFmpeg. Se quitó
-  `timestampUrl` de `tauri.conf.json` para que la firma local no dependa de la
-  red; `signtool verify /pa` pasa e informa «File is not timestamped».
-- **Instalación real**: `/S` salió **0**. El ejecutable instalado quedó en
-  `%LOCALAPPDATA%\Olyvia\editor-ia-desktop.exe` con **119.564.768 bytes**,
-  SHA-256 `394448636d4675f7619fbfafc2c14bb6a9e51a9a7853e9231af78d28c410e599`
-  y firma válida. El lanzador abrió en **916×619** (contenido 900×580), con el
-  desinstalador y el acceso `Olyvia.lnk` en el Menú Inicio.
-- **Aceptación en la app instalada**:
-  - portadas reales en recientes y monograma «P»/«D» en proyectos sin visual;
-  - el engranaje abre la configuración flotante sobre el lanzador, sin entrar
-    al estudio y con la navegación en una columna;
-  - multicámara real: dos videos de 10 s con **1,2 s** de desfase, sync por
-    audio al **100 %**, entradas 0/1,2 s y pista «Multicámara» creada con
-    `CAM 1 · Cámara A`;
-  - mezclador real con el proyecto Demo completa: V1 en **-7,5 dB**, Narración
-    en **-3 dB**, Master en **-2 dB** y Narración en solo, con el resumen
-    «1 pista en solo» (los faders se devolvieron a 0 al terminar la prueba);
-  - render GPU real: el proyecto de prueba de 5 s y 1920×1080 se exportó con
-    **h264_amf** activado en Exportar; el MP4 resultante pesa **5.199.536
-    bytes**, dura **5,000 s** y su metadato de encoder es `h264_amf`;
-  - política GPU verificada en la app instalada con Demo completa: en el perfil
-    1080p corto el check aparece **deshabilitado** («no recomendada para este
-    render») y el texto confirma que se mantiene el encoder por software. Al
-    elegir **Máxima calidad** (preset pesado) el mismo check se habilita con
-    `h264_amf`; al volver a un preset rápido se apaga solo.
-  Capturas:
-  [`olyvia-lanzador-portadas-2026-10-24.png`](editor-ia-shots/olyvia-lanzador-portadas-2026-10-24.png),
-  [`olyvia-ajustes-ventana-2026-10-24.png`](editor-ia-shots/olyvia-ajustes-ventana-2026-10-24.png),
-  [`olyvia-multicam-audio-2026-10-24.png`](editor-ia-shots/olyvia-multicam-audio-2026-10-24.png)
-  y
-  [`olyvia-multicam-pista-2026-10-24.png`](editor-ia-shots/olyvia-multicam-pista-2026-10-24.png),
-  más
-  [`olyvia-mezclador-2026-10-24.png`](editor-ia-shots/olyvia-mezclador-2026-10-24.png)
-  y
-  [`olyvia-render-gpu-policy-2026-10-24.png`](editor-ia-shots/olyvia-render-gpu-policy-2026-10-24.png).
-- **Medición**: **572 tests de la app en 85 archivos** y **933 del workspace en
-  108 archivos** (0 fallos), **260 Rust** (18 ignorados), typecheck y build
-  verdes. La compilación nativa terminó a las 10:12. Playwright **11/11**
-  pertenece a la corrida anterior; este pase cambió la política GPU del
-  frontend y agregó tests de recomendación, pero no re-ejecutó los e2e.
+- **Sin sello de tiempo**: `timestamp.digicert.com` no respondió al firmar las
+  DLLs de FFmpeg; se quitó `timestampUrl` de `tauri.conf.json`. `signtool
+  verify /pa` pasa e informa «File is not timestamped».
+- **Instalación real**: el ejecutable instalado quedó en
+  `%LOCALAPPDATA%\Olyvia\editor-ia-desktop.exe` con **135.302.112 bytes**,
+  SHA-256 `E41DDC6AF961DE420455A31DDD7D3F3878B89D89A84A76EC70BE562F485CFF07`
+  y firma **válida**. La compilación nativa terminó a las **21:45**; el
+  instalador NSIS se escribió a las **21:50**. La app se lanzó desde la copia
+  instalada, sin Vite, y quedó una sola instancia.
+- **Aceptación de este pase (organización)**:
+  - la ventana maximizada mostró el **topbar único** con marca, menús, el
+    proyecto **Demo completa · GUARDADO** al centro, deshacer/rehacer, guardar,
+    **Exportar**, ajustes y controles de ventana;
+  - la **barra lateral global y la barra de estado no aparecen**; el editor
+    ocupa todo el ancho;
+  - a la izquierda quedó la tira horizontal de herramientas reales (Medios,
+    Audio, Texto, Stickers, Efectos, Transiciones y las siguientes por scroll);
+  - al centro, el **Player** con su transporte; a la derecha, **DETALLES** con el
+    inspector del proyecto;
+  - abajo, la **timeline a todo el ancho** con la pestaña **Timeline 01**,
+    proyecto, duración **68,1 s**, toolbar y pistas;
+  - se abrió el proyecto reciente y se navegó a **Editor**; el estado siguió en
+    **GUARDADO** y no se modificó ni guardó el proyecto.
+- **Contenido de la build**: layout inmersivo, emojis completos en títulos y
+  subtítulos, clips compuestos, rampas/curvas de velocidad, cámara lenta
+  interpolada, fondo automático, glow, motion blur, tracking facial, texto
+  libre, paneo/EQ por pista, VFX nodal y el resto del editor.
+- **Medición**: **603 tests de la app en 89 archivos**, **972 del workspace en
+  112 archivos** y **309 Rust** (45 ignorados), 0 fallos; typecheck y build
+  verdes. Playwright **11/11** es de una corrida anterior; no se re-ejecutó.
 - **Límites**: la firma es autofirmada y sin sello de tiempo, así que SmartScreen
-  puede mostrar «editor desconocido» fuera de este equipo. Los motores externos
-  (Ollama, Wav2Lip, Whisper, clonación XTTS/GPT-SoVITS) y los modelos en
-  `%APPDATA%` no viajan dentro del instalador. La sincronización multicámara
-  por **timecode** sigue pendiente; la automática por audio ya está verificada.
+  puede mostrar «editor desconocido» fuera de este equipo. En el proyecto
+  **Demo completa**, el medio **Card verde** no resuelve su archivo en la
+  biblioteca ni en la preview y se ve el texto alternativo; no se tocó el
+  proyecto. Los motores externos (Ollama, Wav2Lip, Whisper, clonación
+  XTTS/GPT-SoVITS) y los modelos en `%APPDATA%` no viajan dentro del instalador.
+  La sincronización multicámara por **timecode** sigue pendiente. En VFX, la
+  cadena es lineal (no DAG), el polígono es rígido y el tracking es facial (no
+  de objetos). Paneo/EQ de pista se aplica en el export, no en la preview, y el
+  MP4 sigue quemando emojis en monocromo; falta el pase raster para color.
+  La tira de herramientas usa scroll horizontal en ventanas angostas, así que
+  **Filtros** y **Ajustes** quedan a la derecha.

@@ -53,6 +53,13 @@ describe('preferencias del editor', () => {
     expect(preferences.loopPlayback).toBe(true);
     expect(preferences.jumpStepFrames).toBe(1);
     expect(preferences.safeMargins).toBe(DEFAULT_EDITOR_PREFERENCES.safeMargins);
+    expect(preferences.emojiStyle).toBe('android');
+  });
+
+  it('acepta solo los dos estilos de emoji conocidos', () => {
+    expect(normalizeEditorPreferences({ emojiStyle: 'open' }).emojiStyle).toBe('open');
+    expect(normalizeEditorPreferences({ emojiStyle: 'apple' }).emojiStyle).toBe('android');
+    expect(normalizeEditorPreferences({ emojiStyle: 3 }).emojiStyle).toBe('android');
   });
 
   it('ignora objetos que no son preferencias', () => {

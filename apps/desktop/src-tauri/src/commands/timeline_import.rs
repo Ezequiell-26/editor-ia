@@ -151,10 +151,7 @@ fn import_timeline_file(
     })?;
     let (fps_num, fps_den, fps) = project_fps(project)?;
     let mut parsed = match format {
-        "edl" => parse_edl(
-            &text,
-            (fps_num as f64 / fps_den as f64).round().max(1.0) as u32,
-        ),
+        "edl" => parse_edl(&text, fps),
         "otio" => parse_otio(&text, fps)?,
         _ => parse_fcpxml(&text, fps)?,
     };
@@ -282,8 +279,25 @@ fn import_timeline_file(
             warnings.push(format!("{}: el asset no declara tipo", clip.label));
             continue;
         };
-        let clip_kind = match kind {
-            "video" | "audio" | "image" => kind,
+        // Una pista de audio del intercambio suele apuntar al mismo archivo
+        // que la de video (EDL `A`, OTIO `kind: Audio`). Antes se montaba un
+        // clip de video duplicado en una pista nueva en vez de usar su audio.
+        let clip_kind = match (
+            parsed.tracks.get(clip.track_index).map(|track| track.kind),
+            kind,
+        ) {
+            (Some(TrackKind::Audio), "video") => "audio",
+            (Some(TrackKind::Audio), "image") => {
+                warnings.push(format!(
+                    "{}: la pista de audio apunta a una imagen; se omite",
+                    clip.label
+                ));
+                continue;
+            }
+            _ => kind,
+        };
+        let clip_kind = match clip_kind {
+            "video" | "audio" | "image" => clip_kind,
             _ => {
                 warnings.push(format!("{}: el tipo {kind} no se puede montar", clip.label));
                 continue;
@@ -586,21 +600,31 @@ fn collect_media_matches(directory: &Path, wanted: &str, depth: usize, matches: 
     }
 }
 
-fn parse_edl(text: &str, fps: u32) -> ParsedTimeline {
+fn parse_edl(text: &str, fps: f64) -> ParsedTimeline {
     let mut parsed = ParsedTimeline::default();
     let mut tracks: HashMap<String, usize> = HashMap::new();
     let mut events: Vec<EdlEvent> = Vec::new();
     let mut last: Option<EdlEvent> = None;
-    let fps = fps.max(1) as f64;
+    // El timecode cuenta cuadros al fps nominal (30 para 29.97), pero cada
+    // cuadro dura 1/fps real: dividir por 30 desplazaba el proyecto 3,6 s
+    // por hora en 29.97.
+    let fps = fps.max(1.0);
+    let nominal = fps.round().max(1.0) as u32;
+    let mut header_drop_frame = false;
+    let mut unsupported_drop_frame = false;
 
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty()
             || trimmed.starts_with("TITLE:")
-            || trimmed.starts_with("FCM:")
             || trimmed.starts_with("AUDIO:")
             || trimmed.starts_with("VIDEO:")
         {
+            continue;
+        }
+        if let Some(value) = trimmed.strip_prefix("FCM:") {
+            // `NON-DROP FRAME` contiene `DROP`; sólo cuenta si empieza con él.
+            header_drop_frame = value.trim().to_ascii_uppercase().starts_with("DROP");
             continue;
         }
         if trimmed.starts_with('*') {
@@ -622,25 +646,35 @@ fn parse_edl(text: &str, fps: u32) -> ParsedTimeline {
         if tokens.len() < 8 || !tokens[0].chars().all(|ch| ch.is_ascii_digit()) {
             continue;
         }
-        let Some(source_in) = parse_timecode(tokens[4], fps as u32) else {
+        // Drop-frame sólo existe en 29.97/59.94; en otro fps se lee NDF y
+        // se avisa una sola vez, no por cada evento.
+        let uses_drop_frame = (header_drop_frame
+            || tokens[4..8].iter().any(|token| token.contains(';')))
+            && matches!(nominal, 30 | 60);
+        if (header_drop_frame || tokens[4..8].iter().any(|token| token.contains(';')))
+            && !uses_drop_frame
+        {
+            unsupported_drop_frame = true;
+        }
+        let Some(source_in) = parse_timecode(tokens[4], nominal, uses_drop_frame) else {
             parsed
                 .warnings
                 .push(format!("evento {}: timecode de origen inválido", tokens[0]));
             continue;
         };
-        let Some(source_out) = parse_timecode(tokens[5], fps as u32) else {
+        let Some(source_out) = parse_timecode(tokens[5], nominal, uses_drop_frame) else {
             parsed
                 .warnings
                 .push(format!("evento {}: timecode de origen inválido", tokens[0]));
             continue;
         };
-        let Some(record_in) = parse_timecode(tokens[6], fps as u32) else {
+        let Some(record_in) = parse_timecode(tokens[6], nominal, uses_drop_frame) else {
             parsed
                 .warnings
                 .push(format!("evento {}: timecode de récord inválido", tokens[0]));
             continue;
         };
-        let Some(record_out) = parse_timecode(tokens[7], fps as u32) else {
+        let Some(record_out) = parse_timecode(tokens[7], nominal, uses_drop_frame) else {
             parsed
                 .warnings
                 .push(format!("evento {}: timecode de récord inválido", tokens[0]));
@@ -697,11 +731,11 @@ fn parse_edl(text: &str, fps: u32) -> ParsedTimeline {
             events.push(previous);
         }
         last = Some(event);
-        if tokens[4].contains(';') || tokens[6].contains(';') {
-            parsed
-                .warnings
-                .push("el EDL usa drop-frame; se interpreta como NDF".to_owned());
-        }
+    }
+    if unsupported_drop_frame {
+        parsed.warnings.push(format!(
+            "el EDL usa drop-frame a {nominal} fps; sólo aplica a 29.97/59.94, se interpreta NDF"
+        ));
     }
     if let Some(previous) = last {
         events.push(previous);
@@ -748,7 +782,7 @@ struct EdlEvent {
     record_out: u64,
 }
 
-fn parse_timecode(value: &str, fps: u32) -> Option<u64> {
+fn parse_timecode(value: &str, fps: u32, drop_frame: bool) -> Option<u64> {
     let cleaned = value.replace(';', ":");
     let parts: Vec<&str> = cleaned.split(':').collect();
     if parts.len() != 4 {
@@ -758,11 +792,22 @@ fn parse_timecode(value: &str, fps: u32) -> Option<u64> {
     let minutes: u64 = parts[1].parse().ok()?;
     let seconds: u64 = parts[2].parse().ok()?;
     let frames: u64 = parts[3].parse().ok()?;
-    let fps = fps.max(1) as u64;
-    if frames >= fps {
+    let nominal = fps.max(1) as u64;
+    if minutes >= 60 || seconds >= 60 || frames >= nominal {
         return None;
     }
-    Some((((hours * 60 + minutes) * 60 + seconds) * fps) + frames)
+    let total_minutes = hours * 60 + minutes;
+    let base = (total_minutes * 60 + seconds) * nominal + frames;
+    if !drop_frame {
+        return Some(base);
+    }
+    let dropped = if nominal >= 60 { 4 } else { 2 };
+    // En drop-frame no existen los frames 0..dropped al inicio de cada
+    // minuto, salvo cada 10 minutos; ese timecode está fuera de norma.
+    if seconds == 0 && frames < dropped && total_minutes % 10 != 0 {
+        return None;
+    }
+    Some(base - dropped * (total_minutes - total_minutes / 10))
 }
 
 fn parse_otio(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectError> {
@@ -894,6 +939,117 @@ fn otio_time(value: &Value, project_fps: f64) -> Option<f64> {
     Some(amount / rate)
 }
 
+type FcpxmlAssets = HashMap<String, (String, String, bool)>;
+
+fn fcpxml_track(
+    parsed: &mut ParsedTimeline,
+    slot: &mut Option<usize>,
+    kind: TrackKind,
+    label: &str,
+) -> usize {
+    if let Some(index) = *slot {
+        return index;
+    }
+    parsed.tracks.push(ParsedTrack {
+        label: label.to_owned(),
+        kind,
+    });
+    let index = parsed.tracks.len() - 1;
+    *slot = Some(index);
+    index
+}
+
+/// Lee un `<clip>`/`<asset-clip>` de FCPXML. `Ok(None)` es un clip sin
+/// duración que se ignora en silencio; `Err` es un aviso para el usuario.
+fn read_fcpxml_item(
+    node: roxmltree::Node<'_, '_>,
+    start_seconds: f64,
+    assets: &FcpxmlAssets,
+    project_fps: f64,
+) -> Result<Option<(ParsedClip, bool)>, String> {
+    let duration = node
+        .attribute("duration")
+        .and_then(|value| fcpxml_time(value, project_fps))
+        .unwrap_or(0.0);
+    if duration <= 0.0 {
+        return Ok(None);
+    }
+    let source_in = node
+        .attribute("start")
+        .or_else(|| node.attribute("audioStart"))
+        .and_then(|value| fcpxml_time(value, project_fps))
+        .unwrap_or(0.0);
+    let media_ref = node.attribute("ref").or_else(|| {
+        node.descendants()
+            .find(|child| child.has_tag_name("video") || child.has_tag_name("audio"))
+            .and_then(|child| child.attribute("ref"))
+    });
+    let Some(media_ref) = media_ref else {
+        return Err("FCPXML: un clip no referencia un asset".to_owned());
+    };
+    let Some((media, asset_name, has_video)) = assets.get(media_ref) else {
+        return Err(format!("FCPXML: falta el asset {media_ref}"));
+    };
+    let label = node
+        .attribute("name")
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(asset_name.as_str())
+        .to_owned();
+    Ok(Some((
+        ParsedClip {
+            track_index: 0,
+            label,
+            start_seconds,
+            source_in_seconds: source_in,
+            duration_seconds: duration,
+            media: Some(media.clone()),
+            media_hint: Some(asset_name.clone()),
+        },
+        *has_video,
+    )))
+}
+
+/// Importa los lanes conectados de audio de un ancla (clip o hueco). El
+/// `offset` del lane es relativo al inicio del ancla. Devuelve `true` si había
+/// lanes que no se pudieron importar (video, títulos u otros).
+fn read_fcpxml_lanes(
+    node: roxmltree::Node<'_, '_>,
+    anchor_start: f64,
+    assets: &FcpxmlAssets,
+    project_fps: f64,
+    parsed: &mut ParsedTimeline,
+    audio_track: &mut Option<usize>,
+) -> bool {
+    let mut skipped = node
+        .descendants()
+        .any(|child| child.has_attribute("lane") && !child.has_tag_name("asset-clip"));
+    for lane in node
+        .children()
+        .filter(|child| child.has_tag_name("asset-clip") && child.has_attribute("lane"))
+    {
+        let negative_lane = lane
+            .attribute("lane")
+            .and_then(|value| value.trim().parse::<i32>().ok())
+            .map(|value| value < 0)
+            .unwrap_or(false);
+        let offset = lane
+            .attribute("offset")
+            .and_then(|value| fcpxml_time(value, project_fps))
+            .unwrap_or(0.0);
+        match read_fcpxml_item(lane, anchor_start + offset, assets, project_fps) {
+            Ok(Some((mut item, lane_has_video))) if !lane_has_video && negative_lane => {
+                item.track_index =
+                    fcpxml_track(parsed, audio_track, TrackKind::Audio, "FCPXML audio");
+                parsed.clips.push(item);
+            }
+            Ok(Some(_)) => skipped = true,
+            Ok(None) => {}
+            Err(message) => parsed.warnings.push(message),
+        }
+    }
+    skipped
+}
+
 fn parse_fcpxml(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectError> {
     let document = roxmltree::Document::parse_with_options(
         text,
@@ -909,7 +1065,9 @@ fn parse_fcpxml(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectE
         )
     })?;
     let root = document.root_element();
-    let mut assets: HashMap<String, (String, String)> = HashMap::new();
+    // `hasVideo` decide si el clip va a la pista de video o a la de audio;
+    // Final Cut exporta la storyline con `<asset-clip>`, no con `<clip>`.
+    let mut assets: FcpxmlAssets = HashMap::new();
     for node in root.descendants().filter(|node| node.has_tag_name("asset")) {
         let Some(id) = node.attribute("id") else {
             continue;
@@ -922,7 +1080,11 @@ fn parse_fcpxml(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectE
             continue;
         };
         let name = node.attribute("name").unwrap_or(id);
-        assets.insert(id.to_owned(), (src.to_owned(), name.to_owned()));
+        let has_video = node
+            .attribute("hasVideo")
+            .map(|value| value != "0" && value != "false")
+            .unwrap_or(true);
+        assets.insert(id.to_owned(), (src.to_owned(), name.to_owned(), has_video));
     }
     let Some(spine) = root.descendants().find(|node| node.has_tag_name("spine")) else {
         return Err(ProjectError::message(
@@ -939,10 +1101,8 @@ fn parse_fcpxml(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectE
             .and_then(|duration| (duration > 0.0).then(|| 1.0 / duration)),
         ..Default::default()
     };
-    parsed.tracks.push(ParsedTrack {
-        label: "FCPXML".to_owned(),
-        kind: TrackKind::Video,
-    });
+    let mut video_track: Option<usize> = None;
+    let mut audio_track: Option<usize> = None;
     let mut cursor = 0.0;
     for child in spine.children().filter(|node| node.is_element()) {
         if child.has_tag_name("gap") {
@@ -950,11 +1110,25 @@ fn parse_fcpxml(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectE
                 .attribute("duration")
                 .and_then(|value| fcpxml_time(value, project_fps))
                 .unwrap_or(0.0);
-            cursor = child
+            let gap_start = child
                 .attribute("offset")
                 .and_then(|value| fcpxml_time(value, project_fps))
-                .map(|offset| offset + duration)
-                .unwrap_or(cursor + duration);
+                .unwrap_or(cursor);
+            // Un hueco también puede anclar música conectada (por ejemplo,
+            // una cortina que arranca en negro antes del primer clip).
+            if read_fcpxml_lanes(
+                child,
+                gap_start,
+                &assets,
+                project_fps,
+                &mut parsed,
+                &mut audio_track,
+            ) {
+                parsed.warnings.push(format!(
+                    "FCPXML: el hueco en {gap_start:.2}s tiene lanes conectados de video o títulos; no se importaron"
+                ));
+            }
+            cursor = gap_start + duration;
             continue;
         }
         if child.has_tag_name("transition") {
@@ -963,60 +1137,55 @@ fn parse_fcpxml(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectE
                 .push("FCPXML: una transición se importó como corte".to_owned());
             continue;
         }
-        if !child.has_tag_name("clip") {
+        if !(child.has_tag_name("clip") || child.has_tag_name("asset-clip")) {
             continue;
         }
         let start = child
             .attribute("offset")
             .and_then(|value| fcpxml_time(value, project_fps))
             .unwrap_or(cursor);
-        let duration = child
-            .attribute("duration")
-            .and_then(|value| fcpxml_time(value, project_fps))
-            .unwrap_or(0.0);
-        if duration <= 0.0 {
-            continue;
-        }
-        let source_in = child
-            .attribute("start")
-            .and_then(|value| fcpxml_time(value, project_fps))
-            .unwrap_or(0.0);
-        let media_ref = child
-            .descendants()
-            .find(|node| node.has_tag_name("video") || node.has_tag_name("audio"))
-            .and_then(|node| node.attribute("ref"));
-        let Some(media_ref) = media_ref else {
-            parsed
-                .warnings
-                .push("FCPXML: un clip no referencia un asset".to_owned());
-            continue;
+        let (mut clip, has_video) = match read_fcpxml_item(child, start, &assets, project_fps) {
+            Ok(Some(item)) => item,
+            Ok(None) => continue,
+            Err(message) => {
+                parsed.warnings.push(message);
+                continue;
+            }
         };
-        let Some((media, asset_name)) = assets.get(media_ref) else {
-            parsed
-                .warnings
-                .push(format!("FCPXML: falta el asset {media_ref}"));
-            continue;
-        };
-        let label = child
-            .attribute("name")
-            .filter(|name| !name.trim().is_empty())
-            .unwrap_or(asset_name.as_str())
-            .to_owned();
         if child.descendants().any(|node| node.has_tag_name("spine")) {
             parsed.warnings.push(format!(
-                "FCPXML: {label} tiene clips conectados; no se importaron"
+                "FCPXML: {} tiene un stack anidado; no se importó",
+                clip.label
             ));
         }
-        parsed.clips.push(ParsedClip {
-            track_index: 0,
-            label: label.clone(),
-            start_seconds: start,
-            source_in_seconds: source_in,
-            duration_seconds: duration,
-            media: Some(media.clone()),
-            media_hint: Some(asset_name.clone()),
-        });
-        cursor = start + duration;
+        clip.track_index = if has_video {
+            fcpxml_track(&mut parsed, &mut video_track, TrackKind::Video, "FCPXML")
+        } else {
+            fcpxml_track(
+                &mut parsed,
+                &mut audio_track,
+                TrackKind::Audio,
+                "FCPXML audio",
+            )
+        };
+        let anchor_start = clip.start_seconds;
+        let anchor_duration = clip.duration_seconds;
+        parsed.clips.push(clip);
+        // Los lanes conectados llevan la música y la voz; su `offset` es
+        // relativo al inicio del clip ancla, no a la timeline.
+        if read_fcpxml_lanes(
+            child,
+            anchor_start,
+            &assets,
+            project_fps,
+            &mut parsed,
+            &mut audio_track,
+        ) {
+            parsed.warnings.push(format!(
+                "FCPXML: el clip {anchor_start:.2}s tiene lanes conectados de video o títulos; no se importaron"
+            ));
+        }
+        cursor = anchor_start + anchor_duration;
     }
     Ok(parsed)
 }
@@ -1033,7 +1202,7 @@ fn fcpxml_time(raw: &str, fps: f64) -> Option<f64> {
         return Some(numerator / denominator);
     }
     if value.contains(':') {
-        let frames = parse_timecode(value, fps.max(1.0).round() as u32)?;
+        let frames = parse_timecode(value, fps.max(1.0).round() as u32, false)?;
         return Some(frames as f64 / fps.max(1.0));
     }
     value.parse().ok()
@@ -1046,7 +1215,7 @@ mod tests {
     #[test]
     fn parses_our_edl_with_filename_and_clip_name() {
         let text = "TITLE: Demo\nFCM: NON-DROP FRAME\n\n001  AX       V     C        00:00:00:00 00:00:02:00 00:00:01:00 00:00:03:00\n* FROM CLIP NAME: Toma\n* FILENAME: media/toma.mp4\n";
-        let parsed = parse_edl(text, 30);
+        let parsed = parse_edl(text, 30.0);
         assert_eq!(parsed.tracks.len(), 1);
         assert_eq!(parsed.tracks[0].kind, TrackKind::Video);
         assert_eq!(parsed.clips.len(), 1);
@@ -1056,6 +1225,71 @@ mod tests {
         assert!((clip.source_in_seconds - 0.0).abs() < 0.001);
         assert!((clip.duration_seconds - 2.0).abs() < 0.001);
         assert_eq!(clip.media.as_deref(), Some("media/toma.mp4"));
+    }
+
+    #[test]
+    fn edl_drop_frame_skips_the_smpte_dropped_frames() {
+        let text = "TITLE: DF\nFCM: DROP FRAME\n\n001  AX       V     C        00:10:00;00 00:10:01;00 00:10:00;00 00:10:01;00\n* FROM CLIP NAME: Toma\n";
+        let fps = 30000.0 / 1001.0;
+        let parsed = parse_edl(text, fps);
+        assert_eq!(parsed.clips.len(), 1);
+        let clip = &parsed.clips[0];
+        // 00:10:00;00 es el cuadro 17982, no 18000: dos por minuto salvo
+        // cada décimo. Al volver al proyecto debe caer en el mismo cuadro.
+        assert_eq!(seconds_to_frames(clip.start_seconds, fps), 17982);
+        assert_eq!(seconds_to_frames(clip.source_in_seconds, fps), 17982);
+        assert_eq!(seconds_to_frames(clip.duration_seconds, fps), 30);
+        assert!(
+            parsed.warnings.is_empty(),
+            "el drop-frame no debe advertir: {:?}",
+            parsed.warnings
+        );
+    }
+
+    #[test]
+    fn edl_drop_frame_rejects_a_timecode_that_does_not_exist() {
+        // 00:01:00;00 no existe en drop-frame: los cuadros 0 y 1 se saltean
+        // al minuto 1, así que se descarta el evento en vez de inventarlo.
+        let text = "TITLE: DF\nFCM: DROP FRAME\n\n001  AX       V     C        00:00:00;00 00:00:01;00 00:01:00;00 00:01:01;00\n";
+        let parsed = parse_edl(text, 30000.0 / 1001.0);
+        assert!(parsed.clips.is_empty());
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("récord inválido")),
+            "{:?}",
+            parsed.warnings
+        );
+    }
+
+    #[test]
+    fn edl_timecodes_without_drop_frame_convert_with_the_real_fps() {
+        let text = "TITLE: NDF\nFCM: NON-DROP FRAME\n\n001  AX       V     C        00:10:00:00 00:10:01:00 00:10:00:00 00:10:01:00\n";
+        let fps = 30000.0 / 1001.0;
+        let parsed = parse_edl(text, fps);
+        assert_eq!(parsed.clips.len(), 1);
+        // NDF no saltea cuadros: 00:10:00:00 son 18000 cuadros reales.
+        assert_eq!(seconds_to_frames(parsed.clips[0].start_seconds, fps), 18000);
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+    }
+
+    #[test]
+    fn edl_drop_frame_warns_once_when_the_rate_cannot_drop() {
+        let text = "TITLE: DF25\nFCM: DROP FRAME\n\n001  AX       V     C        00:00:00;00 00:00:01;00 00:00:00;00 00:00:01;00\n002  AX       V     C        00:00:01;00 00:00:02;00 00:00:01;00 00:00:02;00\n";
+        let parsed = parse_edl(text, 25.0);
+        assert_eq!(parsed.clips.len(), 2);
+        assert_eq!(
+            parsed
+                .warnings
+                .iter()
+                .filter(|warning| warning.contains("drop-frame a 25 fps"))
+                .count(),
+            1,
+            "el aviso debe salir una vez, no por evento: {:?}",
+            parsed.warnings
+        );
+        assert!((parsed.clips[0].duration_seconds - 1.0).abs() < 0.001);
     }
 
     #[test]
@@ -1113,11 +1347,449 @@ mod tests {
     }
 
     #[test]
+    fn parses_final_cut_asset_clips() {
+        // Final Cut exporta la storyline con `<asset-clip ref=...>`; el
+        // importador sólo leía `<clip><video ref=...>` y devolvía vacío.
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <fcpxml version="1.11"><resources>
+          <format id="r1" frameDuration="1/30s" width="1920" height="1080"/>
+          <asset id="r2" name="Toma" start="0s" duration="3s" hasVideo="1" hasAudio="1">
+            <media-rep kind="original-media" src="file:///media/toma.mp4"/>
+          </asset>
+        </resources><library><event name="E"><project name="P">
+          <sequence format="r1" duration="3s"><spine>
+            <asset-clip ref="r2" offset="0s" duration="2s" start="1s" name="Toma"/>
+            <gap offset="2s" duration="1s"/>
+          </spine></sequence>
+        </project></event></library></fcpxml>"#;
+        let parsed = parse_fcpxml(text, 30.0).expect("FCPXML");
+        assert_eq!(parsed.clips.len(), 1);
+        assert_eq!(parsed.tracks.len(), 1);
+        assert_eq!(parsed.tracks[0].kind, TrackKind::Video);
+        let clip = &parsed.clips[0];
+        assert!((clip.start_seconds - 0.0).abs() < 0.001, "{clip:?}");
+        assert!((clip.source_in_seconds - 1.0).abs() < 0.001, "{clip:?}");
+        assert!((clip.duration_seconds - 2.0).abs() < 0.001, "{clip:?}");
+        assert_eq!(clip.label, "Toma");
+        assert_eq!(clip.media.as_deref(), Some("file:///media/toma.mp4"));
+    }
+
+    #[test]
+    fn parses_an_audio_only_asset_clip_into_an_audio_track() {
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <fcpxml version="1.11"><resources>
+          <format id="r1" frameDuration="1/30s" width="1920" height="1080"/>
+          <asset id="r2" name="Toma" hasVideo="1"><media-rep src="file:///media/toma.mp4"/></asset>
+          <asset id="r3" name="Música" hasVideo="0" hasAudio="1"><media-rep src="file:///media/musica.wav"/></asset>
+        </resources><library><event name="E"><project name="P">
+          <sequence format="r1" duration="3s"><spine>
+            <asset-clip ref="r2" offset="0s" duration="2s" name="Toma"/>
+            <asset-clip ref="r3" offset="0s" duration="3s" name="Música"/>
+          </spine></sequence>
+        </project></event></library></fcpxml>"#;
+        let parsed = parse_fcpxml(text, 30.0).expect("FCPXML");
+        assert_eq!(parsed.clips.len(), 2);
+        assert_eq!(parsed.tracks.len(), 2);
+        let video = &parsed.clips[0];
+        let audio = &parsed.clips[1];
+        assert_eq!(parsed.tracks[video.track_index].kind, TrackKind::Video);
+        assert_eq!(parsed.tracks[audio.track_index].kind, TrackKind::Audio);
+        assert_eq!(audio.media.as_deref(), Some("file:///media/musica.wav"));
+    }
+
+    #[test]
+    fn imports_connected_audio_lanes_with_the_anchor_offset() {
+        // Final Cut guarda la música en un lane conectado; su offset es
+        // relativo al clip ancla y `audioStart` marca el origen del audio.
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <fcpxml version="1.11"><resources>
+          <format id="r1" frameDuration="1/30s" width="1920" height="1080"/>
+          <asset id="r2" name="Toma" hasVideo="1"><media-rep src="file:///media/toma.mp4"/></asset>
+          <asset id="r3" name="Música" hasVideo="0" hasAudio="1"><media-rep src="file:///media/musica.wav"/></asset>
+        </resources><library><event name="E"><project name="P">
+          <sequence format="r1" duration="3s"><spine>
+            <asset-clip ref="r2" offset="1s" duration="2s" name="Toma">
+              <asset-clip lane="-1" ref="r3" offset="0.5s" duration="1s" start="0.25s" audioStart="0.25s" name="Música"/>
+            </asset-clip>
+          </spine></sequence>
+        </project></event></library></fcpxml>"#;
+        let parsed = parse_fcpxml(text, 30.0).expect("FCPXML");
+        assert_eq!(parsed.clips.len(), 2, "{:?}", parsed.warnings);
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+        let audio = parsed
+            .clips
+            .iter()
+            .find(|clip| clip.label == "Música")
+            .expect("falta el clip de audio conectado");
+        assert!((audio.start_seconds - 1.5).abs() < 0.001, "{audio:?}");
+        assert!((audio.source_in_seconds - 0.25).abs() < 0.001, "{audio:?}");
+        assert!((audio.duration_seconds - 1.0).abs() < 0.001, "{audio:?}");
+        assert_eq!(audio.media.as_deref(), Some("file:///media/musica.wav"));
+        assert_eq!(parsed.tracks[audio.track_index].kind, TrackKind::Audio);
+        let video = parsed
+            .clips
+            .iter()
+            .find(|clip| clip.label == "Toma")
+            .expect("falta el clip ancla");
+        assert_eq!(parsed.tracks[video.track_index].kind, TrackKind::Video);
+    }
+
+    #[test]
+    fn imports_audio_lanes_anchored_to_a_gap() {
+        // Una cortina musical puede arrancar sobre un hueco, antes del primer
+        // clip; sin leer los lanes del gap esa música se perdía.
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <fcpxml version="1.11"><resources>
+          <format id="r1" frameDuration="1/30s" width="1920" height="1080"/>
+          <asset id="r2" name="Toma" hasVideo="1"><media-rep src="file:///media/toma.mp4"/></asset>
+          <asset id="r3" name="Cortina" hasVideo="0" hasAudio="1"><media-rep src="file:///media/cortina.wav"/></asset>
+        </resources><library><event name="E"><project name="P">
+          <sequence format="r1" duration="3s"><spine>
+            <gap offset="0s" duration="2s">
+              <asset-clip lane="-1" ref="r3" offset="0.5s" duration="1s" start="0.2s" name="Cortina"/>
+            </gap>
+            <asset-clip ref="r2" offset="2s" duration="1s" name="Toma"/>
+          </spine></sequence>
+        </project></event></library></fcpxml>"#;
+        let parsed = parse_fcpxml(text, 30.0).expect("FCPXML");
+        assert_eq!(parsed.clips.len(), 2, "{:?}", parsed.warnings);
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+        let audio = parsed
+            .clips
+            .iter()
+            .find(|clip| clip.label == "Cortina")
+            .expect("falta la música anclada al hueco");
+        assert!((audio.start_seconds - 0.5).abs() < 0.001, "{audio:?}");
+        assert!((audio.source_in_seconds - 0.2).abs() < 0.001, "{audio:?}");
+        assert_eq!(parsed.tracks[audio.track_index].kind, TrackKind::Audio);
+        let video = parsed
+            .clips
+            .iter()
+            .find(|clip| clip.label == "Toma")
+            .expect("falta el clip después del hueco");
+        assert!((video.start_seconds - 2.0).abs() < 0.001, "{video:?}");
+    }
+
+    #[test]
+    fn warns_about_connected_video_lanes() {
+        let text = r#"<?xml version="1.0" encoding="UTF-8"?>
+        <fcpxml version="1.11"><resources>
+          <format id="r1" frameDuration="1/30s" width="1920" height="1080"/>
+          <asset id="r2" name="Toma" hasVideo="1"><media-rep src="file:///media/toma.mp4"/></asset>
+          <asset id="r3" name="Overlay" hasVideo="1"><media-rep src="file:///media/overlay.mp4"/></asset>
+        </resources><library><event name="E"><project name="P">
+          <sequence format="r1" duration="2s"><spine>
+            <asset-clip ref="r2" offset="0s" duration="2s" name="Toma">
+              <asset-clip lane="1" ref="r3" offset="0s" duration="1s" name="Overlay"/>
+            </asset-clip>
+          </spine></sequence>
+        </project></event></library></fcpxml>"#;
+        let parsed = parse_fcpxml(text, 30.0).expect("FCPXML");
+        assert_eq!(parsed.clips.len(), 1);
+        assert_eq!(parsed.clips[0].label, "Toma");
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("lanes conectados de video")),
+            "{:?}",
+            parsed.warnings
+        );
+    }
+
+    #[test]
     fn rejects_unsupported_extension() {
         assert!(detect_format(Path::new("demo.txt")).is_err());
         assert_eq!(detect_format(Path::new("demo.edl")).unwrap(), "edl");
         assert_eq!(detect_format(Path::new("demo.otio")).unwrap(), "otio");
         assert_eq!(detect_format(Path::new("demo.fcpxml")).unwrap(), "fcpxml");
+    }
+
+    #[test]
+    fn our_edl_export_round_trips_timing_and_media() {
+        let project = serde_json::json!({
+            "name": "Round",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": { "clips": [{
+                "id": "c", "kind": "video", "label": "Toma", "startFrame": 30,
+                "durationFrames": 60,
+                "source": { "type": "asset", "assetId": "a", "inFrame": 15, "outFrame": 75 }
+            }] }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported = crate::commands::edl::export_edl(crate::commands::edl::EdlRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar EDL");
+        let text = std::fs::read_to_string(&exported.path).expect("leer");
+        let parsed = parse_edl(&text, 30.0);
+        assert_eq!(parsed.clips.len(), 1);
+        let clip = &parsed.clips[0];
+        assert!((clip.start_seconds - 1.0).abs() < 0.001, "{clip:?}");
+        assert!((clip.source_in_seconds - 0.5).abs() < 0.001, "{clip:?}");
+        assert!((clip.duration_seconds - 2.0).abs() < 0.001, "{clip:?}");
+        assert_eq!(clip.label, "Toma");
+        assert_eq!(clip.media.as_deref(), Some("media/toma.mp4"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn our_edl_export_round_trips_ntsc_frames() {
+        let project = serde_json::json!({
+            "name": "Ntsc",
+            "video": { "frameRate": { "num": 30000, "den": 1001 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": { "clips": [{
+                "id": "c", "kind": "video", "label": "Toma", "startFrame": 30,
+                "durationFrames": 60,
+                "source": { "type": "asset", "assetId": "a", "inFrame": 15, "outFrame": 75 }
+            }] }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported = crate::commands::edl::export_edl(crate::commands::edl::EdlRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar EDL");
+        let text = std::fs::read_to_string(&exported.path).expect("leer");
+        let fps = 30000.0 / 1001.0;
+        let parsed = parse_edl(&text, fps);
+        assert_eq!(parsed.clips.len(), 1);
+        let clip = &parsed.clips[0];
+        // El EDL escribe NDF a 30 nominal; al leerlo con el fps real los
+        // cuadros tienen que volver exactos, sin deriva de 3,6 s por hora.
+        assert_eq!(seconds_to_frames(clip.start_seconds, fps), 30, "{clip:?}");
+        assert_eq!(seconds_to_frames(clip.source_in_seconds, fps), 15);
+        assert_eq!(seconds_to_frames(clip.duration_seconds, fps), 60);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn our_otio_export_round_trips_gap_and_media() {
+        let project = serde_json::json!({
+            "name": "Round",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [{
+                    "id": "c", "kind": "video", "label": "Toma", "trackId": "v1",
+                    "startFrame": 30, "durationFrames": 60,
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 15, "outFrame": 75 }
+                }]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported = crate::commands::otio::export_otio(crate::commands::otio::OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar OTIO");
+        let text = std::fs::read_to_string(&exported.path).expect("leer");
+        let parsed = parse_otio(&text, 30.0).expect("parsear OTIO");
+        assert_eq!(parsed.clips.len(), 1);
+        let clip = &parsed.clips[0];
+        assert!((clip.start_seconds - 1.0).abs() < 0.001, "{clip:?}");
+        assert!((clip.source_in_seconds - 0.5).abs() < 0.001, "{clip:?}");
+        assert!((clip.duration_seconds - 2.0).abs() < 0.001, "{clip:?}");
+        assert_eq!(clip.media.as_deref(), Some("media/toma.mp4"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn our_fcpxml_export_round_trips_gaps_and_media() {
+        let project = serde_json::json!({
+            "name": "Round",
+            "video": { "width": 1920, "height": 1080, "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": { "clips": [
+                { "id": "first", "kind": "video", "label": "Primero",
+                  "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                { "id": "second", "kind": "video", "label": "Segundo",
+                  "startFrame": 40, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "a", "inFrame": 40, "outFrame": 70 } }
+            ] }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported =
+            crate::commands::fcpxml::export_fcpxml(crate::commands::fcpxml::FcpxmlRequest {
+                project,
+                output_dir: dir.to_string_lossy().into_owned(),
+            })
+            .expect("exportar FCPXML");
+        let text = std::fs::read_to_string(&exported.path).expect("leer");
+        let parsed = parse_fcpxml(&text, 30.0).expect("parsear FCPXML");
+        assert_eq!(parsed.clips.len(), 2);
+        assert!(
+            parsed.clips[0].start_seconds.abs() < 0.001,
+            "{:?}",
+            parsed.clips[0]
+        );
+        assert!(
+            (parsed.clips[1].start_seconds - 40.0 / 30.0).abs() < 0.001,
+            "el gap no llegó al segundo clip: {:?}",
+            parsed.clips[1]
+        );
+        assert!((parsed.clips[1].duration_seconds - 1.0).abs() < 0.001);
+        assert_eq!(parsed.clips[1].label, "Segundo");
+        assert_eq!(
+            parsed.clips[1].media.as_deref(),
+            Some("file:///media/toma.mp4")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edl_audio_track_reuses_the_video_asset_as_audio() {
+        let dir = std::env::temp_dir().join(format!("editoria-audio-edl-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("media")).expect("media");
+        std::fs::write(dir.join("media").join("toma.mp4"), b"").expect("medio");
+        let timeline = dir.join("demo.edl");
+        std::fs::write(
+            &timeline,
+            "TITLE: Audio\nFCM: NON-DROP FRAME\n\n001  toma     A     C        00:00:00:00 00:00:02:00 00:00:00:00 00:00:02:00\n002  toma     V     C        00:00:00:00 00:00:02:00 00:00:00:00 00:00:02:00\n",
+        )
+        .expect("edl");
+        let project = json!({
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{
+                "id": "a", "kind": "video", "status": "ready",
+                "source": { "path": "media/toma.mp4" },
+                "media": { "durationFrames": 300 }
+            }],
+            "timeline": { "tracks": [], "clips": [] }
+        });
+        let result = import_timeline_file(&dir, Path::new("ffprobe"), &timeline, &project)
+            .expect("importar");
+        assert_eq!(result.imported_clips, 2, "{result:?}");
+        assert_eq!(result.reused_assets, 1);
+        let audio = result
+            .clips
+            .iter()
+            .find(|clip| clip["kind"] == "audio")
+            .expect("el evento A debe montar un clip de audio");
+        let video = result
+            .clips
+            .iter()
+            .find(|clip| clip["kind"] == "video")
+            .expect("el evento V conserva el video");
+        let audio_track = result
+            .tracks
+            .iter()
+            .find(|track| track["id"] == audio["trackId"])
+            .expect("pista del audio");
+        assert_eq!(audio_track["kind"], "audio");
+        let video_track = result
+            .tracks
+            .iter()
+            .find(|track| track["id"] == video["trackId"])
+            .expect("pista del video");
+        assert_eq!(video_track["kind"], "video");
+        assert_ne!(audio["trackId"], video["trackId"]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn edl_audio_event_on_an_image_is_omitted() {
+        let dir = std::env::temp_dir().join(format!("editoria-audio-img-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("media")).expect("media");
+        std::fs::write(dir.join("media").join("toma.mp4"), b"").expect("video");
+        std::fs::write(dir.join("media").join("foto.png"), b"").expect("imagen");
+        let timeline = dir.join("demo.edl");
+        std::fs::write(
+            &timeline,
+            "TITLE: Audio\nFCM: NON-DROP FRAME\n\n001  foto     A     C        00:00:00:00 00:00:02:00 00:00:00:00 00:00:02:00\n002  toma     V     C        00:00:00:00 00:00:02:00 00:00:00:00 00:00:02:00\n",
+        )
+        .expect("edl");
+        let project = json!({
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [
+                {
+                    "id": "video", "kind": "video", "status": "ready",
+                    "source": { "path": "media/toma.mp4" },
+                    "media": { "durationFrames": 300 }
+                },
+                {
+                    "id": "imagen", "kind": "image", "status": "ready",
+                    "source": { "path": "media/foto.png" },
+                    "media": { "width": 1920, "height": 1080 }
+                }
+            ],
+            "timeline": { "tracks": [], "clips": [] }
+        });
+        let result = import_timeline_file(&dir, Path::new("ffprobe"), &timeline, &project)
+            .expect("importar");
+        assert_eq!(result.imported_clips, 1);
+        assert_eq!(result.clips[0]["kind"], "video");
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("pista de audio apunta a una imagen")),
+            "{:?}",
+            result.warnings
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn our_fcpxml_export_round_trips_audio_lanes() {
+        let project = serde_json::json!({
+            "name": "RoundAudio",
+            "video": { "width": 1920, "height": 1080, "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "hidden": false },
+                    { "id": "a1", "kind": "audio", "hidden": false }
+                ],
+                "clips": [
+                    { "id": "v", "trackId": "v1", "kind": "video", "label": "Toma",
+                      "startFrame": 0, "durationFrames": 90,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 90 } },
+                    { "id": "au", "trackId": "a1", "kind": "audio", "label": "Música",
+                      "startFrame": 15, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 30, "outFrame": 60 } }
+                ]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported =
+            crate::commands::fcpxml::export_fcpxml(crate::commands::fcpxml::FcpxmlRequest {
+                project,
+                output_dir: dir.to_string_lossy().into_owned(),
+            })
+            .expect("exportar FCPXML con audio");
+        assert_eq!(exported.clips, 2);
+        let text = std::fs::read_to_string(&exported.path).expect("leer");
+        let parsed = parse_fcpxml(&text, 30.0).expect("parsear FCPXML con audio");
+        assert_eq!(parsed.clips.len(), 2, "{:?}", parsed.warnings);
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+        let video = parsed
+            .clips
+            .iter()
+            .find(|clip| clip.label == "Toma")
+            .expect("falta el clip de video");
+        assert_eq!(parsed.tracks[video.track_index].kind, TrackKind::Video);
+        let audio = parsed
+            .clips
+            .iter()
+            .find(|clip| clip.label == "Música")
+            .expect("falta el lane de audio");
+        assert!((audio.start_seconds - 0.5).abs() < 0.001, "{audio:?}");
+        assert!((audio.source_in_seconds - 1.0).abs() < 0.001, "{audio:?}");
+        assert!((audio.duration_seconds - 1.0).abs() < 0.001, "{audio:?}");
+        assert_eq!(audio.media.as_deref(), Some("file:///media/toma.mp4"));
+        assert_eq!(parsed.tracks[audio.track_index].kind, TrackKind::Audio);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

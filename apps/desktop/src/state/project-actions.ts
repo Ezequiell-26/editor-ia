@@ -16,6 +16,8 @@ import type {
   ClipMaskKeyframe,
   ClipAnimation,
   ClipColorTag,
+  Compound,
+  CompoundInnerClip,
   MotionItem,
   ProjectDocument,
   Scene,
@@ -136,6 +138,8 @@ export function trackKindForClip(clip: Clip): Track['kind'] {
       return 'video';
     case 'adjustment':
       return 'adjustment';
+    case 'compound':
+      return 'video';
   }
 }
 
@@ -437,6 +441,30 @@ export function markAssetReady(
       ? { attributionText: `Atribución requerida: ${asset.label}` }
       : {}),
     notes: 'Licencia declarada por el usuario en Olyvia.',
+  };
+  touch(next);
+  return next;
+}
+
+/** Marca un asset derivado como listo conservando la licencia del original.
+ * No inventa una licencia nueva: copia id, URL y atribución, y sólo completa
+ * una nota si faltaba. */
+export function markAssetReadyFrom(
+  project: ProjectDocument,
+  assetId: string,
+  sourceAssetId: string,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const asset = next.assets.find((item) => item.id === assetId);
+  if (!asset) throw new ProjectActionError('el material derivado no está en el proyecto');
+  const source = next.assets.find((item) => item.id === sourceAssetId);
+  if (!source) throw new ProjectActionError('el material original no está en el proyecto');
+  asset.status = 'ready';
+  asset.rights.license = {
+    ...source.rights.license,
+    notes:
+      source.rights.license.notes ??
+      'Licencia heredada del material original por Olyvia.',
   };
   touch(next);
   return next;
@@ -757,6 +785,8 @@ function compatibleTrackKinds(kind: Clip['kind']): Track['kind'][] {
       return ['video'];
     case 'adjustment':
       return ['adjustment'];
+    case 'compound':
+      return ['video', 'image', 'graphic', 'adjustment'];
   }
 }
 
@@ -1042,6 +1072,9 @@ function replaceWithSpeedSegments(
     const divisor = gcd(window, duration);
     if (window === duration) delete copy.speed;
     else copy.speed = { num: window / divisor, den: duration / divisor };
+    if (copy.kind === 'video' && (copy.speed?.num ?? 1) >= (copy.speed?.den ?? 1)) {
+      delete copy.slowMotionSmoothing;
+    }
     if (index > 0) delete copy.transitionIn;
     if (copy.effects) {
       if (index > 0) delete copy.effects.fadeInFrames;
@@ -1216,6 +1249,11 @@ export function trimClip(
   const clip = next.timeline.clips.find((item) => item.id === clipId);
   if (!clip) {
     return null;
+  }
+  if (clip.kind === 'compound') {
+    throw new ProjectActionError(
+      'un clip compuesto no se recorta; deshacelo para editar los clips internos',
+    );
   }
   const target = Math.round(targetFrame);
   const owner = next.timeline.tracks.find((item) => item.id === clip.trackId);
@@ -1544,6 +1582,11 @@ export function splitClip(
   const clip = next.timeline.clips.find((item) => item.id === clipId);
   if (!clip) {
     return null;
+  }
+  if (clip.kind === 'compound') {
+    throw new ProjectActionError(
+      'un clip compuesto no se divide; deshacelo para editar los clips internos',
+    );
   }
   const owner = next.timeline.tracks.find((item) => item.id === clip.trackId);
   if (owner?.locked) {
@@ -1950,7 +1993,7 @@ export function splitClipAtFrames(
   cutFrames: readonly number[],
 ): { project: ProjectDocument; clipIds: string[] } | null {
   const clip = project.timeline.clips.find((item) => item.id === clipId);
-  if (!clip) return null;
+  if (!clip || clip.kind === 'compound') return null;
   const start = clip.startFrame;
   const end = clip.startFrame + clip.durationFrames;
   const cuts = [...new Set(cutFrames.map((frame) => Math.round(frame)))]
@@ -2027,6 +2070,11 @@ export function duplicateClip(
     id,
     startFrame,
   } as Clip;
+  if (copy.kind === 'compound') {
+    const cloned = cloneCompoundForClip(next, copy.source.compoundId);
+    next.compounds = [...(next.compounds ?? []), cloned.compound];
+    copy.source = { type: 'compound', compoundId: cloned.compoundId };
+  }
   next.timeline.clips.push(copy);
   for (const scene of next.scenes) {
     const index = scene.clipIds.indexOf(clip.id);
@@ -2048,6 +2096,18 @@ export function deleteClip(project: ProjectDocument, clipId: string): ProjectDoc
     throw new ProjectActionError('la pista del clip está bloqueada');
   }
   next.timeline.clips = next.timeline.clips.filter((item) => item.id !== clipId);
+  if (clip.kind === 'compound') {
+    const stillUsed = next.timeline.clips.some(
+      (item) =>
+        item.source.type === 'compound' &&
+        item.source.compoundId === clip.source.compoundId,
+    );
+    if (!stillUsed) {
+      next.compounds = (next.compounds ?? []).filter(
+        (item) => item.id !== clip.source.compoundId,
+      );
+    }
+  }
   for (const scene of next.scenes) {
     scene.clipIds = scene.clipIds.filter((id) => id !== clipId);
   }
@@ -2078,6 +2138,14 @@ export function pasteClip(
       if (clip.kind === 'image') return track.kind === 'image';
       if (clip.kind === 'audio') return track.kind === 'audio' || track.kind === 'narration';
       if (clip.kind === 'graphic') return track.kind === 'graphic';
+      if (clip.kind === 'compound') {
+        return (
+          track.kind === 'video' ||
+          track.kind === 'image' ||
+          track.kind === 'graphic' ||
+          track.kind === 'adjustment'
+        );
+      }
       return track.kind === 'adjustment';
     });
   if (!target) {
@@ -2098,6 +2166,11 @@ export function pasteClip(
     trackId: target.id,
     startFrame,
   } as Clip;
+  if (copy.kind === 'compound') {
+    const cloned = cloneCompoundForClip(next, copy.source.compoundId);
+    next.compounds = [...(next.compounds ?? []), cloned.compound];
+    copy.source = { type: 'compound', compoundId: cloned.compoundId };
+  }
   next.timeline.clips.push(copy);
   for (const scene of next.scenes) {
     const index = scene.clipIds.indexOf(clip.id);
@@ -2839,11 +2912,13 @@ function applySplitKeyframes(
 }
 
 /** Change the playback speed of a windowed clip and ripple the rest of its track.
- * The source window is adjusted so `durationFrames x speed = sourceFrames` stays exact. */
+ * The source window is adjusted so `durationFrames x speed = sourceFrames` stays exact.
+ * `smoothSlowMotion` only applies to video below 1× and turns on render interpolation. */
 export function setClipSpeed(
   project: ProjectDocument,
   clipId: string,
   speed: number,
+  options?: { readonly smoothSlowMotion?: boolean },
 ): ProjectDocument {
   const next = cloneProject(project);
   const clip = next.timeline.clips.find((item) => item.id === clipId);
@@ -2874,6 +2949,7 @@ export function setClipSpeed(
   if (num === den) {
     duration = Math.min(sourceFrames, maxSourceFrames);
     delete clip.speed;
+    if (clip.kind === 'video') delete clip.slowMotionSmoothing;
     clip.source.outFrame = clip.source.inFrame + duration;
   } else {
     const unit = den / gcd(num, den);
@@ -2889,6 +2965,12 @@ export function setClipSpeed(
     clip.durationFrames = duration;
     clip.source.outFrame = clip.source.inFrame + source;
     clip.speed = { num, den };
+    if (clip.kind === 'video') {
+      const smooth =
+        num < den && (options?.smoothSlowMotion ?? clip.slowMotionSmoothing === true);
+      if (smooth) clip.slowMotionSmoothing = true;
+      else delete clip.slowMotionSmoothing;
+    }
   }
   const delta = clip.durationFrames - oldDuration;
   const oldEnd = clip.startFrame + oldDuration;
@@ -2904,10 +2986,365 @@ export function setClipSpeed(
   return next;
 }
 
+/** Activa o desactiva la interpolación de una cámara lenta ya aplicada.
+ * El render sólo la usa en video por debajo de 1×; en 1× o más se descarta. */
+export function setSlowMotionSmoothing(
+  project: ProjectDocument,
+  clipId: string,
+  enabled: boolean,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || clip.kind !== 'video') {
+    throw new ProjectActionError('sólo los clips de video pueden interpolar la cámara lenta');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const slow = (clip.speed?.num ?? 1) < (clip.speed?.den ?? 1);
+  if (enabled && !slow) {
+    throw new ProjectActionError('aplicá primero una velocidad menor a 1×');
+  }
+  if (enabled) clip.slowMotionSmoothing = true;
+  else delete clip.slowMotionSmoothing;
+  touch(next);
+  return next;
+}
+
+/** Cambia el material del clip por uno derivado sin tocar su lugar en la
+ * timeline. En video exige un asset con al menos la misma ventana de origen:
+ * así `durationFrames x speed = sourceFrames` sigue siendo exacto. */
+export function replaceClipWithDerivedAsset(
+  project: ProjectDocument,
+  clipId: string,
+  assetId: string,
+  options?: { readonly sourceOffset?: number },
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) throw new ProjectActionError('el clip no está en la timeline');
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const asset = next.assets.find((item) => item.id === assetId);
+  if (!asset) throw new ProjectActionError('el material derivado no está en el proyecto');
+  const offset = options?.sourceOffset ?? 0;
+
+  if (clip.kind === 'video') {
+    if (asset.kind !== 'video') {
+      throw new ProjectActionError('un clip de video necesita un asset de video');
+    }
+    if (!Number.isInteger(offset) || offset < 0) {
+      throw new ProjectActionError('el desplazamiento del recorte no es válido');
+    }
+    const sourceFrames = clip.source.outFrame - clip.source.inFrame;
+    const available = asset.media?.durationFrames ?? 0;
+    if (available < offset + sourceFrames) {
+      throw new ProjectActionError(
+        'el material derivado no cubre la ventana del clip; volvé a procesarlo completo',
+      );
+    }
+    clip.source = {
+      type: 'asset',
+      assetId,
+      inFrame: offset,
+      outFrame: offset + sourceFrames,
+    };
+    // El .trf se analizó sobre el archivo original; el recorte tiene otra
+    // escala y otro inicio. Se invalida para no aplicar desplazamientos falsos.
+    delete clip.stabilization;
+  } else if (clip.kind === 'image' || clip.kind === 'freeze') {
+    if (asset.kind !== 'image') {
+      throw new ProjectActionError('una imagen necesita un asset de imagen');
+    }
+    if (offset !== 0) {
+      throw new ProjectActionError('una imagen no usa desplazamiento de origen');
+    }
+    clip.source = { type: 'asset', assetId };
+  } else {
+    throw new ProjectActionError('este tipo de clip no acepta un cambio de material');
+  }
+  touch(next);
+  return next;
+}
+
+export interface FaceCenterSample {
+  /** Segundos relativos al inicio de la ventana analizada. */
+  readonly time: number;
+  readonly centerX: number;
+  readonly centerY: number;
+}
+
+/** Convierte un track de rostro en keyframes de transformación que lo mantienen
+ * centrado y escalan lo justo para no dejar bordes vacíos. */
+export function applyFaceCenter(
+  project: ProjectDocument,
+  clipId: string,
+  samples: readonly FaceCenterSample[],
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || clip.kind !== 'video') {
+    throw new ProjectActionError('el seguimiento de rostro necesita un clip de video');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  if (clip.reverse) {
+    throw new ProjectActionError('quitá el reverse antes de centrar el rostro');
+  }
+  if (clip.motion) {
+    throw new ProjectActionError(
+      'quitá el movimiento Ken Burns antes de centrar el rostro',
+    );
+  }
+  if (clip.stabilization) {
+    throw new ProjectActionError(
+      'quitá la estabilización antes de centrar el rostro: mueve el encuadre',
+    );
+  }
+  if (clip.transform?.keyframes?.length) {
+    throw new ProjectActionError(
+      'quitá los keyframes de transformación antes de centrar el rostro',
+    );
+  }
+  if (samples.length < 2) {
+    throw new ProjectActionError('no hay suficientes muestras de rostro para seguir');
+  }
+  const fps = fpsOf(next);
+  const speed = (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1);
+  const width = next.video.width;
+  const height = next.video.height;
+  if (!(fps > 0) || !(speed > 0) || width < 2 || height < 2) {
+    throw new ProjectActionError('el proyecto no tiene una geometría válida');
+  }
+  const points = new Map<
+    number,
+    { readonly offsetX: number; readonly offsetY: number }
+  >();
+  let maxRelative = 0;
+  for (const sample of samples) {
+    if (
+      !Number.isFinite(sample.time) ||
+      !Number.isFinite(sample.centerX) ||
+      !Number.isFinite(sample.centerY)
+    ) {
+      continue;
+    }
+    const frame = Math.max(
+      0,
+      Math.min(clip.durationFrames - 1, Math.round((sample.time * fps) / speed)),
+    );
+    const dx = (0.5 - sample.centerX) * width;
+    const dy = (0.5 - sample.centerY) * height;
+    maxRelative = Math.max(maxRelative, Math.abs(dx) / width, Math.abs(dy) / height);
+    points.set(frame, { offsetX: Math.round(dx), offsetY: Math.round(dy) });
+  }
+  if (points.size < 2) {
+    throw new ProjectActionError('las muestras de rostro no alcanzan para crear keyframes');
+  }
+  const scale = Math.min(2, Math.max(1.02, 1 + 2 * maxRelative + 0.03));
+  const ordered = [...points.entries()].sort((a, b) => a[0] - b[0]);
+  const first = ordered[0]!;
+  const last = ordered[ordered.length - 1]!;
+  const keyframes = [
+    { frame: 0, ...first[1], easing: 'ease-in-out' as const },
+    ...ordered.map(([frame, point]) => ({
+      frame,
+      ...point,
+      easing: 'ease-in-out' as const,
+    })),
+    {
+      frame: Math.max(first[0], clip.durationFrames - 1),
+      ...last[1],
+      easing: 'ease-in-out' as const,
+    },
+  ].filter(
+    (keyframe, index, list) =>
+      list.findIndex((item) => item.frame === keyframe.frame) === index,
+  );
+  // La escala va en la transformación estática: agranda de verdad la capa y
+  // deja margen para que los offsets no descubran los bordes. El keyframe de
+  // escala se reserva para zooms; acá sólo se anima la posición.
+  clip.transform = {
+    ...(clip.transform ?? {}),
+    scaleX: scale,
+    scaleY: scale,
+    keyframes,
+  };
+  touch(next);
+  return next;
+}
+
+/** Agrupa el clip seleccionado y todos los que se solapan en su rango, en
+ * cualquier pista, en un clip compuesto. El render los aplana de vuelta a sus
+ * pistas originales; no se admiten compuestos anidados. */
+export function createCompound(
+  project: ProjectDocument,
+  selectedClipId: string,
+): { project: ProjectDocument; compoundClipId: string; grouped: number } {
+  const next = cloneProject(project);
+  const selected = next.timeline.clips.find((item) => item.id === selectedClipId);
+  if (!selected) throw new ProjectActionError('el clip no está en la timeline');
+  if (selected.kind === 'compound') {
+    throw new ProjectActionError('un clip compuesto no se puede agrupar dentro de otro');
+  }
+  if (
+    selected.kind === 'audio' ||
+    selected.kind === 'adjustment' ||
+    selected.kind === 'graphic'
+  ) {
+    throw new ProjectActionError(
+      'elegí un clip visual (video, imagen o congelado) como ancla del compuesto',
+    );
+  }
+  const track = next.timeline.tracks.find((item) => item.id === selected.trackId);
+  if (!track) throw new ProjectActionError('la pista del clip no existe');
+  if (track.locked) throw new ProjectActionError('la pista del clip está bloqueada');
+
+  const rangeStart = selected.startFrame;
+  const rangeEnd = selected.startFrame + selected.durationFrames;
+  const grouped = next.timeline.clips.filter(
+    (clip) =>
+      clip.startFrame < rangeEnd && clip.startFrame + clip.durationFrames > rangeStart,
+  );
+  if (grouped.some((clip) => clip.kind === 'compound')) {
+    throw new ProjectActionError(
+      'el rango ya incluye un clip compuesto; deshacelo antes de agrupar',
+    );
+  }
+  if (
+    grouped.some(
+      (clip) =>
+        next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked === true,
+    )
+  ) {
+    throw new ProjectActionError('hay una pista bloqueada dentro del rango');
+  }
+  const groupStart = Math.min(...grouped.map((clip) => clip.startFrame));
+  const groupEnd = Math.max(
+    ...grouped.map((clip) => clip.startFrame + clip.durationFrames),
+  );
+  const durationFrames = groupEnd - groupStart;
+  const compoundId = newId();
+  const compoundClipId = newId();
+  const label = `Compuesto ${(next.compounds?.length ?? 0) + 1}`;
+  const inner = grouped.map((clip) => {
+    const copy = JSON.parse(JSON.stringify(clip)) as CompoundInnerClip;
+    copy.startFrame -= groupStart;
+    return copy;
+  });
+  const compound: Compound = {
+    id: compoundId,
+    label,
+    durationFrames,
+    clips: inner,
+  };
+  next.compounds = [...(next.compounds ?? []), compound];
+  const groupedIds = new Set(grouped.map((clip) => clip.id));
+  next.timeline.clips = next.timeline.clips.filter((clip) => !groupedIds.has(clip.id));
+  next.timeline.clips.push({
+    id: compoundClipId,
+    trackId: selected.trackId,
+    kind: 'compound',
+    label,
+    startFrame: groupStart,
+    durationFrames,
+    source: { type: 'compound', compoundId },
+  } as Clip);
+  for (const scene of next.scenes) {
+    const replaced = scene.clipIds.map((id) =>
+      groupedIds.has(id) ? compoundClipId : id,
+    );
+    scene.clipIds = [...new Set(replaced)];
+  }
+  touch(next);
+  return { project: next, compoundClipId, grouped: grouped.length };
+}
+
+/** Deshace un compuesto: devuelve sus clips a las pistas originales en la
+ * posición actual del clip compuesto y elimina la definición. */
+export function expandCompound(
+  project: ProjectDocument,
+  compoundClipId: string,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === compoundClipId);
+  if (!clip || clip.kind !== 'compound') {
+    throw new ProjectActionError('el clip no es un compuesto');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const compound = (next.compounds ?? []).find(
+    (item) => item.id === clip.source.compoundId,
+  );
+  if (!compound) throw new ProjectActionError('la definición del compuesto no existe');
+  const instances = next.timeline.clips.filter(
+    (item) =>
+      item.source.type === 'compound' &&
+      item.source.compoundId === compound.id,
+  );
+  if (instances.length > 1) {
+    throw new ProjectActionError(
+      'el compuesto está usado por más de un clip; deshacé los otros antes',
+    );
+  }
+  const offset = clip.startFrame;
+  const inner = compound.clips.map((item) => {
+    const copy = JSON.parse(JSON.stringify(item)) as Clip;
+    copy.startFrame += offset;
+    return copy;
+  });
+  next.timeline.clips = next.timeline.clips.filter((item) => item.id !== clip.id);
+  next.timeline.clips.push(...inner);
+  next.compounds = (next.compounds ?? []).filter((item) => item.id !== compound.id);
+  const innerIds = inner.map((item) => item.id);
+  for (const scene of next.scenes) {
+    const replaced = scene.clipIds.flatMap((id) =>
+      id === clip.id ? innerIds : [id],
+    );
+    scene.clipIds = [...new Set(replaced)];
+  }
+  touch(next);
+  return next;
+}
+
+function cloneCompoundForClip(
+  project: ProjectDocument,
+  compoundId: string,
+): { compound: Compound; compoundId: string } {
+  const source = (project.compounds ?? []).find((item) => item.id === compoundId);
+  if (!source) throw new ProjectActionError('la definición del compuesto no existe');
+  const id = newId();
+  const clips = source.clips.map((clip) => ({
+    ...(JSON.parse(JSON.stringify(clip)) as CompoundInnerClip),
+    id: newId(),
+  }));
+  return {
+    compound: { ...source, id, label: `${source.label} copia`, clips },
+    compoundId: id,
+  };
+}
+
 export function updateTrack(
   project: ProjectDocument,
   trackId: string,
-  patch: Partial<Pick<Track, 'label' | 'muted' | 'hidden' | 'locked' | 'gainDb' | 'solo'>>,
+  patch: Partial<
+    Pick<
+      Track,
+      | 'label'
+      | 'muted'
+      | 'hidden'
+      | 'locked'
+      | 'gainDb'
+      | 'pan'
+      | 'eqLowDb'
+      | 'eqMidDb'
+      | 'eqHighDb'
+      | 'solo'
+    >
+  >,
 ): ProjectDocument {
   const next = cloneProject(project);
   const track = next.timeline.tracks.find((item) => item.id === trackId);
@@ -2929,6 +3366,20 @@ export function updateTrack(
       throw new ProjectActionError('la ganancia de pista debe estar entre -60 y 12 dB');
     }
     track.gainDb = patch.gainDb;
+  }
+  if (patch.pan !== undefined) {
+    if (!Number.isFinite(patch.pan) || patch.pan < -1 || patch.pan > 1) {
+      throw new ProjectActionError('el paneo de pista debe estar entre -1 y 1');
+    }
+    track.pan = patch.pan;
+  }
+  for (const key of ['eqLowDb', 'eqMidDb', 'eqHighDb'] as const) {
+    const value = patch[key];
+    if (value === undefined) continue;
+    if (!Number.isFinite(value) || value < -12 || value > 12) {
+      throw new ProjectActionError('el EQ de pista debe estar entre -12 y 12 dB');
+    }
+    track[key] = value;
   }
   if (patch.solo !== undefined) track.solo = patch.solo;
   touch(next);

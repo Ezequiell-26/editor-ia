@@ -8,6 +8,7 @@ export type ViewId =
   | 'text-edit'
   | 'multicam'
   | 'mixer'
+  | 'vfx'
   | 'script'
   | 'assets'
   | 'download'
@@ -51,6 +52,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'text-edit', label: 'Texto', hint: 'Edición por texto · Transcribí el video y cortá desde las frases', group: 'herramientas' },
   { id: 'multicam', label: 'Multicámara', hint: 'Multicámara · Sincronizá cámaras y cambiá de ángulo en vivo', group: 'herramientas' },
   { id: 'mixer', label: 'Mezcla', hint: 'Mezclador · Ganancia por pista, solo, mute y master', group: 'herramientas' },
+  { id: 'vfx', label: 'VFX', hint: 'VFX · Nodos, rotoscopía poligonal y seguimiento facial', group: 'herramientas' },
   { id: 'download', label: 'Descargar', hint: 'Descargador web · Bajar videos, fotos y audio hasta 8K', group: 'herramientas' },
   { id: 'director', label: 'Director', hint: 'Director IA · Análisis automático de video, cortes y ritmo', group: 'herramientas' },
   { id: 'factory', label: 'Fábrica', hint: 'Fábrica de videos · Generación en lote de variantes desde un brief', group: 'herramientas' },
@@ -87,6 +89,7 @@ export const PIPELINE_HIDDEN_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'ai-hub',
   'motion',
   'mixer',
+  'vfx',
   'visuals',
   'background',
   'upscale',

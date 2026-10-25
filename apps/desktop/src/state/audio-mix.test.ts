@@ -6,8 +6,12 @@ import {
   hasSoloedAudioTrack,
   isTrackAudible,
   levelPercentFromDb,
+  panGains,
+  panLabel,
   peakDbFromPeaks,
+  trackEqDb,
   trackGainDb,
+  trackPan,
 } from './audio-mix';
 
 function track(overrides: Partial<Track> = {}): Track {
@@ -53,6 +57,35 @@ describe('mezcla de pistas en la preview', () => {
     expect(trackGainDb(track({ gainDb: 30 }))).toBe(12);
     expect(trackGainDb(track({ gainDb: -80 }))).toBe(-60);
     expect(trackGainDb(track())).toBe(0);
+  });
+});
+
+describe('paneo y EQ de pista', () => {
+  it('acota el paneo y calcula un balance lineal', () => {
+    expect(trackPan(track({ pan: -0.4 }))).toBe(-0.4);
+    expect(trackPan(track({ pan: 3 }))).toBe(1);
+    expect(trackPan(track())).toBe(0);
+    expect(panGains(0)).toEqual({ left: 1, right: 1 });
+    expect(panGains(-1)).toEqual({ left: 1, right: 0 });
+    expect(panGains(1)).toEqual({ left: 0, right: 1 });
+    expect(panGains(-0.25).right).toBeCloseTo(0.75, 6);
+    expect(panGains(0.25).left).toBeCloseTo(0.75, 6);
+  });
+
+  it('etiqueta el paneo para la mesa', () => {
+    expect(panLabel(0)).toBe('C');
+    expect(panLabel(-0.4)).toBe('L 40');
+    expect(panLabel(0.25)).toBe('R 25');
+  });
+
+  it('acota las tres bandas de EQ', () => {
+    const widthEq = track({ eqLowDb: 4, eqMidDb: -3, eqHighDb: 6 });
+    expect(trackEqDb(widthEq, 'eqLowDb')).toBe(4);
+    expect(trackEqDb(widthEq, 'eqMidDb')).toBe(-3);
+    expect(trackEqDb(widthEq, 'eqHighDb')).toBe(6);
+    expect(trackEqDb(track({ eqLowDb: -30 }), 'eqLowDb')).toBe(-12);
+    expect(trackEqDb(track({ eqHighDb: 20 }), 'eqHighDb')).toBe(12);
+    expect(trackEqDb(track(), 'eqMidDb')).toBe(0);
   });
 });
 

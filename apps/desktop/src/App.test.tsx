@@ -27,7 +27,7 @@ async function createProject(name = 'Obra de prueba'): Promise<void> {
   fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
   await waitFor(
     () => {
-      expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/);
+      expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/);
     },
     { timeout: 5000 },
   );
@@ -62,6 +62,7 @@ describe('shell de Olyvia', () => {
       'Texto',
       'Multicámara',
       'Mezcla',
+      'VFX',
       'Descargar',
       'Director',
       'Fábrica',
@@ -336,14 +337,23 @@ describe('shell de Olyvia', () => {
     expect(service.calls.create).toBe(1);
     const main = screen.getByRole('main');
     expect(main.textContent).toContain('Timeline vacía');
-    expect(main.textContent).toContain('Exportar MP4');
+    expect(main.textContent).toContain('Timeline 01');
     expect(main.textContent).toMatch(/Vista previa aproximada/i);
     expect(
-      (within(main).getByRole('button', { name: /Exportar MP4/i }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: /Exportar video/i }) as HTMLButtonElement).disabled,
     ).toBe(true);
-    expect(within(main).getByRole('button', { name: /Exportar MP4/i }).getAttribute('title')).toMatch(
+    expect(screen.getByRole('button', { name: /Exportar video/i }).getAttribute('title')).toMatch(
       /Montá al menos un clip/i,
     );
+  });
+
+  it('organiza el editor en modo inmersivo con detalles y timeline', async () => {
+    renderApp();
+    await createProject('Layout inmersivo');
+    expect(document.querySelector('.app-shell')?.className).toContain('editor-immersive');
+    expect(screen.getByRole('tab', { name: /Timeline 01/i })).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: /Detalles/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Exportar video/i })).toBeTruthy();
   });
 
   it('abre y cierra los scopes de color de la preview', async () => {
@@ -406,7 +416,7 @@ describe('shell de Olyvia', () => {
   it('abre un proyecto existente y permite guardarlo', async () => {
     const service = renderApp();
     fireEvent.click(screen.getByRole('button', { name: /Abrir proyecto/i }));
-    await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/));
     fireEvent.click(screen.getByRole('button', { name: /^Guardar$/ }));
     await waitFor(() => expect(service.calls.save).toBe(1));
     expect(screen.getByRole('contentinfo').textContent).toMatch(/Guardado/i);
@@ -584,6 +594,45 @@ describe('shell de Olyvia', () => {
     expect(document.querySelector('.timeline-clip.kind-freeze')?.textContent).toContain(
       'Congelado',
     );
+  });
+
+  it('aplica cámara lenta suave y quita el fondo desde el Inspector', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra lenta', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const seeded = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    }).project;
+    const seededOpened = {
+      project: seeded,
+      label: 'lenta.editoria.json',
+      path: 'C:\\tmp\\lenta.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra lenta');
+    const clip = document.querySelector('.timeline-clip.kind-video');
+    expect(clip).toBeTruthy();
+    fireEvent.keyDown(clip as Element, { key: 'Enter' });
+
+    const slow = await screen.findByRole('button', { name: /0\.5× lento/i });
+    fireEvent.click(slow);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('checkbox', { name: /Interpolar fotogramas/i }) as HTMLInputElement)
+          .checked,
+      ).toBe(true),
+    );
+
+    const cutout = await screen.findByRole('button', { name: /Quitar fondo del tramo/i });
+    fireEvent.click(cutout);
+    await screen.findByText(/Fondo quitado/i);
+    expect(document.querySelector('.timeline-clip.kind-video')).toBeTruthy();
   });
 
   it('etiqueta el clip con color desde el Inspector y lo limpia', async () => {
@@ -1091,7 +1140,7 @@ describe('shell de Olyvia', () => {
     service.current = seededOpened;
     render(<App service={service} />);
     await createProject('Obra export');
-    fireEvent.click(screen.getByRole('button', { name: /Exportar MP4/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Exportar video/i }));
     const dialog = screen.getByRole('dialog', { name: /Render MP4 verificado/i });
     expect(dialog).toBeTruthy();
     expect(within(dialog).getAllByText(/YouTube 1080p/).length).toBeGreaterThan(0);

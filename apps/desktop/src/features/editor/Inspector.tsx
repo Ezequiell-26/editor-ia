@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../../components/Icon';
 import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
 import { MARKER_COLORS, MAX_MARKERS, type MarkerColor } from '@editor-ia/project-schema';
@@ -21,14 +21,18 @@ import {
 } from '../../state/effect-presets';
 import { CLIP_COLORS } from '../../state/clip-colors';
 import { MotionClipInspector } from '../motion/MotionClipInspector';
+import { polygonAroundCenter } from '../vfx/face-mask';
 import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
+import { EmojiPickerButton } from '../emoji/EmojiPicker';
+import { insertEmoji } from '../emoji/emoji';
 import {
   addAsset,
   addCaptionCue,
   addClipFromAsset,
   addTitleCue,
   applyAudioPresetToAll,
+  applyFaceCenter,
   applyTransitionToCuts,
   importSubtitleCues,
   addTranscriptionCues,
@@ -41,24 +45,29 @@ import {
   clipGainAtFrame,
   clipTransformAtFrame,
   closeGaps,
+  createCompound,
   deleteCaptionCue,
   deleteClip,
   deleteTrack,
   detachAudio,
   ensureDelivery,
+  expandCompound,
   formatTimecode,
   fpsOf,
   freezeFrameInPlace,
   markAssetReady,
+  markAssetReadyFrom,
   moveClip,
   moveTrack,
   removeAsset,
   removeGainKeyframe,
   removeMaskKeyframe,
   removeTransformKeyframe,
+  replaceClipWithDerivedAsset,
   rollClip,
   setClipSpeed,
   setClipStabilization,
+  setSlowMotionSmoothing,
   slideClip,
   slipClip,
   setAssetProxy,
@@ -191,14 +200,17 @@ function TextAreaField({
   onCommit,
   maxLength,
   rows = 3,
+  emoji = false,
 }: {
   readonly label: string;
   readonly value: string;
   readonly onCommit: (value: string) => void;
   readonly maxLength?: number;
   readonly rows?: number;
+  readonly emoji?: boolean;
 }) {
   const [draft, setDraft] = useState(value);
+  const ref = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     setDraft(value);
   }, [value]);
@@ -206,10 +218,32 @@ function TextAreaField({
     if (draft.trim()) onCommit(draft);
     else setDraft(value);
   }
+  function insertEmojiAtCursor(emojiValue: string): void {
+    const field = ref.current;
+    const next = insertEmoji(
+      draft,
+      emojiValue,
+      field?.selectionStart ?? draft.length,
+      field?.selectionEnd ?? draft.length,
+    );
+    setDraft(next.value);
+    onCommit(next.value);
+    window.requestAnimationFrame(() => {
+      const current = ref.current;
+      if (!current) return;
+      current.focus();
+      current.setSelectionRange(next.cursor, next.cursor);
+    });
+  }
   return (
     <label className="field">
-      <span>{label}</span>
+      <span className="field-label-row">
+        <span>{label}</span>
+        {emoji ? <EmojiPickerButton onPick={insertEmojiAtCursor} label={`Insertar emoji en ${label}`} /> : null}
+      </span>
       <textarea
+        ref={ref}
+        className="emoji-capable"
         rows={rows}
         value={draft}
         maxLength={maxLength}
@@ -245,6 +279,7 @@ function clipKindLabel(kind: Clip['kind']): string {
     graphic: 'Gráfico',
     adjustment: 'Ajuste',
     freeze: 'Congelado',
+    compound: 'Compuesto',
   }[kind];
 }
 
@@ -335,7 +370,91 @@ export const COLOR_LOOKS: readonly { readonly id: string; readonly label: string
 
 type ClipTab = 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'style' | 'all';
 
-function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; project: ReturnType<typeof useProjectStore>['state']['project'] }) {
+function ClipInspector(props: {
+  clip: Clip;
+  track: Track;
+  project: ReturnType<typeof useProjectStore>['state']['project'];
+}) {
+  if (props.clip.kind === 'compound') {
+    return <CompoundInspector clip={props.clip} project={props.project} />;
+  }
+  return <RegularClipInspector {...props} />;
+}
+
+function CompoundInspector({
+  clip,
+  project,
+}: {
+  clip: Extract<Clip, { kind: 'compound' }>;
+  project: ReturnType<typeof useProjectStore>['state']['project'];
+}) {
+  const store = useProjectStore();
+  const compound = (project?.compounds ?? []).find(
+    (item) => item.id === clip.source.compoundId,
+  );
+  const inner = compound?.clips ?? [];
+  return (
+    <div className="clip-inspector">
+      <Section title="Clip compuesto">
+        <TextField
+          label="Nombre"
+          value={clip.label ?? ''}
+          maxLength={200}
+          onCommit={(value) =>
+            store.update((current) => updateClip(current, clip.id, { label: value }))
+          }
+        />
+        <p className="fine-print">
+          Agrupa {inner.length} clip(s) que se mueven, se silencian y se ubican juntos. El
+          render los aplana de vuelta a sus pistas originales.
+        </p>
+        <dl className="data-list compact">
+          <div>
+            <dt>Duración</dt>
+            <dd>{clip.durationFrames} frames</dd>
+          </div>
+          <div>
+            <dt>Clips internos</dt>
+            <dd>{inner.length}</dd>
+          </div>
+        </dl>
+        <div className="actions compact">
+          <button
+            type="button"
+            className="small"
+            onClick={() => {
+              const ids = inner.map((item) => item.id);
+              const result = store.mutate((current) => ({
+                project: expandCompound(current, clip.id),
+                ids,
+              }));
+              if (result?.ids[0]) {
+                store.setSelection({ kind: 'clip', id: result.ids[0] });
+              }
+            }}
+          >
+            Deshacer compuesto
+          </button>
+        </div>
+        {inner.length > 0 ? (
+          <ul className="keyframe-list">
+            {inner.map((item) => (
+              <li key={item.id} className="fine-print">
+                {item.label ?? item.kind} · {item.durationFrames} frames
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <p className="fine-print">
+          Mientras esté agrupado no se puede recortar ni dividir. Deshacelo para editar los
+          clips internos y volvé a agrupar cuando quieras.
+        </p>
+      </Section>
+    </div>
+  );
+}
+
+function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Track; project: ReturnType<typeof useProjectStore>['state']['project'] }) {
   const store = useProjectStore();
   const [tab, setTab] = useState<ClipTab>(
     clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video',
@@ -355,7 +474,10 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
   const [beatStride, setBeatStride] = useState(4);
   const [beatInfo, setBeatInfo] = useState<string | null>(null);
   const [freezeBusy, setFreezeBusy] = useState(false);
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
+  const [backgroundPercent, setBackgroundPercent] = useState<number | null>(null);
   const [stabilizeBusy, setStabilizeBusy] = useState(false);
+  const [faceCenterBusy, setFaceCenterBusy] = useState(false);
   const [stabilizeSmoothing, setStabilizeSmoothing] = useState(10);
   const [stabilizeInfo, setStabilizeInfo] = useState<string | null>(null);
   const [matchRefId, setMatchRefId] = useState('');
@@ -377,6 +499,9 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     setBeatInfo(null);
     setStabilizeInfo(null);
     setStabilizeBusy(false);
+    setFaceCenterBusy(false);
+    setBackgroundBusy(false);
+    setBackgroundPercent(null);
     setTrimDelta(1);
     setTab(clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video');
   }, [clip.id, clip.kind]);
@@ -475,8 +600,11 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       );
       return;
     }
+    const shape = (patch.shape ?? mask?.shape ?? 'rectangle') as ClipMask['shape'];
+    const polygonPoints =
+      shape === 'polygon' ? (patch.points ?? mask?.points) : undefined;
     const next: ClipMask = {
-      shape: mask?.shape ?? 'rectangle',
+      shape,
       x: maskView.x,
       y: maskView.y,
       width: maskView.width,
@@ -484,7 +612,10 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       rotationDeg: maskView.rotationDeg,
       feather: maskView.feather,
       invert: mask?.invert ?? false,
+      ...(polygonPoints ? { points: polygonPoints } : {}),
       ...(mask?.keyframes ? { keyframes: mask.keyframes } : {}),
+      ...(mask?.text !== undefined ? { text: mask.text } : {}),
+      ...(mask?.fontScale !== undefined ? { fontScale: mask.fontScale } : {}),
       ...patch,
     };
     store.update((current) => updateClip(current, clip.id, { mask: next }));
@@ -494,6 +625,23 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     clip.kind === 'video' || clip.kind === 'audio'
       ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1)
       : 1;
+  const lockedTrack = project.timeline.tracks.find((item) => item.id === clip.trackId)?.locked === true;
+  const transitionFrames =
+    'transitionIn' in clip
+      ? (clip as Clip & { transitionIn?: { frames: number } }).transitionIn?.frames ?? 0
+      : 0;
+  const faceCenterBlockReason =
+    clip.kind !== 'video'
+      ? null
+      : clip.reverse
+        ? 'Quitá el reverse para seguir el rostro.'
+        : clip.motion
+          ? 'Quitá el movimiento Ken Burns: el seguimiento se calcula sobre el frame crudo.'
+          : clip.stabilization
+            ? 'Quitá la estabilización: mueve el encuadre y el seguimiento quedaría desfasado.'
+            : (clip.transform?.keyframes?.length ?? 0) > 0
+              ? 'Quitá los keyframes de transformación para que el seguimiento no los pise.'
+              : null;
   async function freezeFrame(mode: 'track' | 'overlay'): Promise<void> {
     if (
       !project ||
@@ -556,6 +704,99 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       setFreezeBusy(false);
     }
   }
+  async function removeAutomaticBackground(): Promise<void> {
+    if (!project || !asset) return;
+    const kind =
+      clip.kind === 'video'
+        ? 'video'
+        : clip.kind === 'image' || clip.kind === 'freeze'
+          ? 'image'
+          : null;
+    if (!kind) return;
+    if (lockedTrack) {
+      store.setNotice(
+        'La pista del clip está bloqueada; desbloqueala antes de recortar el fondo.',
+      );
+      return;
+    }
+    if (asset.status !== 'ready' || asset.rights.license.commercialUse === 'unknown') {
+      store.setNotice(
+        'Marcá los derechos del material original antes de recortarle el fondo.',
+      );
+      return;
+    }
+    if (kind === 'video' && !windowedSource) return;
+    const windowStart = kind === 'video' ? windowedSource?.inFrame ?? 0 : 0;
+    const windowEnd = kind === 'video' ? windowedSource?.outFrame ?? 0 : 0;
+    // El render lee el pre-roll de la transición antes de `inFrame`, con el
+    // mismo tope que `transition_lead_seconds`: duración del clip, inicio en
+    // la timeline y 2 s. Se procesa ese tramo y el clip derivado arranca con
+    // el mismo desplazamiento para no correr el contenido.
+    const leadTimeline = Math.max(
+      0,
+      Math.min(
+        transitionFrames,
+        clip.durationFrames,
+        clip.startFrame,
+        Math.round(2 * fps),
+      ),
+    );
+    const leadSource =
+      kind === 'video' ? Math.max(0, Math.round(leadTimeline * speedFactor)) : 0;
+    const availableStart = Math.max(0, windowStart - leadSource);
+    const sourceOffset = windowStart - availableStart;
+    const hadStabilization =
+      kind === 'video' && 'stabilization' in clip && clip.stabilization !== undefined;
+    setBackgroundBusy(true);
+    setBackgroundPercent(kind === 'video' ? 0 : null);
+    let unsubscribe: (() => void) | null = null;
+    try {
+      try {
+        unsubscribe = await store.service.onBackgroundProgress((event) => {
+          if (typeof event.percent === 'number') setBackgroundPercent(event.percent);
+        });
+      } catch {
+        // Sin puente de eventos el progreso es opcional; el recorte continúa.
+        unsubscribe = null;
+      }
+      const derived = await store.service.removeBackgroundAsset({
+        path: asset.source.path,
+        kind,
+        inFrame: kind === 'video' ? availableStart : 0,
+        outFrame: kind === 'video' ? windowEnd : 0,
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+      });
+      const result = store.mutate((current) => {
+        let next = addAsset(current, derived);
+        next = markAssetReadyFrom(next, derived.id, asset.id);
+        return {
+          project: replaceClipWithDerivedAsset(next, clip.id, derived.id, {
+            sourceOffset,
+          }),
+        };
+      });
+      if (result) {
+        const stabilizationNote = hadStabilization
+          ? ' Se quitó la estabilización porque el archivo cambió; volvé a analizarla.'
+          : '';
+        store.setNotice(
+          kind === 'video'
+            ? `Fondo quitado: el clip usa el recorte con transparencia y conserva su audio.${stabilizationNote}`
+            : `Fondo quitado: el clip usa la versión con transparencia.${stabilizationNote}`,
+        );
+      }
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo quitar el fondo',
+      );
+    } finally {
+      unsubscribe?.();
+      setBackgroundBusy(false);
+      setBackgroundPercent(null);
+    }
+  }
+
   async function matchColor(): Promise<void> {
     if (!project) return;
     const reference = project.assets.find((item) => item.id === matchRefId);
@@ -887,6 +1128,30 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
     });
   }
 
+  function setGlow(patch: Partial<NonNullable<ClipEffects['glow']>>): void {
+    const current = effects.glow ?? { intensity: 0.6, radius: 24, threshold: 0.55 };
+    const next = {
+      intensity: patch.intensity ?? current.intensity,
+      radius: patch.radius ?? current.radius,
+      threshold: patch.threshold ?? current.threshold,
+    };
+    if (next.intensity <= 0.001) {
+      setEffect('glow', undefined);
+      return;
+    }
+    setEffect('glow', next);
+  }
+
+  function setMotionBlur(
+    patch: Partial<NonNullable<ClipEffects['motionBlur']>>,
+  ): void {
+    const current = effects.motionBlur ?? { frames: 4, intensity: 0.5 };
+    setEffect('motionBlur', {
+      frames: patch.frames ?? current.frames,
+      intensity: patch.intensity ?? current.intensity,
+    });
+  }
+
   function setRelight(
     patch: Partial<NonNullable<ClipEffects['relight']>>,
   ): void {
@@ -952,6 +1217,51 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
       );
     } finally {
       setRelightBusy(false);
+    }
+  }
+
+  async function centerFace(): Promise<void> {
+    if (
+      !project ||
+      !asset ||
+      asset.kind !== 'video' ||
+      clip.kind !== 'video' ||
+      !windowedSource ||
+      faceCenterBusy
+    ) {
+      return;
+    }
+    if (faceCenterBlockReason) {
+      store.setNotice(faceCenterBlockReason);
+      return;
+    }
+    setFaceCenterBusy(true);
+    try {
+      const track = await store.service.analyzeFaceTrack({
+        path: asset.source.path,
+        startSeconds: windowedSource.inFrame / fps,
+        endSeconds: windowedSource.outFrame / fps,
+      });
+      if (track.samples.length < 2) {
+        store.setNotice(
+          'No se detectó un rostro estable en el tramo; no se crearon keyframes.',
+        );
+        return;
+      }
+      const changed = store.update((current) =>
+        applyFaceCenter(current, clip.id, track.samples),
+      );
+      if (changed) {
+        store.setNotice(
+          `Rostro centrado con ${track.samples.length} muestras (${track.detections} detecciones). Revisá el encuadre y la escala.`,
+        );
+      }
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo centrar el rostro',
+      );
+    } finally {
+      setFaceCenterBusy(false);
     }
   }
 
@@ -1163,6 +1473,33 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             }}
           >
             Dividir en playhead
+          </button>
+          <button
+            type="button"
+            className="small"
+            disabled={
+              clip.kind === 'audio' ||
+              clip.kind === 'adjustment' ||
+              clip.kind === 'graphic'
+            }
+            onClick={() => {
+              const result = store.mutate((current) => {
+                const grouped = createCompound(current, clip.id);
+                return {
+                  project: grouped.project,
+                  compoundClipId: grouped.compoundClipId,
+                  grouped: grouped.grouped,
+                };
+              });
+              if (result) {
+                store.setSelection({ kind: 'clip', id: result.compoundClipId });
+                store.setNotice(
+                  `Compuesto creado con ${result.grouped} clip(s). Deshacelo desde el Inspector para editarlos.`,
+                );
+              }
+            }}
+          >
+            Agrupar en compuesto
           </button>
           <button
             type="button"
@@ -1817,6 +2154,53 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             Cambiar la velocidad ajusta la duración del clip y desplaza los clips siguientes de la
             misma pista. La ventana de origen se ajusta para mantener frames enteros.
           </p>
+          {clip.kind === 'video' ? (
+            <div className="keyframe-panel">
+              <div className="production-card-head">
+                <div>
+                  <p className="eyebrow">Cámara lenta</p>
+                  <span className="fine-print">Interpolación de movimiento al exportar</span>
+                </div>
+                <div className="actions compact">
+                  {[0.25, 0.5].map((value) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className="small"
+                      onClick={() =>
+                        store.update((current) =>
+                          setClipSpeed(current, clip.id, value, { smoothSlowMotion: true }),
+                        )
+                      }
+                      disabled={
+                        Math.abs(speed - value) < 0.001 && clip.slowMotionSmoothing === true
+                      }
+                    >
+                      {value === 0.25 ? '0.25× lento' : '0.5× lento'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={speedFactor < 0.999 && clip.slowMotionSmoothing === true}
+                  disabled={speedFactor >= 0.999}
+                  onChange={(event) =>
+                    store.update((current) =>
+                      setSlowMotionSmoothing(current, clip.id, event.target.checked),
+                    )
+                  }
+                />
+                <span>Interpolar fotogramas (movimiento suave)</span>
+              </label>
+              <p className="fine-print">
+                `minterpolate` genera frames intermedios entre los originales: el clip se ve
+                fluido a 1/4 o 1/2 de velocidad, pero el export tarda más. No se aplica al
+                acelerar ni a 1×.
+              </p>
+            </div>
+          ) : null}
           <label className="check">
             <input
               type="checkbox"
@@ -2051,6 +2435,34 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
+      {clip.kind === 'video' ? (
+        <Section title="Seguimiento de rostro" group="video">
+          <p className="fine-print">
+            Detecta el rostro en el tramo y crea keyframes de posición y escala para
+            mantenerlo centrado, como el camera tracking de CapCut. Requiere el modelo de
+            rostros descargado.
+          </p>
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() => void centerFace()}
+              disabled={
+                faceCenterBusy ||
+                !asset ||
+                asset.kind !== 'video' ||
+                faceCenterBlockReason !== null
+              }
+            >
+              {faceCenterBusy ? 'Analizando rostro…' : 'Centrar rostro'}
+            </button>
+          </div>
+          {faceCenterBlockReason ? (
+            <p className="fine-print">{faceCenterBlockReason}</p>
+          ) : null}
+        </Section>
+      ) : null}
+
       {timed ? (
         <Section title="Ajuste fino" group="trim">
           <p className="inspector-meta">
@@ -2185,6 +2597,55 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
         </Section>
       ) : null}
 
+      {visual && asset ? (
+        <Section title="Fondo automático" group="video">
+          <p className="fine-print">
+            Segmenta la persona u objeto principal con el modelo local u2netp y crea una
+            versión con transparencia. El material original queda intacto en la biblioteca.
+          </p>
+          {asset.status !== 'ready' ||
+          asset.rights.license.commercialUse === 'unknown' ? (
+            <p className="fine-print">
+              Primero declaramos los derechos del material original: el recorte hereda esa
+              licencia.
+            </p>
+          ) : null}
+          <div className="actions compact">
+            <button
+              type="button"
+              className="small"
+              onClick={() => void removeAutomaticBackground()}
+              disabled={
+                backgroundBusy ||
+                lockedTrack ||
+                asset.status !== 'ready' ||
+                asset.rights.license.commercialUse === 'unknown'
+              }
+            >
+              {backgroundBusy
+                ? backgroundPercent !== null
+                  ? `Recortando… ${Math.round(backgroundPercent)}%`
+                  : 'Recortando…'
+                : clip.kind === 'video'
+                  ? 'Quitar fondo del tramo'
+                  : 'Quitar fondo'}
+            </button>
+          </div>
+          {lockedTrack ? (
+            <p className="fine-print">
+              La pista está bloqueada; desbloqueala para recortar el fondo.
+            </p>
+          ) : null}
+          {clip.kind === 'video' ? (
+            <p className="fine-print">
+              Procesa hasta 2 minutos por vez, conserva el audio y limita la salida a 1080p.
+              Puede tardar varios minutos; la interpolación y los efectos se aplican después,
+              sobre el recorte.
+            </p>
+          ) : null}
+        </Section>
+      ) : null}
+
       {visual ? (
         <Section title="Fondo / chroma key" group="video">
           <div className="inspector-grid">
@@ -2270,15 +2731,34 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               <span>Forma</span>
               <select
                 value={mask?.shape ?? 'rectangle'}
-                onChange={(event) =>
-                  patchMask({ shape: event.target.value as ClipMask['shape'] })
-                }
+                onChange={(event) => {
+                  const shape = event.target.value as ClipMask['shape'];
+                  if (shape === 'polygon') {
+                    patchMask({
+                      shape,
+                      points: mask?.points ?? polygonAroundCenter(0.5, 0.5).points,
+                    });
+                  } else if (shape === 'text') {
+                    patchMask({
+                      shape,
+                      text: mask?.text ?? 'TEXTO',
+                      fontScale: mask?.fontScale ?? 0.16,
+                      width: mask?.width ?? 1,
+                      height: mask?.height ?? 1,
+                      feather: 0,
+                    });
+                  } else {
+                    patchMask({ shape });
+                  }
+                }}
               >
                 <option value="rectangle">Rectángulo</option>
                 <option value="ellipse">Elipse</option>
                 <option value="diamond">Diamante</option>
                 <option value="triangle">Triángulo</option>
                 <option value="rounded">Rectángulo redondeado</option>
+                <option value="polygon">Polígono (roto)</option>
+                <option value="text">Texto recortado</option>
               </select>
             </label>
             <NumberField
@@ -2297,38 +2777,80 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               step={0.05}
               onCommit={(value) => patchMask({ y: value })}
             />
-            <NumberField
-              label="Ancho"
-              value={maskView.width}
-              min={0.05}
-              max={2}
-              step={0.05}
-              onCommit={(value) => patchMask({ width: value })}
-            />
-            <NumberField
-              label="Alto"
-              value={maskView.height}
-              min={0.05}
-              max={2}
-              step={0.05}
-              onCommit={(value) => patchMask({ height: value })}
-            />
-            <NumberField
-              label="Rotación (°)"
-              value={maskView.rotationDeg}
-              min={-180}
-              max={180}
-              step={1}
-              onCommit={(value) => patchMask({ rotationDeg: value })}
-            />
-            <NumberField
-              label="Feather"
-              value={maskView.feather}
-              min={0}
-              max={1}
-              step={0.02}
-              onCommit={(value) => patchMask({ feather: value })}
-            />
+            {mask?.shape === 'polygon' ? (
+              <p className="fine-print inspector-full">
+                Polígono de {mask.points?.length ?? 0} vértices. La forma se dibuja y anima en
+                VFX; acá movés el conjunto con Centro X/Y.
+              </p>
+            ) : mask?.shape === 'text' ? (
+              <>
+                <label className="field inspector-full">
+                  <span>Texto</span>
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={mask.text ?? ''}
+                    onChange={(event) => patchMask({ text: event.target.value })}
+                  />
+                </label>
+                <NumberField
+                  label="Tamaño (% alto)"
+                  value={Math.round((mask.fontScale ?? 0.16) * 100)}
+                  min={2}
+                  max={50}
+                  step={1}
+                  onCommit={(value) => patchMask({ fontScale: value / 100 })}
+                />
+                <NumberField
+                  label="Feather"
+                  value={maskView.feather}
+                  min={0}
+                  max={1}
+                  step={0.02}
+                  onCommit={(value) => patchMask({ feather: value })}
+                />
+                <p className="fine-print inspector-full">
+                  La máscara usa los glifos como alfa: el clip se ve sólo a través del texto.
+                  Se renderiza con drawtext y es estática; la preview CSS no la dibuja, usá
+                  Frame real para verla.
+                </p>
+              </>
+            ) : (
+              <>
+                <NumberField
+                  label="Ancho"
+                  value={maskView.width}
+                  min={0.05}
+                  max={2}
+                  step={0.05}
+                  onCommit={(value) => patchMask({ width: value })}
+                />
+                <NumberField
+                  label="Alto"
+                  value={maskView.height}
+                  min={0.05}
+                  max={2}
+                  step={0.05}
+                  onCommit={(value) => patchMask({ height: value })}
+                />
+                <NumberField
+                  label="Rotación (°)"
+                  value={maskView.rotationDeg}
+                  min={-180}
+                  max={180}
+                  step={1}
+                  onCommit={(value) => patchMask({ rotationDeg: value })}
+                />
+                <NumberField
+                  label="Feather"
+                  value={maskView.feather}
+                  min={0}
+                  max={1}
+                  step={0.02}
+                  onCommit={(value) => patchMask({ feather: value })}
+                />
+              </>
+            )}
           </div>
           <div className="actions compact">
             <label className="check">
@@ -2364,7 +2886,7 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
             <button
               type="button"
               className="small"
-              disabled={!mask}
+              disabled={!mask || mask.shape === 'text'}
               onClick={() =>
                 store.update((current) =>
                   setMaskKeyframe(current, clip.id, localFrame, maskView),
@@ -2689,6 +3211,112 @@ function ClipInspector({ clip, track, project }: { clip: Clip; track: Track; pro
               </>
             ) : null}
           </div>
+          {!isAdjustment ? (
+            <>
+              <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Glow / halo</p>
+                <span className="fine-print">Halo alrededor de las zonas claras</span>
+              </div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={effects.glow !== undefined}
+                  onChange={(event) =>
+                    setEffect(
+                      'glow',
+                      event.target.checked
+                        ? { intensity: 0.6, radius: 24, threshold: 0.55 }
+                        : undefined,
+                    )
+                  }
+                />
+                <span>Activar</span>
+              </label>
+            </div>
+            {effects.glow ? (
+              <div className="inspector-grid">
+                <NumberField
+                  label="Intensidad"
+                  value={effects.glow.intensity}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onCommit={(value) => setGlow({ intensity: value })}
+                />
+                <NumberField
+                  label="Radio (px)"
+                  value={effects.glow.radius}
+                  min={1}
+                  max={80}
+                  step={1}
+                  onCommit={(value) => setGlow({ radius: value })}
+                />
+                <NumberField
+                  label="Umbral"
+                  value={effects.glow.threshold}
+                  min={0}
+                  max={0.95}
+                  step={0.05}
+                  onCommit={(value) => setGlow({ threshold: value })}
+                />
+              </div>
+            ) : null}
+            <p className="fine-print">
+              El halo se calcula en el render con las zonas que superan el umbral. La
+              preview CSS no lo simula; usá Frame real para verlo.
+            </p>
+          </div>
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Movimiento difuminado</p>
+                <span className="fine-print">Estela temporal de 2–12 frames</span>
+              </div>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={effects.motionBlur !== undefined}
+                  onChange={(event) =>
+                    setEffect(
+                      'motionBlur',
+                      event.target.checked
+                        ? { frames: 4, intensity: 0.5 }
+                        : undefined,
+                    )
+                  }
+                />
+                <span>Activar</span>
+              </label>
+            </div>
+            {effects.motionBlur ? (
+              <div className="inspector-grid">
+                <NumberField
+                  label="Frames"
+                  value={effects.motionBlur.frames}
+                  min={2}
+                  max={12}
+                  step={1}
+                  onCommit={(value) => setMotionBlur({ frames: Math.round(value) })}
+                />
+                <NumberField
+                  label="Intensidad"
+                  value={effects.motionBlur.intensity}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  onCommit={(value) => setMotionBlur({ intensity: value })}
+                />
+              </div>
+            ) : null}
+            <p className="fine-print">
+              Mezcla los frames anteriores en el render; sirve para que un zoom o una
+              animación se sientan más naturales. No se aplica a imágenes fijas.
+            </p>
+          </div>
+            </>
+          ) : null}
           <div className="color-wheels">
             {(
               [
@@ -3522,6 +4150,8 @@ function trackKind(clip: Clip): Track['kind'] {
       return 'graphic';
     case 'adjustment':
       return 'adjustment';
+    case 'compound':
+      return 'video';
     case 'freeze':
       return 'video';
   }
@@ -3670,6 +4300,7 @@ function CueInspector({ cue }: { cue: CaptionCue }) {
         label="Texto"
         value={cue.text}
         maxLength={500}
+        emoji
         onCommit={(value) => store.update((current) => updateCaptionCue(current, cue.id, { text: value }))}
       />
       <div className="inspector-grid">
@@ -3799,8 +4430,15 @@ function AssetInspector({ asset }: { asset: Asset }) {
   const [proxyBusy, setProxyBusy] = useState(false);
   const proxy =
     'proxy' in asset ? (asset as Asset & { proxy?: AssetProxy }).proxy : undefined;
+  const alphaCutout = asset.kind === 'video' && asset.media?.alpha === true;
 
   async function createProxy(): Promise<void> {
+    if (alphaCutout) {
+      store.setNotice(
+        'Este recorte tiene transparencia; un proxy H.264 la perdería. Se usa el WebM original.',
+      );
+      return;
+    }
     setProxyBusy(true);
     try {
       const created = await store.service.createVideoProxy({ path: asset.source.path });
@@ -3921,34 +4559,45 @@ function AssetInspector({ asset }: { asset: Asset }) {
       </Section>
       {asset.kind === 'video' ? (
         <Section title="Proxy de edición">
-          <p className="inspector-meta">
-            {proxy
-              ? `${proxy.width}×${proxy.height} · ${(proxy.bytes / 1_000_000).toFixed(1)} MB`
-              : 'Sin proxy; la preview usa el video original.'}
-          </p>
-          <div className="actions compact">
-            <button
-              type="button"
-              className="small"
-              onClick={() => void createProxy()}
-              disabled={proxyBusy}
-            >
-              {proxyBusy ? 'Creando proxy…' : proxy ? 'Regenerar proxy' : 'Crear proxy'}
-            </button>
-            {proxy ? (
-              <button
-                type="button"
-                className="small ghost"
-                onClick={() => store.update((current) => setAssetProxy(current, asset.id, undefined))}
-              >
-                Quitar proxy
-              </button>
-            ) : null}
-          </div>
-          <p className="fine-print">
-            El proxy se usa sólo en la preview para aligerar la reproducción; el MP4 final se
-            renderiza siempre desde el archivo original.
-          </p>
+          {alphaCutout ? (
+            <p className="fine-print">
+              Este recorte tiene canal alfa; un proxy H.264 perdería la transparencia. La
+              preview y el export usan el WebM VP9 original.
+            </p>
+          ) : (
+            <>
+              <p className="inspector-meta">
+                {proxy
+                  ? `${proxy.width}×${proxy.height} · ${(proxy.bytes / 1_000_000).toFixed(1)} MB`
+                  : 'Sin proxy; la preview usa el video original.'}
+              </p>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  onClick={() => void createProxy()}
+                  disabled={proxyBusy}
+                >
+                  {proxyBusy ? 'Creando proxy…' : proxy ? 'Regenerar proxy' : 'Crear proxy'}
+                </button>
+                {proxy ? (
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={() =>
+                      store.update((current) => setAssetProxy(current, asset.id, undefined))
+                    }
+                  >
+                    Quitar proxy
+                  </button>
+                ) : null}
+              </div>
+              <p className="fine-print">
+                El proxy se usa sólo en la preview para aligerar la reproducción; el MP4 final
+                se renderiza siempre desde el archivo original.
+              </p>
+            </>
+          )}
         </Section>
       ) : null}
     </>
@@ -3975,6 +4624,8 @@ function ProjectInspector() {
   const project = store.state.project;
   const [cueText, setCueText] = useState('');
   const [titleText, setTitleText] = useState('');
+  const cueInputRef = useRef<HTMLInputElement | null>(null);
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [subtitleIo, setSubtitleIo] = useState<'closed' | 'import' | 'export'>('closed');
   const [subtitleDraft, setSubtitleDraft] = useState('');
   const [subtitleWarnings, setSubtitleWarnings] = useState<string[]>([]);
@@ -3996,6 +4647,36 @@ function ProjectInspector() {
   const sortedMarkers = [...project.markers].sort((a, b) => a.frame - b.frame);
   const markerChapters = formatMarkerChapters(project.markers, fps);
   const chapterValidation = validateChapters(chaptersFromMarkers(project.markers, fps));
+
+  function insertIntoCue(emojiValue: string): void {
+    const input = cueInputRef.current;
+    const next = insertEmoji(
+      cueText,
+      emojiValue,
+      input?.selectionStart ?? cueText.length,
+      input?.selectionEnd ?? cueText.length,
+    );
+    setCueText(next.value);
+    window.requestAnimationFrame(() => {
+      cueInputRef.current?.focus();
+      cueInputRef.current?.setSelectionRange(next.cursor, next.cursor);
+    });
+  }
+
+  function insertIntoTitle(emojiValue: string): void {
+    const input = titleInputRef.current;
+    const next = insertEmoji(
+      titleText,
+      emojiValue,
+      input?.selectionStart ?? titleText.length,
+      input?.selectionEnd ?? titleText.length,
+    );
+    setTitleText(next.value);
+    window.requestAnimationFrame(() => {
+      titleInputRef.current?.focus();
+      titleInputRef.current?.setSelectionRange(next.cursor, next.cursor);
+    });
+  }
 
   function addMarkerAtPlayhead(): void {
     store.update((current) => addMarker(current, store.state.playheadFrame).project);
@@ -5026,24 +5707,29 @@ function ProjectInspector() {
 
       <Section title="Subtítulos">
         <div className="actions compact">
-          <input
-            value={cueText}
-            maxLength={500}
-            placeholder="Texto del subtítulo en el playhead"
-            onChange={(event) => setCueText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && cueText.trim()) {
-                store.mutate((current) =>
-                  addCaptionCue(current, {
-                    text: cueText,
-                    startFrame: store.state.playheadFrame,
-                    durationFrames: Math.round(3 * fps),
-                  }),
-                );
-                setCueText('');
-              }
-            }}
-          />
+          <div className="emoji-input-row">
+            <input
+              ref={cueInputRef}
+              className="emoji-capable"
+              value={cueText}
+              maxLength={500}
+              placeholder="Texto del subtítulo en el playhead"
+              onChange={(event) => setCueText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && cueText.trim()) {
+                  store.mutate((current) =>
+                    addCaptionCue(current, {
+                      text: cueText,
+                      startFrame: store.state.playheadFrame,
+                      durationFrames: Math.round(3 * fps),
+                    }),
+                  );
+                  setCueText('');
+                }
+              }}
+            />
+            <EmojiPickerButton onPick={insertIntoCue} label="Insertar emoji en el subtítulo" />
+          </div>
           <button
             type="button"
             className="small"
@@ -5063,24 +5749,29 @@ function ProjectInspector() {
           </button>
         </div>
         <div className="actions compact">
-          <input
-            value={titleText}
-            maxLength={500}
-            placeholder="Título centrado en el playhead"
-            onChange={(event) => setTitleText(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && titleText.trim()) {
-                store.mutate((current) =>
-                  addTitleCue(current, {
-                    text: titleText,
-                    startFrame: store.state.playheadFrame,
-                    durationFrames: Math.round(3 * fps),
-                  }),
-                );
-                setTitleText('');
-              }
-            }}
-          />
+          <div className="emoji-input-row">
+            <input
+              ref={titleInputRef}
+              className="emoji-capable"
+              value={titleText}
+              maxLength={500}
+              placeholder="Título centrado en el playhead"
+              onChange={(event) => setTitleText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && titleText.trim()) {
+                  store.mutate((current) =>
+                    addTitleCue(current, {
+                      text: titleText,
+                      startFrame: store.state.playheadFrame,
+                      durationFrames: Math.round(3 * fps),
+                    }),
+                  );
+                  setTitleText('');
+                }
+              }}
+            />
+            <EmojiPickerButton onPick={insertIntoTitle} label="Insertar emoji en el título" />
+          </div>
           <button
             type="button"
             className="small"
@@ -5468,9 +6159,9 @@ export function Inspector() {
   if (!body) body = <ProjectInspector />;
 
   return (
-    <aside className="inspector" aria-label="Inspector">
+    <aside className="inspector" aria-label="Detalles">
       <div className="inspector-head">
-        <h3>Inspector</h3>
+        <h3>Detalles</h3>
         <span>{selection.kind === 'none' ? 'proyecto' : selection.kind}</span>
       </div>
       <div className="inspector-body">{body}</div>

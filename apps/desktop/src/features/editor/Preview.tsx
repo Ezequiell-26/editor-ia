@@ -48,6 +48,12 @@ function maskPolygon(
   radiusX: number,
   radiusY: number,
 ): Array<readonly [number, number]> {
+  if (mask.shape === 'polygon') {
+    return (mask.points ?? []).map((point) => [
+      point.x * 100 + mask.x * 100,
+      point.y * 100 + mask.y * 100,
+    ]);
+  }
   if (mask.shape === 'diamond') {
     return [
       [centerX, centerY - radiusY],
@@ -68,6 +74,11 @@ function maskPolygon(
 
 function maskClipPath(mask: ClipMask): string {
   const clamp = (value: number): number => Math.max(0, Math.min(100, value));
+  if (mask.shape === 'text') {
+    // CSS no puede recortar por glifos sin duplicar la fuente; la máscara real
+    // se ve en Frame real/render, no en la preview aproximada.
+    return 'none';
+  }
   const centerX = clamp(50 + mask.x * 50);
   const centerY = clamp(50 + mask.y * 50);
   if (mask.shape === 'ellipse') {
@@ -104,7 +115,7 @@ function maskClipPath(mask: ClipMask): string {
  * non-inverted masks keep the cheaper clip-path.
  */
 function maskImage(mask: ClipMask): string | undefined {
-  const rotation = mask.rotationDeg ?? 0;
+  const rotation = mask.shape === 'polygon' ? 0 : (mask.rotationDeg ?? 0);
   if (Math.abs(rotation) < 0.001 && !mask.invert) return undefined;
   const centerX = 50 + mask.x * 50;
   const centerY = 50 + mask.y * 50;
@@ -381,8 +392,10 @@ function VideoLayer({
   const root = store.state.opened?.root ?? '';
   const ref = useRef<HTMLVideoElement | null>(null);
   const fps = fpsOf(project);
+  const alphaCutout =
+    asset !== undefined && asset.kind === 'video' && asset.media?.alpha === true;
   const proxy =
-    asset && 'proxy' in asset
+    asset && !alphaCutout && 'proxy' in asset
       ? (asset as Asset & { proxy?: { path: string } }).proxy
       : undefined;
   const url = asset ? store.service.mediaUrl(root, proxy?.path ?? asset.source.path) : '';
@@ -655,7 +668,9 @@ function CaptionOverlay({
         const spanStyle: CSSProperties = {
           color,
           fontSize,
-          fontFamily: style?.fontFamily ? `"${style.fontFamily}", sans-serif` : undefined,
+          fontFamily: style?.fontFamily
+            ? `"${style.fontFamily}", var(--emoji-font), sans-serif`
+            : 'var(--emoji-font)',
           fontWeight: style?.bold ? 800 : 500,
           fontStyle: style?.italic ? 'italic' : 'normal',
           WebkitTextStroke: boxed ? undefined : `${Math.max(1, fontSize * 0.03)}px ${outline}`,
@@ -952,8 +967,8 @@ export function Preview() {
           type="button"
           className={realFrame ? 'preview-tool active' : 'preview-tool'}
           aria-pressed={Boolean(realFrame)}
-          aria-label="Frame real del clip activo"
-          title="Renderiza el clip activo con FFmpeg y sus efectos; no incluye otras pistas ni subtítulos"
+          aria-label="Frame real compuesto de la timeline"
+          title="Compone con FFmpeg las pistas visibles, los subtítulos y el look en el playhead; una transición, un fade o un gráfico activo pueden tardar más o mostrar el clip"
           onClick={() => void renderRealFrame()}
           disabled={realFrameBusy || visualClips.length === 0}
         >
@@ -1156,12 +1171,22 @@ export function Preview() {
               title={
                 realFrame.native
                   ? 'Resolución nativa del medio, con efectos y LUT aplicados'
-                  : 'Resolución del lienzo del proyecto'
+                  : realFrame.composite
+                    ? `Compuesto de ${realFrame.visibleTracks ?? 1} pista(s) visible(s) en el playhead`
+                    : realFrame.fallbackReason
+                      ? `Compuesto no disponible: ${realFrame.fallbackReason}. Se muestra el clip seleccionado.`
+                      : 'Resolución del lienzo del proyecto'
               }
             >
               {realFrame.decoder === 'video-rs' ? 'video-rs' : 'FFmpeg'}
-              {realFrame.native ? ' nativo' : ''} · {realFrame.clipLabel} ·{' '}
-              {realFrame.width}×{realFrame.height}
+              {realFrame.native
+                ? ' nativo'
+                : realFrame.composite
+                  ? ' compuesto'
+                  : realFrame.fallbackReason
+                    ? ' clip'
+                    : ''}{' '}
+              · {realFrame.clipLabel} · {realFrame.width}×{realFrame.height}
             </span>
             <button
               type="button"

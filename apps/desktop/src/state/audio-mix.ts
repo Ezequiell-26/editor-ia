@@ -26,6 +26,34 @@ export function trackGainDb(track: Track): number {
   return Math.max(-60, Math.min(12, track.gainDb ?? 0));
 }
 
+/** Paneo de pista acotado a -1..1; 0 es centro. */
+export function trackPan(track: Track): number {
+  return Math.max(-1, Math.min(1, track.pan ?? 0));
+}
+
+/** Ganancias de balance lineal: el centro deja ambos canales a 1.0. */
+export function panGains(pan: number): { readonly left: number; readonly right: number } {
+  const value = Math.max(-1, Math.min(1, pan));
+  return {
+    left: value <= 0 ? 1 : 1 - value,
+    right: value >= 0 ? 1 : 1 + value,
+  };
+}
+
+/** Etiqueta corta del paneo para la mesa: C, L 40 o R 25. */
+export function panLabel(pan: number): string {
+  const value = Math.max(-1, Math.min(1, pan));
+  if (Math.abs(value) < 0.01) return 'C';
+  return `${value < 0 ? 'L' : 'R'} ${Math.round(Math.abs(value) * 100)}`;
+}
+
+export type TrackEqBand = 'eqLowDb' | 'eqMidDb' | 'eqHighDb';
+
+/** EQ de pista acotado a ±12 dB. */
+export function trackEqDb(track: Track, band: TrackEqBand): number {
+  return Math.max(-12, Math.min(12, track[band] ?? 0));
+}
+
 /** Pico absoluto de una onda medida por FFmpeg, en dBFS. `null` si es silencio. */
 export function peakDbFromPeaks(peaks: AudioPeaks): number | null {
   let max = 0;

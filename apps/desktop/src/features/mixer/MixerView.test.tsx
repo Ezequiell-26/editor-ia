@@ -56,7 +56,26 @@ describe('vista de mezcla', () => {
     expect(screen.getAllByText('Música').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Voz').length).toBeGreaterThan(0);
     expect(screen.getByRole('slider', { name: /Ganancia de Música/i })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: /Paneo de Música/i })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: /Bajos de Música/i })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: /Medios de Música/i })).toBeTruthy();
+    expect(screen.getByRole('slider', { name: /Agudos de Música/i })).toBeTruthy();
     expect(screen.getByRole('slider', { name: /Ganancia master/i })).toBeTruthy();
+  });
+
+  it('cambia paneo y EQ de pista y los deja en el proyecto', () => {
+    renderMixer();
+    const pan = screen.getByRole('slider', { name: /Paneo de Música/i }) as HTMLInputElement;
+    fireEvent.change(pan, { target: { value: '-0.5' } });
+    expect(pan.value).toBe('-0.5');
+    expect(screen.getByText('L 50')).toBeTruthy();
+
+    const low = screen.getByRole('slider', { name: /Bajos de Música/i }) as HTMLInputElement;
+    fireEvent.change(low, { target: { value: '-4' } });
+    expect(low.value).toBe('-4');
+
+    fireEvent.click(screen.getByRole('button', { name: /EQ plano de Música/i }));
+    expect(low.value).toBe('0');
   });
 
   it('cambia la ganancia de pista y enciende el solo', () => {

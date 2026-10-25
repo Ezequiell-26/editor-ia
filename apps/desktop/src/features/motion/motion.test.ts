@@ -3,6 +3,7 @@ import { createEmptyProject } from '@editor-ia/project-schema';
 import {
   buildMotionPlan,
   buildProjectMotionPlans,
+  freeTextTemplate,
   layerVisual,
   lowerThirdTemplate,
   MotionPlanError,
@@ -135,9 +136,36 @@ describe('motion plan', () => {
     expect(broken.errors[0]).toMatch(/no existe/i);
   });
 
-  it('expone las cuatro plantillas con versión', () => {
-    for (const id of ['title-card', 'lower-third', 'end-card', 'stat-callout']) {
+  it('expone las cinco plantillas con versión', () => {
+    for (const id of [
+      'title-card',
+      'free-text',
+      'lower-third',
+      'end-card',
+      'stat-callout',
+    ]) {
       expect(templateById(id)?.version).toBe('1.0.0');
+    }
+  });
+
+  it('acota el texto libre en 4K vertical y no desborda las líneas', () => {
+    const plan = buildMotionPlan(
+      freeTextTemplate,
+      {
+        ...freeTextTemplate.defaults,
+        text: 'uno\ndos\ntres\ncuatro\ncinco\nseis',
+        size: 200,
+        y: 0.1,
+        width: 0.9,
+      },
+      { width: 2160, height: 3840, fpsNum: 30, fpsDen: 1, durationFrames: 90 },
+    );
+    const texts = plan.layers.filter((layer) => layer.kind === 'text');
+    expect(texts.length).toBeGreaterThan(0);
+    for (const layer of texts) {
+      expect(layer.fontSizePx).toBeLessThanOrEqual(400);
+      expect(layer.y).toBeLessThanOrEqual(1);
+      expect(layer.y + layer.height).toBeLessThanOrEqual(1.001);
     }
   });
 });

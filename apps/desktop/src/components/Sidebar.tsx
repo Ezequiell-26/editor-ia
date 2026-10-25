@@ -15,6 +15,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   'text-edit': 'text',
   multicam: 'layers',
   mixer: 'audio',
+  vfx: 'effects',
   download: 'download',
   director: 'director',
   factory: 'factory',

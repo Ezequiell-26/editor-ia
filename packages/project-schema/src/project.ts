@@ -7,7 +7,12 @@ import { AudioMixSchema, MotionListSchema, SceneListSchema } from './production.
 import { ProvenanceRecordSchema } from './provenance.ts';
 import { FrameRateSchema, TOTAL_DURATION_MAX_FRAMES } from './time.ts';
 import { MarkerListSchema } from './markers.ts';
-import { ClipEffectsSchema, TimelineSchema } from './timeline.ts';
+import {
+  ClipEffectsSchema,
+  CompoundSchema,
+  TimelineSchema,
+  clipFitsTrack,
+} from './timeline.ts';
 
 /**
  * The canonical project document: the single source of truth an Editor IA
@@ -37,6 +42,7 @@ const KNOWN_ROOT_KEYS: readonly string[] = [
   'look',
   'assets',
   'timeline',
+  'compounds',
   'captions',
   'scenes',
   'motion',
@@ -118,6 +124,7 @@ const ProjectSchemaBase = z.object({
   look: ClipEffectsSchema.optional(),
   assets: z.array(AssetSchema),
   timeline: TimelineSchema,
+  compounds: z.array(CompoundSchema).max(100).optional(),
   captions: CaptionsSchema,
   scenes: SceneListSchema,
   motion: MotionListSchema,
@@ -188,6 +195,36 @@ function integrityIssues(project: z.infer<typeof ProjectSchemaBase>): Issue[] {
     }
   });
 
+  const compounds = project.compounds ?? [];
+  const compoundIds = new Set<string>();
+  compounds.forEach((compound, index) => {
+    if (compoundIds.has(compound.id)) {
+      issues.push({
+        path: ['compounds', index, 'id'],
+        message: 'compound ids must be unique inside a project',
+      });
+    }
+    compoundIds.add(compound.id);
+  });
+  project.timeline.clips.forEach((clip, index) => {
+    if (clip.source.type !== 'compound') return;
+    const compoundId = clip.source.compoundId;
+    const compound = compounds.find((item) => item.id === compoundId);
+    if (!compound) {
+      issues.push({
+        path: ['timeline', 'clips', index, 'source', 'compoundId'],
+        message: 'the compound clip references a compound that is not present',
+      });
+      return;
+    }
+    if (clip.durationFrames !== compound.durationFrames) {
+      issues.push({
+        path: ['timeline', 'clips', index, 'durationFrames'],
+        message: 'a compound clip duration must match its compound definition',
+      });
+    }
+  });
+
   const motionIds = new Set(project.motion.map((item) => item.id));
   project.timeline.clips.forEach((clip, index) => {
     if (clip.source.type === 'graphic' && !motionIds.has(clip.source.motionId)) {
@@ -196,6 +233,45 @@ function integrityIssues(project: z.infer<typeof ProjectSchemaBase>): Issue[] {
         message: 'the clip references a motion item that is not present in the project',
       });
     }
+  });
+
+  const trackKinds = new Map(
+    project.timeline.tracks.map((track) => [track.id, track.kind] as const),
+  );
+  compounds.forEach((compound, compoundIndex) => {
+    compound.clips.forEach((clip, clipIndex) => {
+      if (clipIds.has(clip.id)) {
+        issues.push({
+          path: ['compounds', compoundIndex, 'clips', clipIndex, 'id'],
+          message: 'clip ids must be unique across the timeline and its compounds',
+        });
+      }
+      clipIds.add(clip.id);
+      const trackKind = trackKinds.get(clip.trackId);
+      if (!trackKind) {
+        issues.push({
+          path: ['compounds', compoundIndex, 'clips', clipIndex, 'trackId'],
+          message: 'a compound clip references a track that is not present',
+        });
+      } else if (!clipFitsTrack(clip.kind, trackKind)) {
+        issues.push({
+          path: ['compounds', compoundIndex, 'clips', clipIndex, 'trackId'],
+          message: `a ${clip.kind} clip cannot live on a ${trackKind} track`,
+        });
+      }
+      if (clip.source.type === 'asset' && !assetIds.has(clip.source.assetId)) {
+        issues.push({
+          path: ['compounds', compoundIndex, 'clips', clipIndex, 'source', 'assetId'],
+          message: 'a compound clip references an asset that is not present',
+        });
+      }
+      if (clip.source.type === 'graphic' && !motionIds.has(clip.source.motionId)) {
+        issues.push({
+          path: ['compounds', compoundIndex, 'clips', clipIndex, 'source', 'motionId'],
+          message: 'a compound clip references a motion item that is not present',
+        });
+      }
+    });
   });
 
   project.motion.forEach((item, index) => {

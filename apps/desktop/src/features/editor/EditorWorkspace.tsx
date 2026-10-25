@@ -9,7 +9,6 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
-import { Icon } from '../../components/Icon';
 import { EditorAssets } from './EditorAssets';
 import { ExportDialog } from './ExportDialog';
 import { Inspector } from './Inspector';
@@ -101,45 +100,6 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
 
   return (
     <section className="editor-workspace">
-      <div className="editor-toolbar">
-        <div className="editor-toolbar-actions">
-          <span
-            className={`status-pill ${store.state.phase}`}
-            title={store.statusText}
-            aria-live="polite"
-          >
-            <span className={`status-pill-dot phase-${store.state.phase}`} aria-hidden="true" />
-            {store.state.phase === 'saved'
-              ? 'Guardado'
-              : store.state.phase === 'saving'
-                ? 'Guardando…'
-                : store.state.phase === 'failed'
-                  ? 'Error al guardar'
-                  : 'Sin guardar'}
-          </span>
-          <button type="button" className="ghost icon-text" onClick={() => onNavigate('script')}>
-            <Icon name="script" size={15} />
-            <span>Guion</span>
-          </button>
-          <button type="button" className="ghost icon-text" onClick={() => onNavigate('assets')}>
-            <Icon name="assets" size={15} />
-            <span>Medios</span>
-          </button>
-          <button
-            type="button"
-            className="primary icon-text"
-            onClick={() => {
-              setExportOpen(true);
-            }}
-            disabled={project.timeline.clips.length === 0}
-            title={project.timeline.clips.length === 0 ? 'Montá al menos un clip para exportar' : undefined}
-          >
-            <Icon name="export" size={15} />
-            <span>Exportar MP4</span>
-          </button>
-        </div>
-      </div>
-
       <div className="editor-grid">
         <EditorAssets onNavigate={onNavigate} />
         <div className="preview-panel">
@@ -148,6 +108,20 @@ export function EditorWorkspace({ onNavigate }: { readonly onNavigate: (id: View
         </div>
         <Inspector />
         <div className="timeline-panel">
+          <div className="timeline-tabs" role="tablist" aria-label="Secuencias de la timeline">
+            <button
+              type="button"
+              role="tab"
+              aria-selected="true"
+              className="active"
+              title="Secuencia principal del proyecto"
+            >
+              Timeline 01
+            </button>
+            <span className="timeline-tabs-meta">
+              {project.name} · {(totalFrames(project) / fps).toFixed(1)} s
+            </span>
+          </div>
           <Timeline />
         </div>
       </div>

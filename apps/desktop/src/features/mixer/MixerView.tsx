@@ -6,11 +6,15 @@ import {
   effectivePeakDb,
   gainForTargetPeak,
   levelPercentFromDb,
+  panLabel,
   peakDbFromPeaks,
+  trackEqDb,
   trackGainDb,
+  trackPan,
 } from '../../state/audio-mix';
 import { updateAudioMix, updateTrack } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { LoudnessMonitor } from './LoudnessMonitor';
 
 export interface MixerViewProps {
   readonly onNavigate: (view: ViewId) => void;
@@ -42,7 +46,7 @@ export function MixerView({ onNavigate }: MixerViewProps) {
         <header className="view-toolbar">
           <div>
             <h1>Mezcla de audio</h1>
-            <p>Ganancia por pista, solo, mute y master.</p>
+            <p>Ganancia, paneo y EQ de 3 bandas por pista, solo, mute y master.</p>
           </div>
         </header>
         <div className="empty-state">
@@ -206,6 +210,70 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                   />
                   <span className="mixer-db">{formatDb(gain)}</span>
                 </div>
+                <div className="mixer-pan-wrap">
+                  <span className="mixer-control-label">Paneo</span>
+                  <input
+                    type="range"
+                    className="mixer-pan"
+                    aria-label={`Paneo de ${track.label}`}
+                    min={-1}
+                    max={1}
+                    step={0.05}
+                    value={trackPan(track)}
+                    onChange={(event) =>
+                      store.update((current) =>
+                        updateTrack(current, track.id, { pan: Number(event.target.value) }),
+                      )
+                    }
+                  />
+                  <span className="mixer-pan-value">{panLabel(trackPan(track))}</span>
+                </div>
+                <div className="mixer-eq" role="group" aria-label={`EQ de ${track.label}`}>
+                  {(
+                    [
+                      ['eqLowDb', 'Bajos', '120 Hz'],
+                      ['eqMidDb', 'Medios', '1 kHz'],
+                      ['eqHighDb', 'Agudos', '8 kHz'],
+                    ] as const
+                  ).map(([band, label, frequency]) => (
+                    <label className="mixer-eq-row" key={band} title={`${label} · ${frequency}`}>
+                      <span>{label}</span>
+                      <input
+                        type="range"
+                        min={-12}
+                        max={12}
+                        step={0.5}
+                        value={trackEqDb(track, band)}
+                        aria-label={`${label} de ${track.label}`}
+                        onChange={(event) =>
+                          store.update((current) =>
+                            updateTrack(current, track.id, {
+                              [band]: Number(event.target.value),
+                            }),
+                          )
+                        }
+                      />
+                      <span className="mixer-eq-db">{formatDb(trackEqDb(track, band))}</span>
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    className="mixer-eq-reset"
+                    aria-label={`EQ plano de ${track.label}`}
+                    title="Volver el EQ a 0 dB"
+                    onClick={() =>
+                      store.update((current) =>
+                        updateTrack(current, track.id, {
+                          eqLowDb: 0,
+                          eqMidDb: 0,
+                          eqHighDb: 0,
+                        }),
+                      )
+                    }
+                  >
+                    EQ 0
+                  </button>
+                </div>
                 {measuredPeak !== undefined && withFader !== null ? (
                   <div className="mixer-meter-block">
                     <div
@@ -328,11 +396,16 @@ export function MixerView({ onNavigate }: MixerViewProps) {
         </article>
       </div>
 
+      <LoudnessMonitor />
+
       <footer className="mixer-footer">
         <span>
           El mute siempre gana. Con una pista en solo, las demás pistas con audio se silencian.
         </span>
         <span>La ganancia de pista se suma a la ganancia de cada clip.</span>
+        <span>
+          Paneo y EQ de pista se aplican en el export; la preview reproduce ganancia y solo.
+        </span>
         <span>
           Los picos se miden con FFmpeg sobre el material completo e incluyen ganancia de clip + fader; no son medidores en vivo.
         </span>

@@ -27,6 +27,10 @@ const SHORT_WIDTH: u32 = 1080;
 const SHORT_HEIGHT: u32 = 1920;
 const MIN_SECONDS: f64 = 3.0;
 const MAX_SECONDS: f64 = 90.0;
+/// El análisis de rostros no es un short: acepta clips cortos y ventanas
+/// largas (hasta 10 minutos) porque sólo muestrea 6–30 frames.
+const FACE_MIN_SECONDS: f64 = 0.1;
+const FACE_MAX_SECONDS: f64 = 600.0;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +85,31 @@ pub(crate) fn validate_short_range(start: f64, end: f64) -> Result<f64, ProjectE
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
             &format!("un short debe durar entre {MIN_SECONDS:.0} y {MAX_SECONDS:.0} segundos"),
+        ));
+    }
+    Ok(duration)
+}
+
+pub(crate) fn validate_face_range(start: f64, end: f64) -> Result<f64, ProjectError> {
+    if !start.is_finite() || !end.is_finite() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el rango para analizar rostros no es numérico",
+        ));
+    }
+    if start < 0.0 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el análisis de rostros no puede empezar antes de cero",
+        ));
+    }
+    let duration = end - start;
+    if duration < FACE_MIN_SECONDS || duration > FACE_MAX_SECONDS {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            &format!(
+                "el tramo para rostros debe durar entre {FACE_MIN_SECONDS:.1} y {FACE_MAX_SECONDS:.0} segundos"
+            ),
         ));
     }
     Ok(duration)
@@ -585,7 +614,7 @@ pub async fn analyze_face_track(
             "el video para analizar rostros ya no está en el proyecto",
         ));
     }
-    let duration = validate_short_range(request.start_seconds, request.end_seconds)?;
+    let duration = validate_face_range(request.start_seconds, request.end_seconds)?;
     let settings = state.settings_snapshot()?;
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
     let Some(ffmpeg) = ffmpeg else {
@@ -683,6 +712,15 @@ mod tests {
         assert!(validate_short_range(10.0, 5.0).is_err());
         assert!(validate_short_range(0.0, 120.0).is_err());
         assert!(validate_short_range(f64::NAN, 30.0).is_err());
+    }
+
+    #[test]
+    fn face_range_accepts_short_and_long_clips() {
+        assert!(validate_face_range(0.0, 1.0).is_ok());
+        assert!(validate_face_range(10.0, 250.0).is_ok());
+        assert!(validate_face_range(0.0, 0.05).is_err());
+        assert!(validate_face_range(0.0, 601.0).is_err());
+        assert!(validate_face_range(-1.0, 10.0).is_err());
     }
 
     #[test]

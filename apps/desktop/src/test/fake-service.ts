@@ -13,6 +13,7 @@ import type {
   McpSessionInfo,
   McpServerConfig,
   McpServerInput,
+  MixLoudnessReport,
   NarrationResult,
   OpenedProject,
   ProviderInfo,
@@ -25,6 +26,27 @@ import type {
   VoiceInfo,
 } from '../services/project-service';
 import { ensureDelivery, newId } from '../state/project-actions';
+
+/** Medición de mezcla determinista: 6 s, objetivo −14 LUFS, delta +2,2 dB. */
+export function fakeMixLoudnessReport(): MixLoudnessReport {
+  const samples = Array.from({ length: 60 }, (_, index) => ({
+    seconds: (index + 1) / 10,
+    momentaryLufs: -18 + Math.sin(index / 3) * 2.5,
+    shortTermLufs: -17.5 + Math.sin(index / 6) * 1.2,
+  }));
+  return {
+    durationSeconds: 6,
+    integratedLufs: -16.2,
+    loudnessRangeLu: 4.5,
+    maxMomentaryLufs: -15.1,
+    maxShortTermLufs: -16.0,
+    samplePeakDbfs: -3.4,
+    truePeakDbtp: -2.8,
+    targetLufs: -14,
+    targetDeltaDb: 2.2,
+    samples,
+  };
+}
 
 const THUMB = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
 const NOW = '2025-01-01T00:00:00.000Z';
@@ -511,6 +533,12 @@ export function createFakeService(): FakeService {
         })),
       };
     },
+    async analyzeMixLoudness() {
+      return fakeMixLoudnessReport();
+    },
+    async onLoudnessAnalysisProgress() {
+      return () => {};
+    },
     async hardwareEncoders() {
       return { h264: null, hevc: null, checked: true };
     },
@@ -743,6 +771,37 @@ export function createFakeService(): FakeService {
         width: 1920,
         height: 1080,
       };
+    },
+    async removeBackgroundAsset(request) {
+      if (request.kind === 'video') {
+        return readyAsset({
+          label: 'Toma sin fondo (video)',
+          kind: 'video',
+          source: {
+            type: 'local',
+            path: request.path.replace(/\.[^.]+$/, '-sin-fondo.webm'),
+          },
+          media: {
+            width: 1920,
+            height: 1080,
+            durationFrames: Math.max(1, request.outFrame - request.inFrame),
+            frameRate: { num: request.fpsNum, den: request.fpsDen },
+            alpha: true,
+          },
+        });
+      }
+      return readyAsset({
+        label: 'Toma sin fondo',
+        kind: 'image',
+        source: {
+          type: 'local',
+          path: request.path.replace(/\.[^.]+$/, '-sin-fondo.png'),
+        },
+        media: { width: 1920, height: 1080 },
+      });
+    },
+    async onBackgroundProgress() {
+      return () => {};
     },
     async denoiseMedia(request) {
       const extension = request.mode === 'image' ? 'png' : 'mp4';

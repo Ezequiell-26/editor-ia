@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { PROJECT_SCHEMA_VERSION, ProjectDocumentSchema, createEmptyProject, parseProject, totalProjectDuration } from './project.ts';
+import type { Clip } from './timeline.ts';
 
 const FIXTURES = new URL('../fixtures/', import.meta.url);
 
@@ -311,6 +312,100 @@ describe('ProjectDocumentSchema', () => {
       source: { type: 'local', path: 'media/demo.mp4', token: 'abc' },
     };
     expect(ProjectDocumentSchema.safeParse(broken).success).toBe(false);
+  });
+});
+
+describe('compound clips', () => {
+  const NOW = '2026-10-24T00:00:00Z';
+  const TRACK = '11111111-1111-4111-8111-111111111111';
+  const ASSET = '22222222-2222-4222-8222-222222222222';
+  const COMPOUND = '33333333-3333-4333-8333-333333333333';
+  const INNER = '44444444-4444-4444-8444-444444444444';
+  const COMPOUND_CLIP = '55555555-5555-4555-8555-555555555555';
+  const IMAGE_TRACK = '66666666-6666-4666-8666-666666666666';
+
+  function projectWithCompound() {
+    const project = createEmptyProject('Compuesto', NOW);
+    project.timeline.tracks.push({
+      id: TRACK,
+      kind: 'video',
+      label: 'V1',
+      order: 0,
+      muted: false,
+      hidden: false,
+      locked: false,
+    });
+    project.timeline.tracks.push({
+      id: IMAGE_TRACK,
+      kind: 'image',
+      label: 'V2',
+      order: 1,
+      muted: false,
+      hidden: false,
+      locked: false,
+    });
+    project.assets.push({
+      id: ASSET,
+      label: 'Imagen',
+      kind: 'image',
+      source: { type: 'local', path: 'media/imagen.png' },
+      status: 'ready',
+      integrity: { sha256: 'a'.repeat(64), bytes: 1_000 },
+      rights: {
+        license: { id: 'owned', commercialUse: 'allowed' },
+        provenance: { origin: 'user-imported', acquiredAt: NOW },
+      },
+      media: { width: 320, height: 180 },
+    });
+    project.compounds = [
+      {
+        id: COMPOUND,
+        label: 'Grupo',
+        durationFrames: 30,
+        clips: [
+          {
+            id: INNER,
+            trackId: IMAGE_TRACK,
+            kind: 'image',
+            startFrame: 0,
+            durationFrames: 30,
+            source: { type: 'asset', assetId: ASSET },
+          },
+        ],
+      },
+    ];
+    project.timeline.clips.push({
+      id: COMPOUND_CLIP,
+      trackId: TRACK,
+      kind: 'compound',
+      startFrame: 0,
+      durationFrames: 30,
+      source: { type: 'compound', compoundId: COMPOUND },
+    });
+    return project;
+  }
+
+  it('acepta un compuesto con su definición y su clip', () => {
+    expect(ProjectDocumentSchema.safeParse(projectWithCompound()).success).toBe(true);
+  });
+
+  it('rechaza una definición ausente o una duración que no coincide', () => {
+    const missing = projectWithCompound();
+    missing.timeline.clips[0] = {
+      ...missing.timeline.clips[0]!,
+      source: { type: 'compound', compoundId: '99999999-9999-4999-8999-999999999999' },
+    } as Clip;
+    expect(ProjectDocumentSchema.safeParse(missing).success).toBe(false);
+
+    const mismatched = projectWithCompound();
+    mismatched.timeline.clips[0]!.durationFrames = 40;
+    expect(ProjectDocumentSchema.safeParse(mismatched).success).toBe(false);
+  });
+
+  it('rechaza un clip interno que no entra en el compuesto', () => {
+    const project = projectWithCompound();
+    project.compounds![0]!.clips[0]!.durationFrames = 40;
+    expect(ProjectDocumentSchema.safeParse(project).success).toBe(false);
   });
 });
 

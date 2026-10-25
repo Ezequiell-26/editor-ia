@@ -76,6 +76,15 @@ export const EFFECT_PRESETS: readonly EffectPreset[] = [
       vignette: 0.18,
     },
   },
+  {
+    id: 'viral-glow',
+    label: 'Glow viral',
+    settings: {
+      glow: { intensity: 0.7, radius: 24, threshold: 0.5 },
+      contrast: 1.08,
+      saturation: 1.12,
+    },
+  },
 ];
 
 export function applyEffectPreset(

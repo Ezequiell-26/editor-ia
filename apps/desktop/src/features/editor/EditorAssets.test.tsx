@@ -78,7 +78,7 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
     const tabs = view.container.querySelectorAll('.rail-tabs button');
     fireEvent.click(tabs[4]!); // Índice 4: Efectos
     const cards = view.container.querySelectorAll('.preset-card');
-    expect(cards).toHaveLength(8);
+    expect(cards).toHaveLength(9);
     // sin selección, los presets están deshabilitados y hay aviso
     for (const card of cards) {
       expect((card as HTMLButtonElement).disabled).toBe(true);

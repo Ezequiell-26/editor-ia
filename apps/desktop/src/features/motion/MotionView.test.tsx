@@ -15,7 +15,7 @@ async function createProject(name = 'Motion QA'): Promise<void> {
   const input = within(screen.getByRole('main')).getByRole('textbox', { name: /nombre/i });
   fireEvent.change(input, { target: { value: name } });
   fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
-  await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/), {
+  await waitFor(() => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/), {
     timeout: 10_000,
   });
 }

@@ -343,6 +343,7 @@ pub async fn render_project_variant(
     })?;
     let render_output = temp_dir.join("out.mp4");
     let plan = match build_plan(BuildPlanInput {
+        audio_only: false,
         project: &project,
         root: &root,
         profile: &profile,

@@ -15,10 +15,13 @@ import {
   applyCompression,
   applyAudioPresetToAll,
   applySpeedCurve,
+  applyFaceCenter,
   applySpeedRamp,
   applyTransitionToCuts,
   applyProfileFit,
   compressionPresetOf,
+  createCompound,
+  expandCompound,
   addTranscriptionCues,
   addClipFromAsset,
   addGeneratedNarration,
@@ -35,13 +38,16 @@ import {
   ensureDelivery,
   freezeFrameInPlace,
   markAssetReady,
+  markAssetReadyFrom,
   moveClip,
   magneticMoveClip,
   moveTrack,
   newId,
   removeAsset,
+  replaceClipWithDerivedAsset,
   setClipSpeed,
   setClipStabilization,
+  setSlowMotionSmoothing,
   setAssetProxy,
   pasteClip,
   rippleDeleteClip,
@@ -637,6 +643,33 @@ describe('mezcla de pistas', () => {
       updateTrack(track.project, track.trackId, { gainDb: 20 }),
     ).toThrow(ProjectActionError);
   });
+
+  it('guarda paneo y EQ de 3 bandas por pista', () => {
+    const track = addTrack(base(), 'audio', 'Música');
+    const updated = validated(
+      updateTrack(track.project, track.trackId, {
+        pan: -0.4,
+        eqLowDb: 3,
+        eqMidDb: -2.5,
+        eqHighDb: 6,
+      }),
+    );
+    const mixed = updated.timeline.tracks.find((item) => item.id === track.trackId);
+    expect(mixed?.pan).toBe(-0.4);
+    expect(mixed?.eqLowDb).toBe(3);
+    expect(mixed?.eqMidDb).toBe(-2.5);
+    expect(mixed?.eqHighDb).toBe(6);
+  });
+
+  it('rechaza paneo y EQ fuera de rango', () => {
+    const track = addTrack(base(), 'audio', 'Música');
+    expect(() =>
+      updateTrack(track.project, track.trackId, { pan: 1.5 }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      updateTrack(track.project, track.trackId, { eqLowDb: -13 }),
+    ).toThrow(ProjectActionError);
+  });
 });
 
 describe('transiciones en lote', () => {
@@ -863,6 +896,36 @@ describe('rampa de velocidad', () => {
         : 1;
     expect(speedOf(clips[0]!)).toBeGreaterThan(speedOf(clips[2]!));
     expect(result.speeds).toHaveLength(3);
+
+    for (const clip of clips) {
+      if (clip.kind === 'video' && speedOf(clip) >= 0.999) {
+        expect(clip.slowMotionSmoothing).toBeUndefined();
+      }
+    }
+  });
+
+  it('limpia la interpolación en los tramos que no son cámara lenta', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 300,
+    });
+    const flagged = structuredClone(added.project);
+    const flaggedClip = flagged.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (flaggedClip?.kind !== 'video') throw new Error('se esperaba video');
+    flaggedClip.slowMotionSmoothing = true;
+
+    const result = applySpeedRamp(flagged, added.clipId, { from: 2, to: 0.5 });
+    const clips = result.project.timeline.clips.filter(
+      (clip) => clip.trackId === added.trackId,
+    );
+    const fast = clips.find((clip) => {
+      if (clip.kind !== 'video') return false;
+      return (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) >= 0.999;
+    });
+    expect(fast).toBeDefined();
+    if (fast?.kind !== 'video') throw new Error('se esperaba video');
+    expect(fast.slowMotionSmoothing).toBeUndefined();
   });
 
   it('rechaza rampas con keyframes, Ken Burns o un rango inválido', () => {
@@ -883,6 +946,116 @@ describe('rampa de velocidad', () => {
     expect(() => applySpeedRamp(added.project, added.clipId, { from: 9, to: 0.5 })).toThrow(
       ProjectActionError,
     );
+  });
+});
+
+describe('clips compuestos', () => {
+  it('agrupa clips solapados y los devuelve a sus pistas', () => {
+    const video = videoAsset(90);
+    const image = imageAsset();
+    let project = base();
+    const videoTrack = addTrack(project, 'video');
+    project = videoTrack.project;
+    const imageTrack = addTrack(project, 'image');
+    project = imageTrack.project;
+    const videoAdded = addClipFromAsset(addAsset(project, video), video, {
+      atFrame: 0,
+      durationFrames: 90,
+      trackId: videoTrack.trackId,
+    });
+    const imageAdded = addClipFromAsset(
+      addAsset(videoAdded.project, image),
+      image,
+      {
+        atFrame: 30,
+        durationFrames: 60,
+        trackId: imageTrack.trackId,
+      },
+    );
+    const grouped = createCompound(imageAdded.project, videoAdded.clipId);
+    expect(grouped.grouped).toBe(2);
+    const compoundClip = grouped.project.timeline.clips.find(
+      (clip) => clip.id === grouped.compoundClipId,
+    );
+    expect(compoundClip?.kind).toBe('compound');
+    expect(compoundClip?.startFrame).toBe(0);
+    expect(compoundClip?.durationFrames).toBe(90);
+    expect(grouped.project.timeline.clips).toHaveLength(1);
+    expect(grouped.project.compounds).toHaveLength(1);
+    expect(
+      grouped.project.compounds![0]!.clips.map((clip) => ({
+        kind: clip.kind,
+        start: clip.startFrame,
+        duration: clip.durationFrames,
+      })),
+    ).toEqual([
+      { kind: 'video', start: 0, duration: 90 },
+      { kind: 'image', start: 30, duration: 60 },
+    ]);
+    validated(grouped.project);
+
+    const expanded = expandCompound(grouped.project, grouped.compoundClipId);
+    expect(expanded.compounds).toHaveLength(0);
+    expect(expanded.timeline.clips).toHaveLength(2);
+    expect(
+      expanded.timeline.clips.map((clip) => clip.startFrame).sort((a, b) => a - b),
+    ).toEqual([0, 30]);
+    validated(expanded);
+
+    const deleted = deleteClip(grouped.project, grouped.compoundClipId);
+    expect(deleted.compounds).toHaveLength(0);
+    validated(deleted);
+  });
+});
+
+describe('seguimiento de rostro', () => {
+  it('crea keyframes para centrar el rostro y escalar sin bordes', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+      durationFrames: 150,
+    });
+    const width = added.project.video.width;
+    const height = added.project.video.height;
+    const next = applyFaceCenter(added.project, added.clipId, [
+      { time: 0, centerX: 0.4, centerY: 0.45 },
+      { time: 1, centerX: 0.6, centerY: 0.55 },
+      { time: 2, centerX: 0.5, centerY: 0.5 },
+    ]);
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'video') throw new Error('se esperaba video');
+    const keyframes = clip.transform?.keyframes ?? [];
+    expect(keyframes.length).toBeGreaterThanOrEqual(4);
+    expect(keyframes[0]).toMatchObject({
+      frame: 0,
+      offsetX: Math.round(0.1 * width),
+      offsetY: Math.round(0.05 * height),
+    });
+    const opposite = keyframes.find((keyframe) => keyframe.frame === 30);
+    expect(opposite?.offsetX).toBe(Math.round(-0.1 * width));
+    const last = keyframes[keyframes.length - 1]!;
+    expect(last.frame).toBe(149);
+    expect(last.offsetX).toBe(0);
+    expect(clip.transform?.scaleX).toBeGreaterThan(1.2);
+    expect(clip.transform?.scaleY).toBe(clip.transform?.scaleX);
+    validated(next);
+
+    expect(() =>
+      applyFaceCenter(next, added.clipId, [
+        { time: 0, centerX: 0.5, centerY: 0.5 },
+        { time: 1, centerX: 0.5, centerY: 0.5 },
+      ]),
+    ).toThrow(/keyframes/);
+
+    const withMotion = updateClip(added.project, added.clipId, {
+      motion: { type: 'zoom-in', intensity: 0.1 },
+    });
+    expect(() =>
+      applyFaceCenter(withMotion, added.clipId, [
+        { time: 0, centerX: 0.4, centerY: 0.5 },
+        { time: 1, centerX: 0.6, centerY: 0.5 },
+      ]),
+    ).toThrow(/Ken Burns/);
   });
 });
 
@@ -1151,6 +1324,139 @@ describe('velocidad y efectos de clip', () => {
     if (slowClip?.kind !== 'video') throw new Error('se esperaba video');
     expect(slowClip.speed).toEqual({ num: 1, den: 2 });
     validated(slow);
+  });
+
+  it('activa y limpia la interpolación de cámara lenta sólo en video < 1×', () => {
+    const project = base();
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+
+    const smooth = setClipSpeed(added.project, added.clipId, 0.25, {
+      smoothSlowMotion: true,
+    });
+    const smoothClip = smooth.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (smoothClip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(smoothClip.slowMotionSmoothing).toBe(true);
+    validated(smooth);
+
+    const smoothed = setSlowMotionSmoothing(smooth, added.clipId, false);
+    const cleared = smoothed.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (cleared?.kind !== 'video') throw new Error('se esperaba video');
+    expect(cleared.slowMotionSmoothing).toBeUndefined();
+
+    const normal = setClipSpeed(smoothed, added.clipId, 1);
+    const normalClip = normal.timeline.clips.find((clip) => clip.id === added.clipId);
+    if (normalClip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(normalClip.slowMotionSmoothing).toBeUndefined();
+
+    expect(() => setSlowMotionSmoothing(added.project, added.clipId, true)).toThrow(
+      /menor a 1×/,
+    );
+    expect(() => setSlowMotionSmoothing(added.project, added.clipId, false)).not.toThrow();
+  });
+
+  it('reemplaza el material de un clip por un recorte derivado', () => {
+    const project = base();
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(project, asset), asset, { atFrame: 0 });
+    const slow = setClipSpeed(added.project, added.clipId, 0.5);
+    const derived = videoAsset(1_100, {
+      label: 'Toma sin fondo',
+      source: { type: 'local', path: 'media/toma-sin-fondo.webm' },
+    });
+    const stabilized = setClipStabilization(slow, added.clipId, {
+      smoothing: 12,
+      transformFile: 'media/stabilizers/toma.trf',
+      inFrame: 0,
+      outFrame: 300,
+    });
+    const next = replaceClipWithDerivedAsset(
+      addAsset(stabilized, derived),
+      added.clipId,
+      derived.id,
+    );
+    const clip = next.timeline.clips.find((item) => item.id === added.clipId);
+    if (clip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(clip.source).toEqual({
+      type: 'asset',
+      assetId: derived.id,
+      inFrame: 0,
+      outFrame: 300,
+    });
+    expect(clip.durationFrames).toBe(600);
+    expect(clip.speed).toEqual({ num: 1, den: 2 });
+    expect(clip.stabilization).toBeUndefined();
+    validated(next);
+
+    const withLead = replaceClipWithDerivedAsset(
+      addAsset(stabilized, derived),
+      added.clipId,
+      derived.id,
+      { sourceOffset: 20 },
+    );
+    const leadClip = withLead.timeline.clips.find((item) => item.id === added.clipId);
+    if (leadClip?.kind !== 'video') throw new Error('se esperaba video');
+    expect(leadClip.source).toEqual({
+      type: 'asset',
+      assetId: derived.id,
+      inFrame: 20,
+      outFrame: 320,
+    });
+    validated(withLead);
+
+    const image = imageAsset();
+    const imageAdded = addClipFromAsset(addAsset(base(), image), image, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const imageDerived = imageAsset(512, 512);
+    const imageNext = replaceClipWithDerivedAsset(
+      addAsset(imageAdded.project, imageDerived),
+      imageAdded.clipId,
+      imageDerived.id,
+    );
+    expect(imageNext.timeline.clips[0]?.source).toEqual({
+      type: 'asset',
+      assetId: imageDerived.id,
+    });
+    validated(imageNext);
+
+    expect(() =>
+      replaceClipWithDerivedAsset(addAsset(slow, imageDerived), added.clipId, imageDerived.id),
+    ).toThrow(/asset de video/);
+  });
+
+  it('hereda la licencia del original al marcar un derivado listo', () => {
+    const source = videoAsset(300, {
+      rights: {
+        license: {
+          id: 'cc-by',
+          commercialUse: 'requires-attribution',
+          url: 'https://example.com/licencia',
+          attributionText: 'Foto: Ana',
+        },
+        provenance: { origin: 'user-imported', acquiredAt: NOW },
+      },
+    });
+    const derived = videoAsset(300, {
+      label: 'Toma sin fondo',
+      source: { type: 'local', path: 'media/toma-sin-fondo.webm' },
+    });
+    const next = markAssetReadyFrom(
+      addAsset(addAsset(base(), source), derived),
+      derived.id,
+      source.id,
+    );
+    const ready = next.assets.find((asset) => asset.id === derived.id);
+    expect(ready?.status).toBe('ready');
+    expect(ready?.rights.license).toMatchObject({
+      id: 'cc-by',
+      commercialUse: 'requires-attribution',
+      url: 'https://example.com/licencia',
+      attributionText: 'Foto: Ana',
+    });
+    expect(ready?.rights.license.notes).toContain('heredada');
+    validated(next);
   });
 
   it('aplica y limpia efectos de color en un clip de imagen', () => {

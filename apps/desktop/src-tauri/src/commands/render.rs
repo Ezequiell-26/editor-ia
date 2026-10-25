@@ -18,7 +18,8 @@ use tauri_plugin_dialog::DialogExt;
 use crate::commands::system::resolve_tools;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
-    self, build_plan, parse_profile, sanitize_log, BuildPlanInput, RenderPlan,
+    self, build_plan_range, expand_compounds, parse_profile, sanitize_log, BuildPlanInput,
+    RenderPlan,
 };
 use crate::render::motion::{build_motion_ass, has_visible_graphic_clips, MotionAssInput};
 use crate::state::{AppState, RenderJob, Session};
@@ -229,6 +230,7 @@ fn start_render_with_output(
     include_captions: bool,
     motion_plans: Option<Value>,
     hardware_encoder: Option<String>,
+    range: Option<(u64, u64)>,
     requested_output: Option<PathBuf>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
     let session = state.require_session()?;
@@ -263,7 +265,7 @@ fn start_render_with_output(
     }
 
     let opened = service::open_project(&session.path)?;
-    let project = opened.project;
+    let project = expand_compounds(&opened.project)?;
     let profiles = project["renderProfiles"]
         .as_array()
         .cloned()
@@ -356,20 +358,24 @@ fn start_render_with_output(
     }
     let render_output = temp_dir.join("out.mp4");
 
-    let plan = match build_plan(BuildPlanInput {
-        project: &project,
-        root: &session.root,
-        profile: &profile,
-        output_path: &render_output,
-        include_captions,
-        temp_dir: &temp_dir,
-        ffprobe: &ffprobe,
-        motion_ass: if motion_ass.is_empty() {
-            None
-        } else {
-            Some(motion_ass.as_str())
+    let plan = match build_plan_range(
+        BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &session.root,
+            profile: &profile,
+            output_path: &render_output,
+            include_captions,
+            temp_dir: &temp_dir,
+            ffprobe: &ffprobe,
+            motion_ass: if motion_ass.is_empty() {
+                None
+            } else {
+                Some(motion_ass.as_str())
+            },
         },
-    }) {
+        range,
+    ) {
         Ok(plan) => plan,
         Err(error) => {
             let _ = std::fs::remove_dir_all(&temp_dir);
@@ -606,6 +612,8 @@ pub async fn start_render(
     include_captions: bool,
     motion_plans: Option<Value>,
     hardware_encoder: Option<String>,
+    start_frame: Option<u64>,
+    end_frame: Option<u64>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
     start_render_with_output(
         &app,
@@ -614,6 +622,10 @@ pub async fn start_render(
         include_captions,
         motion_plans,
         hardware_encoder,
+        match (start_frame, end_frame) {
+            (Some(start), Some(end)) => Some((start, end)),
+            _ => None,
+        },
         None,
     )
 }
@@ -627,6 +639,8 @@ pub async fn start_render_to(
     output_path: String,
     motion_plans: Option<Value>,
     hardware_encoder: Option<String>,
+    start_frame: Option<u64>,
+    end_frame: Option<u64>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
     let path = PathBuf::from(output_path);
     if !path
@@ -652,6 +666,10 @@ pub async fn start_render_to(
         include_captions,
         motion_plans,
         hardware_encoder,
+        match (start_frame, end_frame) {
+            (Some(start), Some(end)) => Some((start, end)),
+            _ => None,
+        },
         Some(path),
     )
 }

@@ -194,14 +194,29 @@ Estilo y Todo** (solo aparecen las que aplican al tipo de clip). La pestaña
   ajusta los vecinos) o **Roll entrada/salida** (mueve el corte con el vecino).
   Requieren velocidad 1×; Slide y Roll necesitan clips contiguos y rechazan
   keyframes.
-- **Velocidad**: 0,1×–4× uniforme por clip.
+- **Velocidad**: 0,1×–4× uniforme por clip, rampa y curva por tramos.
+- **Cámara lenta suave**: en **Velocidad → Cámara lenta**, los botones
+  **0.25× lento** y **0.5× lento** aplican la velocidad y activan la
+  interpolación de movimiento. La casilla **Interpolar fotogramas** la prende o
+  apaga sin cambiar la duración. El export usa `minterpolate` (tarda más).
+- **Fondo automático**: en **Video → Fondo automático**, el botón **Quitar
+  fondo** segmenta con u2netp local y cambia el clip por una versión con
+  transparencia. En video procesa el tramo del clip (máx. 2 minutos, salida
+  1080p, conserva el audio) y el original queda en la biblioteca. Requiere el
+  modelo de recorte descargado y los derechos del material declarados.
+- **Seguimiento de rostro**: en **Video → Seguimiento de rostro**, **Centrar
+  rostro** analiza el tramo con el modelo SeetaFace y crea keyframes de posición
+  y escala para mantener la cara centrada. Requiere el modelo descargado, un
+  clip de video y no tener keyframes de transformación ni reverse.
 - **Color y efectos**: brillo, contraste, saturación, temperatura, **sombras**,
   **altas luces**, **fade tonal**, rotación de tono, curvas por preset,
   **ruedas RGB de sombras/medios/luces**, **HSL selectivo por rangos de color**,
-  viñeta, nitidez, desenfoque, blanco y negro, sepia y fades. Los **Looks
-  rápidos** (Cálido, Frío, Cine, Vintage, B/N) aplican un punto de partida.
-  **Efectos creativos** suma ocho recetas de un clic (Suave, Onírico, Noir, VHS,
-  Documental, Alta/Baja clave, Neón) que conservan fades y LUT.
+  viñeta, nitidez, desenfoque, **glow/halo** (intensidad, radio y umbral),
+  **movimiento difuminado** (2–12 frames), blanco y negro, sepia y fades. Los
+  **Looks rápidos** (Cálido, Frío, Cine, Vintage, B/N) aplican un punto de
+  partida. **Efectos creativos** suma nueve recetas de un clic (Suave, Onírico,
+  Noir, VHS, Documental, Alta/Baja clave, Neón, **Glow viral**) que conservan
+  fades y LUT.
   Sombras/altas luces/fade se renderizan con una curva maestra y también están
   disponibles en el look global del proyecto.
 - **Look del proyecto**: elegí un preset o ajustá el grade global en Proyecto →
@@ -298,6 +313,10 @@ Estilo y Todo** (solo aparecen las que aplican al tipo de clip). La pestaña
   el texto y elegí una de las siete plantillas (Impacto, 3D, Caja, Minimal, Noticias,
   Cita, Ticker). Se agrega en el playhead en una pista `Títulos` con su propio
   estilo; después podés editarla, moverla o reutilizar el estilo.
+- **Texto libre**: en **Motion**, la plantilla **Texto libre** crea una capa de
+  texto en cualquier posición (X/Y), con ancho, tamaño, color, grosor,
+  alineación y animación de entrada/salida. Es la base para títulos fuera de los
+  estilos fijos; todavía no tiene máscara de texto ni degradado por capas.
 - **Proxies**: seleccioná un video en Medios y pulsá **Crear proxy** en el
   Inspector. Se genera un MP4 liviano en `media/proxies`; la preview lo usa y el
   render final sigue tomando el original. Podés quitarlo sin borrar el archivo.
@@ -809,15 +828,36 @@ en
   valor se suma a la ganancia de cada clip. **M** silencia la pista y **S** deja
   esa pista en solo: mientras haya un solo activo, las demás pistas con audio se
   silencian. **0** devuelve el canal a 0 dB.
+- **Paneo** mueve la pista de izquierda (-1) a derecha (1); el centro deja ambos
+  canales a 1.0. El **EQ** tiene tres bandas (±12 dB): bajos 120 Hz, medios
+  1 kHz y agudos 8 kHz. **EQ 0** vuelve al plano. Paneo y EQ se aplican al
+  export; la preview reproduce la ganancia y el solo.
 - **Medir picos** analiza los clips con FFmpeg, muestra el pico en dBFS, el pico
   con el fader y una alerta si llega a clipping. **Normalizar <pista> a -6 dBFS**
   ajusta el fader para dejar headroom. La medición es puntual (no en vivo) e
   incluye la ganancia de cada clip.
 - El **Master** ajusta la salida completa. El limitador, la normalización LUFS y
   el ducking se configuran en el Inspector del proyecto, dentro del editor.
-- Los cambios se escuchan en la preview y se aplican al render. La misma
-  ganancia y el mismo solo están disponibles en el Inspector de pista y en los
-  botones del encabezado de la timeline.
+- Los cambios de ganancia y solo se escuchan en la preview y se aplican al
+  render. El paneo y el EQ de pista se aplican al render. La misma ganancia y el
+  mismo solo están disponibles en el Inspector de pista y en los botones del
+  encabezado de la timeline.
+
+## VFX y rotoscopía
+
+- Abrí **VFX** en Herramientas y elegí un clip visual. La cadena muestra el
+  orden real del render: entrada → chroma → roto → color → detalle → salida.
+  Los nodos escriben los mismos efectos que aplica FFmpeg; no son una simulación.
+- **Crear polígono** arma una máscara de 8 vértices. **Editar vértices** permite
+  sumar puntos con clic y arrastrarlos en el visor. **Quitar vértice** borra el
+  último y **Clave x/y** guarda la posición actual como clave.
+- **Seguir rostro** analiza el clip con SeetaFace y convierte el track en un
+  polígono rígido con claves x/y. Si no hay una cara detectable, avisa y no
+  inventa movimiento. El seguimiento es facial, no de objetos arbitrarios.
+- El render aplica la máscara poligonal como alfa real. En esta v1 el polígono
+  se traslada con claves, pero no deforma sus vértices cuadro a cuadro; el
+  feather poligonal es duro y el orden de los nodos es fijo.
+- La escena se exporta con **Exportar video** como cualquier otro clip.
 
 ## Asistente flotante Olyvia
 

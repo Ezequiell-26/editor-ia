@@ -101,6 +101,7 @@ export {
   ClipTransitionSchema,
   KeyframeEasingSchema,
   ClipMaskSchema,
+  MaskPointSchema,
   ClipStabilizationSchema,
   BlendModeSchema,
   ClipColorTagSchema,
@@ -109,6 +110,10 @@ export {
   MAX_ANIMATION_FRAMES,
   ClipMaskKeyframeSchema,
   MAX_MASK_KEYFRAMES,
+  CompoundSchema,
+  CompoundInnerClipSchema,
+  CompoundClipSchema,
+  clipFitsTrack,
 } from './timeline.ts';
 export type {
   Track,
@@ -124,12 +129,15 @@ export type {
   ClipTransition,
   KeyframeEasing,
   ClipMask,
+  MaskPoint,
   ClipStabilization,
   BlendMode,
   ClipColorTag,
   ClipAnimationType,
   ClipAnimation,
   ClipMaskKeyframe,
+  Compound,
+  CompoundInnerClip,
 } from './timeline.ts';
 
 export {

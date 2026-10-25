@@ -33,6 +33,7 @@ import { useProjectStore } from '../../state/project-store';
 import { recordDirectorOutcome } from '../../state/editor-memory';
 import { evaluateProjectQuality } from '../../state/quality';
 import { buildProjectMotionPlans } from '../motion/plan';
+import { hasEmoji } from '../emoji/emoji';
 import { gpuRecommendation } from './gpu-policy';
 
 interface ExportDialogProps {
@@ -75,6 +76,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const project = store.state.project;
   const [profileId, setProfileId] = useState('');
   const [includeCaptions, setIncludeCaptions] = useState(true);
+  const [rangeStart, setRangeStart] = useState(0);
+  const [rangeEnd, setRangeEnd] = useState(0);
   const [hardware, setHardware] = useState<HardwareEncoders | null>(null);
   const [useGpu, setUseGpu] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -97,6 +100,35 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const batchResolverRef = useRef<((event: RenderFinishedEvent) => void) | null>(null);
   const folderRef = useRef<string | null>(null);
   jobRef.current = jobId;
+
+  useEffect(() => {
+    if (!open) return;
+    const total = store.durationFrames;
+    setRangeStart(0);
+    setRangeEnd(total);
+  }, [open, store.durationFrames]);
+
+  function setExportRange(start: number, end: number): void {
+    const total = Math.max(1, store.durationFrames);
+    const nextStart = Math.max(0, Math.min(total - 1, Math.round(start)));
+    const nextEnd = Math.max(nextStart + 1, Math.min(total, Math.round(end)));
+    setRangeStart(nextStart);
+    setRangeEnd(nextEnd);
+  }
+
+  const rangeFps = project ? fpsOf(project) : 30;
+  const totalFrames = store.durationFrames;
+  const safeRangeStart = Math.min(rangeStart, Math.max(0, totalFrames - 1));
+  const safeRangeEnd = Math.max(
+    safeRangeStart + 1,
+    Math.min(rangeEnd || totalFrames, totalFrames),
+  );
+  const rangeActive = safeRangeStart > 0 || safeRangeEnd < totalFrames;
+  const exportRange = rangeActive
+    ? { startFrame: safeRangeStart, endFrame: safeRangeEnd }
+    : undefined;
+  const rangeSeconds =
+    (rangeActive ? safeRangeEnd - safeRangeStart : totalFrames) / rangeFps;
 
   function availableHardware(
     profile:
@@ -235,13 +267,13 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         const queueProfile = currentProject.renderProfiles.find(
           (profile) => profile.id === entry.profileId,
         );
-        const queueDuration = store.durationFrames / fpsOf(currentProject);
         const started = await store.service.startRenderTo(
           entry.profileId,
           outputPath,
           entry.includeCaptions,
           motionBundle.plans,
-          hardwareForProfile(queueProfile, queueDuration),
+          hardwareForProfile(queueProfile, rangeSeconds),
+          exportRange,
         );
         if (!started) {
           setQueue((current) => markFailed(current, entry.id, 'el render no se inició'));
@@ -344,6 +376,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   if (!open || !project) return null;
   const currentProject = project;
   const quality = evaluateProjectQuality(currentProject);
+  const emojiWarning = currentProject.captions.cues.some((cue) => hasEmoji(cue.text));
   const hasQualityError = quality.some((finding) => finding.severity === 'error');
   const missingLoudness = quality.some((finding) => /loudness/i.test(finding.message));
 
@@ -391,7 +424,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         selected?.id ?? null,
         includeCaptions,
         motionBundle.plans,
-        hardwareForProfile(selected, store.durationFrames / fps),
+        hardwareForProfile(selected, rangeSeconds),
+        exportRange,
       );
       if (!started) {
         setStarting(false);
@@ -403,7 +437,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         jobId: started.jobId,
         percent: 0,
         processedSeconds: 0,
-        totalSeconds: store.durationFrames / fps,
+        totalSeconds: rangeSeconds,
         phase: 'preparando',
       });
     } catch (cause) {
@@ -451,7 +485,8 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
           outputPath,
           includeCaptions,
           motionBundle.plans,
-          hardwareForProfile(profile, store.durationFrames / fps),
+          hardwareForProfile(profile, rangeSeconds),
+          exportRange,
         );
         if (!started) {
           results.push({
@@ -695,6 +730,12 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   </div>
                 </dl>
               ) : null}
+              {emojiWarning ? (
+                <p className="notice notice-warning">
+                  La preview muestra los emojis en color; el MP4 los quema en monocromo
+                  (limitación del motor de subtítulos).
+                </p>
+              ) : null}
               {quality.length > 0 ? (
                 <div className="export-quality">
                   <p className="eyebrow">Calidad de entrega</p>
@@ -737,6 +778,59 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   {project.captions.cues.length} subtítulo(s).
                 </span>
               </label>
+              <div className="export-range">
+                <div className="export-compression-head">
+                  <p className="eyebrow">Rango de exportación</p>
+                  <span>
+                    {rangeActive
+                      ? `${((safeRangeEnd - safeRangeStart) / fps).toFixed(2)} s · frames ${safeRangeStart}–${safeRangeEnd}`
+                      : `todo el proyecto · ${(totalFrames / fps).toFixed(2)} s`}
+                  </span>
+                </div>
+                <div className="export-compression-row">
+                  <label className="field">
+                    <span>Desde (frame)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={Math.max(0, totalFrames - 1)}
+                      value={safeRangeStart}
+                      disabled={running}
+                      onChange={(event) =>
+                        setExportRange(Number(event.target.value), safeRangeEnd)
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    <span>Hasta (frame)</span>
+                    <input
+                      type="number"
+                      min={safeRangeStart + 1}
+                      max={totalFrames}
+                      value={safeRangeEnd}
+                      disabled={running}
+                      onChange={(event) =>
+                        setExportRange(safeRangeStart, Number(event.target.value))
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="small"
+                    disabled={running || !rangeActive}
+                    onClick={() => {
+                      setRangeStart(0);
+                      setRangeEnd(totalFrames);
+                    }}
+                  >
+                    Todo
+                  </button>
+                </div>
+                <p className="fine-print">
+                  El MP4 dura sólo este tramo; el resto del proyecto no se exporta. El final es
+                  exclusivo.
+                </p>
+              </div>
               <p className="fine-print">
                 El render usa el archivo guardado en disco. Antes de iniciar se guarda el proyecto;
                 si falla el guardado, no se renderiza. Elegís la ubicación del MP4 en el diálogo de

@@ -56,6 +56,53 @@ describe('efectos de clip', () => {
     expect(ClipSchema.safeParse(imageClip({ fade: 1.2 })).success).toBe(false);
   });
 
+  it('acepta glow y desenfoque de movimiento en rango', () => {
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ glow: { intensity: 0.7, radius: 24, threshold: 0.5 } }),
+      ).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ motionBlur: { frames: 4, intensity: 0.6 } }),
+      ).success,
+    ).toBe(true);
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ glow: { intensity: 2, radius: 24, threshold: 0.5 } }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ motionBlur: { frames: 1, intensity: 0.6 } }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('acepta una máscara de texto y exige el texto', () => {
+    const clip = {
+      ...imageClip(undefined),
+      mask: {
+        shape: 'text',
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        feather: 0,
+        invert: false,
+        text: 'HOLA',
+        fontScale: 0.2,
+      },
+    };
+    expect(ClipSchema.safeParse(clip).success).toBe(true);
+    expect(
+      ClipSchema.safeParse({
+        ...clip,
+        mask: { ...clip.mask, text: undefined },
+      }).success,
+    ).toBe(false);
+  });
+
   it('rechaza valores fuera de rango y claves desconocidas', () => {
     expect(ClipSchema.safeParse(imageClip({ brightness: 2 }))).toMatchObject({ success: false });
     expect(ClipSchema.safeParse(imageClip({ contrast: -1 }))).toMatchObject({ success: false });
@@ -284,6 +331,33 @@ describe('efectos de clip', () => {
         source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 90 },
         mask: { shape: 'ellipse', x: 0, y: 0, width: 1, height: 1 },
       }).success,
+    ).toBe(false);
+  });
+
+  it('acepta una máscara poligonal de rotoscopía y exige al menos tres puntos', () => {
+    const polygon = {
+      shape: 'polygon',
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      points: [
+        { x: 0.3, y: 0.2 },
+        { x: 0.7, y: 0.25 },
+        { x: 0.8, y: 0.8 },
+        { x: 0.3, y: 0.75 },
+      ],
+    };
+    expect(ClipSchema.safeParse({ ...imageClip(undefined), mask: polygon }).success).toBe(true);
+    expect(
+      ClipSchema.safeParse({
+        ...imageClip(undefined),
+        mask: { ...polygon, points: polygon.points.slice(0, 2) },
+      }).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse({ ...imageClip(undefined), mask: { ...polygon, points: undefined } })
+        .success,
     ).toBe(false);
   });
 });

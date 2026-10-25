@@ -36,7 +36,7 @@ describe('Projects', () => {
     });
     fireEvent.click(within(main).getByRole('button', { name: /Crear y elegir ubicación/i }));
     await waitFor(
-      () => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/),
+      () => expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/),
       { timeout: 5000 },
     );
     fireEvent.click(
@@ -54,7 +54,7 @@ describe('Projects', () => {
     render(<App service={createFakeService()} />);
     fireEvent.click(screen.getByRole('button', { name: /Abrir proyecto/i }));
     await waitFor(() =>
-      expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Exportar MP4/),
+      expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/),
     );
     fireEvent.click(
       within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: /Proyectos/ }),

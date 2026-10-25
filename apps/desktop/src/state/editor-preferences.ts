@@ -37,6 +37,8 @@ export interface EditorPreferences {
   readonly jumpStepFrames: number;
   /** Las guías de acción y título arrancan visibles. */
   readonly safeMargins: boolean;
+  /** Estilo de emoji para la preview y el selector: Android o abierto. */
+  readonly emojiStyle: 'android' | 'open';
 }
 
 /** Almacenamiento mínimo que necesitan estas preferencias. */
@@ -59,6 +61,7 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   loopPlayback: false,
   jumpStepFrames: 1,
   safeMargins: false,
+  emojiStyle: 'android',
 };
 
 /** Límites duros por campo: la UI y la normalización comparten la misma tabla. */
@@ -128,6 +131,7 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
       ),
     ),
     safeMargins: bool(source.safeMargins, DEFAULT_EDITOR_PREFERENCES.safeMargins),
+    emojiStyle: source.emojiStyle === 'open' ? 'open' : 'android',
   };
 }
 

@@ -4,6 +4,7 @@ import { templateById } from './templates';
 
 export {
   endCardTemplate,
+  freeTextTemplate,
   lowerThirdTemplate,
   MOTION_TEMPLATES,
   statCalloutTemplate,
@@ -63,7 +64,11 @@ export interface MotionPlanBundle {
 export function buildProjectMotionPlans(project: ProjectDocument): MotionPlanBundle {
   const plans: Record<string, MotionPlan> = {};
   const errors: string[] = [];
-  for (const clip of project.timeline.clips) {
+  const clips = [
+    ...project.timeline.clips,
+    ...(project.compounds ?? []).flatMap((compound) => compound.clips),
+  ];
+  for (const clip of clips) {
     if (clip.kind !== 'graphic') continue;
     const motion = project.motion.find((item) => item.id === clip.source.motionId);
     if (!motion) {

@@ -500,8 +500,103 @@ export const statCalloutTemplate: MotionTemplate = {
   },
 };
 
+const freeTextSchema = z
+  .object({
+    text: z.string().trim().min(1).max(500),
+    x: z.number().gte(0).lte(1),
+    y: z.number().gte(0).lte(1),
+    width: z.number().gte(0.1).lte(1),
+    size: z.number().gte(12).lte(200),
+    color: hexColor,
+    weight: z.enum(['400', '600', '700']),
+    align: z.enum(['left', 'center', 'right']),
+    animation: animationSchema,
+  })
+  .strict();
+type FreeTextProps = z.infer<typeof freeTextSchema>;
+
+export const freeTextTemplate: MotionTemplate = {
+  id: 'free-text',
+  version: '1.0.0',
+  label: 'Texto libre',
+  description: 'Texto suelto en cualquier posición, con tamaño, color y animación.',
+  category: 'título',
+  defaults: {
+    text: 'Texto libre',
+    x: 0.1,
+    y: 0.44,
+    width: 0.8,
+    size: 72,
+    color: '#ffffff',
+    weight: '700',
+    align: 'center',
+    animation: 'pop',
+  },
+  fields: [
+    { id: 'text', label: 'Texto', kind: 'textarea' },
+    { id: 'x', label: 'X (0–1)', kind: 'number', min: 0, max: 1 },
+    { id: 'y', label: 'Y (0–1)', kind: 'number', min: 0, max: 1 },
+    { id: 'width', label: 'Ancho (0–1)', kind: 'number', min: 0.1, max: 1 },
+    { id: 'size', label: 'Tamaño (px)', kind: 'number', min: 12, max: 200 },
+    { id: 'color', label: 'Color', kind: 'color' },
+    {
+      id: 'weight',
+      label: 'Grosor',
+      kind: 'select',
+      options: [
+        { value: '400', label: 'Regular' },
+        { value: '600', label: 'Semibold' },
+        { value: '700', label: 'Bold' },
+      ],
+    },
+    {
+      id: 'align',
+      label: 'Alineación',
+      kind: 'select',
+      options: [
+        { value: 'left', label: 'Izquierda' },
+        { value: 'center', label: 'Centro' },
+        { value: 'right', label: 'Derecha' },
+      ],
+    },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: freeTextSchema,
+  buildLayers(raw, context) {
+    const props = raw as FreeTextProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    // El validador ASS acepta 4..400 px; en 4K/vertical el tamaño escala
+    // mucho, así que se acota para no abortar el export.
+    const size = Math.max(4, Math.min(400, props.size * unit));
+    const anim = animation(props.animation, fps, 0.04);
+    const lineHeight = (size * 1.25) / context.height;
+    const maxLines = Math.max(
+      1,
+      Math.min(6, Math.floor((1 - props.y) / Math.max(lineHeight, 0.001))),
+    );
+    const lines = wrapText(
+      props.text,
+      charsFor(context.width * props.width, size),
+      maxLines,
+    );
+    return textBlock(context, {
+      lines,
+      x: props.x,
+      y: props.y,
+      width: props.width,
+      fontSizePx: size,
+      weight: Number(props.weight),
+      color: props.color,
+      align: props.align,
+      anim,
+    }).slice(0, 16);
+  },
+};
+
 export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   titleCardTemplate,
+  freeTextTemplate,
   lowerThirdTemplate,
   endCardTemplate,
   statCalloutTemplate,

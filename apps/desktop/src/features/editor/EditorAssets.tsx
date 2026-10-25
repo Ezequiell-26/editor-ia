@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { Asset, ClipEffects, ClipTransition } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
@@ -22,6 +22,8 @@ import {
 import { TITLE_TEMPLATES, type TitleTemplate } from '../../state/title-templates';
 import { COLOR_LOOKS } from './Inspector';
 import { useProjectStore } from '../../state/project-store';
+import { EmojiPickerButton } from '../emoji/EmojiPicker';
+import { insertEmoji } from '../emoji/emoji';
 
 type AssetFilter = AssetKindFilter;
 
@@ -299,6 +301,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [view, setView] = useState<RailView>('media');
   const [titleText, setTitleText] = useState('Tu título aquí');
+  const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [stickerCategory, setStickerCategory] = useState<'all' | 'trending' | 'social' | 'arrows' | 'emojis'>('all');
   const [transitionFrames, setTransitionFrames] = useState(12);
   const fps = project ? fpsOf(project) : 30;
@@ -415,6 +418,23 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }
   }
 
+  function insertTitleEmoji(emoji: string): void {
+    const input = titleInputRef.current;
+    const next = insertEmoji(
+      titleText,
+      emoji,
+      input?.selectionStart ?? titleText.length,
+      input?.selectionEnd ?? titleText.length,
+    );
+    setTitleText(next.value);
+    window.requestAnimationFrame(() => {
+      const current = titleInputRef.current;
+      if (!current) return;
+      current.focus();
+      current.setSelectionRange(next.cursor, next.cursor);
+    });
+  }
+
   function applyPreset(label: string, effects: ClipEffects): void {
     if (!selectedClip) {
       store.setNotice('Seleccioná un clip en la timeline para aplicarle esto.');
@@ -478,7 +498,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   function templatePreview(template: TitleTemplate) {
     const style = template.style;
     return {
-      fontFamily: `"${style.fontFamily}", sans-serif`,
+      fontFamily: `"${style.fontFamily}", var(--emoji-font), sans-serif`,
       fontWeight: style.bold ? 800 : 500,
       fontStyle: style.italic ? 'italic' : 'normal',
       color: style.color,
@@ -695,13 +715,18 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
 
           <label className="field rail-title-text">
             <span>Texto personalizado</span>
-            <input
-              type="text"
-              value={titleText}
-              maxLength={120}
-              placeholder="Escribí el texto aquí…"
-              onChange={(event) => setTitleText(event.target.value)}
-            />
+            <div className="emoji-input-row">
+              <input
+                ref={titleInputRef}
+                type="text"
+                className="emoji-capable"
+                value={titleText}
+                maxLength={120}
+                placeholder="Escribí el texto aquí…"
+                onChange={(event) => setTitleText(event.target.value)}
+              />
+              <EmojiPickerButton onPick={insertTitleEmoji} />
+            </div>
           </label>
           <p className="fine-print">
             Hacé clic en una plantilla para montarla en el cursor con su estilo y animación.

@@ -30,6 +30,7 @@ export const ClipKindSchema = z.enum([
   'graphic',
   'freeze',
   'adjustment',
+  'compound',
 ]);
 
 export const TrackSchema = z
@@ -43,6 +44,12 @@ export const TrackSchema = z
     locked: z.boolean().default(false),
     /** Ganancia de pista en dB; se suma a la ganancia de cada clip. */
     gainDb: DecibelSchema.optional(),
+    /** Paneo de pista: -1 izquierda, 0 centro, 1 derecha (balance lineal). */
+    pan: z.number().gte(-1).lte(1).optional(),
+    /** EQ de pista en tres bandas; se aplica antes del fader de pista. */
+    eqLowDb: z.number().gte(-12).lte(12).optional(),
+    eqMidDb: z.number().gte(-12).lte(12).optional(),
+    eqHighDb: z.number().gte(-12).lte(12).optional(),
     /** Si hay alguna pista en solo, las demás pistas de audio se silencian. */
     solo: z.boolean().optional(),
   })
@@ -342,6 +349,23 @@ export const ClipEffectsSchema = z
       .optional(),
     sharpen: z.number().gte(0).lte(5).optional(),
     blur: z.number().gte(0).lte(50).optional(),
+    /** Halo alrededor de las zonas claras (estilo MrBeast / glow). */
+    glow: z
+      .object({
+        intensity: z.number().gte(0).lte(1),
+        radius: z.number().gte(1).lte(80),
+        threshold: z.number().gte(0).lte(0.95),
+      })
+      .strict()
+      .optional(),
+    /** Desenfoque temporal de movimiento por mezcla de frames. */
+    motionBlur: z
+      .object({
+        frames: z.number().int().gte(2).lte(12),
+        intensity: z.number().gte(0).lte(1),
+      })
+      .strict()
+      .optional(),
     grayscale: z.boolean().optional(),
     sepia: z.boolean().optional(),
     hueRotateDeg: z.number().gte(-180).lte(180).optional(),
@@ -422,9 +446,25 @@ export const ClipMaskKeyframeSchema = z
   });
 export type ClipMaskKeyframe = z.infer<typeof ClipMaskKeyframeSchema>;
 
+export const MaskPointSchema = z
+  .object({
+    x: z.number().gte(0).lte(1),
+    y: z.number().gte(0).lte(1),
+  })
+  .strict();
+export type MaskPoint = z.infer<typeof MaskPointSchema>;
+
 export const ClipMaskSchema = z
   .object({
-    shape: z.enum(['rectangle', 'ellipse', 'diamond', 'triangle', 'rounded']),
+    shape: z.enum([
+      'rectangle',
+      'ellipse',
+      'diamond',
+      'triangle',
+      'rounded',
+      'polygon',
+      'text',
+    ]),
     x: z.number().gte(-1).lte(1),
     y: z.number().gte(-1).lte(1),
     width: z.number().gt(0).lte(2),
@@ -432,9 +472,38 @@ export const ClipMaskSchema = z
     rotationDeg: z.number().gte(-180).lte(180).optional(),
     feather: z.number().gte(0).lte(1).default(0.08),
     invert: z.boolean().default(false),
+    /** Texto de la máscara tipográfica; sólo se usa con `shape: 'text'`. */
+    text: z.string().trim().min(1).max(200).optional(),
+    /** Tamaño del texto como fracción de la altura del fotograma. */
+    fontScale: z.number().gte(0.02).lte(0.5).optional(),
+    /** Puntos normalizados 0..1 del fotograma para una máscara poligonal. */
+    points: z.array(MaskPointSchema).min(3).max(16).optional(),
     keyframes: z.array(ClipMaskKeyframeSchema).min(1).max(MAX_MASK_KEYFRAMES).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((mask, ctx) => {
+    if (mask.shape === 'text' && !mask.text) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['text'],
+        message: 'a text mask needs the text to draw',
+      });
+    }
+    if (mask.shape === 'polygon' && !mask.points) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['points'],
+        message: 'a polygon mask needs at least three points',
+      });
+    }
+    if (mask.shape !== 'polygon' && mask.points) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['points'],
+        message: 'only a polygon mask accepts points',
+      });
+    }
+  });
 export type ClipMask = z.infer<typeof ClipMaskSchema>;
 
 /**
@@ -532,6 +601,8 @@ const VideoClipSchema = z
     kind: z.literal('video'),
     source: WindowedAssetSourceSchema,
     speed: FrameRateSchema.optional(),
+    /** Interpola fotogramas al exportar una cámara lenta (< 1×). */
+    slowMotionSmoothing: z.boolean().optional(),
     reverse: z.boolean().optional(),
     effects: ClipEffectsSchema.optional(),
     motion: ClipMotionSchema.optional(),
@@ -605,6 +676,64 @@ const AdjustmentClipSchema = z
   })
   .strict();
 
+/**
+ * Inner clips of a compound. They keep their original track and relative
+ * start; a compound is a named group that renders by flattening these clips
+ * back onto their tracks. Nested compounds are deliberately not allowed.
+ */
+export const CompoundInnerClipSchema = z.discriminatedUnion('kind', [
+  VideoClipSchema,
+  AudioClipSchema,
+  ImageIconSchema,
+  GraphicClipSchema,
+  FreezeClipSchema,
+  AdjustmentClipSchema,
+]);
+
+export const CompoundSchema = z
+  .object({
+    id: EntityIdSchema,
+    label: z.string().trim().min(1).max(200),
+    durationFrames: DurationSchema,
+    clips: z.array(CompoundInnerClipSchema).min(1).max(200),
+  })
+  .strict()
+  .superRefine((compound, ctx) => {
+    const ids = new Set<string>();
+    compound.clips.forEach((clip, index) => {
+      if (ids.has(clip.id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['clips', index, 'id'],
+          message: 'compound clip ids must be unique',
+        });
+      }
+      ids.add(clip.id);
+      if (clip.startFrame + clip.durationFrames > compound.durationFrames) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['clips', index, 'durationFrames'],
+          message: 'a compound clip cannot end after the compound duration',
+        });
+      }
+    });
+  });
+
+export const CompoundClipSchema = z
+  .object({
+    ...clipCommon,
+    kind: z.literal('compound'),
+    source: z
+      .object({
+        type: z.literal('compound'),
+        compoundId: EntityIdSchema,
+      })
+      .strict(),
+  })
+  .strict();
+export type Compound = z.infer<typeof CompoundSchema>;
+export type CompoundInnerClip = z.infer<typeof CompoundInnerClipSchema>;
+
 /** Which track kinds are allowed to host each clip kind. */
 const TRACK_KINDS_FOR_CLIP: Record<z.infer<typeof ClipKindSchema>, readonly string[]> = {
   video: ['video'],
@@ -613,7 +742,15 @@ const TRACK_KINDS_FOR_CLIP: Record<z.infer<typeof ClipKindSchema>, readonly stri
   graphic: ['graphic'],
   freeze: ['video'],
   adjustment: ['adjustment'],
+  compound: ['video', 'image', 'graphic', 'adjustment'],
 };
+
+export function clipFitsTrack(
+  clipKind: z.infer<typeof ClipKindSchema>,
+  trackKind: string,
+): boolean {
+  return (TRACK_KINDS_FOR_CLIP[clipKind] ?? []).includes(trackKind);
+}
 
 export const ClipSchema = z
   .discriminatedUnion('kind', [
@@ -623,6 +760,7 @@ export const ClipSchema = z
     GraphicClipSchema,
     FreezeClipSchema,
     AdjustmentClipSchema,
+    CompoundClipSchema,
   ])
   .superRefine((clip, ctx) => {
     if (clip.kind === 'video' || clip.kind === 'audio') {

@@ -139,6 +139,8 @@ const VideoAssetSchema = z
         height: PixelsSchema,
         durationFrames: DurationSchema,
         frameRate: FrameRateSchema,
+        /** El archivo lleva canal alfa (recortes VP9, ProRes 4444). */
+        alpha: z.boolean().optional(),
       })
       .strict()
       .optional(),

@@ -17,6 +17,7 @@ import {
   type DesktopService,
 } from './services/project-service';
 import { ProjectProvider, useProjectStore } from './state/project-store';
+import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
 import { ExperienceProvider, filterViewsForMode, useExperienceMode } from './state/experience';
 import {
@@ -96,6 +97,8 @@ const loadMulticam = () =>
   import('./features/multicam/MulticamView').then((module) => ({ default: module.MulticamView }));
 const loadMixer = () =>
   import('./features/mixer/MixerView').then((module) => ({ default: module.MixerView }));
+const loadVfx = () =>
+  import('./features/vfx/VfxView').then((module) => ({ default: module.VfxView }));
 const loadDownload = () =>
   import('./features/download/DownloadView').then((module) => ({ default: module.DownloadView }));
 const loadCompliance = () =>
@@ -130,6 +133,7 @@ const UpscaleView = lazy(loadUpscale);
 const TextEditView = lazy(loadTextEdit);
 const MulticamView = lazy(loadMulticam);
 const MixerView = lazy(loadMixer);
+const VfxView = lazy(loadVfx);
 const DownloadView = lazy(loadDownload);
 const ComplianceView = lazy(loadCompliance);
 const LearnView = lazy(loadLearn);
@@ -148,6 +152,7 @@ const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown
   'text-edit': loadTextEdit,
   multicam: loadMulticam,
   mixer: loadMixer,
+  vfx: loadVfx,
   download: loadDownload,
   compliance: loadCompliance,
   convert: loadConvert,
@@ -582,6 +587,8 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           return <MulticamView onNavigate={navigate} />;
         case 'mixer':
           return <MixerView onNavigate={navigate} />;
+        case 'vfx':
+          return <VfxView onNavigate={navigate} />;
         case 'download':
           return <DownloadView onNavigate={navigate} />;
         case 'compliance':
@@ -675,6 +682,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
 }
 
 export function App({ service = createDesktopService(), initialShowStart }: AppProps) {
+  const editorPreferences = useEditorPreferences();
   const [showStart, setShowStart] = useState(() => {
     if (typeof initialShowStart === 'boolean') return initialShowStart;
     if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
@@ -683,6 +691,10 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
     return true;
   });
   const [initialView, setInitialView] = useState<ViewId>('home');
+
+  useEffect(() => {
+    document.documentElement.dataset.emojiStyle = editorPreferences.emojiStyle;
+  }, [editorPreferences.emojiStyle]);
 
   // Aviso al backend que la interfaz ya montó: es la señal para cerrar el
   // splash y mostrar la ventana principal.

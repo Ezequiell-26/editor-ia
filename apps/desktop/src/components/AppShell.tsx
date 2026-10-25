@@ -28,6 +28,7 @@ export function AppShell({
   const notice = store.state.notice;
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
+  const immersive = activeId === 'editor' && Boolean(project);
   // Las vistas quedan montadas: cada una conserva su propia posición de scroll
   // en vez de heredar la de la anterior o volver siempre arriba.
   const scrollPositions = useRef(new Map<ViewId, number>());
@@ -58,7 +59,7 @@ export function AppShell({
   }, [activeId]);
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${immersive ? ' editor-immersive' : ''}`}>
       <header className="topbar">
         <div className="topbar-brand" title="Olyvia">
           <img src="/olyvia-mark.png" alt="" />
@@ -82,6 +83,23 @@ export function AppShell({
           {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
         />
         <div className="topbar-center" data-tauri-drag-region aria-hidden="true" />
+        {immersive && project ? (
+          <div className="topbar-project" data-tauri-drag-region>
+            <strong className="topbar-project-name" title={project.name}>
+              {project.name}
+            </strong>
+            <span className="topbar-project-phase">
+              <span className={`statusbar-dot phase-${store.state.phase}`} aria-hidden="true" />
+              {store.state.phase === 'saved'
+                ? 'Guardado'
+                : store.state.phase === 'saving'
+                  ? 'Guardando…'
+                  : store.state.phase === 'failed'
+                    ? 'Error al guardar'
+                    : 'Sin guardar'}
+            </span>
+          </div>
+        ) : null}
         <div className="topbar-actions">
           <button
             type="button"
@@ -121,6 +139,7 @@ export function AppShell({
             className={`topbar-export-btn${hasClip ? ' ready' : ''}`}
             aria-label="Exportar video"
             data-tooltip={hasClip ? 'Exportar video · Ctrl+E' : 'Montá al menos un clip para exportar'}
+            title={hasClip ? 'Exportar video · Ctrl+E' : 'Montá al menos un clip para exportar'}
             onClick={() => {
               if (activeId !== 'editor') onSelect('editor');
               store.requestExport();

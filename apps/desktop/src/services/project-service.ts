@@ -177,6 +177,12 @@ export interface RenderStarted {
   readonly profileName: string;
 }
 
+/** Rango de frames del proyecto que se exporta; `end` es exclusivo. */
+export interface RenderRange {
+  readonly startFrame: number;
+  readonly endFrame: number;
+}
+
 export interface RenderProgressEvent {
   readonly jobId: string;
   readonly percent: number;
@@ -304,6 +310,34 @@ export interface LoudnessSummary {
   readonly truePeakDb: number | null;
   readonly lraDb: number | null;
   readonly noiseFloorDb: number | null;
+}
+
+/** Avance del análisis de loudness de la mezcla. */
+export interface LoudnessAnalysisProgress {
+  readonly percent: number;
+  readonly seconds: number;
+  readonly totalSeconds: number;
+}
+
+/** Una muestra del medidor cada 100 ms de audio. */
+export interface MixLoudnessSample {
+  readonly seconds: number;
+  readonly momentaryLufs: number;
+  readonly shortTermLufs: number;
+}
+
+/** Medición EBU R128 de la mezcla completa (previa a loudnorm). */
+export interface MixLoudnessReport {
+  readonly durationSeconds: number;
+  readonly integratedLufs: number;
+  readonly loudnessRangeLu: number;
+  readonly maxMomentaryLufs: number;
+  readonly maxShortTermLufs: number;
+  readonly samplePeakDbfs: number;
+  readonly truePeakDbtp: number;
+  readonly targetLufs: number | null;
+  readonly targetDeltaDb: number | null;
+  readonly samples: readonly MixLoudnessSample[];
 }
 
 export interface MediaAnalysis {
@@ -499,6 +533,20 @@ export interface BackgroundRemoval {
   readonly height: number;
 }
 
+/** Progreso del recorte automático de fondo en video (0–100). */
+export interface BackgroundProgress {
+  readonly percent: number;
+}
+
+export interface BackgroundRemovalRequest {
+  readonly path: string;
+  readonly kind: 'image' | 'video';
+  readonly inFrame: number;
+  readonly outFrame: number;
+  readonly fpsNum: number;
+  readonly fpsDen: number;
+}
+
 /** Modo y preajuste de Denoise Studio. */
 export type DenoiseMode = 'video' | 'image';
 export type DenoisePreset = 'fast' | 'balanced' | 'quality';
@@ -660,6 +708,8 @@ export interface PreviewFrameRequest {
   readonly frame: number;
   /** Pide el PNG a la resolución nativa del medio, no a la del lienzo. */
   readonly native?: boolean;
+  /** Compone todas las pistas; `false` fuerza el clip aislado. */
+  readonly composite?: boolean;
 }
 
 export interface PreviewFrameResult {
@@ -672,6 +722,14 @@ export interface PreviewFrameResult {
   readonly clipLabel: string;
   readonly native: boolean;
   readonly decoder: 'video-rs' | 'ffmpeg';
+  /** Compuesto de todas las pistas visibles, subtítulos y look global. */
+  readonly composite?: boolean;
+  /** `window` renderiza sólo el frame; `full` recorre la timeline; `none` es el clip suelto. */
+  readonly compositeMode?: 'window' | 'full' | 'none';
+  readonly visibleTracks?: number;
+  readonly captionsBurned?: boolean;
+  /** Motivo por el que se devolvió el clip suelto en lugar del compuesto. */
+  readonly fallbackReason?: string;
 }
 
 export interface BestThumbnailFrame {
@@ -1132,6 +1190,14 @@ export interface DesktopService {
     outputDir: string,
   ): Promise<ToolResult>;
   audioPeaks(assetId: string, buckets?: number): Promise<AudioPeaks>;
+  /**
+   * Mide el loudness de la mezcla del proyecto guardado (BS.1770-4 / EBU R128)
+   * con el grafo de audio real del export, previo a la normalización.
+   */
+  analyzeMixLoudness(profileId?: string): Promise<MixLoudnessReport>;
+  onLoudnessAnalysisProgress(
+    handler: (event: LoudnessAnalysisProgress) => void,
+  ): Promise<UnlistenFn>;
   hardwareEncoders(): Promise<HardwareEncoders>;
   downloaderStatus(): Promise<DownloaderStatus>;
   downloaderBridgeInfo(): Promise<DownloaderBridgeInfo>;
@@ -1213,6 +1279,7 @@ export interface DesktopService {
     includeCaptions: boolean,
     motionPlans?: Record<string, unknown>,
     hardwareEncoder?: string | null,
+    range?: RenderRange,
   ): Promise<RenderStarted | null>;
   startRenderTo(
     profileId: string,
@@ -1220,6 +1287,7 @@ export interface DesktopService {
     includeCaptions: boolean,
     motionPlans?: Record<string, unknown>,
     hardwareEncoder?: string | null,
+    range?: RenderRange,
   ): Promise<RenderStarted | null>;
   chooseExportDirectory(): Promise<string | null>;
   cancelRender(jobId: string): Promise<void>;
@@ -1249,6 +1317,9 @@ export interface DesktopService {
   listVisualCatalog(): Promise<VisualCatalog>;
   auditVisuals(project: unknown): Promise<VisualAudit>;
   removeBackground(inputPath: string): Promise<BackgroundRemoval>;
+  /** Recorta el fondo de un asset del proyecto y lo devuelve ya importado. */
+  removeBackgroundAsset(request: BackgroundRemovalRequest): Promise<Asset>;
+  onBackgroundProgress(handler: (event: BackgroundProgress) => void): Promise<UnlistenFn>;
   upscaleImage(inputPath: string): Promise<UpscaleResult>;
   denoiseMedia(request: DenoiseRequest): Promise<DenoiseResult>;
   onDenoiseProgress(handler: (event: DenoiseProgress) => void): Promise<UnlistenFn>;
@@ -1317,6 +1388,7 @@ export const PROJECT_COMMANDS = {
   watermarkVideo: 'watermark_video',
   setMetadata: 'set_metadata',
   audioPeaks: 'audio_peaks',
+  analyzeMixLoudness: 'analyze_mix_loudness',
   hardwareEncoders: 'hardware_encoders',
   downloaderStatus: 'downloader_status',
   downloaderBridgeInfo: 'downloader_bridge_info',
@@ -1339,6 +1411,7 @@ export const PROJECT_COMMANDS = {
   listVisualCatalog: 'list_visual_catalog',
   auditVisuals: 'audit_visuals',
   removeBackground: 'remove_background',
+  removeBackgroundAsset: 'remove_background_asset',
   upscaleImage: 'upscale_image',
   denoiseMedia: 'denoise_media',
   enhanceDialogue: 'enhance_dialogue',
@@ -1715,6 +1788,26 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         inputPath,
       })) as BackgroundRemoval;
     },
+    async removeBackgroundAsset(request) {
+      const raw = await call(PROJECT_COMMANDS.removeBackgroundAsset, {
+        path: request.path,
+        kind: request.kind,
+        inFrame: request.inFrame,
+        outFrame: request.outFrame,
+        fpsNum: request.fpsNum,
+        fpsDen: request.fpsDen,
+      });
+      const asset = parseAssets([raw])[0];
+      if (!asset) {
+        throw new Error('el recorte no devolvió un asset válido');
+      }
+      return asset;
+    },
+    async onBackgroundProgress(handler) {
+      return listen<BackgroundProgress>('background-progress', (event) =>
+        handler(event.payload),
+      );
+    },
     async upscaleImage(inputPath) {
       return (await call(PROJECT_COMMANDS.upscaleImage, {
         inputPath,
@@ -1984,6 +2077,16 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         buckets: buckets ?? 600,
       })) as AudioPeaks;
     },
+    async analyzeMixLoudness(profileId) {
+      return (await call(PROJECT_COMMANDS.analyzeMixLoudness, {
+        profileId: profileId ?? null,
+      })) as MixLoudnessReport;
+    },
+    async onLoudnessAnalysisProgress(handler) {
+      return listen<LoudnessAnalysisProgress>('loudness-analysis-progress', (event) =>
+        handler(event.payload),
+      );
+    },
     async hardwareEncoders() {
       return (await call(PROJECT_COMMANDS.hardwareEncoders)) as HardwareEncoders;
     },
@@ -2151,21 +2254,34 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         provider: input.provider ?? null,
       })) as NarrationResult;
     },
-    async startRender(profileId, includeCaptions, motionPlans, hardwareEncoder) {
+    async startRender(profileId, includeCaptions, motionPlans, hardwareEncoder, range) {
       return (await call(PROJECT_COMMANDS.startRender, {
         profileId,
         includeCaptions,
         ...(motionPlans ? { motionPlans } : {}),
         ...(hardwareEncoder ? { hardwareEncoder } : {}),
+        ...(range
+          ? { startFrame: range.startFrame, endFrame: range.endFrame }
+          : {}),
       })) as RenderStarted | null;
     },
-    async startRenderTo(profileId, outputPath, includeCaptions, motionPlans, hardwareEncoder) {
+    async startRenderTo(
+      profileId,
+      outputPath,
+      includeCaptions,
+      motionPlans,
+      hardwareEncoder,
+      range,
+    ) {
       return (await call(PROJECT_COMMANDS.startRenderTo, {
         profileId,
         outputPath,
         includeCaptions,
         ...(motionPlans ? { motionPlans } : {}),
         ...(hardwareEncoder ? { hardwareEncoder } : {}),
+        ...(range
+          ? { startFrame: range.startFrame, endFrame: range.endFrame }
+          : {}),
       })) as RenderStarted | null;
     },
     async chooseExportDirectory() {
@@ -2256,6 +2372,8 @@ function createUnavailableService(): DesktopService {
     watermarkVideo: async () => unavailable(),
     setMetadata: async () => unavailable(),
     audioPeaks: async () => unavailable(),
+    analyzeMixLoudness: async () => unavailable(),
+    onLoudnessAnalysisProgress: async () => () => {},
     hardwareEncoders: async () => unavailable(),
     downloaderStatus: async () => ({
       available: false,
@@ -2286,6 +2404,8 @@ function createUnavailableService(): DesktopService {
     listVisualCatalog: async () => unavailable(),
     auditVisuals: async () => unavailable(),
     removeBackground: async () => unavailable(),
+    removeBackgroundAsset: async () => unavailable(),
+    onBackgroundProgress: async () => () => {},
     upscaleImage: async () => unavailable(),
     denoiseMedia: async () => unavailable(),
     enhanceDialogue: async () => unavailable(),

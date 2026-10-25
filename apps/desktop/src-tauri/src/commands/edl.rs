@@ -8,6 +8,9 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
+use crate::render::ffmpeg::expand_compounds;
+
+use super::OmittedClips;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,16 +70,31 @@ fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
         .iter()
         .filter_map(|asset| Some((asset["id"].as_str()?.to_owned(), asset.clone())))
         .collect();
+    // Una pista oculta no entra en el render, así que tampoco debe reaparecer
+    // en el intercambio: OTIO ya las omite y el EDL seguiría esa regla.
+    let hidden_tracks: std::collections::HashSet<String> = project["timeline"]["tracks"]
+        .as_array()
+        .map(|tracks| {
+            tracks
+                .iter()
+                .filter(|track| track["hidden"].as_bool().unwrap_or(false))
+                .filter_map(|track| track["id"].as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
     let mut clips: Vec<Value> = project["timeline"]["clips"]
         .as_array()
         .cloned()
         .unwrap_or_default()
         .into_iter()
         .filter(|clip| {
-            matches!(
-                clip["kind"].as_str().unwrap_or(""),
-                "video" | "image" | "freeze"
-            )
+            let kind = clip["kind"].as_str().unwrap_or("");
+            let visible = clip["enabled"].as_bool() != Some(false)
+                && !clip["trackId"]
+                    .as_str()
+                    .map(|id| hidden_tracks.contains(id))
+                    .unwrap_or(false);
+            visible && matches!(kind, "video" | "image" | "freeze")
         })
         .collect();
     clips.sort_by_key(|clip| clip["startFrame"].as_u64().unwrap_or(0));
@@ -148,6 +166,7 @@ fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
     if events == 0 {
         warnings.push("no hay clips visuales para exportar".to_owned());
     }
+    warnings.extend(OmittedClips::from_project(project, false).warnings("al EDL"));
     (format!("{}\n", lines.join("\n")), events, warnings)
 }
 
@@ -160,7 +179,8 @@ pub fn export_edl(request: EdlRequest) -> Result<EdlResult, ProjectError> {
             "la carpeta de destino del EDL no existe",
         ));
     }
-    let (text, events, warnings) = build_edl(&request.project);
+    let project = expand_compounds(&request.project)?;
+    let (text, events, warnings) = build_edl(&project);
     if events == 0 {
         return Err(ProjectError::message(
             ProjectErrorCode::EmptyTimeline,
@@ -231,5 +251,144 @@ mod tests {
         assert!(text.contains("TITLE: Demo"));
         assert!(text.contains("00:00:01:00 00:00:03:00"));
         assert!(text.contains("* FROM CLIP NAME: Toma"));
+    }
+
+    #[test]
+    fn edl_skips_clips_on_hidden_tracks() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "hidden": true },
+                    { "id": "v2", "kind": "video", "hidden": false }
+                ],
+                "clips": [
+                    { "id": "hidden", "trackId": "v1", "kind": "video", "label": "Oculta",
+                      "startFrame": 0, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                    { "id": "visible", "trackId": "v2", "kind": "video", "label": "Visible",
+                      "startFrame": 30, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 30, "outFrame": 60 } }
+                ]
+            }
+        });
+        let (text, events, warnings) = build_edl(&project);
+        assert_eq!(events, 1);
+        assert!(text.contains("* FROM CLIP NAME: Visible"), "{text}");
+        assert!(!text.contains("Oculta"), "{text}");
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn edl_skips_disabled_clips() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": { "clips": [
+                { "id": "off", "kind": "video", "label": "Apagado", "enabled": false,
+                  "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                { "id": "on", "kind": "video", "label": "Activo", "enabled": true,
+                  "startFrame": 30, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "a", "inFrame": 30, "outFrame": 60 } }
+            ] }
+        });
+        let (text, events, warnings) = build_edl(&project);
+        assert_eq!(events, 1);
+        assert!(text.contains("* FROM CLIP NAME: Activo"), "{text}");
+        assert!(!text.contains("Apagado"), "{text}");
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn edl_warns_about_graphics_adjustments_and_audio() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "captions": { "cues": [
+                { "id": "cue1", "trackId": "c1", "startFrame": 0, "endFrame": 30, "text": "Hola" },
+                { "id": "cue2", "trackId": "c2", "startFrame": 0, "endFrame": 30, "text": "Oculto" }
+            ] },
+            "timeline": { "tracks": [
+                { "id": "c1", "kind": "caption", "hidden": false },
+                { "id": "c2", "kind": "caption", "hidden": true }
+            ], "clips": [
+                { "id": "v", "kind": "video", "label": "Toma", "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                { "id": "g", "kind": "graphic", "label": "Título", "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "graphic" } },
+                { "id": "adj", "kind": "adjustment", "label": "Look", "startFrame": 0, "durationFrames": 30 },
+                { "id": "au", "kind": "audio", "label": "Música", "startFrame": 0, "durationFrames": 30,
+                  "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                { "id": "off", "kind": "graphic", "label": "Apagado", "enabled": false,
+                  "startFrame": 0, "durationFrames": 30, "source": { "type": "graphic" } }
+            ] }
+        });
+        let (_, events, warnings) = build_edl(&project);
+        assert_eq!(events, 1);
+        assert_eq!(warnings.len(), 4, "{warnings:?}");
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("1 clip(s) gráfico(s)")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("1 capa(s) de ajuste")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("1 subtítulo(s)")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings
+                .iter()
+                .any(|warning| warning.contains("1 clip(s) de audio")),
+            "{warnings:?}"
+        );
+    }
+
+    #[test]
+    fn edl_expands_compound_clips() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "clips": [{
+                    "id": "outer", "kind": "compound", "label": "Grupo",
+                    "startFrame": 10, "durationFrames": 20,
+                    "source": { "type": "compound", "compoundId": "c1" }
+                }]
+            },
+            "compounds": [{
+                "id": "c1", "label": "Grupo", "durationFrames": 20,
+                "clips": [{
+                    "id": "inner", "kind": "video", "label": "Toma",
+                    "startFrame": 0, "durationFrames": 20,
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 20 }
+                }]
+            }]
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-edl-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_edl(EdlRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("edl");
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert_eq!(result.events, 1);
+        assert!(text.contains("* FROM CLIP NAME: Toma"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
