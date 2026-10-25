@@ -1569,6 +1569,64 @@ mod tests {
     }
 
     #[test]
+    fn import_real_drop_frame_edl_from_resolve_or_premiere() {
+        // EDL exportado por Resolve/Premiere con `FCM: DROP FRAME` y separador ;:
+        // 00:10:00;00 es el cuadro 17982 (no 18000) porque faltan dos cuadros por
+        // minuto salvo cada décimo: `(10*60 - 10/10)*2` = 11980 cuadros omitidos.
+        let edl_text = r#"TITLE: Drop Frame Test
+FCM: DROP FRAME
+
+001  TEMA      V     C        00:10:00;00 00:10:02;00 00:10:00;00 00:10:02;00
+* FROM CLIP NAME: Toma DF
+* FILENAME: toma.mp4
+"#;
+        let fps_num = 30000u64;
+        let fps_den = 1001u64;
+        let fps = fps_num as f64 / fps_den as f64;
+        let parsed = parse_edl(edl_text, fps);
+        assert_eq!(parsed.clips.len(), 1, "{:?}", parsed.warnings);
+        let clip = &parsed.clips[0];
+        // La espera era 10 min * 30 fps ≈ 18000 frames, pero en DF faltan 18 cuadros:
+        // el timecode correcto es **17982**.
+        let expected_start_frame = 17982u64;
+        let actual_start_frame = seconds_to_frames(clip.start_seconds, fps);
+        assert_eq!(
+            actual_start_frame, expected_start_frame,
+            "DF debe dar 17982, no {}",
+            actual_start_frame
+        );
+        // 60 frames a 29.97 = 2.002 s exactos (60/29.97); "2 segundos" de
+        // timecode DF nunca son 2.000 s en segundos reales.
+        assert!(
+            (clip.duration_seconds - 60.0 / fps).abs() < 0.001,
+            "duración 60 frames a 29.97 ≈ 2.002s: {:?}",
+            clip.duration_seconds
+        );
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+    }
+
+    #[test]
+    fn warns_if_drop_frame_applies_to_non_29_97_rate() {
+        // Drop-frame sólo existe en 29.97/59.94; en otro fps se lee NDF y avisa una vez.
+        let edl_text = r#"TITLE: DF25
+FCM: DROP FRAME
+
+001  TEMA      V     C        00:00:00;00 00:00:01;00 00:00:00;00 00:00:01;00
+"#;
+        let parsed = parse_edl(edl_text, 25.0);
+        assert_eq!(parsed.clips.len(), 1);
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("drop-frame a 25 fps")
+                    && warning.contains("se interpreta NDF")),
+            "debe avisar una sola vez: {:?}",
+            parsed.warnings
+        );
+    }
+
+    #[test]
     fn our_otio_export_round_trips_gap_and_media() {
         let project = serde_json::json!({
             "name": "Round",

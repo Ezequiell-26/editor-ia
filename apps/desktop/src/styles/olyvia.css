@@ -1183,6 +1183,13 @@ textarea:focus-visible {
   gap: 10px;
 }
 
+.multicam-sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .multicam-cams-head .eyebrow {
   margin: 0;
 }

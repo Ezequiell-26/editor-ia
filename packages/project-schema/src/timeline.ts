@@ -33,28 +33,6 @@ export const ClipKindSchema = z.enum([
   'compound',
 ]);
 
-export const TrackSchema = z
-  .object({
-    id: EntityIdSchema,
-    kind: TrackKindSchema,
-    label: z.string().min(1).max(120),
-    order: z.number().int().min(0).max(63),
-    muted: z.boolean().default(false),
-    hidden: z.boolean().default(false),
-    locked: z.boolean().default(false),
-    /** Ganancia de pista en dB; se suma a la ganancia de cada clip. */
-    gainDb: DecibelSchema.optional(),
-    /** Paneo de pista: -1 izquierda, 0 centro, 1 derecha (balance lineal). */
-    pan: z.number().gte(-1).lte(1).optional(),
-    /** EQ de pista en tres bandas; se aplica antes del fader de pista. */
-    eqLowDb: z.number().gte(-12).lte(12).optional(),
-    eqMidDb: z.number().gte(-12).lte(12).optional(),
-    eqHighDb: z.number().gte(-12).lte(12).optional(),
-    /** Si hay alguna pista en solo, las demás pistas de audio se silencian. */
-    solo: z.boolean().optional(),
-  })
-  .strict();
-
 /** Hard caps keep the generated FFmpeg expressions inside a bounded argv. */
 export const MAX_TRANSFORM_KEYFRAMES = 48;
 export const MAX_GAIN_KEYFRAMES = 96;
@@ -80,6 +58,92 @@ export const CubicBezierSchema = z.object({
 });
 
 export type CubicBezier = z.infer<typeof CubicBezierSchema>;
+
+/**
+ * Un keyframe de fader de pista. El frame es absoluto de la timeline (no
+ * relativo a un clip, como las claves de audio de clip) y el valor replica el
+ * fader estático de la pista.
+ */
+export const TrackGainKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    gainDb: DecibelSchema,
+    easing: KeyframeEasingSchema.optional(),
+    bezier: CubicBezierSchema.optional(),
+  })
+  .strict();
+export type TrackGainKeyframe = z.infer<typeof TrackGainKeyframeSchema>;
+
+/**
+ * Un keyframe de paneo de pista. `value` usa la misma convención que `pan`
+ * estático: -1 izquierda, 0 centro, 1 derecha (balance lineal).
+ */
+export const TrackPanKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    value: z.number().gte(-1).lte(1),
+    easing: KeyframeEasingSchema.optional(),
+    bezier: CubicBezierSchema.optional(),
+  })
+  .strict();
+export type TrackPanKeyframe = z.infer<typeof TrackPanKeyframeSchema>;
+
+export const TrackSchema = z
+  .object({
+    id: EntityIdSchema,
+    kind: TrackKindSchema,
+    label: z.string().min(1).max(120),
+    order: z.number().int().min(0).max(63),
+    muted: z.boolean().default(false),
+    hidden: z.boolean().default(false),
+    locked: z.boolean().default(false),
+    /** Ganancia de pista en dB; se suma a la ganancia de cada clip. */
+    gainDb: DecibelSchema.optional(),
+    /** Paneo de pista: -1 izquierda, 0 centro, 1 derecha (balance lineal). */
+    pan: z.number().gte(-1).lte(1).optional(),
+    /** EQ de pista en tres bandas; se aplica antes del fader de pista. */
+    eqLowDb: z.number().gte(-12).lte(12).optional(),
+    eqMidDb: z.number().gte(-12).lte(12).optional(),
+    eqHighDb: z.number().gte(-12).lte(12).optional(),
+    /** Si hay alguna pista en solo, las demás pistas de audio se silencian. */
+    solo: z.boolean().optional(),
+    /**
+     * Automatización de fader de pista. Cada clave muestrea el fader en un
+     * frame absoluto de la timeline; entre claves rige el easing/bezier de la
+     * clave donde empieza el segmento. El render Rust aún no las aplica.
+     */
+    gainKeyframes: z.array(TrackGainKeyframeSchema).min(1).max(MAX_GAIN_KEYFRAMES).optional(),
+    /** Automatización de paneo de pista, con las mismas reglas que el fader. */
+    panKeyframes: z.array(TrackPanKeyframeSchema).min(1).max(MAX_GAIN_KEYFRAMES).optional(),
+  })
+  .strict()
+  .superRefine((track, ctx) => {
+    const lists = [
+      ['gainKeyframes', track.gainKeyframes],
+      ['panKeyframes', track.panKeyframes],
+    ] as const;
+    for (const [key, keyframes] of lists) {
+      if (keyframes === undefined) continue;
+      let previous = -1;
+      for (const [index, keyframe] of keyframes.entries()) {
+        if (keyframe.frame < 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key, index, 'frame'],
+            message: 'a track keyframe frame cannot be negative',
+          });
+        }
+        if (keyframe.frame <= previous) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key, index, 'frame'],
+            message: 'track keyframes must be strictly increasing and unique',
+          });
+        }
+        previous = keyframe.frame;
+      }
+    }
+  });
 
 /**
  * A transform keyframe is an absolute sample at `frame` frames from the clip
@@ -186,12 +250,10 @@ const StillAssetSourceSchema = z
   })
   .strict();
 
-const GraphicSourceSchema = z
-  .object({
-    type: z.literal('graphic'),
-    motionId: EntityIdSchema,
-  })
-  .strict();
+const GraphicSourceSchema = z.object({
+  type: z.literal('graphic'),
+  motionId: EntityIdSchema,
+});
 
 /**
  * A source-less timeline element that grades the final composite inside its own

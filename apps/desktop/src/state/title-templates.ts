@@ -195,4 +195,121 @@ export const TITLE_TEMPLATES: readonly TitleTemplate[] = [
     },
     animation: 'fade',
   },
+  {
+    // Retícula de informativos: barra inferior con titular y subtítulo.
+    // El estilo es único por pista, así que ambas líneas comparten tamaño.
+    id: 'reticula-noticias',
+    name: 'Retícula noticias',
+    description: 'Barra inferior con titular y subtítulo',
+    sample: 'TITULAR PRINCIPAL\nSubtítulo de la noticia',
+    style: {
+      fontFamily: 'Arial',
+      fontSizePx: 44,
+      color: '#ffffff',
+      outlineColor: '#0f1e3d',
+      position: 'bottom',
+      backgroundColor: '#0f1e3d',
+      bold: true,
+      borderStyle: 'box',
+      shadow: false,
+    },
+    animation: 'slide-up',
+  },
+  {
+    // Kicker de cabecera: etiqueta de acento para acompañar un título.
+    // El esquema solo posiciona arriba/centro/abajo (sin eje horizontal ni
+    // rotación en estilos), así que la etiqueta vive en la franja superior.
+    id: 'kicker-lateral',
+    name: 'Kicker lateral',
+    description: 'Etiqueta de acento en la cabecera',
+    sample: 'EN VIVO\nTítulo principal',
+    style: {
+      fontFamily: 'Arial',
+      fontSizePx: 32,
+      color: '#ffffff',
+      outlineColor: '#0369a1',
+      position: 'top',
+      backgroundColor: '#0369a1',
+      bold: true,
+      borderStyle: 'box',
+      shadow: false,
+    },
+    animation: 'slide-up',
+  },
+  {
+    // Cita de documental: serif itálica centrada con línea de atribución.
+    id: 'cita-documental',
+    name: 'Cita documental',
+    description: 'Serif centrada con atribución',
+    sample: '“El archivo no miente.”\n— Testimonio, 1998',
+    style: {
+      fontFamily: 'Georgia',
+      fontSizePx: 44,
+      color: '#f5f0e6',
+      outlineColor: '#14110c',
+      position: 'center',
+      bold: false,
+      italic: true,
+      borderStyle: 'outline',
+      shadow: true,
+    },
+    animation: 'fade',
+  },
+  {
+    // Marca de agua: el esquema no tiene opacidad por estilo ni color con
+    // alfa, así que la discreción se logra con color apagado y sin sombra.
+    id: 'marca-agua',
+    name: 'Marca de agua',
+    description: 'Firma discreta en gris apagado',
+    sample: '@tucanal',
+    style: {
+      fontFamily: 'Segoe UI',
+      fontSizePx: 26,
+      color: '#9aa3ad',
+      outlineColor: '#1a1e24',
+      position: 'bottom',
+      bold: false,
+      borderStyle: 'outline',
+      shadow: false,
+    },
+    animation: 'fade',
+  },
+  {
+    // Capítulo numerado: gran tamaño y entrada por opacidad ('fade' es la
+    // única entrada por opacidad que admite la animación de plantilla).
+    id: 'capitulo',
+    name: 'Capítulo',
+    description: 'Numerado, grande y con fundido',
+    sample: 'CAPÍTULO 01\nEl comienzo',
+    style: {
+      fontFamily: 'Georgia',
+      fontSizePx: 100,
+      color: '#f7f1e5',
+      outlineColor: '#0b0e13',
+      position: 'center',
+      bold: true,
+      borderStyle: 'outline',
+      shadow: true,
+    },
+    animation: 'fade',
+  },
+  {
+    // Entrevista: placa clara con nombre y cargo en el tercio inferior.
+    id: 'entrevista',
+    name: 'Entrevista',
+    description: 'Nombre y cargo en placa clara',
+    sample: 'Nombre Apellido\nCargo · Medio',
+    style: {
+      fontFamily: 'Segoe UI',
+      fontSizePx: 42,
+      color: '#111111',
+      outlineColor: '#f5f5f4',
+      position: 'bottom',
+      backgroundColor: '#f5f5f4',
+      bold: true,
+      borderStyle: 'box',
+      shadow: false,
+    },
+    animation: 'slide-up',
+  },
 ];

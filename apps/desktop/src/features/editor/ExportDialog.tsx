@@ -30,6 +30,7 @@ import {
   type RenderQueue,
 } from '../../state/render-queue';
 import { useProjectStore } from '../../state/project-store';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { recordDirectorOutcome } from '../../state/editor-memory';
 import { evaluateProjectQuality } from '../../state/quality';
 import { buildProjectMotionPlans } from '../motion/plan';
@@ -99,7 +100,21 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const jobRef = useRef<string | null>(null);
   const batchResolverRef = useRef<((event: RenderFinishedEvent) => void) | null>(null);
   const folderRef = useRef<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   jobRef.current = jobId;
+
+  // Trampa de foco (auditoría de accesibilidad, H1/H2): guarda el disparador,
+  // enfoca el primer control, atrapa Tab y cierra con Escape. Mientras hay un
+  // render en curso Escape no cierra (igual que antes): primero hay que
+  // cancelar el trabajo. `active` cubre el cierre: el componente sigue montado
+  // pero el diálogo no está en pantalla.
+  useDialogFocus({
+    containerRef: dialogRef,
+    active: open && Boolean(project),
+    onClose: () => {
+      if (jobId === null) onClose();
+    },
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -362,17 +377,6 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     };
   }, [open, store.service]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !jobId) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [jobId, onClose, open]);
-
   if (!open || !project) return null;
   const currentProject = project;
   const quality = evaluateProjectQuality(currentProject);
@@ -535,7 +539,13 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
   return (
     <div className="modal-backdrop" role="presentation">
-      <div className="modal export-modal" role="dialog" aria-modal="true" aria-labelledby="export-title">
+      <div
+        ref={dialogRef}
+        className="modal export-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-title"
+      >
         <header className="modal-head">
           <div>
             <p className="eyebrow">Exportar</p>

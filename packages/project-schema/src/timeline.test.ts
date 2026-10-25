@@ -92,6 +92,79 @@ describe('TrackSchema', () => {
   it('rechaza una ganancia de pista fuera del rango de audio', () => {
     expect(TrackSchema.safeParse(videoTrack({ gainDb: 18 })).success).toBe(false);
   });
+
+  it('acepta keyframes de fader y paneo de pista con easing y bezier', () => {
+    const parsed = TrackSchema.safeParse(
+      videoTrack({
+        gainKeyframes: [
+          { frame: 0, gainDb: -6, easing: 'ease-in' },
+          { frame: 30, gainDb: 0, bezier: { cp1X: 0.2, cp1Y: 0, cp2X: 0.8, cp2Y: 1 } },
+        ],
+        panKeyframes: [
+          { frame: 0, value: -1 },
+          { frame: 60, value: 1, easing: 'hold' },
+        ],
+      }),
+    );
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.gainKeyframes?.length).toBe(2);
+      expect(parsed.data.panKeyframes?.length).toBe(2);
+    }
+  });
+
+  it('rechaza keyframes de pista con frames repetidos o desordenados', () => {
+    expect(
+      TrackSchema.safeParse(
+        videoTrack({
+          gainKeyframes: [
+            { frame: 30, gainDb: -6 },
+            { frame: 0, gainDb: 0 },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      TrackSchema.safeParse(
+        videoTrack({
+          panKeyframes: [
+            { frame: 10, value: 0 },
+            { frame: 10, value: 0.5 },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('rechaza keyframes de pista con frame negativo o lista vacía', () => {
+    expect(
+      TrackSchema.safeParse(videoTrack({ gainKeyframes: [{ frame: -1, gainDb: 0 }] })).success,
+    ).toBe(false);
+    expect(TrackSchema.safeParse(videoTrack({ panKeyframes: [] })).success).toBe(false);
+  });
+
+  it('rechaza valores fuera del rango del fader y del paneo en las claves de pista', () => {
+    expect(
+      TrackSchema.safeParse(videoTrack({ gainKeyframes: [{ frame: 0, gainDb: 13 }] })).success,
+    ).toBe(false);
+    expect(
+      TrackSchema.safeParse(videoTrack({ gainKeyframes: [{ frame: 0, gainDb: -61 }] })).success,
+    ).toBe(false);
+    expect(
+      TrackSchema.safeParse(videoTrack({ panKeyframes: [{ frame: 0, value: 1.2 }] })).success,
+    ).toBe(false);
+  });
+
+  it('rechaza una clave de pista con propiedades desconocidas', () => {
+    expect(
+      TrackSchema.safeParse(
+        videoTrack({ gainKeyframes: [{ frame: 0, gainDb: 0, scale: 1 }] }),
+      ).success,
+    ).toBe(false);
+    expect(
+      TrackSchema.safeParse(videoTrack({ panKeyframes: [{ frame: 0, pan: 0.5 }] })).success,
+    ).toBe(false);
+  });
 });
 
 describe('adjustment layers', () => {

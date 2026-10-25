@@ -409,6 +409,8 @@ export interface MediaProbe {
   readonly height: number | null;
   readonly videoCodec: string | null;
   readonly audioCodec: string | null;
+  /** Timecode SMPTE de inicio (NDF) de la fuente; null si no lo trae. */
+  readonly timecode: string | null;
 }
 
 /** Compresión de un archivo suelto del disco, sin proyecto abierto. */

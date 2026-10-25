@@ -342,6 +342,13 @@
       "status": "done",
       "note": "Iteracion con 8 agentes en paralelo (workflow) + integracion manual. Audio pro en preview (grafo Web Audio por pista + medidores en vivo), 5 plantillas motion pro, presets de speed ramp, atajos pro (docs/ATAJOS-PRO.md), pase visual app.css AA, 3 docs de diseno en docs/research/. Integracion: curvas Bezier completas (schema+muestreo+editor+persistencia+render), clonacion de voz local reparada (parse_easing, tokio multi_thread), audio-mix reconciliado sin copias, vitest excluye .worktrees. Verificacion: typecheck limpio, Vitest 1027/1027 (119 archivos), cargo test 337/0 (46 ignorados). Bloqueo resuelto: zombis cargo.exe con lock en target/ -> CARGO_TARGET_DIR=target-loop.",
       "verifyRan": true
+    },
+    {
+      "at": "2026-10-25T22:40:26.570Z",
+      "taskId": "ciclo2-2026-10-25",
+      "status": "done",
+      "note": "Iteracion 2 con 8 agentes + 2 features del integrador. Recuperada de incidente (cambio de rama externo + sesion concurrente Qoder con feature Lottie a medias): worktree aislado, parches de rescate fuera del repo, purga de renegado, zod fijado 3.24.1 con overrides. Verificacion: typecheck 0 errores, Vitest 1081/1081 (124 archivos), cargo test 342/0 (46 ignorados). Pendiente iteracion 3: teclado timeline (revertido a medias), render Rust de automatizacion fader/pan, wiring UI de cortar silencios, resto de dialogos con useDialogFocus.",
+      "verifyRan": true
     }
   ]
 }

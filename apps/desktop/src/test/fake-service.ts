@@ -654,6 +654,7 @@ export function createFakeService(): FakeService {
         height: 1080,
         videoCodec: 'h264',
         audioCodec: 'aac',
+        timecode: null,
       };
     },
     async compressAnyFile(request) {

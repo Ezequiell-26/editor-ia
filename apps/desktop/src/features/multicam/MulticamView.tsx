@@ -19,6 +19,7 @@ import {
   type MulticamCamera,
   type MulticamCut,
 } from './multicam';
+import { deriveTimecodeOffsets } from './multicam-timecode';
 
 function clock(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -55,6 +56,8 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [playing, setPlaying] = useState(false);
   const [programSeconds, setProgramSeconds] = useState(0);
   const [audioSyncBusy, setAudioSyncBusy] = useState(false);
+  const [timecodeBusy, setTimecodeBusy] = useState(false);
+  const [timecodeWarning, setTimecodeWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const rafRef = useRef(0);
@@ -204,6 +207,55 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }
   }
 
+  /**
+   * Sincroniza por el timecode SMPTE que ffprobe reporta por archivo (MXF,
+   * ProRes, MOV/MP4). Referencia = inicio más tardío; los offsets quedan en
+   * segundos como el resto de la vista. Diseño: docs/research/MULTICAM-TIMECODE-2026-10-25.md.
+   */
+  async function syncByTimecode(): Promise<void> {
+    if (cameras.length < 2 || timecodeBusy) return;
+    setTimecodeBusy(true);
+    setTimecodeWarning(null);
+    try {
+      const probes = [];
+      for (const camera of cameras) {
+        try {
+          const probe = await store.service.probeMediaFile(camera.asset.source.path);
+          probes.push({ assetId: camera.asset.id, timecode: probe.timecode });
+        } catch {
+          probes.push({ assetId: camera.asset.id, timecode: null });
+        }
+      }
+      const result = deriveTimecodeOffsets(probes, fps);
+      if (result.referenceAssetId === null) {
+        setTimecodeWarning(
+          'Ninguna cámara seleccionada tiene timecode legible. Se necesita MXF/ProRes o MOV/MP4 con TC de inicio (no drop-frame).',
+        );
+        return;
+      }
+      const next = { ...offsets };
+      for (const camera of cameras) {
+        const duration = assetDurationFrames(camera.asset) / fps;
+        const offsetFrames = result.offsets[camera.asset.id];
+        if (offsetFrames === undefined) continue;
+        next[camera.asset.id] = Math.min(duration, Math.max(0, offsetFrames / fps));
+      }
+      setOffsets(next);
+      store.setNotice(
+        `Multicámara sincronizada por timecode: ${cameras.length - result.unusable.length} de ${cameras.length} cámaras; referencia ${result.referenceAssetId}.`,
+      );
+      if (result.unusable.length > 0) {
+        setTimecodeWarning(
+          `${result.unusable.length} de ${cameras.length} cámaras sin timecode usable (${result.unusable
+            .map((item) => `${item.assetId}: ${item.reason}`)
+            .join(', ')}). Ajustá esas entradas a mano o por audio.`,
+        );
+      }
+    } finally {
+      setTimecodeBusy(false);
+    }
+  }
+
   function togglePlay(): void {
     if (playing) {
       stopClock();
@@ -344,16 +396,28 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             <div className="card multicam-cameras">
               <div className="multicam-cams-head">
                 <p className="eyebrow">Cámaras y sincronización</p>
-                <button
-                  type="button"
-                  className="small ghost icon-text"
-                  onClick={() => void syncByAudio()}
-                  disabled={audioSyncBusy || cameras.length < 2}
-                  title="Compara la envolvente de audio de las cámaras (hasta ±10 s)"
-                >
-                  <Icon name="audio" size={13} />
-                  <span>{audioSyncBusy ? 'Analizando audio…' : 'Sincronizar por audio'}</span>
-                </button>
+                <div className="multicam-sync-actions">
+                  <button
+                    type="button"
+                    className="small ghost icon-text"
+                    onClick={() => void syncByAudio()}
+                    disabled={audioSyncBusy || cameras.length < 2}
+                    title="Compara la envolvente de audio de las cámaras (hasta ±10 s)"
+                  >
+                    <Icon name="audio" size={13} />
+                    <span>{audioSyncBusy ? 'Analizando audio…' : 'Sincronizar por audio'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost icon-text"
+                    onClick={() => void syncByTimecode()}
+                    disabled={timecodeBusy || cameras.length < 2}
+                    title="Usa el timecode SMPTE de inicio grabado en cada archivo (jam-sync)"
+                  >
+                    <Icon name="marker" size={13} />
+                    <span>{timecodeBusy ? 'Leyendo timecode…' : 'Sincronizar por timecode'}</span>
+                  </button>
+                </div>
               </div>
               <ul>
                 {videos.map((asset) => {
@@ -394,10 +458,16 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   );
                 })}
               </ul>
+              {timecodeWarning ? (
+                <p className="fine-print multicam-sync-hint" role="status">
+                  {timecodeWarning}
+                </p>
+              ) : null}
               <p className="fine-print multicam-sync-hint">
                 «Sincronizar por audio» compara hasta 120 s de las envolventes de sonido (máx.
-                ±10 s) y calcula el punto de entrada de cada cámara. El ajuste manual sigue
-                disponible.
+                ±10 s) y calcula el punto de entrada de cada cámara. «Sincronizar por timecode»
+                usa el TC de inicio grabado en el archivo (jam-sync) y no necesita sonido
+                compartido. El ajuste manual sigue disponible.
               </p>
             </div>
 

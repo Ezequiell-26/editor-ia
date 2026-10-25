@@ -1,4 +1,4 @@
-# Auditoría funcional de Olyvia (actualizada 2026-10-25)
+# Auditoría funcional de Olyvia (actualizada 2026-10-25, ciclo 2)
 
 Auditoría del repositorio real (`apps/desktop`, `packages/project-schema`,
 `apps/desktop/src-tauri`) y de la build instalada. No se tomaron como ciertas
@@ -6,7 +6,7 @@ las limitaciones del README sin comprobar el código.
 
 ## Estado medido
 
-- **Pruebas**: 1027 Vitest en 119 archivos, Rust **337 passed / 46 ignorados**,
+- **Pruebas**: 1081 Vitest en 124 archivos, Rust **342 passed / 46 ignorados**,
   0 fallos (2026-10-25, con curvas Bézier en keyframes, clonación de voz local
   por HTTP, medidores de audio en vivo y paneo/EQ de pista en la preview).
   Typecheck de los 3 paquetes limpio.
@@ -162,6 +162,46 @@ Ocho agentes en paralelo + integración manual, sobre el ciclo de loudness del
 
 Verificación del ciclo: `npm run typecheck` limpio; **Vitest 1027/1027** en 119
 archivos; **cargo test 337/0 fallos** (46 ignorados).
+
+
+## Implementado en este ciclo 2 (2026-10-25)
+
+Ocho agentes en paralelo (interrumpidos por un cambio de rama externo y
+recuperados desde stash) + feature propia del integrador:
+
+1. **Accesibilidad fase 1**: hook `useDialogFocus` (trampa de foco, Tab
+   cíclico, Escape, retorno al disparador) adoptado en Configuración y
+   Exportar; tests propios.
+2. **Accesibilidad fase 2 (en curso al pausarse)**: teclado para mover/trim en
+   Timeline y Space global que no roba activación — quedó a medias y se
+   revertirá/rehará en la iteración 3.
+3. **Automatización de fader/pan (parcial)**: keyframes de pista en el schema
+   y acciones; el render Rust y la UI de captura quedan para la iteración 3.
+4. **Bézier exacta en el render Rust**: pre-muestreo y(x=t) con Newton y
+   expresión FFmpeg piecewise de 16 tramos; presets intactos; tests con
+   evaluador numérico de expresiones. Paridad preview↔export real.
+5. **6 plantillas de título pro** (retícula de noticias, kicker lateral, cita
+   documental, marca de agua, capítulo, entrevista) con validación contra
+   CaptionStyleSchema.
+6. **Recuperación ante cierre**: registro verificable en localStorage con
+   oferta de restauración en el store (14 tests).
+7. **Multicámara por timecode (integrador)**: probe ffprobe con timecode,
+   núcleo NDF con rechazo drop-frame, offsets con referencia más tardía y
+   botón «Sincronizar por timecode» en la mesa (diseño en
+   docs/research/MULTICAM-TIMECODE-2026-10-25.md).
+8. **Cortar silencios (integrador)**: detección por picos con umbral/padding,
+   plan con guardia anti-borrado masivo (>80%) y aplicación por split+ripple
+   de las acciones existentes; wiring de UI pendiente.
+9. **Diseños**: paint/object removal y plan E2E+rendimiento (docs/research/).
+
+**Recuperación de incidente**: un cambio de rama externo (Qoder) stashó el
+árbol en pleno vuelo y una sesión concurrente dejó feature Lottie a medias que
+había entrado a medias en f3425ba (variante de schema sin consumidores, zod 4
+en el lock, servicio inexistente). Rescate con parches fuera del repo, trabajo
+en worktree aislado (rama integracion-loop2), purga de lo renegado y fixes:
+variante lottie eliminada del schema, zod fijado a 3.24.1 con overrides (y
+zod-to-json-schema 3.23.5), test de EDL DF con la duración correcta (60/29.97),
+duplicado de slider de paneo eliminado y schema JSON regenerado.
 
 ## Continuidad
 
