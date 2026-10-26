@@ -13,7 +13,12 @@ import type { DesktopService, OpenedProject } from '../services/project-service'
 import { buildDeliveryPackage } from './delivery-package';
 import { useEditorPreferences } from './useEditorPreferences';
 import {
-  RECOVERY_DEBOUNCE_MS,
+  ProjectActionError,
+  cloneProject,
+  formatTimecode,
+  totalFrames,
+} from './project-actions';
+import {
   clearRecoverySnapshot,
   createRecoveryWriter,
   readRecoverySnapshot,
@@ -21,12 +26,6 @@ import {
   type RecoverySnapshot,
   type RecoveryWriter,
 } from './recovery';
-import {
-  ProjectActionError,
-  cloneProject,
-  formatTimecode,
-  totalFrames,
-} from './project-actions';
 
 /**
  * The single project store.
@@ -60,7 +59,7 @@ interface StoreState {
   playing: boolean;
   lastSavedAt: string | null;
   exportRequested: boolean;
-  /** Instantánea de la sesión anterior ofrecida al arrancar, si la hay. */
+  /** Oferta de recuperación de la sesión anterior, o null si no hay ninguna. */
   recoveryOffer: RecoverySnapshot | null;
 }
 
@@ -98,10 +97,6 @@ export interface ProjectStoreValue {
   createProject(input: CreateProjectInput): Promise<boolean>;
   openProject(): Promise<boolean>;
   openProjectAt(path: string): Promise<boolean>;
-  /** Reabre el archivo de la instantánea de recuperación. */
-  acceptRecovery(): Promise<boolean>;
-  /** Descarta la instantánea y la oferta. */
-  dismissRecovery(): void;
   saveNow(): Promise<boolean>;
   saveAs(): Promise<boolean>;
   packageProject(): Promise<boolean>;
@@ -121,6 +116,10 @@ export interface ProjectStoreValue {
   setPlaying(playing: boolean): void;
   requestExport(): void;
   consumeExportRequest(): void;
+  /** Abre el proyecto de la oferta de recuperación; false si no hay oferta o falló. */
+  acceptRecovery(): Promise<boolean>;
+  /** Descarta la oferta: limpia la instantánea y vacía el estado. */
+  dismissRecovery(): void;
   clearError(): void;
   setNotice(notice: string | null): void;
 }
@@ -170,16 +169,21 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const stateRef = useRef(state);
   stateRef.current = state;
   const editVersionRef = useRef(0);
-  // Escritor de la instantánea de recuperación: agrupa ráfagas de edición en
-  // una sola escritura 2 s después del último cambio. `shouldWrite` evita
-  // resucitar el registro si mientras tanto el autoguardado terminó bien.
-  const recoveryWriterRef = useRef<RecoveryWriter | null>(null);
-  if (!recoveryWriterRef.current) {
-    recoveryWriterRef.current = createRecoveryWriter({
-      delayMs: RECOVERY_DEBOUNCE_MS,
-      shouldWrite: () => stateRef.current.phase === 'dirty',
-    });
-  }
+  // Última versión cubierta por un guardado completado. Se actualiza de forma
+  // síncrona (no depende del render) para que la instantánea de recuperación
+  // sepa en todo momento si queda trabajo sin persistir.
+  const persistedVersionRef = useRef(0);
+
+  // Escritor de la instantánea de recuperación. Al vencer el temporizador solo
+  // escribe si hay ediciones que ningún guardado completado haya cubierto ya:
+  // si el autoguardado terminó bien, la instantánea no debe resucitar.
+  const recoveryWriter = useMemo<RecoveryWriter>(
+    () =>
+      createRecoveryWriter({
+        shouldWrite: () => editVersionRef.current !== persistedVersionRef.current,
+      }),
+    [],
+  );
 
   // Preferencias que afectan al guardado y al historial. Se leen de
   // Ajustes → Editor y se aplican en vivo, sin reiniciar la app.
@@ -187,21 +191,12 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const historyLimitRef = useRef(preferences.historyLimit);
   historyLimitRef.current = preferences.historyLimit;
 
-  // Al arrancar, una instantánea viva sólo puede venir de un cierre
-  // inesperado: se ofrece una vez y, si no aplica, se descarta.
-  useEffect(() => {
-    const snapshot = readRecoverySnapshot();
-    if (!snapshot) return;
-    const current = stateRef.current;
-    if (shouldOfferRecovery(snapshot, { savedAt: current.lastSavedAt })) {
-      setState((s0) => (s0.recoveryOffer ? s0 : { ...s0, recoveryOffer: snapshot }));
-      return;
-    }
-    clearRecoverySnapshot();
-  }, []);
-
   const adopt = useCallback((opened: OpenedProject) => {
     editVersionRef.current = 0;
+    persistedVersionRef.current = 0;
+    // Un proyecto recién abierto desde disco invalida cualquier instantánea
+    // previa: el registro de recuperación solo cubre trabajo sin persistir.
+    clearRecoverySnapshot();
     setState({
       ...INITIAL,
       project: opened.project,
@@ -285,27 +280,6 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     [adopt, service],
   );
 
-  const dismissRecovery = useCallback(() => {
-    clearRecoverySnapshot();
-    setState((current) =>
-      current.recoveryOffer === null ? current : { ...current, recoveryOffer: null },
-    );
-  }, []);
-
-  const acceptRecovery = useCallback(async (): Promise<boolean> => {
-    const offer = stateRef.current.recoveryOffer;
-    if (!offer) {
-      return false;
-    }
-    const ok = await openProjectAt(offer.path);
-    // Se limpia siempre: si el archivo ya no está, la oferta tampoco sirve.
-    clearRecoverySnapshot();
-    setState((current) =>
-      current.recoveryOffer === null ? current : { ...current, recoveryOffer: null },
-    );
-    return ok;
-  }, [openProjectAt]);
-
   const saveNow = useCallback(async (): Promise<boolean> => {
     const snapshot = stateRef.current;
     if (!snapshot.project || !snapshot.opened) {
@@ -317,6 +291,12 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     try {
       const opened = await service.saveProject(captured);
       const pendingChanges = editVersionRef.current !== version;
+      // Guardado completado: esa versión ya vive en disco. Se cancela de una
+      // vez la escritura pendiente de la instantánea y se limpia el registro
+      // (las ediciones nuevas, si las hay, volverán a agendarla).
+      persistedVersionRef.current = version;
+      recoveryWriter.cancel();
+      clearRecoverySnapshot();
       setState((current) => {
         if (current.project !== captured) {
           return {
@@ -335,10 +315,6 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
           lastSavedAt: new Date().toISOString(),
         };
       });
-      if (!pendingChanges) {
-        recoveryWriterRef.current?.cancel();
-        clearRecoverySnapshot();
-      }
       return !pendingChanges;
     } catch (error) {
       setState((current) => ({
@@ -348,7 +324,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       }));
       return false;
     }
-  }, [service]);
+  }, [recoveryWriter, service]);
 
   const saveAs = useCallback(async (): Promise<boolean> => {
     const snapshot = stateRef.current;
@@ -356,6 +332,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       return false;
     }
     const captured = snapshot.project;
+    const version = editVersionRef.current;
     setState((current) => ({ ...current, phase: 'saving', error: null }));
     try {
       const opened = await service.saveProjectAs(captured);
@@ -363,6 +340,11 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         setState((current) => ({ ...current, phase: current.project === captured ? 'dirty' : current.phase }));
         return false;
       }
+      // Guardado completado: la versión capturada vive en disco; la escritura
+      // pendiente de la instantánea deja de tener sentido.
+      persistedVersionRef.current = version;
+      recoveryWriter.cancel();
+      clearRecoverySnapshot();
       setState((current) => ({
         ...current,
         opened:
@@ -373,10 +355,6 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         error: null,
         lastSavedAt: new Date().toISOString(),
       }));
-      // Guardar como deja el archivo a salvo: la instantánea anterior ya no
-      // representa trabajo pendiente.
-      recoveryWriterRef.current?.cancel();
-      clearRecoverySnapshot();
       return true;
     } catch (error) {
       setState((current) => ({
@@ -386,7 +364,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       }));
       return false;
     }
-  }, [service]);
+  }, [recoveryWriter, service]);
 
   /**
    * Empaqueta el proyecto en un `.zip` de entrega. No cambia el estado del
@@ -431,16 +409,32 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     return () => window.clearTimeout(timer);
   }, [state.phase, state.project, state.opened, preferences.autosaveDelayMs]);
 
-  // Cada cambio sin guardar agenda la instantánea; el escritor la agrupa.
+  // Oferta de recuperación: se evalúa una sola vez al montar. Si quedó una
+  // instantánea de una sesión que terminó de forma inesperada y es más nueva
+  // que el último guardado conocido, se expone en el estado para que una
+  // tarjeta futura la consuma. No hay UI aquí: solo el dato.
   useEffect(() => {
-    if (state.phase !== 'dirty' || !state.opened || !state.project) {
+    const snapshot = readRecoverySnapshot();
+    if (!snapshot || !shouldOfferRecovery(snapshot, { savedAt: stateRef.current.lastSavedAt })) {
       return;
     }
-    recoveryWriterRef.current?.schedule(state.project, state.opened.path);
-  }, [state.project, state.phase, state.opened]);
+    setState((current) =>
+      current.recoveryOffer ? current : { ...current, recoveryOffer: snapshot },
+    );
+    // Se ejecuta solo al montar: la oferta no se recalcula en caliente.
+  }, []);
 
-  // Al desmontar no deben quedar temporizadores vivos.
-  useEffect(() => () => recoveryWriterRef.current?.cancel(), []);
+  // Instantánea de recuperación: cada cambio de proyecto reagenda una única
+  // escritura 2 s después del último cambio (debounce cancelable). El
+  // temporizador se cancela al cambiar de proyecto, guardar, cerrar o montar
+  // otra cosa; `shouldWrite` decide al vencer si aún hay trabajo sin guardar.
+  useEffect(() => {
+    if (!state.project || !state.opened) {
+      return;
+    }
+    recoveryWriter.schedule(state.project, state.opened.path);
+    return () => recoveryWriter.cancel();
+  }, [state.project, state.opened, recoveryWriter]);
 
   const applyRecipe = useCallback(
     <T extends { project: ProjectDocument }>(
@@ -580,7 +574,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
 
   const closeProject = useCallback(() => {
     editVersionRef.current = 0;
-    recoveryWriterRef.current?.cancel();
+    persistedVersionRef.current = 0;
+    // Cierre voluntario: la instantánea deja de representar trabajo pendiente.
     clearRecoverySnapshot();
     setState(INITIAL);
   }, []);
@@ -591,6 +586,25 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
 
   const setNotice = useCallback((notice: string | null) => {
     setState((current) => (current.notice === notice ? current : { ...current, notice }));
+  }, []);
+
+  // Aceptar la recuperación reabre el archivo anotado en la instantánea por la
+  // vía normal (disco + validación del servicio). Si falla, la oferta queda
+  // en pie para reintentar o descartar; si tiene éxito, adopt() ya limpió la
+  // instantánea y la oferta (el estado vuelve de INITIAL).
+  const acceptRecovery = useCallback(async (): Promise<boolean> => {
+    const offer = stateRef.current.recoveryOffer;
+    if (!offer) {
+      return false;
+    }
+    return openProjectAt(offer.path);
+  }, [openProjectAt]);
+
+  const dismissRecovery = useCallback(() => {
+    clearRecoverySnapshot();
+    setState((current) =>
+      current.recoveryOffer ? { ...current, recoveryOffer: null } : current,
+    );
   }, []);
 
   const durationFrames = state.project ? totalFrames(state.project) : 0;
@@ -622,8 +636,6 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       createProject,
       openProject,
       openProjectAt,
-      acceptRecovery,
-      dismissRecovery,
       saveNow,
       saveAs,
       packageProject,
@@ -637,6 +649,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setPlaying,
       requestExport,
       consumeExportRequest,
+      acceptRecovery,
+      dismissRecovery,
       clearError,
       setNotice,
     }),

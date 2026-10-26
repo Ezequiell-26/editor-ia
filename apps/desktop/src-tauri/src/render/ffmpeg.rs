@@ -319,6 +319,100 @@ fn sanitize_filter_number(value: f64) -> f64 {
     }
 }
 
+/// Tramos uniformes en x con los que se aproxima cada segmento Bézier
+/// (16 tramos => 17 nudos, con x=0 e x=1 cerrando exactos en 0 y 1).
+const BEZIER_PIECES: usize = 16;
+
+/// Progreso eased de una Bézier cúbica estilo CSS para el avance de segmento
+/// `t`: resuelve el parámetro u con x(u) = t (Newton, 8 iteraciones, con
+/// bisección de respaldo, 24) y devuelve y(u). Port de `cubicBezierProgress`
+/// en packages/project-schema/src/keyframes.ts, para que el export evalúe
+/// y(x=t) igual que la preview en lugar de la fórmula paramétrica x(u).
+fn cubic_bezier_progress(t: f64, cp1_x: f64, cp1_y: f64, cp2_x: f64, cp2_y: f64) -> f64 {
+    let clamped = t.clamp(0.0, 1.0);
+    if clamped <= 0.0 {
+        return 0.0;
+    }
+    if clamped >= 1.0 {
+        return 1.0;
+    }
+    let cx = 3.0 * cp1_x;
+    let bx = 3.0 * (cp2_x - cp1_x) - cx;
+    let ax = 1.0 - cx - bx;
+    let cy = 3.0 * cp1_y;
+    let by = 3.0 * (cp2_y - cp1_y) - cy;
+    let ay = 1.0 - cy - by;
+    let sample_x = |u: f64| ((ax * u + bx) * u + cx) * u;
+    let sample_y = |u: f64| ((ay * u + by) * u + cy) * u;
+    let derivative_x = |u: f64| (3.0 * ax * u + 2.0 * bx) * u + cx;
+
+    let mut u = clamped;
+    for _ in 0..8 {
+        let x = sample_x(u) - clamped;
+        if x.abs() < 1e-6 {
+            return sample_y(u);
+        }
+        let d = derivative_x(u);
+        if d.abs() < 1e-6 {
+            break;
+        }
+        u -= x / d;
+    }
+    let mut low = 0.0;
+    let mut high = 1.0;
+    u = clamped;
+    for _ in 0..24 {
+        let x = sample_x(u);
+        if (x - clamped).abs() < 1e-6 {
+            break;
+        }
+        if x < clamped {
+            low = u;
+        } else {
+            high = u;
+        }
+        u = (low + high) / 2.0;
+    }
+    sample_y(u)
+}
+
+/// Expresión FFmpeg piecewise-lineal del segmento Bézier: pre-muestrea la
+/// curva en Rust resolviendo y(x) con `cubic_bezier_progress` en nudos
+/// uniformes de [0,1] y anida tramos lineales con 6 decimales:
+/// if(lt(X,x1),y0+(y1-y0)*(X-x0)/(x1-x0), if(...)). En x=0 el primer tramo
+/// evalúa y0=0 exacto y en x=1 el cierre es y=1 exacto.
+fn bezier_segment_expression(
+    progress_expr: &str,
+    cp1_x: f64,
+    cp1_y: f64,
+    cp2_x: f64,
+    cp2_y: f64,
+) -> String {
+    let mut expression = format!(
+        "{:.6}",
+        cubic_bezier_progress(1.0, cp1_x, cp1_y, cp2_x, cp2_y)
+    );
+    for i in (0..BEZIER_PIECES).rev() {
+        let x0 = i as f64 / BEZIER_PIECES as f64;
+        let x1 = (i + 1) as f64 / BEZIER_PIECES as f64;
+        let y0 = cubic_bezier_progress(x0, cp1_x, cp1_y, cp2_x, cp2_y);
+        let y1 = cubic_bezier_progress(x1, cp1_x, cp1_y, cp2_x, cp2_y);
+        let piece = format!(
+            "{:.6}+({:.6})*({}-{:.6})/({:.6})",
+            y0,
+            y1 - y0,
+            progress_expr,
+            x0,
+            x1 - x0
+        );
+        expression = format!(
+            "if(lt({},{:.6}),{},{})",
+            progress_expr, x1, piece, expression
+        );
+    }
+    expression
+}
+
 /// Piecewise-linear FFmpeg expression for one keyframed property with cubic-bezier support.
 ///
 /// `time_var` is the expression that yields seconds relative to the clip
@@ -357,20 +451,18 @@ fn keyframe_expression(
         // Cubic-bezier or preset easing for this segment
         let eased: String = match &start.2 {
             SegmentEasing::Bezier(cp1X, cp1Y, cp2X, cp2Y) => {
-                let _ = cp1Y;
-                let cx = 3.0 * cp1X;
-                let bx = 3.0 * (*cp2X - cp1X) - cx;
-                let ax = 1.0 - cx - bx;
-                // Cubic formula evaluated at the segment progress: x = ((ax*t + bx)*t + cx)*t
-                format!(
-                    "(({ax}*({})+{bx})*({})+{cx})*({})",
-                    progress_expr, progress_expr, progress_expr
-                )
+                // Resolver y(x=t) como la preview y emitir la curva
+                // pre-muestreada como expresión piecewise-lineal (antes se
+                // evaluaba la paramétrica x(u), que no es el progreso eased).
+                bezier_segment_expression(&progress_expr, *cp1X, *cp1Y, *cp2X, *cp2Y)
             }
             SegmentEasing::Preset(easing) => match easing.as_str() {
                 "ease-in" => format!("pow({},3)", progress_expr),
                 "ease-out" => format!("(1-pow(1-({}),3))", progress_expr),
-                "ease-in-out" => format!("(({})*({})*(3-2*({})))", progress_expr, progress_expr, progress_expr),
+                "ease-in-out" => format!(
+                    "(({})*({})*(3-2*({})))",
+                    progress_expr, progress_expr, progress_expr
+                ),
                 "hold" => "0".to_owned(),
                 _ => progress_expr.clone(),
             },
@@ -408,12 +500,7 @@ fn parse_easing(keyframe: &Value) -> SegmentEasing {
             return SegmentEasing::Bezier(cp1X, cp1Y, cp2X, cp2Y);
         }
     }
-    SegmentEasing::Preset(
-        keyframe["easing"]
-            .as_str()
-            .unwrap_or("linear")
-            .to_owned(),
-    )
+    SegmentEasing::Preset(keyframe["easing"].as_str().unwrap_or("linear").to_owned())
 }
 
 /// Expresión FFmpeg para una propiedad animada de posición del clip,
@@ -2313,6 +2400,19 @@ fn audio_filter(
         filters
             .push("acompressor=threshold=-18dB:ratio=3:attack=5:release=100:makeup=2".to_owned());
     }
+
+    // Pan por clip (si existe, prioriza sobre track pan que ya se añadió en track_audio_filters)
+    let clip_pan = number(audio, "pan").unwrap_or(0.0).clamp(-1.0, 1.0);
+    if clip_pan.abs() > 0.001 {
+        // Reemplazar el pan del track con el del clip: usar formula correcta de gains L/R
+        // izquierda disminuye como pan sube hacia +1; derecha aumenta
+        let left_gain = (1.0 - ((clip_pan + 1.0) / 2.0)) as f64;
+        let right_gain = ((clip_pan + 1.0) / 2.0) as f64;
+        filters.push(format!(
+            "pan=stereo|c0={left_gain:.4}*c0|c1={right_gain:.4}*c1"
+        ));
+    }
+
     match audio["voiceEffect"].as_str().unwrap_or("") {
         "deep" => filters.push(format!(
             "asetrate={}*0.86,aresample={},atempo={:.5}",
@@ -7742,5 +7842,279 @@ mod tests {
 
     fn path_to_string(path: &Path) -> String {
         path.to_string_lossy().into_owned()
+    }
+
+    // ------------------------------------------------------------------
+    // Bézier exacta en el export: la expresión FFmpeg debe evaluar y(x=t)
+    // como la preview (port de cubicBezierProgress), no x(u) paramétrica.
+    // ------------------------------------------------------------------
+
+    /// Evaluador numérico mínimo (solo tests) para las expresiones que genera
+    /// `keyframe_expression`: números, la variable `t`, `+ - * /`,
+    /// paréntesis, `if(lt(a,b),x,y)` y `pow(a,b)`.
+    fn eval_ffmpeg_expression(expr: &str, t: f64) -> f64 {
+        let chars: Vec<char> = expr.chars().collect();
+        let mut pos = 0usize;
+        let value = parse_additive(&chars, &mut pos, t);
+        assert_eq!(pos, chars.len(), "no se consumió toda la expresión: {expr}");
+        value
+    }
+
+    fn skip_spaces(chars: &[char], pos: &mut usize) {
+        while *pos < chars.len() && chars[*pos].is_whitespace() {
+            *pos += 1;
+        }
+    }
+
+    fn parse_additive(chars: &[char], pos: &mut usize, t: f64) -> f64 {
+        let mut value = parse_multiplicative(chars, pos, t);
+        loop {
+            skip_spaces(chars, pos);
+            match chars.get(*pos) {
+                Some('+') => {
+                    *pos += 1;
+                    value += parse_multiplicative(chars, pos, t);
+                }
+                Some('-') => {
+                    *pos += 1;
+                    value -= parse_multiplicative(chars, pos, t);
+                }
+                _ => return value,
+            }
+        }
+    }
+
+    fn parse_multiplicative(chars: &[char], pos: &mut usize, t: f64) -> f64 {
+        let mut value = parse_unary(chars, pos, t);
+        loop {
+            skip_spaces(chars, pos);
+            match chars.get(*pos) {
+                Some('*') => {
+                    *pos += 1;
+                    value *= parse_unary(chars, pos, t);
+                }
+                Some('/') => {
+                    *pos += 1;
+                    value /= parse_unary(chars, pos, t);
+                }
+                _ => return value,
+            }
+        }
+    }
+
+    fn parse_unary(chars: &[char], pos: &mut usize, t: f64) -> f64 {
+        skip_spaces(chars, pos);
+        if chars.get(*pos) == Some(&'-') {
+            *pos += 1;
+            return -parse_unary(chars, pos, t);
+        }
+        parse_primary(chars, pos, t)
+    }
+
+    fn parse_primary(chars: &[char], pos: &mut usize, t: f64) -> f64 {
+        skip_spaces(chars, pos);
+        match chars.get(*pos) {
+            Some('(') => {
+                *pos += 1;
+                let value = parse_additive(chars, pos, t);
+                expect(chars, pos, ')');
+                value
+            }
+            Some(c) if c.is_ascii_digit() => parse_number(chars, pos),
+            Some(c) if c.is_ascii_alphabetic() => {
+                let start = *pos;
+                while chars.get(*pos).is_some_and(|c| c.is_ascii_alphabetic()) {
+                    *pos += 1;
+                }
+                let name: String = chars[start..*pos].iter().collect();
+                match name.as_str() {
+                    "t" => t,
+                    "if" => {
+                        expect(chars, pos, '(');
+                        let cond = parse_additive(chars, pos, t);
+                        expect(chars, pos, ',');
+                        let then_value = parse_additive(chars, pos, t);
+                        expect(chars, pos, ',');
+                        let else_value = parse_additive(chars, pos, t);
+                        expect(chars, pos, ')');
+                        if cond != 0.0 {
+                            then_value
+                        } else {
+                            else_value
+                        }
+                    }
+                    "lt" => {
+                        expect(chars, pos, '(');
+                        let a = parse_additive(chars, pos, t);
+                        expect(chars, pos, ',');
+                        let b = parse_additive(chars, pos, t);
+                        expect(chars, pos, ')');
+                        if a < b {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    }
+                    "pow" => {
+                        expect(chars, pos, '(');
+                        let base = parse_additive(chars, pos, t);
+                        expect(chars, pos, ',');
+                        let exponent = parse_additive(chars, pos, t);
+                        expect(chars, pos, ')');
+                        base.powf(exponent)
+                    }
+                    other => panic!("identificador inesperado en la expresión: {other}"),
+                }
+            }
+            other => panic!("carácter inesperado {other:?} en la expresión"),
+        }
+    }
+
+    fn parse_number(chars: &[char], pos: &mut usize) -> f64 {
+        let start = *pos;
+        while chars
+            .get(*pos)
+            .is_some_and(|c| c.is_ascii_digit() || *c == '.')
+        {
+            *pos += 1;
+        }
+        let text: String = chars[start..*pos].iter().collect();
+        text.parse::<f64>()
+            .unwrap_or_else(|_| panic!("número inválido: {text}"))
+    }
+
+    fn expect(chars: &[char], pos: &mut usize, expected: char) {
+        skip_spaces(chars, pos);
+        assert_eq!(
+            chars.get(*pos),
+            Some(&expected),
+            "se esperaba '{expected}' en la posición {pos}"
+        );
+        *pos += 1;
+    }
+
+    /// Proyecto mínimo de dos keyframes 0→1 en 30 frames (1 segundo a 30 fps):
+    /// el easing/Bézier del primer keyframe define el segmento completo.
+    fn keyframes_easing(primer_keyframe: Value) -> Vec<Value> {
+        serde_json::json!([primer_keyframe, { "frame": 30, "scale": 1.0 }])
+            .as_array()
+            .expect("keyframes")
+            .clone()
+    }
+
+    /// (a) La Bézier (0,0,1,1) es la identidad: su expresión FFmpeg debe
+    /// evaluar igual que el preset linear en todas las muestras.
+    #[test]
+    fn bezier_identidad_evalua_igual_que_linear() {
+        let lineal = keyframe_expression(
+            &keyframes_easing(serde_json::json!({
+                "frame": 0, "scale": 0.0, "easing": "linear"
+            })),
+            "scale",
+            30.0,
+            "t",
+        )
+        .expect("expresión linear");
+        let bezier = keyframe_expression(
+            &keyframes_easing(serde_json::json!({
+                "frame": 0, "scale": 0.0,
+                "bezier": { "cp1X": 0.0, "cp1Y": 0.0, "cp2X": 1.0, "cp2Y": 1.0 }
+            })),
+            "scale",
+            30.0,
+            "t",
+        )
+        .expect("expresión bezier");
+        assert!(
+            bezier.contains("if(lt("),
+            "la Bézier emite piecewise: {bezier}"
+        );
+        for i in 0..=20 {
+            let t = i as f64 / 20.0;
+            let esperado = eval_ffmpeg_expression(&lineal, t);
+            let obtenido = eval_ffmpeg_expression(&bezier, t);
+            assert!(
+                (obtenido - esperado).abs() < 1e-4,
+                "y({t}) bezier={obtenido} vs linear={esperado}"
+            );
+        }
+    }
+
+    /// (b) La Bézier (0.42,0,0.58,1) es la curva canónica de ease-in-out: la
+    /// expresión piecewise-lineal la reproduce dentro de ±0.01 en 9 puntos
+    /// (el error de cuerda con 16 sub-muestras mide 0.0021 como máximo).
+    /// Frente al preset `ease-in-out` (smoothstep) la desviación real de esa
+    /// Bézier llega a 0.0271 (medida en t=0.25), así que solo se exige que
+    /// quede cerca (±0.03): los presets se mantienen intactos.
+    #[test]
+    fn bezier_ease_in_out_coincide_con_la_curva_canonica() {
+        let bezier = keyframe_expression(
+            &keyframes_easing(serde_json::json!({
+                "frame": 0, "scale": 0.0,
+                "bezier": { "cp1X": 0.42, "cp1Y": 0.0, "cp2X": 0.58, "cp2Y": 1.0 }
+            })),
+            "scale",
+            30.0,
+            "t",
+        )
+        .expect("expresión bezier");
+        for i in 0..9 {
+            let t = i as f64 / 8.0;
+            let esperado = cubic_bezier_progress(t, 0.42, 0.0, 0.58, 1.0);
+            let obtenido = eval_ffmpeg_expression(&bezier, t);
+            assert!(
+                (obtenido - esperado).abs() <= 0.01,
+                "y({t}) = {obtenido} vs curva canónica {esperado}"
+            );
+        }
+        let preset = keyframe_expression(
+            &keyframes_easing(serde_json::json!({
+                "frame": 0, "scale": 0.0, "easing": "ease-in-out"
+            })),
+            "scale",
+            30.0,
+            "t",
+        )
+        .expect("expresión ease-in-out");
+        for i in 0..9 {
+            let t = i as f64 / 8.0;
+            let bezier_y = eval_ffmpeg_expression(&bezier, t);
+            let preset_y = eval_ffmpeg_expression(&preset, t);
+            assert!(
+                (bezier_y - preset_y).abs() <= 0.03,
+                "y({t}) bezier={bezier_y} vs ease-in-out={preset_y}"
+            );
+        }
+    }
+
+    /// (c) La Bézier (0.9,0,1,1) arranca lenta: en t=0.5 debe quedar por
+    /// debajo de la recta linear.
+    #[test]
+    fn bezier_acelerada_queda_debajo_de_linear_en_el_centro() {
+        let lineal = keyframe_expression(
+            &keyframes_easing(serde_json::json!({
+                "frame": 0, "scale": 0.0, "easing": "linear"
+            })),
+            "scale",
+            30.0,
+            "t",
+        )
+        .expect("expresión linear");
+        let bezier = keyframe_expression(
+            &keyframes_easing(serde_json::json!({
+                "frame": 0, "scale": 0.0,
+                "bezier": { "cp1X": 0.9, "cp1Y": 0.0, "cp2X": 1.0, "cp2Y": 1.0 }
+            })),
+            "scale",
+            30.0,
+            "t",
+        )
+        .expect("expresión bezier");
+        let lineal_y = eval_ffmpeg_expression(&lineal, 0.5);
+        let bezier_y = eval_ffmpeg_expression(&bezier, 0.5);
+        assert!(
+            bezier_y < lineal_y,
+            "y(0.5) bezier={bezier_y} debería quedar por debajo de linear={lineal_y}"
+        );
     }
 }

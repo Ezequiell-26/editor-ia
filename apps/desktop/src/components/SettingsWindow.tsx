@@ -1,5 +1,6 @@
-import { Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Suspense, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
 
 interface SettingsWindowProps {
@@ -21,31 +22,13 @@ export function SettingsWindow({ onClose, children }: SettingsWindowProps) {
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(
     null,
   );
-  const closeRef = useRef<HTMLButtonElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      // Si otro control consumió el Escape (captura de atajos), no se cierra.
-      if (event.defaultPrevented) return;
-      // Si el foco está en otro overlay (la paleta de comandos), tampoco: ese
-      // overlay maneja su propio Escape.
-      const panel = panelRef.current;
-      const target = event.target;
-      if (panel && target instanceof Node && target !== document.body && !panel.contains(target)) {
-        return;
-      }
-      onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      previous?.focus?.();
-    };
-  }, [onClose]);
+  // Trampa de foco (auditoría de accesibilidad, H1/H2): guarda el disparador,
+  // enfoca el primer control del panel (el botón cerrar), atrapa Tab y cierra
+  // con Escape con las mismas guardas que tenía el efecto propio
+  // (defaultPrevented y foco en otro overlay). Al desmontar devuelve el foco.
+  useDialogFocus({ containerRef: panelRef, onClose });
 
   function startDrag(event: React.PointerEvent<HTMLElement>): void {
     if (event.button !== 0) return;
@@ -104,7 +87,6 @@ export function SettingsWindow({ onClose, children }: SettingsWindowProps) {
             <em>se guarda en este equipo</em>
           </span>
           <button
-            ref={closeRef}
             type="button"
             className="icon-button settings-window-close"
             aria-label="Cerrar configuración"

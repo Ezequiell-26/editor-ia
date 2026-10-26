@@ -1446,6 +1446,9 @@ pub struct MediaProbe {
     pub height: Option<u32>,
     pub video_codec: Option<String>,
     pub audio_codec: Option<String>,
+    /// Timecode de inicio SMPTE (NDF) del stream de video o del contenedor,
+    /// tal como lo reporta ffprobe. `None` si la fuente no lo trae.
+    pub timecode: Option<String>,
 }
 
 impl MediaProbe {
@@ -1481,6 +1484,12 @@ impl MediaProbe {
                 .map(str::to_owned),
             audio_codec: audio
                 .and_then(|item| item["codec_name"].as_str())
+                .map(str::to_owned),
+            // El timecode vive en los tags del stream de video (MXF/ProRes) o
+            // del contenedor (MOV/MP4). Preferimos el del stream.
+            timecode: video
+                .and_then(|item| item["tags"]["timecode"].as_str())
+                .or_else(|| value["format"]["tags"]["timecode"].as_str())
                 .map(str::to_owned),
         }
     }

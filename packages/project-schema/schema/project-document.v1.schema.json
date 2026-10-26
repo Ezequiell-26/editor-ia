@@ -1168,6 +1168,100 @@
               },
               "solo": {
                 "type": "boolean"
+              },
+              "gainKeyframes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "frame": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 5184000
+                    },
+                    "gainDb": {
+                      "$ref": "#/properties/timeline/properties/tracks/items/properties/gainDb"
+                    },
+                    "easing": {
+                      "type": "string",
+                      "enum": [
+                        "linear",
+                        "ease-in",
+                        "ease-out",
+                        "ease-in-out",
+                        "hold"
+                      ]
+                    },
+                    "bezier": {
+                      "type": "object",
+                      "properties": {
+                        "cp1X": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "cp1Y": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "cp2X": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        },
+                        "cp2Y": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1
+                        }
+                      },
+                      "required": [
+                        "cp1X",
+                        "cp1Y",
+                        "cp2X",
+                        "cp2Y"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "frame",
+                    "gainDb"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 96
+              },
+              "panKeyframes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "frame": {
+                      "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
+                    },
+                    "value": {
+                      "type": "number",
+                      "minimum": -1,
+                      "maximum": 1
+                    },
+                    "easing": {
+                      "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
+                    },
+                    "bezier": {
+                      "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/bezier"
+                    }
+                  },
+                  "required": [
+                    "frame",
+                    "value"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 1,
+                "maxItems": 96
               }
             },
             "required": [
@@ -1198,9 +1292,7 @@
                     "maxLength": 200
                   },
                   "startFrame": {
-                    "type": "integer",
-                    "minimum": 0,
-                    "maximum": 5184000
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -1264,7 +1356,7 @@
                           "type": "object",
                           "properties": {
                             "frame": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                             },
                             "offsetX": {
                               "type": "integer",
@@ -1290,46 +1382,10 @@
                               "$ref": "#/properties/look/properties/fade"
                             },
                             "easing": {
-                              "type": "string",
-                              "enum": [
-                                "linear",
-                                "ease-in",
-                                "ease-out",
-                                "ease-in-out",
-                                "hold"
-                              ]
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
                             },
                             "bezier": {
-                              "type": "object",
-                              "properties": {
-                                "cp1X": {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "maximum": 1
-                                },
-                                "cp1Y": {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "maximum": 1
-                                },
-                                "cp2X": {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "maximum": 1
-                                },
-                                "cp2Y": {
-                                  "type": "number",
-                                  "minimum": 0,
-                                  "maximum": 1
-                                }
-                              },
-                              "required": [
-                                "cp1X",
-                                "cp1Y",
-                                "cp2X",
-                                "cp2Y"
-                              ],
-                              "additionalProperties": false
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/bezier"
                             }
                           },
                           "required": [
@@ -1416,13 +1472,13 @@
                           "type": "object",
                           "properties": {
                             "frame": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                             },
                             "gainDb": {
                               "$ref": "#/properties/timeline/properties/tracks/items/properties/gainDb"
                             },
                             "easing": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/easing"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
                             }
                           },
                           "required": [
@@ -1497,10 +1553,10 @@
                         "$ref": "#/properties/id"
                       },
                       "inFrame": {
-                        "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                        "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                       },
                       "outFrame": {
-                        "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                        "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                       }
                     },
                     "required": [
@@ -1716,7 +1772,7 @@
                           "type": "object",
                           "properties": {
                             "frame": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                             },
                             "x": {
                               "type": "number",
@@ -1749,7 +1805,7 @@
                               "maximum": 1
                             },
                             "easing": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/easing"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
                             }
                           },
                           "required": [
@@ -1798,10 +1854,10 @@
                         "maxLength": 500
                       },
                       "inFrame": {
-                        "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                        "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                       },
                       "outFrame": {
-                        "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                        "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                       }
                     },
                     "required": [
@@ -1891,7 +1947,7 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
                   },
                   "startFrame": {
-                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -1945,7 +2001,7 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
                   },
                   "startFrame": {
-                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -2031,7 +2087,7 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
                   },
                   "startFrame": {
-                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -2093,7 +2149,7 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
                   },
                   "startFrame": {
-                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -2165,7 +2221,7 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
                   },
                   "startFrame": {
-                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -2226,7 +2282,7 @@
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/label"
                   },
                   "startFrame": {
-                    "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                    "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                   },
                   "durationFrames": {
                     "$ref": "#/properties/look/properties/fadeInFrames"
@@ -2442,10 +2498,10 @@
                 "$ref": "#/properties/language"
               },
               "startFrame": {
-                "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
               },
               "endFrame": {
-                "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
               },
               "words": {
                 "type": "array",
@@ -2458,10 +2514,10 @@
                       "maxLength": 200
                     },
                     "startFrame": {
-                      "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                      "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                     },
                     "endFrame": {
-                      "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                      "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                     }
                   },
                   "required": [
@@ -2503,7 +2559,7 @@
                       "type": "object",
                       "properties": {
                         "frame": {
-                          "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+                          "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
                         },
                         "x": {
                           "type": "number",
@@ -2709,10 +2765,10 @@
             "$ref": "#/properties/id"
           },
           "frame": {
-            "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+            "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
           },
           "endFrame": {
-            "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/startFrame"
+            "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
           },
           "label": {
             "type": "string",

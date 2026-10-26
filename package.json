@@ -37,7 +37,7 @@
     "@types/node": "22.10.2",
     "typescript": "5.6.3",
     "vitest": "2.1.8",
-    "zod-to-json-schema": "^3.25.2"
+    "zod-to-json-schema": "3.23.5"
   },
   "license": "MIT",
   "dependencies": {
@@ -46,5 +46,9 @@
     "@react-three/fiber": "^9.8.2",
     "@types/three": "^0.186.0",
     "three": "^0.186.1"
+  },
+  "overrides": {
+    "zod": "3.24.1",
+    "zod-to-json-schema": "3.23.5"
   }
 }

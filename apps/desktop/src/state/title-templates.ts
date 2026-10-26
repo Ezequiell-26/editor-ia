@@ -196,17 +196,19 @@ export const TITLE_TEMPLATES: readonly TitleTemplate[] = [
     animation: 'fade',
   },
   {
-    // Retícula de noticias: barra inferior con titular y subtítulo.
+    // Retícula de informativos: barra inferior con titular y subtítulo.
+    // El estilo es único por pista, así que ambas líneas comparten tamaño.
     id: 'reticula-noticias',
     name: 'Retícula noticias',
     description: 'Barra inferior con titular y subtítulo',
     sample: 'TITULAR PRINCIPAL\nSubtítulo de la noticia',
     style: {
-      fontFamily: 'Segoe UI',
-      fontSizePx: 54,
+      fontFamily: 'Arial',
+      fontSizePx: 44,
       color: '#ffffff',
-      backgroundColor: '#0f1e3d',
+      outlineColor: '#0f1e3d',
       position: 'bottom',
+      backgroundColor: '#0f1e3d',
       bold: true,
       borderStyle: 'box',
       shadow: false,
@@ -214,17 +216,20 @@ export const TITLE_TEMPLATES: readonly TitleTemplate[] = [
     animation: 'slide-up',
   },
   {
-    // Kicker en vivo: etiqueta de acento arriba, título debajo.
+    // Kicker de cabecera: etiqueta de acento para acompañar un título.
+    // El esquema solo posiciona arriba/centro/abajo (sin eje horizontal ni
+    // rotación en estilos), así que la etiqueta vive en la franja superior.
     id: 'kicker-lateral',
     name: 'Kicker lateral',
-    description: 'Etiqueta de acento arriba con el título',
+    description: 'Etiqueta de acento en la cabecera',
     sample: 'EN VIVO\nTítulo principal',
     style: {
-      fontFamily: 'Segoe UI',
-      fontSizePx: 34,
+      fontFamily: 'Arial',
+      fontSizePx: 32,
       color: '#ffffff',
-      backgroundColor: '#0369a1',
+      outlineColor: '#0369a1',
       position: 'top',
+      backgroundColor: '#0369a1',
       bold: true,
       borderStyle: 'box',
       shadow: false,
@@ -232,69 +237,75 @@ export const TITLE_TEMPLATES: readonly TitleTemplate[] = [
     animation: 'slide-up',
   },
   {
-    // Cita documental: serif itálica centrada con atribución.
+    // Cita de documental: serif itálica centrada con línea de atribución.
     id: 'cita-documental',
     name: 'Cita documental',
-    description: 'Serif itálica centrada con atribución',
-    sample: 'La memoria también se edita.\n— Entrevistada',
+    description: 'Serif centrada con atribución',
+    sample: '“El archivo no miente.”\n— Testimonio, 1998',
     style: {
       fontFamily: 'Georgia',
-      fontSizePx: 48,
-      color: '#f5f5f4',
+      fontSizePx: 44,
+      color: '#f5f0e6',
+      outlineColor: '#14110c',
       position: 'center',
+      bold: false,
       italic: true,
       borderStyle: 'outline',
-      outlineColor: '#0b0e13',
       shadow: true,
     },
     animation: 'fade',
   },
   {
-    // Marca de agua: firma discreta, sin placa ni sombra.
+    // Marca de agua: el esquema no tiene opacidad por estilo ni color con
+    // alfa, así que la discreción se logra con color apagado y sin sombra.
     id: 'marca-agua',
     name: 'Marca de agua',
-    description: 'Firma discreta, sin placa ni sombra',
+    description: 'Firma discreta en gris apagado',
     sample: '@tucanal',
     style: {
       fontFamily: 'Segoe UI',
-      fontSizePx: 24,
+      fontSizePx: 26,
       color: '#9aa3ad',
+      outlineColor: '#1a1e24',
       position: 'bottom',
       bold: false,
+      borderStyle: 'outline',
       shadow: false,
     },
     animation: 'fade',
   },
   {
-    // Capítulo: número grande y título, entra por opacidad.
+    // Capítulo numerado: gran tamaño y entrada por opacidad ('fade' es la
+    // única entrada por opacidad que admite la animación de plantilla).
     id: 'capitulo',
     name: 'Capítulo',
-    description: 'Número grande y título del capítulo',
-    sample: 'CAPÍTULO 01\nApertura',
+    description: 'Numerado, grande y con fundido',
+    sample: 'CAPÍTULO 01\nEl comienzo',
     style: {
-      fontFamily: 'Segoe UI',
-      fontSizePx: 104,
-      color: '#ffffff',
+      fontFamily: 'Georgia',
+      fontSizePx: 100,
+      color: '#f7f1e5',
+      outlineColor: '#0b0e13',
       position: 'center',
       bold: true,
       borderStyle: 'outline',
-      outlineColor: '#000000',
-      shadow: false,
+      shadow: true,
     },
     animation: 'fade',
   },
   {
-    // Entrevista: nombre y cargo en el tercio inferior, placa clara.
+    // Entrevista: placa clara con nombre y cargo en el tercio inferior.
     id: 'entrevista',
     name: 'Entrevista',
-    description: 'Nombre y cargo en el tercio inferior',
+    description: 'Nombre y cargo en placa clara',
     sample: 'Nombre Apellido\nCargo · Medio',
     style: {
       fontFamily: 'Segoe UI',
-      fontSizePx: 40,
+      fontSizePx: 42,
       color: '#111111',
-      backgroundColor: '#f5f5f4',
+      outlineColor: '#f5f5f4',
       position: 'bottom',
+      backgroundColor: '#f5f5f4',
       bold: true,
       borderStyle: 'box',
       shadow: false,

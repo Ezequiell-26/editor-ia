@@ -1,13 +1,16 @@
 import type { ProjectDocument, Track } from '@editor-ia/project-schema';
 import {
+  dbfsToRms,
   gainForTargetPeak,
   hasSoloedAudioTrack,
   isTrackAudible,
   levelPercentFromDb,
   panGains,
   panLabel,
+  panPanLabels,
   peakDbFromPeaks,
   effectivePeakDb,
+  rmsToDbfs,
   samplePanGain,
   trackEqDb,
   trackGainDb,
@@ -24,14 +27,17 @@ import {
  */
 
 export {
+  dbfsToRms,
   gainForTargetPeak,
   hasSoloedAudioTrack,
   isTrackAudible,
   levelPercentFromDb,
   panGains,
   panLabel,
+  panPanLabels,
   peakDbFromPeaks,
   effectivePeakDb,
+  rmsToDbfs,
   samplePanGain,
   trackEqDb,
   trackGainDb,

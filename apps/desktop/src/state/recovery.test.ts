@@ -259,10 +259,7 @@ describe('cableado de recuperación en el store', () => {
     writeRecoverySnapshot(project, RECOVERY_PATH, SAVED_AT);
 
     render(
-      createElement(ProjectProvider, {
-        service: createFakeService(),
-        children: createElement(RecoveryProbe),
-      }),
+      createElement(ProjectProvider, { service: createFakeService(), children: createElement(RecoveryProbe) }),
     );
     expect(screen.getByTestId('oferta').textContent).toBe(RECOVERY_PATH);
 
@@ -273,10 +270,7 @@ describe('cableado de recuperación en el store', () => {
 
   it('no ofrece recuperación sin instantánea previa', () => {
     render(
-      createElement(ProjectProvider, {
-        service: createFakeService(),
-        children: createElement(RecoveryProbe),
-      }),
+      createElement(ProjectProvider, { service: createFakeService(), children: createElement(RecoveryProbe) }),
     );
     expect(screen.getByTestId('oferta').textContent).toBe('ninguna');
   });
@@ -287,10 +281,7 @@ describe('cableado de recuperación en el store', () => {
     writeRecoverySnapshot(project, RECOVERY_PATH, SAVED_AT);
 
     render(
-      createElement(ProjectProvider, {
-        service,
-        children: createElement(RecoveryProbe),
-      }),
+      createElement(ProjectProvider, { service, children: createElement(RecoveryProbe) }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'aceptar' }));
     await waitFor(() => {
