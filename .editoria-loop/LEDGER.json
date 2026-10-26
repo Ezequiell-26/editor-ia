@@ -349,6 +349,13 @@
       "status": "done",
       "note": "Iteracion 2 con 8 agentes + 2 features del integrador. Recuperada de incidente (cambio de rama externo + sesion concurrente Qoder con feature Lottie a medias): worktree aislado, parches de rescate fuera del repo, purga de renegado, zod fijado 3.24.1 con overrides. Verificacion: typecheck 0 errores, Vitest 1081/1081 (124 archivos), cargo test 342/0 (46 ignorados). Pendiente iteracion 3: teclado timeline (revertido a medias), render Rust de automatizacion fader/pan, wiring UI de cortar silencios, resto de dialogos con useDialogFocus.",
       "verifyRan": true
+    },
+    {
+      "at": "2026-10-26T17:02:43.413Z",
+      "taskId": "fusion-ciclo2-voz-2026-10-26",
+      "status": "done",
+      "note": "Fusion de las dos lineas de trabajo: integracion-loop2 (ciclo 2: accesibilidad fase 1, bezier exacta Rust, titulos pro, recovery, multicam timecode, cortar silencios) + sesion hermana (aislamiento de voz, limites de speed ramp). Conflictos resueltos a mano (title-templates, usePreviewAudio, project-store/recovery, package.json). Fixes: PreviewTransformBox con dispatch MouseEvent, scratch debug eliminado, schema regenerado, target-build ignorado. Verificado: typecheck 0, Vitest 1101/1101 (127 archivos), cargo test 342/0. feat/motion-graphics actualizada a b8834b7.",
+      "verifyRan": true
     }
   ]
 }
