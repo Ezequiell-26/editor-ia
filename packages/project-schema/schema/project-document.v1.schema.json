@@ -1589,10 +1589,10 @@
                               "maximum": 4
                             },
                             "easing": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/easing"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
                             },
                             "bezier": {
-                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/bezier"
+                              "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/bezier"
                             }
                           },
                           "required": [

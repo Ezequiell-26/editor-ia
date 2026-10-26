@@ -39,3 +39,4 @@ apps/desktop/src-tauri/resources/onnxruntime/
 .editoria-loop/LOOP.lock
 target-loop/
 .worktrees/
+target-build/
