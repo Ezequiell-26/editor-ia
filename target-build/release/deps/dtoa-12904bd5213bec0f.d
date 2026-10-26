@@ -1,0 +1,9 @@
+D:/Users/ofici/QODER-WORK/editor-ia/target-build\release\deps\dtoa-12904bd5213bec0f.d: D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\lib.rs D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\diyfp.rs D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\dtoa.rs
+
+D:/Users/ofici/QODER-WORK/editor-ia/target-build\release\deps\libdtoa-12904bd5213bec0f.rlib: D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\lib.rs D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\diyfp.rs D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\dtoa.rs
+
+D:/Users/ofici/QODER-WORK/editor-ia/target-build\release\deps\libdtoa-12904bd5213bec0f.rmeta: D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\lib.rs D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\diyfp.rs D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\dtoa.rs
+
+D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\lib.rs:
+D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\diyfp.rs:
+D:\Users\ofici\QODER-WORK\editor-ia\apps\desktop\target\.cargo-home\registry\src\index.crates.io-1949cf8c6b5b557f\dtoa-1.0.11\src\dtoa.rs:

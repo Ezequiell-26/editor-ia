@@ -34,6 +34,18 @@ describe('caja de manipulación directa', () => {
     cleanup();
   });
 
+  
+/** jsdom no tiene PointerEvent: un MouseEvent con tipo pointer* sí porta clientX/Y. */
+function firePointer(
+  target: HTMLElement,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  clientX: number,
+  clientY: number,
+): void {
+  fireEvent(target, new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY }));
+}
+
+
   it('arrastrar el cuerpo mueve la capa en píxeles del proyecto', () => {
     const clip = setup();
     const { getByTestId } = render(
@@ -47,9 +59,9 @@ describe('caja de manipulación directa', () => {
       </div>,
     );
     const box = getByTestId('transform-box');
-    fireEvent.pointerDown(box, { clientX: 480, clientY: 270, pointerId: 1 });
-    fireEvent.pointerMove(box, { clientX: 530, clientY: 300 });
-    fireEvent.pointerUp(box);
+    firePointer(box, 'pointerdown', 480, 270);
+    firePointer(box, 'pointermove', 530, 300);
+    firePointer(box, 'pointerup', 0, 0);
 
     const transform = project.timeline.clips[0]!.transform;
     expect(transform?.offsetX).toBe(100);
@@ -69,15 +81,15 @@ describe('caja de manipulación directa', () => {
       </div>,
     );
     const corner = container.querySelector('.transform-handle.se')!;
-    fireEvent.pointerDown(corner, { clientX: 580, clientY: 270, pointerId: 1 });
-    fireEvent.pointerMove(corner, { clientX: 680, clientY: 270 });
-    fireEvent.pointerUp(corner);
+    firePointer(corner, 'pointerdown', 580, 270);
+    firePointer(corner, 'pointermove', 680, 270);
+    firePointer(corner, 'pointerup', 0, 0);
     expect(project.timeline.clips[0]!.transform?.scaleX).toBe(2);
 
     const rotate = container.querySelector('.transform-rotate')!;
-    fireEvent.pointerDown(rotate, { clientX: 580, clientY: 270, pointerId: 1 });
-    fireEvent.pointerMove(rotate, { clientX: 480, clientY: 370 });
-    fireEvent.pointerUp(rotate);
+    firePointer(rotate, 'pointerdown', 580, 270);
+    firePointer(rotate, 'pointermove', 480, 370);
+    firePointer(rotate, 'pointerup', 0, 0);
     expect(project.timeline.clips[0]!.transform?.rotationDeg).toBe(90);
   });
 
@@ -109,9 +121,9 @@ describe('caja de manipulación directa', () => {
       </div>,
     );
     const box = getByTestId('transform-box');
-    fireEvent.pointerDown(box, { clientX: 480, clientY: 270, pointerId: 1 });
-    fireEvent.pointerMove(box, { clientX: 560, clientY: 300 });
-    fireEvent.pointerUp(box);
+    firePointer(box, 'pointerdown', 480, 270);
+    firePointer(box, 'pointermove', 560, 300);
+    firePointer(box, 'pointerup', 0, 0);
     expect(project.timeline.clips[0]!.transform?.offsetX ?? 0).toBe(0);
   });
 });

@@ -1,0 +1,2 @@
+cargo:rustc-link-search=native=D:/Users/ofici/QODER-WORK/editor-ia/target-build\release\build\webview2-com-sys-07b386227fe3470e\out\x64
+cargo:rustc-link-lib=advapi32
