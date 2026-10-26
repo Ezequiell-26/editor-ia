@@ -39,5 +39,12 @@
     "vitest": "2.1.8",
     "zod-to-json-schema": "^3.25.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@radix-ui/react-collapsible": "^1.2.1",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
+    "@types/three": "^0.186.0",
+    "three": "^0.186.1"
+  }
 }

@@ -13,3 +13,22 @@ if (typeof HTMLMediaElement !== 'undefined') {
     value: vi.fn(),
   });
 }
+
+// jsdom no implementa PointerEvent: sin esto, `fireEvent.pointerDown/Move`
+// despacha eventos sin clientX/clientY y los arrastres quedan en NaN.
+if (typeof window !== 'undefined' && typeof window.PointerEvent === 'undefined') {
+  class PointerEventPolyfill extends MouseEvent {
+    readonly pointerId: number;
+    readonly pointerType: string;
+    readonly isPrimary: boolean;
+
+    constructor(type: string, init: PointerEventInit = {}) {
+      super(type, init);
+      this.pointerId = init.pointerId ?? 1;
+      this.pointerType = init.pointerType ?? 'mouse';
+      this.isPrimary = init.isPrimary ?? true;
+    }
+  }
+  // @ts-expect-error jsdom no trae la clase; la definimos para los tests.
+  window.PointerEvent = PointerEventPolyfill;
+}

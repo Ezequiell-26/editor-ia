@@ -149,7 +149,7 @@ export {
   keyframeFrameAt,
   sampleGainKeyframes,
   sampleMaskKeyframes,
-  samplePanGain,
+  sampleTransformKeyframes,
   cubicBezierProgress,
   getBezierFromEasing,
 } from './keyframes.ts';

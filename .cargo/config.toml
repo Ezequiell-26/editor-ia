@@ -1,0 +1,8 @@
+[build]
+# Usar MinGW via MSYS2 para evitar error msvcrt.lib en MSVC
+rustflags = ["-C", "link-args=-static-libgcc"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    "-C", "link-args=-static-libgcc"
+]

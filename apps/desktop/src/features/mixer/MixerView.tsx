@@ -314,25 +314,6 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                     </button>
                   </div>
                 ) : null}
-                <div className="mixer-pan-block">
-                  <label className="field" aria-label={`Paneo de ${track.label}`}>
-                    <span>Paneo</span>
-                    <input
-                      type="range"
-                      min="-1" max="1" step="0.01"
-                      value={trackPan(track)}
-                      onChange={(event) =>
-                        store.update((current) =>
-                          updateTrack(current, track.id, {
-                            pan: Number(event.target.value),
-                          }),
-                        )
-                      }
-                      style={{ accentColor: 'var(--color-accent)' }}
-                    />
-                    <small>{panLabel(trackPan(track))}</small>
-                  </label>
-                </div>
                 <div className="mixer-flags">
                   <button
                     type="button"

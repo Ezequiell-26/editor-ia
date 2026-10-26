@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObjec
 import type { Asset, BlendMode, CaptionCue, Clip, ClipEffects, ClipMask, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { sampleMaskKeyframes } from '@editor-ia/project-schema';
 import { captionMotionAt } from '../../state/caption-motion';
+import { PreviewTransformBox, isTransformable } from './PreviewTransformBox';
 import { cueWordsAt } from '../../state/subtitles';
 import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
 import { FORMAT_PRESETS } from '../../state/video-format';
@@ -481,6 +482,7 @@ function VideoLayer({
       className="preview-media"
       src={url}
       crossOrigin="anonymous"
+      data-clip-id={clip.id}
       style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
       muted={muted}
       playsInline
@@ -515,6 +517,7 @@ function ImageLayer({
       className="preview-media"
       src={url}
       crossOrigin="anonymous"
+      data-clip-id={clip.id}
       alt={clip.label ?? 'Imagen de la timeline'}
       style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
     />
@@ -539,7 +542,7 @@ function GraphicLayer({
   };
   if (!motion) {
     return (
-      <div className="graphic-placeholder" style={layerStyle}>
+      <div className="graphic-placeholder" style={layerStyle} data-clip-id={clip.id}>
         Gráfico sin motion item
       </div>
     );
@@ -858,6 +861,12 @@ export function Preview() {
       .join(' ');
   }, [compare, playhead, project]);
 
+  const selection = store.state.selection;
+  const selectedClip =
+    selection.kind === 'clip'
+      ? (visualClips.find((clip) => clip.id === selection.id) ?? null)
+      : null;
+
   const usingProxy =
     project != null &&
     visualClips.some((clip) => {
@@ -1159,7 +1168,15 @@ export function Preview() {
         }}
         onPointerCancel={() => setPanning(false)}
       >
-        <div className="preview-look" style={previewStyle}>
+        <div
+          className="preview-look"
+          style={previewStyle}
+          onPointerDown={(event) => {
+            const target = (event.target as HTMLElement).closest('[data-clip-id]');
+            const id = target?.getAttribute('data-clip-id');
+            if (id) store.setSelection({ kind: 'clip', id });
+          }}
+        >
           {visualClips.map((clip) => {
             const asset = clip.source.type === 'asset' ? assetById(project, clip.source.assetId) : undefined;
             const track = trackById(project, clip.trackId);
@@ -1218,6 +1235,14 @@ export function Preview() {
           );
         })}
         <CaptionOverlay project={project} playheadFrame={playhead} previewWidth={frameWidth} />
+        {selectedClip && isTransformable(selectedClip) && frameWidth > 0 ? (
+          <PreviewTransformBox
+            clip={selectedClip}
+            project={project}
+            playheadFrame={playhead}
+            canvas={{ width: frameWidth, height: frameHeight }}
+          />
+        ) : null}
         {realFrame ? (
           <div className="preview-real-frame-wrap">
             <img

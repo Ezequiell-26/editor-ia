@@ -23,6 +23,10 @@ export const TrackKindSchema = z.enum([
   'adjustment',
 ]);
 
+/** Límites de velocidad permitidos (0.1x a 4x). */
+export const MIN_RAMP_SPEED = 0.1;
+export const MAX_RAMP_SPEED = 4;
+
 export const ClipKindSchema = z.enum([
   'video',
   'image',
@@ -167,6 +171,15 @@ export const ClipAudioSchema = z
     targetLevelDbfs: z.number().gte(-24).lte(0).optional(),
     peakLevelDbfs: z.number().gte(-60).lte(0).optional(),
     rmsLevelDbfs: z.number().gte(-60).lte(0).optional(),
+    /** Aislamiento de voz y separación de stems con modelos AI locales. */
+    voiceIsolation: z
+      .object({
+        enabled: z.boolean().optional(),
+        model: z.enum(['demucs-v4', 'mdx-net']).optional(),
+        quality: z.enum(['low', 'medium', 'high', 'best']).optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -614,12 +627,81 @@ const clipCommon = {
   audio: ClipAudioSchema.optional(),
 };
 
+/** Punto de una curva de velocidad continua con easing por segmento. */
+export const SpeedCurvePointSchema = z
+  .object({
+    t: z.number().gte(0).lte(1),
+    speed: z.number().gte(MIN_RAMP_SPEED).lte(MAX_RAMP_SPEED),
+    easing: KeyframeEasingSchema.optional(),
+    bezier: CubicBezierSchema.optional(),
+  })
+  .strict()
+  .superRefine((point, ctx) => {
+    if (point.t < 0 || point.t > 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'curve time must be in [0,1]',
+      });
+    }
+    if (point.speed < MIN_RAMP_SPEED || point.speed > MAX_RAMP_SPEED) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `speed must be between ${MIN_RAMP_SPEED}x and ${MAX_RAMP_SPEED}x`,
+      });
+    }
+  });
+export type SpeedCurvePoint = z.infer<typeof SpeedCurvePointSchema>;
+
+/** Curva de velocidad continua con interpolación Bézier por segmento. */
+export const SpeedCurveSchema = z
+  .object({
+    points: z.array(SpeedCurvePointSchema).min(2).max(50),
+    /** Interpolación de frames con optical flow (RIFE/minterpolate). */
+    opticalFlow: z.boolean().optional(),
+    /** FPS objetivo para frame interpolation (30, 60, 120). */
+    targetFps: z.union([z.literal(24), z.literal(30), z.literal(60), z.literal(120)]).optional(),
+  })
+  .strict()
+  .superRefine(({ points }, ctx) => {
+    // Primer punto debe estar en t=0, último en t=1
+    if (points[0]?.t !== 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['points', 0, 't'],
+        message: 'first curve point must be at t=0',
+      });
+    }
+    if (points[points.length - 1]?.t !== 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['points', points.length - 1, 't'],
+        message: 'last curve point must be at t=1',
+      });
+    }
+    // Verificar ordenamiento estricto
+    for (let i = 1; i < points.length; i++) {
+      const current = points[i]?.t;
+      const previous = points[i - 1]?.t;
+      if (current !== undefined && previous !== undefined && current <= previous) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['points', i, 't'],
+          message: 'curve points must be strictly ordered by t',
+        });
+        break;
+      }
+    }
+  });
+export type SpeedCurve = z.infer<typeof SpeedCurveSchema>;
+
 const VideoClipSchema = z
   .object({
     ...clipCommon,
     kind: z.literal('video'),
     source: WindowedAssetSourceSchema,
     speed: FrameRateSchema.optional(),
+    /** Curva de velocidad continua (reemplaza o coexiste con speed constante). */
+    speedCurve: SpeedCurveSchema.optional(),
     /** Interpola fotogramas al exportar una cámara lenta (< 1×). */
     slowMotionSmoothing: z.boolean().optional(),
     reverse: z.boolean().optional(),
@@ -696,18 +778,40 @@ const AdjustmentClipSchema = z
   .strict();
 
 /**
+ * Un clip no puede declarar velocidad constante y curva a la vez: el render no
+ * sabría cuál aplicar. Vive acá y no dentro de `VideoClipSchema` porque un
+ * esquema con `.superRefine` deja de ser `ZodObject` y `discriminatedUnion`
+ * necesita leer `shape.kind` de cada opción.
+ */
+function checkSpeedConflict(clip: unknown, ctx: z.RefinementCtx): void {
+  if (!clip || typeof clip !== 'object') return;
+  const { speed, speedCurve } = clip as { speed?: unknown; speedCurve?: unknown };
+  if (speed && speedCurve) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['speed'],
+      message: 'cannot set both constant speed and speed curve on the same clip',
+    });
+  }
+}
+
+/**
  * Inner clips of a compound. They keep their original track and relative
  * start; a compound is a named group that renders by flattening these clips
  * back onto their tracks. Nested compounds are deliberately not allowed.
  */
-export const CompoundInnerClipSchema = z.discriminatedUnion('kind', [
-  VideoClipSchema,
-  AudioClipSchema,
-  ImageIconSchema,
-  GraphicClipSchema,
-  FreezeClipSchema,
-  AdjustmentClipSchema,
-]);
+export const CompoundInnerClipSchema = z
+  .discriminatedUnion('kind', [
+    VideoClipSchema,
+    AudioClipSchema,
+    ImageIconSchema,
+    GraphicClipSchema,
+    FreezeClipSchema,
+    AdjustmentClipSchema,
+  ])
+  .superRefine((clip, ctx) => {
+    checkSpeedConflict(clip, ctx);
+  });
 
 export const CompoundSchema = z
   .object({
@@ -782,6 +886,7 @@ export const ClipSchema = z
     CompoundClipSchema,
   ])
   .superRefine((clip, ctx) => {
+    checkSpeedConflict(clip, ctx);
     if (clip.kind === 'video' || clip.kind === 'audio') {
       const sourceFrames = clip.source.outFrame - clip.source.inFrame;
       if (sourceFrames <= 0) {

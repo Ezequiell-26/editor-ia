@@ -7,6 +7,7 @@ import { App } from './App';
 import { createFakeService, readyAsset } from './test/fake-service';
 import { addAsset, addClipFromAsset, addTrack, ensureDelivery, updateClip } from './state/project-actions';
 import { addMarker } from './state/markers';
+import { writeRecoverySnapshot } from './state/recovery';
 
 function renderApp() {
   const service = createFakeService();
@@ -514,6 +515,21 @@ describe('shell de Olyvia', () => {
     fireEvent.click(tools);
     expect(tools.getAttribute('aria-current')).toBe('location');
     expect(within(dialog).getByRole('heading', { name: 'Herramientas', level: 2 })).toBeTruthy();
+  });
+
+  it('ofrece recuperar la sesión interrumpida y permite descartarla', async () => {
+    const project = createEmptyProject('Interrumpido');
+    writeRecoverySnapshot(
+      project,
+      'C:////tmp////interrumpido.editoria.json',
+      '2025-01-01T00:00:05.000Z',
+    );
+    renderApp();
+    expect(await screen.findByText(/Se interrumpió la sesión anterior/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Descartar' }));
+    await waitFor(() =>
+      expect(screen.queryByText(/Se interrumpió la sesión anterior/i)).toBeNull(),
+    );
   });
 
   it('la ventana de Ajustes se cierra con Escape sin cambiar la vista de fondo', async () => {

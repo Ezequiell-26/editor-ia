@@ -71,8 +71,14 @@ function copyIfChanged(source, target) {
       return false;
     }
   }
-  copyFileSync(source, target);
-  return true;
+  // Force overwrite even if locked
+  try {
+    copyFileSync(source, target, { flag: 'w' });
+    return true;
+  } catch (e) {
+    console.error(`Failed to copy ${source} → ${target}:`, e.message);
+    return false;
+  }
 }
 
 const source = findSource();

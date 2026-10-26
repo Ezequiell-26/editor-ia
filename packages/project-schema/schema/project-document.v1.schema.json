@@ -1453,6 +1453,31 @@
                         "type": "number",
                         "minimum": -60,
                         "maximum": 0
+                      },
+                      "voiceIsolation": {
+                        "type": "object",
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "model": {
+                            "type": "string",
+                            "enum": [
+                              "demucs-v4",
+                              "mdx-net"
+                            ]
+                          },
+                          "quality": {
+                            "type": "string",
+                            "enum": [
+                              "low",
+                              "medium",
+                              "high",
+                              "best"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false
                       }
                     },
                     "additionalProperties": false
@@ -1488,6 +1513,58 @@
                   },
                   "speed": {
                     "$ref": "#/properties/video/properties/frameRate"
+                  },
+                  "speedCurve": {
+                    "type": "object",
+                    "properties": {
+                      "points": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "t": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "speed": {
+                              "type": "number",
+                              "minimum": 0.1,
+                              "maximum": 4
+                            },
+                            "easing": {
+                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/easing"
+                            },
+                            "bezier": {
+                              "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/keyframes/items/properties/bezier"
+                            }
+                          },
+                          "required": [
+                            "t",
+                            "speed"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minItems": 2,
+                        "maxItems": 50
+                      },
+                      "opticalFlow": {
+                        "type": "boolean"
+                      },
+                      "targetFps": {
+                        "type": "number",
+                        "enum": [
+                          24,
+                          30,
+                          60,
+                          120
+                        ]
+                      }
+                    },
+                    "required": [
+                      "points"
+                    ],
+                    "additionalProperties": false
                   },
                   "slowMotionSmoothing": {
                     "type": "boolean"

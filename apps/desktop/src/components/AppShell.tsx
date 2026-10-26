@@ -7,6 +7,12 @@ import { AssistantDock } from '../features/assistant/AssistantDock';
 import { NAV_VIEWS, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
 
+/** Último segmento de una ruta, para mostrar sólo el nombre del archivo. */
+function fileNameOf(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
 interface AppShellProps {
   readonly activeId: ViewId;
   readonly onSelect: (id: ViewId) => void;
@@ -183,6 +189,20 @@ export function AppShell({
           <span>{notice}</span>
           <button type="button" className="link" onClick={() => store.setNotice(null)}>
             Cerrar
+          </button>
+        </div>
+      ) : null}
+      {store.state.recoveryOffer ? (
+        <div className="recovery-banner" role="status">
+          <span className="recovery-banner-text">
+            Se interrumpió la sesión anterior y quedaron cambios sin guardar en{' '}
+            <strong>{fileNameOf(store.state.recoveryOffer.path)}</strong>.
+          </span>
+          <button type="button" className="primary" onClick={() => void store.acceptRecovery()}>
+            Recuperar
+          </button>
+          <button type="button" className="ghost" onClick={() => store.dismissRecovery()}>
+            Descartar
           </button>
         </div>
       ) : null}
