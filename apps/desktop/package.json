@@ -18,7 +18,9 @@
   "dependencies": {
     "@editor-ia/project-schema": "*",
     "@tauri-apps/api": "^2.12.4",
+    "emojibase-data": "^18.0.0",
     "fflate": "^0.8.3",
+    "lottie-web": "^5.13.0",
     "minisearch": "^7.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

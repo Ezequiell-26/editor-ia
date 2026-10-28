@@ -11,7 +11,9 @@ import {
   detachPreviewAudio,
   isTrackAudible,
   resumePreviewAudio,
+  setPreviewClipPan,
   syncPreviewAudioFromProject,
+  syncPreviewAudioPanAtFrame,
   trackGainDb,
 } from '../mixer/usePreviewAudio';
 import { useProjectStore } from '../../state/project-store';
@@ -21,7 +23,22 @@ import { buildMotionPlan } from '../motion/plan';
 import { MotionPreview } from '../motion/MotionPreview';
 import { templateById } from '../motion/templates';
 import { ScopesPanel } from './ScopesPanel';
+import { perspectiveMatrix3d, type PerspectiveViewport } from './perspective';
 import type { PreviewFrameResult } from '../../services/project-service';
+
+function previewViewport(
+  asset: Asset | undefined,
+  width: number,
+  height: number,
+): PerspectiveViewport {
+  const media =
+    asset && (asset.kind === 'video' || asset.kind === 'image') ? asset.media : undefined;
+  return {
+    width,
+    height,
+    ...(media ? { mediaWidth: media.width, mediaHeight: media.height } : {}),
+  };
+}
 
 function useElementSize<T extends HTMLElement>(): [RefObject<T | null>, { width: number; height: number }] {
   const ref = useRef<T | null>(null);
@@ -124,7 +141,16 @@ function maskClipPath(mask: ClipMask): string {
  */
 function maskImage(mask: ClipMask): string | undefined {
   const rotation = mask.shape === 'polygon' ? 0 : (mask.rotationDeg ?? 0);
-  if (Math.abs(rotation) < 0.001 && !mask.invert) return undefined;
+  // Sin feather, rotación ni inversión alcanza el clip-path barato. Con
+  // feather hay que usar la máscara SVG; si no, la preview se ve dura y el MP4
+  // suave.
+  if (
+    Math.abs(rotation) < 0.001 &&
+    !mask.invert &&
+    (mask.feather ?? 0) <= 0.001
+  ) {
+    return undefined;
+  }
   const centerX = 50 + mask.x * 50;
   const centerY = 50 + mask.y * 50;
   const radiusX = mask.width * 50;
@@ -214,6 +240,7 @@ function transformStyle(
   clip: Clip,
   project: ProjectDocument,
   playheadFrame?: number,
+  viewport?: PerspectiveViewport,
 ): CSSProperties {
   const transform = clip.transform;
   const sampled =
@@ -272,8 +299,12 @@ function transformStyle(
       : {};
   const effectiveMask = mask ? { ...mask, ...sampledMask } : undefined;
   const image = effectiveMask ? maskImage(effectiveMask) : undefined;
+  const perspective =
+    transform?.perspective && viewport
+      ? perspectiveMatrix3d(transform.perspective.corners, viewport)
+      : undefined;
   return {
-    transform: `translate(${offsetX * 100}%, ${offsetY * 100}%) translate(${motionX + animation.x}%, ${motionY + animation.y}%) scale(${scaleX * motionScale * animation.scale}, ${scaleY * motionScale * animation.scale}) rotate(${rotation + animation.rotation}deg)`,
+    transform: `translate(${offsetX * 100}%, ${offsetY * 100}%) translate(${motionX + animation.x}%, ${motionY + animation.y}%) scale(${scaleX * motionScale * animation.scale}, ${scaleY * motionScale * animation.scale}) rotate(${rotation + animation.rotation}deg)${perspective ? ` ${perspective}` : ''}`,
     opacity: (sampled?.opacity ?? transform?.opacity ?? 1) * animation.opacity,
     ...(blendMode ? { mixBlendMode: blendMode } : {}),
     ...(effectiveMask
@@ -388,6 +419,7 @@ function VideoLayer({
   muted,
   trackId = '',
   trackGain = 0,
+  viewport,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
@@ -397,6 +429,7 @@ function VideoLayer({
   readonly muted: boolean;
   readonly trackId?: string;
   readonly trackGain?: number;
+  readonly viewport: PerspectiveViewport;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
@@ -404,6 +437,8 @@ function VideoLayer({
   // Enrutado por Web Audio: true sólo si el elemento quedó conectado al grafo
   // de su pista; en caso contrario la preview usa `element.volume` como siempre.
   const [routed, setRouted] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const fps = fpsOf(project);
   const alphaCutout =
     asset !== undefined && asset.kind === 'video' && asset.media?.alpha === true;
@@ -412,6 +447,10 @@ function VideoLayer({
       ? (asset as Asset & { proxy?: { path: string } }).proxy
       : undefined;
   const url = asset ? store.service.mediaUrl(root, proxy?.path ?? asset.source.path) : '';
+  useEffect(() => {
+    setFailed(false);
+    setReload(0);
+  }, [url]);
   const windowed = clip.kind === 'video' || clip.kind === 'audio';
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'video' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
@@ -437,12 +476,18 @@ function VideoLayer({
       setRouted(false);
       return;
     }
-    const ok = attachPreviewAudio(trackId, media);
+    const ok = attachPreviewAudio(trackId, media, clip.audio?.pan ?? 0);
     setRouted(ok);
     return () => {
       if (ok) detachPreviewAudio(trackId, media);
     };
   }, [trackId, url]);
+
+  useEffect(() => {
+    const media = ref.current;
+    if (!media) return;
+    setPreviewClipPan(media, clip.audio?.pan ?? 0);
+  }, [clip.audio?.pan]);
 
   useEffect(() => {
     const video = ref.current;
@@ -468,25 +513,43 @@ function VideoLayer({
     if (ref.current) ref.current.volume = volume;
   }, [volume]);
 
-  if (!url) {
+  if (!url || failed) {
     return (
-      <div className="media-missing" style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}>
-        <span>Medio no disponible en la vista previa</span>
+      <div
+        className="media-missing"
+        style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
+        role="status"
+      >
+        <span>{failed ? 'Video no disponible en la vista previa' : 'Medio no disponible en la vista previa'}</span>
+        {failed ? (
+          <button
+            type="button"
+            className="small"
+            onClick={() => {
+              setFailed(false);
+              setReload((value) => value + 1);
+            }}
+          >
+            Reintentar
+          </button>
+        ) : null}
       </div>
     );
   }
 
   return (
     <video
+      key={`${url}-${reload}`}
       ref={ref}
       className="preview-media"
       src={url}
       crossOrigin="anonymous"
       data-clip-id={clip.id}
-      style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
+      style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
       muted={muted}
       playsInline
       preload="auto"
+      onError={() => setFailed(true)}
     />
   );
 }
@@ -496,30 +559,56 @@ function ImageLayer({
   asset,
   project,
   playheadFrame,
+  viewport,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
+  readonly viewport: PerspectiveViewport;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
+  const [failed, setFailed] = useState(false);
+  const [reload, setReload] = useState(0);
   const url = asset ? store.service.mediaUrl(root, asset.source.path) : '';
-  if (!url) {
+  useEffect(() => {
+    setFailed(false);
+    setReload(0);
+  }, [url]);
+  if (!url || failed) {
     return (
-      <div className="media-missing" style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}>
+      <div
+        className="media-missing"
+        style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
+        role="status"
+      >
         <span>Imagen no disponible</span>
+        {failed ? (
+          <button
+            type="button"
+            className="small"
+            onClick={() => {
+              setFailed(false);
+              setReload((value) => value + 1);
+            }}
+          >
+            Reintentar
+          </button>
+        ) : null}
       </div>
     );
   }
   return (
     <img
+      key={`${url}-${reload}`}
       className="preview-media"
       src={url}
       crossOrigin="anonymous"
       data-clip-id={clip.id}
       alt={clip.label ?? 'Imagen de la timeline'}
-      style={{ ...transformStyle(clip, project, playheadFrame), ...effectsStyle(clip) }}
+      style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
+      onError={() => setFailed(true)}
     />
   );
 }
@@ -528,17 +617,19 @@ function GraphicLayer({
   clip,
   project,
   playheadFrame,
+  viewport,
 }: {
   readonly clip: Clip;
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
+  readonly viewport: PerspectiveViewport;
 }) {
   const motionId = clip.source.type === 'graphic' ? clip.source.motionId : null;
   const motion = project.motion.find((item) => item.id === motionId);
   const layerStyle = {
     position: 'absolute' as const,
     inset: 0,
-    ...transformStyle(clip, project, playheadFrame),
+    ...transformStyle(clip, project, playheadFrame, viewport),
   };
   if (!motion) {
     return (
@@ -627,12 +718,18 @@ function AudioLayer({
       setRouted(false);
       return;
     }
-    const ok = attachPreviewAudio(trackId, media);
+    const ok = attachPreviewAudio(trackId, media, clip.audio?.pan ?? 0);
     setRouted(ok);
     return () => {
       if (ok) detachPreviewAudio(trackId, media);
     };
   }, [trackId, url]);
+
+  useEffect(() => {
+    const media = ref.current;
+    if (!media) return;
+    setPreviewClipPan(media, clip.audio?.pan ?? 0);
+  }, [clip.audio?.pan]);
 
   useEffect(() => {
     const audio = ref.current;
@@ -740,11 +837,18 @@ function CaptionOverlay({
           spanStyle.transform = `translate(${motion.x * 50}%, ${motion.y * 50}%) scale(${motion.scale}) rotate(${motion.rotationDeg}deg)`;
           spanStyle.opacity = motion.opacity;
         }
+        // Desplazamiento manual del subtítulo (píxeles del proyecto → pantalla).
+        const offsetX = (cue.offsetX ?? 0) * scale;
+        const offsetY = (cue.offsetY ?? 0) * scale;
+        const hasOffset = offsetX !== 0 || offsetY !== 0;
         return (
           <div
             key={cue.id}
             className={`preview-caption caption-${position}`}
-            style={{ zIndex: 6 + (track?.order ?? 0) + index }}
+            style={{
+              zIndex: 6 + (track?.order ?? 0) + index,
+              ...(hasOffset ? { transform: `translate(${offsetX}px, ${offsetY}px)` } : {}),
+            }}
             aria-live="off"
           >
             {hasWords ? (
@@ -809,6 +913,12 @@ export function Preview() {
   useEffect(() => {
     if (project) syncPreviewAudioFromProject(project);
   }, [project]);
+
+  // Paneo de pista animado: el grafo se muestrea en el frame visible, también
+  // al arrastrar el playhead, no sólo cuando cambia el proyecto.
+  useEffect(() => {
+    if (project) syncPreviewAudioPanAtFrame(project, playhead);
+  }, [project, playhead]);
 
   const visualClips = useMemo(() => {
     if (!project) return [];
@@ -887,6 +997,10 @@ export function Preview() {
       ? Math.min(stageSize.width, stageSize.height * aspect)
       : 0;
   const frameHeight = frameWidth > 0 ? frameWidth / aspect : 0;
+  // En pixel-perfect el lienzo mide los píxeles reales del frame, no el
+  // tamaño ajustado a la etapa: la homografía debe usar ese mismo cuadro.
+  const canvasWidth = pixelPerfect ? (realFrame?.width ?? project.video.width) : frameWidth;
+  const canvasHeight = pixelPerfect ? (realFrame?.height ?? project.video.height) : frameHeight;
   const lookStyle = compare ? {} : effectsToCss(project.look);
   const lookFilter = typeof lookStyle.filter === 'string' ? lookStyle.filter : '';
   const previewStyle: CSSProperties =
@@ -1192,6 +1306,7 @@ export function Preview() {
                   muted={!track || !isTrackAudible(track, project.timeline.tracks)}
                   trackId={track ? track.id : ''}
                   trackGain={track ? trackGainDb(track) : 0}
+                  viewport={previewViewport(asset, canvasWidth, canvasHeight)}
                 />
               );
             }
@@ -1203,6 +1318,7 @@ export function Preview() {
                   asset={asset}
                   project={project}
                   playheadFrame={playhead}
+                  viewport={previewViewport(asset, canvasWidth, canvasHeight)}
                 />
               );
             }
@@ -1213,6 +1329,7 @@ export function Preview() {
                   clip={clip}
                   project={project}
                   playheadFrame={playhead}
+                  viewport={previewViewport(undefined, canvasWidth, canvasHeight)}
                 />
               );
             }

@@ -549,6 +549,24 @@ export interface BackgroundRemovalRequest {
   readonly fpsDen: number;
 }
 
+/** Lote de PNG RGBA (base64) que el motor Lottie rasteriza para una secuencia. */
+export interface AlphaFramesRequest {
+  readonly token: string;
+  readonly startIndex: number;
+  readonly frames: readonly string[];
+}
+
+/** Cierra una secuencia temporal: la codifica con alfa y la importa a Medios. */
+export interface AlphaSequenceRequest {
+  readonly token: string;
+  readonly label: string;
+  readonly width: number;
+  readonly height: number;
+  readonly frameCount: number;
+  readonly fpsNum: number;
+  readonly fpsDen: number;
+}
+
 /** Modo y preajuste de Denoise Studio. */
 export type DenoiseMode = 'video' | 'image';
 export type DenoisePreset = 'fast' | 'balanced' | 'quality';
@@ -968,6 +986,12 @@ export interface ToolResult {
   readonly message: string;
 }
 
+export interface ExtractedSubtitles {
+  readonly language: string | null;
+  readonly title: string | null;
+  readonly srt: string;
+}
+
 export interface AudioPeaks {
   readonly assetId: string;
   readonly durationSeconds: number;
@@ -1049,14 +1073,78 @@ export interface DownloadProbe {
   readonly qualities: readonly DownloadQuality[];
 }
 
+export interface SponsorSegment {
+  readonly category: string;
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  readonly action: string;
+}
+
+export interface WatchFile {
+  readonly path: string;
+  readonly name: string;
+  readonly modifiedSeconds: number;
+  readonly urls: readonly string[];
+}
+
+export interface RssItem {
+  readonly title: string;
+  readonly link: string;
+  readonly published: string | null;
+}
+
+export interface AudioTrack {
+  readonly formatId: string;
+  readonly language: string | null;
+  readonly ext: string | null;
+  readonly abr: number | null;
+  readonly note: string | null;
+}
+
+export interface PlaylistEntry {
+  readonly index: number;
+  readonly title: string;
+  readonly url: string | null;
+  readonly durationSeconds: number | null;
+}
+
+export interface WatchdogStatus {
+  readonly installed: boolean;
+  readonly tasks: readonly string[];
+  readonly hint: string;
+}
+
+export interface SourceChecksum {
+  readonly md5: string | null;
+  readonly sha256: string | null;
+  readonly source: string;
+}
+
+export interface ProxyHealth {
+  readonly proxy: string;
+  readonly ok: boolean;
+  readonly latencyMs: number | null;
+  readonly error: string | null;
+}
+
 export interface DownloadRequest {
   readonly url: string;
+  /** UUID estable para reanudar un trabajo y reutilizar sus `.part`. */
+  readonly runId?: string | null;
   readonly maxHeight?: number | null;
   readonly compression: 'none' | 'high' | 'balanced' | 'compact';
-  readonly codec: 'h265' | 'h264';
+  readonly codec: 'h265' | 'h264' | 'av1';
+  /** `tonemap` convierte HDR a SDR; `preserve` mantiene HEVC 10-bit. */
+  readonly hdrMode?: 'tonemap' | 'preserve' | null;
+  /** Objetivo de tamaño final en MB; reemplaza al CRF. */
+  readonly targetSizeMb?: number | null;
+  /** Conserva el original además del archivo procesado. */
+  readonly keepOriginal?: boolean;
   readonly kind: DownloadProbe['kind'];
   readonly playlist?: boolean;
   readonly cookiesFile?: string | null;
+  /** `chrome`, `edge`, `firefox`, `brave`, `chromium`, `opera` o `vivaldi`. */
+  readonly cookiesFromBrowser?: string | null;
   readonly format?: 'mp4' | 'mkv' | 'webm' | 'mp3' | 'm4a';
   /** Save permanently to Descargas/Videos descargados/<platform>. */
   readonly saveToDownloads?: boolean;
@@ -1064,6 +1152,83 @@ export interface DownloadRequest {
   readonly quality?: 'best' | 'worst' | 'height';
   /** Absolute folder chosen by the person; defaults to Downloads/Videos descargados. */
   readonly destinationRoot?: string | null;
+  /** Look cinematográfico 35 mm: 60 fps por flujo óptico, 0.98×, grano, zoom 4 %, espejo. */
+  readonly cinematic?: boolean;
+  readonly cinematicFocus?: 'center' | 'left' | 'right' | 'top' | 'bottom';
+  /** Ruta absoluta de la banda sonora que reemplaza al audio original; null = sin audio. */
+  readonly replacementAudio?: string | null;
+  /** Pipeline automático: denoise + cine + H.265 CRF 22 + MD5 + limpieza. */
+  readonly autoPipeline?: boolean;
+  /** Procesa el audio original: 1.02× con atempo + ruido rosa a -50 dB. */
+  readonly audioSpeedNoise?: boolean;
+  /** Genera narración con Piper TTS local y la usa como audio final. */
+  readonly voicePipeline?: boolean;
+  readonly voiceScript?: string | null;
+  /** Superpone watermark.png sobre el video procesado. */
+  readonly watermark?: boolean;
+  /** Parche delogo proporcional para una marca fija. */
+  readonly delogo?: boolean;
+  readonly delogoCorner?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' | null;
+  /** Rectángulo manual en fracciones 0–1; reemplaza la esquina. */
+  readonly delogoRect?: { x: number; y: number; w: number; h: number } | null;
+  /** Escalado Lanczos sólo si el origen queda debajo del objetivo. */
+  readonly upscale?: boolean;
+  readonly upscaleTarget?: 'auto' | '1080' | '2160' | null;
+  /**
+   * Enrutamiento automático por metadatos: ≤60 s look completo + Piper;
+   * >60 s espejo/zoom 4 % sin flujo óptico; títulos musicales conservan audio.
+   */
+  readonly autoRoute?: boolean;
+  readonly sourceTitle?: string | null;
+  readonly sourceDuration?: number | null;
+  /** Proxy HTTP/SOCKS para el motor yt-dlp. */
+  readonly proxy?: string | null;
+  /** Límite global de bajada, por ejemplo `500K` u `8M`. */
+  readonly limitRate?: string | null;
+  readonly downloadSubtitles?: boolean;
+  /** Idiomas para yt-dlp, por ejemplo `es.*,en.*`. */
+  readonly subtitleLangs?: string | null;
+  readonly downloadThumbnail?: boolean;
+  readonly downloadChapters?: boolean;
+  readonly sponsorblock?: boolean;
+  /** Categorías separadas por coma. */
+  readonly sponsorblockCategories?: string | null;
+  /** Categorías que se marcan como capítulo en vez de eliminarse. */
+  readonly sponsorblockMark?: string | null;
+  /** Categorías cuyos tramos se silencian después de descargar. */
+  readonly sponsorblockMute?: string | null;
+  /** Plantilla de nombre; acepta {title}, {id}, {platform}, {height} y {date}. */
+  readonly filenameTemplate?: string | null;
+  /** Elementos de playlist: `1-10`, `1,3,5`. */
+  readonly playlistItems?: string | null;
+  /** Idioma de audio preferido (`es`, `en`, `pt-BR`) o `all`. */
+  readonly audioLanguage?: string | null;
+  readonly audioFormatId?: string | null;
+  /** Metadatos del contenedor final y carátula incrustada. */
+  readonly metadataTitle?: string | null;
+  readonly metadataArtist?: string | null;
+  readonly metadataComment?: string | null;
+  readonly coverPath?: string | null;
+  /** Calcula MD5 y SHA-256 de todos los archivos. */
+  readonly hashFiles?: boolean;
+  /** SHA-256 esperado; si no coincide con ningún archivo, falla. */
+  readonly expectedSha256?: string | null;
+  /** Recorte previo en segundos. */
+  readonly trimStart?: number | null;
+  readonly trimEnd?: number | null;
+  /** Tamaño estimado del probe para el chequeo de disco. */
+  readonly estimatedBytes?: number | null;
+}
+
+export interface DownloadedChapter {
+  readonly startSeconds: number;
+  readonly title: string;
+}
+
+export interface DownloadedSubtitle {
+  readonly path: string;
+  readonly name: string;
+  readonly text: string;
 }
 
 export interface DownloadedFile {
@@ -1071,6 +1236,9 @@ export interface DownloadedFile {
   readonly name: string;
   readonly bytes: number;
   readonly kind: 'video' | 'image' | 'audio' | 'other';
+  readonly md5?: string | null;
+  readonly sha256?: string | null;
+  readonly chapters?: readonly DownloadedChapter[];
 }
 
 export interface DownloadOutcome {
@@ -1079,12 +1247,175 @@ export interface DownloadOutcome {
   readonly files: readonly DownloadedFile[];
   readonly compressed: boolean;
   readonly warnings: readonly string[];
+  readonly subtitles?: readonly DownloadedSubtitle[];
 }
 
 export interface DownloadProgressEvent {
-  readonly stage: 'engine' | 'probing' | 'downloading' | 'compressing' | 'done';
+  /** Vacío en eventos del motor (instalación) y presente en cada descarga. */
+  readonly runId: string;
+  readonly stage: 'engine' | 'probing' | 'downloading' | 'compressing' | 'importing' | 'done';
   readonly percent: number | null;
   readonly message: string;
+}
+
+export interface CreatorOutput {
+  readonly path: string;
+  readonly kind: string;
+  readonly width: number;
+  readonly height: number;
+  readonly durationSeconds: number;
+  readonly bytes: number;
+}
+
+export interface CreatorHookRequest {
+  readonly inputPath: string;
+  readonly outputPath: string;
+  readonly hookText: string;
+  readonly zoomPercent?: number;
+  readonly soundGainDb?: number;
+}
+
+export interface CreatorMultiAspectRequest {
+  readonly inputPath: string;
+  readonly outputDir: string;
+  readonly aspects?: readonly ('vertical' | 'horizontal' | 'square')[];
+}
+
+export interface CreatorCtaRequest {
+  readonly inputPath: string;
+  readonly outputPath: string;
+  readonly ctaText: string;
+  readonly url: string;
+  readonly ctaSeconds?: number;
+  readonly addQr?: boolean;
+}
+
+export interface CreatorSplitChaptersRequest {
+  readonly inputPath: string;
+  readonly outputDir: string;
+}
+
+export interface CreatorBurnSubtitlesRequest {
+  readonly inputPath: string;
+  readonly outputPath: string;
+  readonly subtitleText: string;
+}
+
+export interface CreatorBrollRequest {
+  readonly inputPath: string;
+  readonly brollDir: string;
+  readonly outputPath: string;
+  readonly intervalSeconds?: number;
+  readonly clipSeconds?: number;
+  readonly maxInsertions?: number;
+}
+
+export interface ChannelAnalysisRequest {
+  readonly channelUrl: string;
+  readonly maxVideos?: number;
+  readonly detailCount?: number;
+  readonly includeComments?: boolean;
+  readonly commentVideos?: number;
+}
+
+export interface ChannelProgressEvent {
+  readonly stage: 'listing' | 'details' | 'thumbnails' | 'comments';
+  readonly current: number;
+  readonly total: number;
+  readonly message: string;
+}
+
+export interface YouTubeThumbnailStats {
+  readonly width: number;
+  readonly height: number;
+  /** Porcentaje 0–100. */
+  readonly brightness: number;
+  /** Porcentaje 0–100. */
+  readonly saturation: number;
+  /** Porcentaje 0–100. */
+  readonly contrast: number;
+  readonly palette: readonly string[];
+  readonly preview: string;
+}
+
+export interface YouTubeKeywordCount {
+  readonly keyword: string;
+  readonly count: number;
+}
+
+export interface YouTubeTopComment {
+  readonly author: string;
+  readonly text: string;
+  readonly likes: number;
+  readonly videoTitle: string;
+}
+
+export interface YouTubeCommentAnalysis {
+  readonly analyzed: number;
+  readonly positivePercent: number;
+  readonly negativePercent: number;
+  readonly neutralPercent: number;
+  readonly keywords: readonly YouTubeKeywordCount[];
+  readonly topComments: readonly YouTubeTopComment[];
+}
+
+export interface YouTubeChannelVideo {
+  readonly id: string;
+  readonly title: string;
+  readonly url: string;
+  readonly views: number;
+  readonly likes: number | null;
+  readonly comments: number | null;
+  readonly durationSeconds: number;
+  readonly uploadDate: string | null;
+  readonly viewsPerDay: number;
+  readonly engagementRate: number;
+  readonly score: number;
+  readonly titleFlags: readonly string[];
+  readonly reasons: readonly string[];
+  readonly thumbnailUrl: string | null;
+  readonly thumbnail: YouTubeThumbnailStats | null;
+  readonly commentAnalysis: YouTubeCommentAnalysis | null;
+}
+
+export interface YouTubeChannelInsights {
+  readonly medianViews: number;
+  readonly averageEngagement: number;
+  readonly uploadsPerWeek: number;
+  readonly bestWeekday: string | null;
+  readonly bestHourUtc: number | null;
+  readonly medianDurationSeconds: number;
+  readonly commonTitleWords: readonly YouTubeKeywordCount[];
+  readonly titlePatterns: {
+    readonly numbersPercent: number;
+    readonly questionsPercent: number;
+    readonly howToPercent: number;
+    readonly listsPercent: number;
+  };
+  readonly thumbnailAverage: {
+    readonly brightness: number;
+    readonly saturation: number;
+    readonly contrast: number;
+    readonly samples: number;
+  } | null;
+  readonly comments: YouTubeCommentAnalysis | null;
+  readonly strengths: readonly string[];
+  readonly opportunities: readonly string[];
+}
+
+export interface YouTubeChannelReport {
+  readonly channelName: string;
+  readonly channelUrl: string;
+  readonly subscribers: number | null;
+  readonly listedVideos: number;
+  readonly analyzedVideos: number;
+  readonly totalVideos: number | null;
+  readonly bestVideoId: string;
+  readonly bestReasonSummary: string;
+  readonly videos: readonly YouTubeChannelVideo[];
+  readonly insights: YouTubeChannelInsights;
+  readonly warnings: readonly string[];
+  readonly fetchedAt: string;
 }
 
 export interface DownloaderBridgeInfo {
@@ -1108,6 +1439,34 @@ export interface PickedSubtitleFile {
   readonly name: string;
   readonly text: string;
 }
+
+export type LicenseTier = 'free' | 'pro';
+
+export interface LicenseStatus {
+  readonly tier: LicenseTier;
+  readonly isPro: boolean;
+  readonly email: string | null;
+  readonly licenseId: string | null;
+  readonly issuedAt: string | null;
+  readonly expiresAtUnix: number | null;
+  readonly trialEndsAtUnix: number | null;
+  readonly trialDaysLeft: number | null;
+  readonly source: 'license-file' | 'trial' | 'none' | string;
+  readonly error: string | null;
+}
+
+export const FREE_LICENSE_STATUS: LicenseStatus = {
+  tier: 'free',
+  isPro: false,
+  email: null,
+  licenseId: null,
+  issuedAt: null,
+  expiresAtUnix: null,
+  trialEndsAtUnix: null,
+  trialDaysLeft: null,
+  source: 'none',
+  error: null,
+};
 
 export interface DesktopService {
   readonly available: boolean;
@@ -1158,6 +1517,7 @@ export interface DesktopService {
     sceneThreshold?: number,
     silenceDb?: number,
     minSilenceSeconds?: number,
+    includeSamples?: boolean,
   ): Promise<MediaAnalysis>;
   convertMedia(request: ConversionRequest): Promise<ConversionResult>;
   convertMediaBatch(
@@ -1191,6 +1551,8 @@ export interface DesktopService {
     comment: string,
     outputDir: string,
   ): Promise<ToolResult>;
+  /** Extrae el primer subtítulo incrustado (prefiere español) sin IA. */
+  extractSubtitles(path: string): Promise<ExtractedSubtitles | null>;
   audioPeaks(assetId: string, buckets?: number): Promise<AudioPeaks>;
   /**
    * Mide el loudness de la mezcla del proyecto guardado (BS.1770-4 / EBU R128)
@@ -1204,14 +1566,44 @@ export interface DesktopService {
   downloaderStatus(): Promise<DownloaderStatus>;
   downloaderBridgeInfo(): Promise<DownloaderBridgeInfo>;
   installDownloader(): Promise<DownloaderStatus>;
+  updateDownloader(): Promise<DownloaderStatus>;
+  pauseDownload(runId?: string | null): Promise<boolean>;
+  resumeDownload(runId?: string | null): Promise<boolean>;
+  cancelDownload(runId?: string | null): Promise<boolean>;
+  creatorInjectHook(request: CreatorHookRequest): Promise<CreatorOutput>;
+  creatorExportMultiAspect(request: CreatorMultiAspectRequest): Promise<CreatorOutput[]>;
+  creatorInjectCta(request: CreatorCtaRequest): Promise<CreatorOutput>;
+  creatorInterleaveBroll(request: CreatorBrollRequest): Promise<CreatorOutput>;
+  creatorSplitChapters(request: CreatorSplitChaptersRequest): Promise<CreatorOutput[]>;
+  creatorBurnSubtitles(request: CreatorBurnSubtitlesRequest): Promise<CreatorOutput>;
+  downloadDiskSpace(path?: string | null): Promise<number>;
   chooseDownloadDirectory(): Promise<string | null>;
   extensionStatus(): Promise<ExtensionInstallStatus>;
   prepareExtension(): Promise<ExtensionInstallStatus>;
-  probeDownload(url: string, cookiesFile?: string | null): Promise<DownloadProbe>;
+  probeDownload(
+    url: string,
+    cookiesFile?: string | null,
+    cookiesFromBrowser?: string | null,
+  ): Promise<DownloadProbe>;
+  sponsorblockPreview(url: string, categories?: string | null): Promise<SponsorSegment[]>;
+  notifyUser(title: string, body: string): Promise<void>;
+  scanWatchFolder(path: string): Promise<WatchFile[]>;
+  fetchRssFeed(url: string, limit?: number | null): Promise<RssItem[]>;
+  testProxy(proxy: string): Promise<ProxyHealth>;
+  probeSourceChecksum(url: string): Promise<SourceChecksum>;
+  listPlaylistEntries(url: string, limit?: number | null): Promise<PlaylistEntry[]>;
+  listAudioTracks(url: string): Promise<AudioTrack[]>;
+  installWatchdog(): Promise<WatchdogStatus>;
+  removeWatchdog(): Promise<WatchdogStatus>;
+  watchdogStatus(): Promise<WatchdogStatus>;
   chooseCookiesFile(): Promise<string | null>;
   downloadMedia(request: DownloadRequest): Promise<DownloadOutcome>;
   cleanupDownload(runId: string): Promise<void>;
   onDownloadProgress(handler: (event: DownloadProgressEvent) => void): Promise<UnlistenFn>;
+  analyzeYoutubeChannel(request: ChannelAnalysisRequest): Promise<YouTubeChannelReport>;
+  onChannelAnalysisProgress(
+    handler: (event: ChannelProgressEvent) => void,
+  ): Promise<UnlistenFn>;
   fetchPlatformRules(): Promise<unknown>;
   listMcpServers(): Promise<McpServerConfig[]>;
   saveMcpServer(input: McpServerInput): Promise<McpServerConfig>;
@@ -1242,6 +1634,11 @@ export interface DesktopService {
     model?: string,
   ): Promise<TranscriptionResult>;
   systemInfo(): Promise<SystemInfo>;
+  licenseStatus(): Promise<LicenseStatus>;
+  chooseLicenseFile(): Promise<string | null>;
+  activateLicense(path: string): Promise<LicenseStatus>;
+  startTrial(): Promise<LicenseStatus>;
+  deactivateLicense(): Promise<LicenseStatus>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
   getProvider(): Promise<ProviderInfo>;
@@ -1322,6 +1719,12 @@ export interface DesktopService {
   /** Recorta el fondo de un asset del proyecto y lo devuelve ya importado. */
   removeBackgroundAsset(request: BackgroundRemovalRequest): Promise<Asset>;
   onBackgroundProgress(handler: (event: BackgroundProgress) => void): Promise<UnlistenFn>;
+  /** Escribe un lote de frames PNG RGBA para una secuencia temporal. */
+  writeAlphaFrames(request: AlphaFramesRequest): Promise<void>;
+  /** Codifica la secuencia como WebM VP9 con alfa y la agrega a Medios. */
+  alphaFramesToAsset(request: AlphaSequenceRequest): Promise<Asset>;
+  /** Borra los frames temporales cuando la conversión no termina. */
+  discardAlphaFrames(token: string): Promise<void>;
   upscaleImage(inputPath: string): Promise<UpscaleResult>;
   denoiseMedia(request: DenoiseRequest): Promise<DenoiseResult>;
   onDenoiseProgress(handler: (event: DenoiseProgress) => void): Promise<UnlistenFn>;
@@ -1389,16 +1792,40 @@ export const PROJECT_COMMANDS = {
   trimVideo: 'trim_video',
   watermarkVideo: 'watermark_video',
   setMetadata: 'set_metadata',
+  extractSubtitles: 'extract_subtitles',
   audioPeaks: 'audio_peaks',
   analyzeMixLoudness: 'analyze_mix_loudness',
   hardwareEncoders: 'hardware_encoders',
   downloaderStatus: 'downloader_status',
+  analyzeYoutubeChannel: 'analyze_youtube_channel',
   downloaderBridgeInfo: 'downloader_bridge_info',
   installDownloader: 'install_downloader',
+  updateDownloader: 'update_downloader',
+  pauseDownload: 'pause_download',
+  resumeDownload: 'resume_download',
+  cancelDownload: 'cancel_download',
+  creatorInjectHook: 'creator_inject_hook',
+  creatorExportMultiAspect: 'creator_export_multi_aspect',
+  creatorInjectCta: 'creator_inject_cta',
+  creatorInterleaveBroll: 'creator_interleave_broll',
+  creatorSplitChapters: 'creator_split_chapters',
+  creatorBurnSubtitles: 'creator_burn_subtitles',
+  downloadDiskSpace: 'download_disk_space',
   chooseDownloadDirectory: 'choose_download_directory',
   extensionStatus: 'extension_status',
   prepareExtension: 'prepare_extension',
   probeDownload: 'probe_download',
+  sponsorblockPreview: 'sponsorblock_preview',
+  notifyUser: 'notify_user',
+  scanWatchFolder: 'scan_watch_folder',
+  fetchRssFeed: 'fetch_rss_feed',
+  testProxy: 'test_proxy',
+  probeSourceChecksum: 'probe_source_checksum',
+  listPlaylistEntries: 'list_playlist_entries',
+  listAudioTracks: 'list_audio_tracks',
+  installWatchdog: 'install_watchdog',
+  removeWatchdog: 'remove_watchdog',
+  watchdogStatus: 'watchdog_status',
   chooseCookiesFile: 'choose_cookies_file',
   chooseImageFile: 'choose_image_file',
   chooseVideoFile: 'choose_video_file',
@@ -1414,6 +1841,9 @@ export const PROJECT_COMMANDS = {
   auditVisuals: 'audit_visuals',
   removeBackground: 'remove_background',
   removeBackgroundAsset: 'remove_background_asset',
+  writeAlphaFrames: 'write_alpha_frames',
+  alphaFramesToAsset: 'alpha_frames_to_asset',
+  discardAlphaFrames: 'discard_alpha_frames',
   upscaleImage: 'upscale_image',
   denoiseMedia: 'denoise_media',
   enhanceDialogue: 'enhance_dialogue',
@@ -1449,6 +1879,11 @@ export const PROJECT_COMMANDS = {
   saveDirectorMemory: 'save_director_memory',
   transcribeAsset: 'transcribe_asset',
   systemInfo: 'system_info',
+  licenseStatus: 'license_status',
+  chooseLicenseFile: 'choose_license_file',
+  activateLicense: 'activate_license',
+  startTrial: 'start_trial',
+  deactivateLicense: 'deactivate_license',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
   getProvider: 'get_provider',
@@ -1810,6 +2245,32 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         handler(event.payload),
       );
     },
+    async writeAlphaFrames(request) {
+      await call(PROJECT_COMMANDS.writeAlphaFrames, {
+        token: request.token,
+        startIndex: request.startIndex,
+        frames: request.frames,
+      });
+    },
+    async alphaFramesToAsset(request) {
+      const raw = await call(PROJECT_COMMANDS.alphaFramesToAsset, {
+        token: request.token,
+        label: request.label,
+        width: request.width,
+        height: request.height,
+        frameCount: request.frameCount,
+        fpsNum: request.fpsNum,
+        fpsDen: request.fpsDen,
+      });
+      const asset = parseAssets([raw])[0];
+      if (!asset) {
+        throw new Error('la secuencia no devolvió un asset válido');
+      }
+      return asset;
+    },
+    async discardAlphaFrames(token) {
+      await call(PROJECT_COMMANDS.discardAlphaFrames, { token });
+    },
     async upscaleImage(inputPath) {
       return (await call(PROJECT_COMMANDS.upscaleImage, {
         inputPath,
@@ -1998,12 +2459,19 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         smoothing,
       })) as StabilizationAnalysis;
     },
-    async analyzeMedia(assetId, sceneThreshold, silenceDb, minSilenceSeconds) {
+    async analyzeMedia(
+      assetId,
+      sceneThreshold,
+      silenceDb,
+      minSilenceSeconds,
+      includeSamples,
+    ) {
       return (await call(PROJECT_COMMANDS.analyzeMedia, {
         assetId,
         sceneThreshold: sceneThreshold ?? null,
         silenceDb: silenceDb ?? null,
         minSilenceSeconds: minSilenceSeconds ?? null,
+        includeSamples: includeSamples ?? null,
       })) as MediaAnalysis;
     },
     async convertMedia(request) {
@@ -2073,6 +2541,12 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         outputDir,
       })) as ToolResult;
     },
+    async extractSubtitles(path) {
+      const raw = (await call(PROJECT_COMMANDS.extractSubtitles, {
+        path,
+      })) as ExtractedSubtitles | null;
+      return raw ?? null;
+    },
     async audioPeaks(assetId, buckets) {
       return (await call(PROJECT_COMMANDS.audioPeaks, {
         assetId,
@@ -2101,17 +2575,132 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async installDownloader() {
       return (await call(PROJECT_COMMANDS.installDownloader)) as DownloaderStatus;
     },
+    async updateDownloader() {
+      return (await call(PROJECT_COMMANDS.updateDownloader)) as DownloaderStatus;
+    },
+    async pauseDownload(runId) {
+      return (await call(PROJECT_COMMANDS.pauseDownload, {
+        runId: runId ?? null,
+      })) as boolean;
+    },
+    async resumeDownload(runId) {
+      return (await call(PROJECT_COMMANDS.resumeDownload, {
+        runId: runId ?? null,
+      })) as boolean;
+    },
+    async cancelDownload(runId) {
+      return (await call(PROJECT_COMMANDS.cancelDownload, {
+        runId: runId ?? null,
+      })) as boolean;
+    },
+    async creatorInjectHook(request) {
+      return (await call(PROJECT_COMMANDS.creatorInjectHook, {
+        inputPath: request.inputPath,
+        outputPath: request.outputPath,
+        hookText: request.hookText,
+        zoomPercent: request.zoomPercent ?? null,
+        soundGainDb: request.soundGainDb ?? null,
+      })) as CreatorOutput;
+    },
+    async creatorExportMultiAspect(request) {
+      return (await call(PROJECT_COMMANDS.creatorExportMultiAspect, {
+        inputPath: request.inputPath,
+        outputDir: request.outputDir,
+        aspects: request.aspects ?? null,
+      })) as CreatorOutput[];
+    },
+    async creatorInjectCta(request) {
+      return (await call(PROJECT_COMMANDS.creatorInjectCta, {
+        inputPath: request.inputPath,
+        outputPath: request.outputPath,
+        ctaText: request.ctaText,
+        url: request.url,
+        ctaSeconds: request.ctaSeconds ?? null,
+        addQr: request.addQr ?? null,
+      })) as CreatorOutput;
+    },
+    async creatorInterleaveBroll(request) {
+      return (await call(PROJECT_COMMANDS.creatorInterleaveBroll, {
+        inputPath: request.inputPath,
+        brollDir: request.brollDir,
+        outputPath: request.outputPath,
+        intervalSeconds: request.intervalSeconds ?? null,
+        clipSeconds: request.clipSeconds ?? null,
+        maxInsertions: request.maxInsertions ?? null,
+      })) as CreatorOutput;
+    },
+    async creatorSplitChapters(request) {
+      return (await call(PROJECT_COMMANDS.creatorSplitChapters, {
+        inputPath: request.inputPath,
+        outputDir: request.outputDir,
+      })) as CreatorOutput[];
+    },
+    async creatorBurnSubtitles(request) {
+      return (await call(PROJECT_COMMANDS.creatorBurnSubtitles, {
+        inputPath: request.inputPath,
+        outputPath: request.outputPath,
+        subtitleText: request.subtitleText,
+      })) as CreatorOutput;
+    },
+    async downloadDiskSpace(path) {
+      return (await call(PROJECT_COMMANDS.downloadDiskSpace, {
+        path: path ?? null,
+      })) as number;
+    },
     async extensionStatus() {
       return (await call(PROJECT_COMMANDS.extensionStatus)) as ExtensionInstallStatus;
     },
     async prepareExtension() {
       return (await call(PROJECT_COMMANDS.prepareExtension)) as ExtensionInstallStatus;
     },
-    async probeDownload(url, cookiesFile) {
+    async probeDownload(url, cookiesFile, cookiesFromBrowser) {
       return (await call(PROJECT_COMMANDS.probeDownload, {
         url,
         cookiesFile: cookiesFile ?? null,
+        cookiesFromBrowser: cookiesFromBrowser ?? null,
       })) as DownloadProbe;
+    },
+    async sponsorblockPreview(url, categories) {
+      return (await call(PROJECT_COMMANDS.sponsorblockPreview, {
+        url,
+        categories: categories ?? null,
+      })) as SponsorSegment[];
+    },
+    async notifyUser(title, body) {
+      await call(PROJECT_COMMANDS.notifyUser, { title, body });
+    },
+    async scanWatchFolder(path) {
+      return (await call(PROJECT_COMMANDS.scanWatchFolder, { path })) as WatchFile[];
+    },
+    async fetchRssFeed(url, limit) {
+      return (await call(PROJECT_COMMANDS.fetchRssFeed, {
+        url,
+        limit: limit ?? null,
+      })) as RssItem[];
+    },
+    async testProxy(proxy) {
+      return (await call(PROJECT_COMMANDS.testProxy, { proxy })) as ProxyHealth;
+    },
+    async probeSourceChecksum(url) {
+      return (await call(PROJECT_COMMANDS.probeSourceChecksum, { url })) as SourceChecksum;
+    },
+    async listPlaylistEntries(url, limit) {
+      return (await call(PROJECT_COMMANDS.listPlaylistEntries, {
+        url,
+        limit: limit ?? null,
+      })) as PlaylistEntry[];
+    },
+    async listAudioTracks(url) {
+      return (await call(PROJECT_COMMANDS.listAudioTracks, { url })) as AudioTrack[];
+    },
+    async installWatchdog() {
+      return (await call(PROJECT_COMMANDS.installWatchdog)) as WatchdogStatus;
+    },
+    async removeWatchdog() {
+      return (await call(PROJECT_COMMANDS.removeWatchdog)) as WatchdogStatus;
+    },
+    async watchdogStatus() {
+      return (await call(PROJECT_COMMANDS.watchdogStatus)) as WatchdogStatus;
     },
     async chooseCookiesFile() {
       const raw = await call(PROJECT_COMMANDS.chooseCookiesFile);
@@ -2125,6 +2714,16 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async onDownloadProgress(handler) {
       return listen<DownloadProgressEvent>('download-progress', (event) => handler(event.payload));
+    },
+    async analyzeYoutubeChannel(request) {
+      return (await call(PROJECT_COMMANDS.analyzeYoutubeChannel, {
+        request,
+      })) as YouTubeChannelReport;
+    },
+    async onChannelAnalysisProgress(handler) {
+      return listen<ChannelProgressEvent>('channel-analysis-progress', (event) =>
+        handler(event.payload),
+      );
     },
     async fetchPlatformRules() {
       return call(PROJECT_COMMANDS.fetchPlatformRules);
@@ -2187,6 +2786,21 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
+    },
+    async licenseStatus() {
+      return (await call(PROJECT_COMMANDS.licenseStatus)) as LicenseStatus;
+    },
+    async chooseLicenseFile() {
+      return ((await call(PROJECT_COMMANDS.chooseLicenseFile)) as string | null) ?? null;
+    },
+    async activateLicense(path) {
+      return (await call(PROJECT_COMMANDS.activateLicense, { path })) as LicenseStatus;
+    },
+    async startTrial() {
+      return (await call(PROJECT_COMMANDS.startTrial)) as LicenseStatus;
+    },
+    async deactivateLicense() {
+      return (await call(PROJECT_COMMANDS.deactivateLicense)) as LicenseStatus;
     },
     async chooseTool(tool) {
       return (await call(PROJECT_COMMANDS.chooseTool, { tool })) as SystemInfo | null;
@@ -2373,6 +2987,7 @@ function createUnavailableService(): DesktopService {
     trimVideo: async () => unavailable(),
     watermarkVideo: async () => unavailable(),
     setMetadata: async () => unavailable(),
+    extractSubtitles: async () => unavailable(),
     audioPeaks: async () => unavailable(),
     analyzeMixLoudness: async () => unavailable(),
     onLoudnessAnalysisProgress: async () => () => {},
@@ -2387,10 +3002,32 @@ function createUnavailableService(): DesktopService {
     }),
     downloaderBridgeInfo: async () => unavailable(),
     installDownloader: async () => unavailable(),
+    updateDownloader: async () => unavailable(),
+    pauseDownload: async () => unavailable(),
+    resumeDownload: async () => unavailable(),
+    cancelDownload: async () => unavailable(),
+    creatorInjectHook: async () => unavailable(),
+    creatorExportMultiAspect: async () => unavailable(),
+    creatorInjectCta: async () => unavailable(),
+    creatorInterleaveBroll: async () => unavailable(),
+    creatorSplitChapters: async () => unavailable(),
+    creatorBurnSubtitles: async () => unavailable(),
+    downloadDiskSpace: async () => unavailable(),
     chooseDownloadDirectory: async () => unavailable(),
     extensionStatus: async () => unavailable(),
     prepareExtension: async () => unavailable(),
     probeDownload: async () => unavailable(),
+    sponsorblockPreview: async () => unavailable(),
+    notifyUser: async () => {},
+    scanWatchFolder: async () => unavailable(),
+    fetchRssFeed: async () => unavailable(),
+    testProxy: async () => unavailable(),
+    probeSourceChecksum: async () => unavailable(),
+    listPlaylistEntries: async () => unavailable(),
+    listAudioTracks: async () => unavailable(),
+    installWatchdog: async () => unavailable(),
+    removeWatchdog: async () => unavailable(),
+    watchdogStatus: async () => unavailable(),
     chooseCookiesFile: async () => unavailable(),
     chooseImageFile: async () => unavailable(),
     chooseVideoFile: async () => unavailable(),
@@ -2408,6 +3045,9 @@ function createUnavailableService(): DesktopService {
     removeBackground: async () => unavailable(),
     removeBackgroundAsset: async () => unavailable(),
     onBackgroundProgress: async () => () => {},
+    writeAlphaFrames: async () => unavailable(),
+    alphaFramesToAsset: async () => unavailable(),
+    discardAlphaFrames: async () => unavailable(),
     upscaleImage: async () => unavailable(),
     denoiseMedia: async () => unavailable(),
     enhanceDialogue: async () => unavailable(),
@@ -2437,6 +3077,8 @@ function createUnavailableService(): DesktopService {
     downloadMedia: async () => unavailable(),
     cleanupDownload: async () => unavailable(),
     onDownloadProgress: async () => () => {},
+    analyzeYoutubeChannel: async () => unavailable(),
+    onChannelAnalysisProgress: async () => () => {},
     fetchPlatformRules: async () => unavailable(),
     listMcpServers: async () => unavailable(),
     saveMcpServer: async () => unavailable(),
@@ -2451,6 +3093,15 @@ function createUnavailableService(): DesktopService {
     saveDirectorMemory: async () => unavailable(),
     transcribeAsset: async () => unavailable(),
     systemInfo: async () => unavailable(),
+    licenseStatus: async () => FREE_LICENSE_STATUS,
+    chooseLicenseFile: async () => null,
+    activateLicense: async () => {
+      throw new Error('La licencia se activa desde la app de escritorio.');
+    },
+    startTrial: async () => {
+      throw new Error('La prueba se inicia desde la app de escritorio.');
+    },
+    deactivateLicense: async () => FREE_LICENSE_STATUS,
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),
     getProvider: async () => unavailable(),

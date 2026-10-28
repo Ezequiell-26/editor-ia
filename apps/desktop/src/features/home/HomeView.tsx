@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import type { ViewId } from '../../app/navigation';
+import type { NavGroup, ViewId } from '../../app/navigation';
+import { NAV_VIEWS } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import { loadRecents, type RecentProject } from '../../lib/recents';
@@ -17,6 +18,12 @@ import { usePipeline } from '../../state/usePipeline';
 import { PipelineGuide } from './PipelineGuide';
 
 type ToolKey = 'engine' | 'ffmpeg' | 'ffprobe';
+
+const TOOL_GROUPS: ReadonlyArray<{ id: NavGroup; label: string }> = [
+  { id: 'ruta', label: 'Crear y editar' },
+  { id: 'herramientas', label: 'Herramientas' },
+  { id: 'ayuda', label: 'Sistema y ayuda' },
+];
 
 function statusText(available: boolean, version: string | null, missing: string): string {
   return available ? version ?? 'Disponible' : missing;
@@ -471,6 +478,18 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             </button>
           </form>
           <div className="home-links">
+            <button type="button" onClick={() => onNavigate('editor')}>
+              <Icon name="editor" size={15} />
+              <span>Editor</span>
+            </button>
+            <button type="button" onClick={() => onNavigate('auto-edit')}>
+              <Icon name="sparkles" size={15} />
+              <span>Automático</span>
+            </button>
+            <button type="button" onClick={() => onNavigate('youtube')}>
+              <Icon name="globe" size={15} />
+              <span>YouTube</span>
+            </button>
             <button type="button" onClick={() => onNavigate('learn')}>
               <Icon name="learn" size={15} />
               <span>Aprender</span>
@@ -486,6 +505,39 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
           </div>
         </section>
       </div>
+
+      <details className="card home-tools">
+        <summary>
+          <span>
+            <span className="eyebrow">Mapa del estudio</span>
+            <strong>Todas las herramientas</strong>
+          </span>
+          <span className="home-tools-count">{NAV_VIEWS.length - 1} vistas</span>
+        </summary>
+        <div className="home-tool-groups">
+          {TOOL_GROUPS.map((group) => (
+            <div key={group.id} className="home-tool-group">
+              <h3>{group.label}</h3>
+              <div className="home-tool-grid">
+                {NAV_VIEWS.filter(
+                  (view) => view.group === group.id && view.id !== 'home',
+                ).map((view) => (
+                  <button
+                    key={view.id}
+                    type="button"
+                    className="home-tool-btn"
+                    title={view.hint}
+                    onClick={() => onNavigate(view.id)}
+                  >
+                    <span>{view.label}</span>
+                    <small>{view.hint.split('·')[1]?.trim() ?? view.hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </details>
     </section>
   );
 }

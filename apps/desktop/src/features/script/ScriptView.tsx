@@ -216,7 +216,7 @@ function SceneCard({
           disabled={narrating || !narration.trim()}
           onClick={() => onNarrate(scene, narration)}
         >
-          {narrating ? 'Generando voz…' : 'Generar narración local'}
+          {narrating ? 'Generando voz…' : 'Generar narración'}
         </button>
         {dirty ? <span className="dirty-mark">cambios sin guardar</span> : null}
       </div>
@@ -284,7 +284,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
         if (!active) return;
         setVoices(list);
         const preferred = list.find((item) => /^es/i.test(item.culture)) ?? list[0];
-        if (preferred) setVoice(preferred.name);
+        if (preferred) setVoice(preferred.id);
       })
       .catch(() => {
         if (active) setVoices([]);
@@ -747,11 +747,11 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
         </div>
         <div className="script-tools">
           <label className="field inline">
-            <span>Voz local</span>
+            <span>Voz</span>
             <select value={voice} onChange={(event) => setVoice(event.target.value)} disabled={voices.length === 0}>
               {voices.length === 0 ? <option value="">Sin voces detectadas</option> : null}
               {voices.map((item) => (
-                <option key={item.name} value={item.name}>
+                <option key={item.id} value={item.id}>
                   {item.name} · {item.culture}
                 </option>
               ))}

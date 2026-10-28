@@ -11,8 +11,10 @@ import {
   addTrack,
   ensureDelivery,
   updateAudioMix,
+  updateClip,
   updateTrack,
 } from '../../state/project-actions';
+import { setTrackPanKeyframe } from '../../state/track-automation';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { LiveMeters } from './LiveMeters';
 import {
@@ -21,6 +23,7 @@ import {
   readPreviewAudioLevels,
   resetPreviewAudio,
   syncPreviewAudioFromProject,
+  syncPreviewAudioPanAtFrame,
 } from './usePreviewAudio';
 
 /**
@@ -384,5 +387,157 @@ describe('medidores en vivo con AudioContext simulado', () => {
     await act(async () => {
       unmount();
     });
+  });
+});
+
+/** Entrada de la cadena de pista, atravesando el paneo por clip si existe. */
+function trackInputOf(ctx: FakeAudioContext): FakeNodeBase {
+  const source = mediaSourcesOf(ctx)[0];
+  if (!source) throw new Error('sin fuente de media');
+  const first = source.connections[0];
+  if (!first) throw new Error('la fuente no está conectada');
+  if (first instanceof FakeGain) return first;
+  const clipLeft = first.connections[0];
+  const merger = clipLeft?.connections[0];
+  const input = merger?.connections[0];
+  if (!input) throw new Error('sin cadena de paneo por clip');
+  return input;
+}
+
+/** Ganancias L/R del paneo de pista: input → EQ → fader → splitter → gains. */
+function panNodesOf(ctx: FakeAudioContext): { left: FakeGain; right: FakeGain } {
+  const input = trackInputOf(ctx);
+  const eqLow = input.connections[0];
+  const eqMid = eqLow?.connections[0];
+  const eqHigh = eqMid?.connections[0];
+  const fader = eqHigh?.connections[0];
+  const splitter = fader?.connections[0];
+  const left = splitter?.connections[0];
+  const right = splitter?.connections[1];
+  if (!(left instanceof FakeGain) || !(right instanceof FakeGain)) {
+    throw new Error('sin cadena de paneo de pista');
+  }
+  return { left, right };
+}
+
+describe('paneo de pista animado en la preview', () => {
+  beforeEach(() => {
+    resetPreviewAudio();
+    installFakeAudioContext();
+  });
+
+  function animatedProject(): { project: ProjectDocument; musicTrackId: string } {
+    const { project, musicTrackId } = buildProject();
+    return {
+      project: setTrackPanKeyframe(
+        setTrackPanKeyframe(project, musicTrackId, 0, -1),
+        musicTrackId,
+        30,
+        1,
+      ),
+      musicTrackId,
+    };
+  }
+
+  it('muestrea las claves en el frame del playhead con la ley lineal del export', () => {
+    const { project, musicTrackId } = animatedProject();
+    syncPreviewAudioFromProject(project);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const { left, right } = panNodesOf(lastFakeContext());
+
+    syncPreviewAudioPanAtFrame(project, 0);
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBe(0);
+
+    // Frame 7,5 de 30: mitad del primer segmento → pan -0,5.
+    syncPreviewAudioPanAtFrame(project, 7.5);
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBeCloseTo(0.5, 9);
+
+    syncPreviewAudioPanAtFrame(project, 22.5);
+    expect(left.gain.value).toBeCloseTo(0.5, 9);
+    expect(right.gain.value).toBe(1);
+
+    syncPreviewAudioPanAtFrame(project, 30);
+    expect(left.gain.value).toBe(0);
+    expect(right.gain.value).toBe(1);
+
+    // Después de la última clave el paneo queda clampeado, como el export.
+    syncPreviewAudioPanAtFrame(project, 240);
+    expect(left.gain.value).toBe(0);
+    expect(right.gain.value).toBe(1);
+  });
+
+  it('ancla las claves al frame absoluto de la timeline', () => {
+    const { project, musicTrackId } = buildProject();
+    const withKeys = setTrackPanKeyframe(
+      setTrackPanKeyframe(project, musicTrackId, 30, -1),
+      musicTrackId,
+      60,
+      1,
+    );
+    syncPreviewAudioFromProject(withKeys);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const { left, right } = panNodesOf(lastFakeContext());
+
+    // Frame 30 absoluto: pan -1; frame 45: centro; frame 75: pan 1.
+    syncPreviewAudioPanAtFrame(withKeys, 30);
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBe(0);
+    syncPreviewAudioPanAtFrame(withKeys, 45);
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBe(1);
+    syncPreviewAudioPanAtFrame(withKeys, 75);
+    expect(left.gain.value).toBe(0);
+    expect(right.gain.value).toBe(1);
+  });
+
+  it('aplica la Bézier con el mismo progreso que el export', () => {
+    const { project, musicTrackId } = buildProject();
+    const withBezier = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        tracks: project.timeline.tracks.map((item) =>
+          item.id === musicTrackId
+            ? {
+                ...item,
+                panKeyframes: [
+                  {
+                    frame: 0,
+                    value: -1,
+                    easing: 'linear' as const,
+                    bezier: { cp1X: 0.42, cp1Y: 0, cp2X: 1, cp2Y: 1 },
+                  },
+                  { frame: 30, value: 1, easing: 'linear' as const },
+                ],
+              }
+            : item,
+        ),
+      },
+    } as ProjectDocument;
+    syncPreviewAudioFromProject(withBezier);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const { left, right } = panNodesOf(lastFakeContext());
+
+    // cubicBezierProgress(0,5; .42,0,1,1) = 0,31535681250589304, medido con
+    // la misma función del esquema que usa el export: derecho 0,630713…
+    syncPreviewAudioPanAtFrame(withBezier, 15);
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBeCloseTo(0.6307136, 6);
+  });
+
+  it('el paneo por clip conserva la prioridad sobre las claves de pista', () => {
+    const { project, musicTrackId } = animatedProject();
+    const clip = project.timeline.clips.find((item) => item.trackId === musicTrackId)!;
+    const withClipPan = updateClip(project, clip.id, {
+      audio: { ...(clip.audio ?? {}), pan: 0.5 },
+    });
+    syncPreviewAudioFromProject(withClipPan);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'), 0.5)).toBe(true);
+    syncPreviewAudioPanAtFrame(withClipPan, 7.5);
+    const { left, right } = panNodesOf(lastFakeContext());
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBe(1);
   });
 });

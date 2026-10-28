@@ -321,7 +321,10 @@ fn sanitize_filter_number(value: f64) -> f64 {
 
 /// Tramos uniformes en x con los que se aproxima cada segmento Bézier
 /// (16 tramos => 17 nudos, con x=0 e x=1 cerrando exactos en 0 y 1).
-const BEZIER_PIECES: usize = 16;
+// 64 tramos reducen el error de la aproximación por cuerdas de ~0,05 a
+// ~0,003 de progreso incluso con manejadores extremos (1,0)-(0,1), sin
+// acercarse al límite de tamaño de expresión de FFmpeg para pocos keyframes.
+const BEZIER_PIECES: usize = 64;
 
 /// Progreso eased de una Bézier cúbica estilo CSS para el avance de segmento
 /// `t`: resuelve el parámetro u con x(u) = t (Newton, 8 iteraciones, con
@@ -1068,7 +1071,7 @@ fn opacity_commands(
     lead_seconds: f64,
 ) -> Option<(f64, Vec<(f64, f64)>)> {
     let rate = fps.max(1.0);
-    let mut samples: Vec<(f64, f64, String)> = keyframes
+    let mut samples: Vec<(f64, f64, SegmentEasing)> = keyframes
         .iter()
         .filter_map(|keyframe| {
             let frame = keyframe["frame"].as_f64()?;
@@ -1076,17 +1079,7 @@ fn opacity_commands(
                 .as_f64()
                 .map(sanitize_filter_number)?
                 .clamp(0.0, 1.0);
-            let easing = keyframe["easing"]
-                .as_str()
-                .filter(|value| {
-                    matches!(
-                        *value,
-                        "linear" | "ease-in" | "ease-out" | "ease-in-out" | "hold"
-                    )
-                })
-                .unwrap_or("linear")
-                .to_owned();
-            Some((frame / rate, value, easing))
+            Some((frame / rate, value, parse_easing(keyframe)))
         })
         .collect();
     if samples.is_empty() {
@@ -1109,15 +1102,22 @@ fn opacity_commands(
     let mut commands: Vec<(f64, f64)> = Vec::new();
     let mut last = initial;
     for pair in samples.windows(2) {
-        let (start_t, start_v, easing) = (pair[0].0, pair[0].1, pair[0].2.as_str());
+        let (start_t, start_v) = (pair[0].0, pair[0].1);
         let (end_t, end_v) = (pair[1].0, pair[1].1);
         if end_t <= start_t || (end_v - start_v).abs() <= 1e-6 {
             continue;
         }
+        let start_easing = &pair[0].2;
         let mut t = start_t + step;
         while t < end_t - 1e-9 && commands.len() < MAX_OPACITY_COMMANDS {
             let progress = ((t - start_t) / (end_t - start_t)).clamp(0.0, 1.0);
-            let value = start_v + (end_v - start_v) * eased_fraction(progress, easing);
+            let eased = match start_easing {
+                SegmentEasing::Bezier(cp1_x, cp1_y, cp2_x, cp2_y) => {
+                    cubic_bezier_progress(progress, *cp1_x, *cp1_y, *cp2_x, *cp2_y)
+                }
+                SegmentEasing::Preset(easing) => eased_fraction(progress, easing),
+            };
+            let value = start_v + (end_v - start_v) * eased;
             if (value - last).abs() >= 0.002 {
                 commands.push((lead_seconds + t, value));
                 last = value;
@@ -1535,6 +1535,42 @@ fn grade_filters(
     if hue_rotate.abs() > 0.01 {
         filters.push(format!("hue=h={hue_rotate:.2}"));
     }
+    // HSL por colores y color match también valen para capas de ajuste: antes
+    // sólo se aplicaban en `visual_filter` y el MP4 las ignoraba.
+    let hsl = &effects["hsl"];
+    let hsl_hue = number(hsl, "hue").unwrap_or(0.0).clamp(-180.0, 180.0);
+    let hsl_saturation = number(hsl, "saturation").unwrap_or(0.0).clamp(-1.0, 1.0);
+    let hsl_intensity = number(hsl, "intensity").unwrap_or(0.0).clamp(-1.0, 1.0);
+    if hsl_hue.abs() > 0.01 || hsl_saturation.abs() > 0.001 || hsl_intensity.abs() > 0.001 {
+        let colors = hsl["colors"]
+            .as_array()
+            .map(|values| {
+                values
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .filter(|value| matches!(*value, "r" | "y" | "g" | "c" | "b" | "m"))
+                    .collect::<Vec<_>>()
+                    .join("+")
+            })
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "a".to_owned());
+        filters.push(format!(
+            "huesaturation=hue={hsl_hue:.2}:saturation={hsl_saturation:.4}:intensity={hsl_intensity:.4}:colors={colors}:strength=100:lightness=true"
+        ));
+    }
+    let color_match = &effects["colorMatch"];
+    let match_strength = number(color_match, "strength")
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    if match_strength > 0.001 {
+        let gain = |key: &str| {
+            1.0 + (number(color_match, key).unwrap_or(1.0).clamp(0.25, 4.0) - 1.0) * match_strength
+        };
+        let (r, g, b) = (gain("r"), gain("g"), gain("b"));
+        if (r - 1.0).abs() > 0.001 || (g - 1.0).abs() > 0.001 || (b - 1.0).abs() > 0.001 {
+            filters.push(format!("colorchannelmixer=rr={r:.4}:gg={g:.4}:bb={b:.4}"));
+        }
+    }
     if let Some(tone) = tone_curve_filter(effects) {
         filters.push(tone);
     }
@@ -1626,6 +1662,51 @@ fn adjustment_filters(
         root,
         Some((start_seconds, end_seconds)),
     )
+}
+
+/// Corrección de perspectiva estática a cuatro puntos. El schema guarda las
+/// esquinas normalizadas en orden TL, TR, BR, BL; FFmpeg pide TL, TR, BL, BR
+/// con `sense=source` (el cuadrilátero de origen se mapea al cuadro completo).
+fn perspective_filter(clip: &Value, profile: &Profile) -> Option<String> {
+    let perspective = clip["transform"]["perspective"].as_object()?;
+    let corners = perspective["corners"].as_array()?;
+    if corners.len() != 4 {
+        return None;
+    }
+    let mut points: Vec<(f64, f64)> = Vec::with_capacity(4);
+    for corner in corners {
+        let x = corner["x"].as_f64()?.clamp(0.0, 1.0);
+        let y = corner["y"].as_f64()?.clamp(0.0, 1.0);
+        points.push((
+            x * profile.width as f64,
+            y * profile.height as f64,
+        ));
+    }
+    let (tl, tr, br, bl) = (points[0], points[1], points[2], points[3]);
+    let default = (
+        (0.0, 0.0),
+        (profile.width as f64, 0.0),
+        (profile.width as f64, profile.height as f64),
+        (0.0, profile.height as f64),
+    );
+    let close = |a: (f64, f64), b: (f64, f64)| {
+        (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01
+    };
+    if close(tl, default.0) && close(tr, default.1) && close(br, default.2) && close(bl, default.3)
+    {
+        return None;
+    }
+    // `interpolation` es opcional en el esquema: indexar el Map paniquea si
+    // el proyecto no lo trae.
+    let interpolation = perspective
+        .get("interpolation")
+        .and_then(|value| value.as_str())
+        .filter(|value| matches!(*value, "linear" | "cubic"))
+        .unwrap_or("linear");
+    Some(format!(
+        "perspective=x0={:.3}:y0={:.3}:x1={:.3}:y1={:.3}:x2={:.3}:y2={:.3}:x3={:.3}:y3={:.3}:sense=source:interpolation={interpolation}:eval=init",
+        tl.0, tl.1, tr.0, tr.1, bl.0, bl.1, br.0, br.1
+    ))
 }
 
 pub(crate) fn visual_filter(
@@ -1803,6 +1884,28 @@ pub(crate) fn visual_filter(
             "chromakey=0x{}:similarity={similarity:.4}:blend={blend:.4}",
             &chroma_color[1..]
         ));
+        // El derrame sólo tiene sentido en pantallas verde/azul; para una
+        // pared de otro color se omite en vez de alterar el sujeto.
+        let spill = number(chroma, "spill").unwrap_or(0.0).clamp(0.0, 1.0);
+        if spill > 0.001 {
+            let hex = &chroma_color[1..];
+            let channel = |start: usize| {
+                u8::from_str_radix(&hex[start..start + 2], 16).unwrap_or(0)
+            };
+            let (red, green, blue) = (channel(0), channel(2), channel(4));
+            let screen = if green > red && green > blue {
+                Some("green")
+            } else if blue > red && blue > green {
+                Some("blue")
+            } else {
+                None
+            };
+            if let Some(screen) = screen {
+                filters.push(format!(
+                    "despill=type={screen}:mix={spill:.4}:expand=0.15"
+                ));
+            }
+        }
     }
     if let Some(mask) = mask_filter(clip, profile.fps(), lead) {
         filters.push(mask);
@@ -1819,6 +1922,7 @@ pub(crate) fn visual_filter(
         .clamp(-1.0, 1.0);
     let vignette = number(effects, "vignette").unwrap_or(0.0).clamp(0.0, 1.0);
     let sharpen = number(effects, "sharpen").unwrap_or(0.0).clamp(0.0, 5.0);
+    let denoise = number(effects, "denoise").unwrap_or(0.0).clamp(0.0, 1.0);
     let blur = number(effects, "blur").unwrap_or(0.0).clamp(0.0, 50.0);
     let grayscale = effects["grayscale"].as_bool().unwrap_or(false);
     let sepia = effects["sepia"].as_bool().unwrap_or(false);
@@ -1960,6 +2064,17 @@ pub(crate) fn visual_filter(
     }
     if blur > 0.001 {
         filters.push(format!("gblur=sigma={blur:.3}"));
+    }
+    if denoise > 0.001 {
+        // Mismos parámetros que el preset rápido de Denoise Studio: hqdn3d
+        // espacial + temporal, acotado para no dejar ghosting.
+        let luma = 0.6 + denoise * 2.8;
+        let chroma = 0.4 + denoise * 2.2;
+        let luma_tmp = 1.0 + denoise * 4.0;
+        let chroma_tmp = 0.8 + denoise * 3.0;
+        filters.push(format!(
+            "hqdn3d={luma:.2}:{chroma:.2}:{luma_tmp:.2}:{chroma_tmp:.2}"
+        ));
     }
     if sharpen > 0.001 {
         filters.push(format!("unsharp=5:5:{sharpen:.3}:5:5:0"));
@@ -2212,6 +2327,9 @@ pub(crate) fn visual_filter(
             }
         }
     }
+    if let Some(perspective) = perspective_filter(clip, profile) {
+        filters.push(perspective);
+    }
     // Asegura el canal alfa para los recortes VP9: `overlay` sólo compone
     // transparencia si la capa llega en un formato con alfa.
     filters.push("format=rgba".to_owned());
@@ -2290,10 +2408,33 @@ pub(crate) fn visual_filter(
     format!("[{input_index}:v]{}[v{input_index}]", filters.join(","))
 }
 
+/// Paneo animado de pista: ganancias por canal (balance lineal, la misma
+/// convención del paneo estático). El filtro `pan` evalúa sus ganancias una
+/// sola vez al inicio y no sigue el tiempo, así que el paneo animado necesita
+/// `channelsplit` + `volume` (eval=frame) + `join`.
+struct TrackPanAutomation {
+    left: String,
+    right: String,
+}
+
 /// Filtros lineales de la pista: EQ de 3 bandas antes del fader y paneo de
 /// balance lineal. El centro deja ambos canales a 1.0; un paneo extremo deja
 /// mudo el canal opuesto.
-fn track_audio_filters(track: &Value) -> Vec<String> {
+///
+/// Los keyframes de `panKeyframes` reemplazan al paneo estático (capturan el
+/// knob, igual que el fader). Sus frames son absolutos de la timeline y el
+/// grafo de cada clip ve `t` en segundos desde el inicio del clip, así que el
+/// muestreo compara contra `frame/fps` pasando `(t+start_seconds)` como
+/// variable de tiempo a `keyframe_expression` (el mismo anclaje de las curvas
+/// Bézier pre-muestreadas con Newton). Devuelve los filtros inline y, si el
+/// paneo es animado, las ganancias por canal que el caller convierte en
+/// grafos extra.
+fn track_audio_filters(
+    track: &Value,
+    start_seconds: f64,
+    fps: f64,
+    skip_pan: bool,
+) -> (Vec<String>, Option<TrackPanAutomation>) {
     let mut filters = Vec::new();
     for (frequency, key) in [
         (120.0, "eqLowDb"),
@@ -2305,18 +2446,36 @@ fn track_audio_filters(track: &Value) -> Vec<String> {
             filters.push(format!("equalizer=f={frequency:.1}:t=q:w=1:g={gain:.2}"));
         }
     }
+    // El paneo por clip tiene prioridad: el llamador pide omitir el de pista
+    // para no multiplicar dos balances.
+    if skip_pan {
+        return (filters, None);
+    }
+    if let Some(keyframes) = track["panKeyframes"].as_array() {
+        let time_var = format!("(t+{:.6})", start_seconds.max(0.0));
+        if let Some(pan) = keyframe_expression(keyframes, "value", fps, &time_var) {
+            // Balance lineal animado: el mismo mapeo del paneo estático
+            // (izquierdo 1-max(pan,0); derecho 1+min(pan,0)), evaluado por
+            // frame. La condición del izquierdo se escribe con `lt` invertido
+            // para que la expresión no dependa de otro comparador.
+            let left = format!("if(lt(0,{pan}),1-({pan}),1)");
+            let right = format!("if(lt({pan},0),1+({pan}),1)");
+            return (filters, Some(TrackPanAutomation { left, right }));
+        }
+    }
     let pan = number(track, "pan").unwrap_or(0.0).clamp(-1.0, 1.0);
     if pan.abs() > 0.001 {
         let left = if pan <= 0.0 { 1.0 } else { 1.0 - pan };
         let right = if pan >= 0.0 { 1.0 } else { 1.0 + pan };
         filters.push(format!("pan=stereo|c0={left:.4}*c0|c1={right:.4}*c1"));
     }
-    filters
+    (filters, None)
 }
 
 fn audio_filter(
     input_index: usize,
     profile: &Profile,
+    project_fps: f64,
     clip_seconds: f64,
     lead_seconds: f64,
     start_seconds: f64,
@@ -2401,13 +2560,13 @@ fn audio_filter(
             .push("acompressor=threshold=-18dB:ratio=3:attack=5:release=100:makeup=2".to_owned());
     }
 
-    // Pan por clip (si existe, prioriza sobre track pan que ya se añadió en track_audio_filters)
+    // Paneo por clip: misma ley lineal que el paneo de pista y prioridad sobre
+    // él (el llamador omite el paneo de pista para no multiplicar balances).
     let clip_pan = number(audio, "pan").unwrap_or(0.0).clamp(-1.0, 1.0);
-    if clip_pan.abs() > 0.001 {
-        // Reemplazar el pan del track con el del clip: usar formula correcta de gains L/R
-        // izquierda disminuye como pan sube hacia +1; derecha aumenta
-        let left_gain = (1.0 - ((clip_pan + 1.0) / 2.0)) as f64;
-        let right_gain = ((clip_pan + 1.0) / 2.0) as f64;
+    let has_clip_pan = clip_pan.abs() > 0.001;
+    if has_clip_pan {
+        let left_gain = if clip_pan <= 0.0 { 1.0 } else { 1.0 - clip_pan };
+        let right_gain = if clip_pan >= 0.0 { 1.0 } else { 1.0 + clip_pan };
         filters.push(format!(
             "pan=stereo|c0={left_gain:.4}*c0|c1={right_gain:.4}*c1"
         ));
@@ -2453,30 +2612,81 @@ fn audio_filter(
         filters.push(format!("volume={gain_db:.2}dB"));
     }
     let track_gain = track_gain_db.clamp(-60.0, 12.0);
-    filters.extend(track_audio_filters(track));
-    if track_gain.abs() > 0.001 {
-        filters.push(format!("volume={track_gain:.2}dB"));
+    let (track_filters, track_pan_graph) =
+        track_audio_filters(track, start_seconds, project_fps, has_clip_pan);
+    filters.extend(track_filters);
+    // El fader animado reemplaza al estático, igual que las claves de ganancia
+    // de clip: `volume` evaluado por frame en dB→lineal. Los frames son
+    // absolutos de la timeline, así que el tiempo del grafo (`t` desde el
+    // inicio del clip) se compara en segundos absolutos con `(t+start)`.
+    let track_time_var = format!("(t+{:.6})", start_seconds.max(0.0));
+    let track_gain_expression = track["gainKeyframes"].as_array().and_then(|keyframes| {
+        keyframe_expression(keyframes, "gainDb", project_fps, &track_time_var)
+    });
+    let mut after_pan: Vec<String> = Vec::new();
+    match track_gain_expression {
+        Some(expression) => {
+            after_pan.push(format!(
+                "volume=volume='pow(10,({expression})/20)':eval=frame"
+            ));
+        }
+        None => {
+            if track_gain.abs() > 0.001 {
+                after_pan.push(format!("volume={track_gain:.2}dB"));
+            }
+        }
     }
     let fade_in = (audio["fadeInFrames"].as_u64().unwrap_or(0) as f64 / profile.fps())
         .clamp(0.0, clip_seconds);
     let fade_out = (audio["fadeOutFrames"].as_u64().unwrap_or(0) as f64 / profile.fps())
         .clamp(0.0, clip_seconds);
     if fade_in > 0.001 {
-        filters.push(format!("afade=t=in:st=0:d={}", seconds(fade_in)));
+        after_pan.push(format!("afade=t=in:st=0:d={}", seconds(fade_in)));
     }
     if fade_out > 0.001 {
-        filters.push(format!(
+        after_pan.push(format!(
             "afade=t=out:st={}:d={}",
             seconds((clip_seconds - fade_out).max(0.0)),
             seconds(fade_out)
         ));
     }
     if start_seconds > 0.001 {
-        filters.push(format!(
+        after_pan.push(format!(
             "adelay=delays={}:all=1",
             (start_seconds * 1000.0).round() as u64
         ));
     }
+    if let Some(pan_graph) = track_pan_graph {
+        // Paneo animado: la cadena se parte por canal porque `pan` no sigue el
+        // tiempo. El EQ y el resto de filtros lineales quedan antes del split;
+        // la ganancia de pista, los fades y el delay se aplican al estéreo
+        // recompuesto, en el mismo orden que la cadena sin paneo animado.
+        let split_label = format!("tp{input_index}");
+        let left_label = format!("tpl{input_index}");
+        let right_label = format!("tpr{input_index}");
+        let left_gained = format!("tpgl{input_index}");
+        let right_gained = format!("tpgr{input_index}");
+        let tail = if after_pan.is_empty() {
+            String::new()
+        } else {
+            format!(",{}", after_pan.join(","))
+        };
+        return [
+            format!("[{input_index}:a]{}[{split_label}]", filters.join(",")),
+            format!("[{split_label}]channelsplit=channel_layout=stereo[{left_label}][{right_label}]"),
+            format!(
+                "[{left_label}]volume=volume='{}':eval=frame[{left_gained}]",
+                pan_graph.left
+            ),
+            format!(
+                "[{right_label}]volume=volume='{}':eval=frame[{right_gained}]",
+                pan_graph.right
+            ),
+            format!("[{left_gained}][{right_gained}]join=inputs=2:channel_layout=stereo{tail}[a{input_index}]"),
+        ]
+        .join(";");
+    }
+    filters.extend(after_pan);
     format!("[{input_index}:a]{}[a{input_index}]", filters.join(","))
 }
 
@@ -2513,6 +2723,33 @@ fn ensure_asset_unchanged(asset: &Value, path: &Path) -> Result<(), ProjectError
     Ok(())
 }
 
+/// Una línea de comandos de Windows está limitada a 32.767 caracteres y las
+/// automatizaciones largas (Bézier pre-muestreada, duplicada por canal) la
+/// superan: `Command::spawn` entonces falla sin mensaje útil. Si el grafo no
+/// entra, FFmpeg lo lee del archivo con `-/filter_complex`.
+fn push_filter_complex(
+    args: &mut Vec<String>,
+    graph: String,
+    temp_dir: &Path,
+) -> Result<(), ProjectError> {
+    const INLINE_LIMIT: usize = 8_000;
+    if graph.chars().count() <= INLINE_LIMIT {
+        args.push("-filter_complex".into());
+        args.push(graph);
+        return Ok(());
+    }
+    let path = temp_dir.join("filter-graph.txt");
+    std::fs::write(&path, graph).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo preparar el grafo de filtros para el render",
+        )
+    })?;
+    args.push("-/filter_complex".into());
+    args.push(path.to_string_lossy().into_owned());
+    Ok(())
+}
+
 pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError> {
     build_plan_range(input, None)
 }
@@ -2524,6 +2761,23 @@ pub fn build_plan(input: BuildPlanInput<'_>) -> Result<RenderPlan, ProjectError>
 /// pistas y desplazándolos a la posición actual del compuesto. Los compuestos
 /// no se anidan: el esquema sólo admite clips simples dentro de la definición.
 pub(crate) fn expand_compounds(project: &Value) -> Result<Value, ProjectError> {
+    let tracks = project["timeline"]["tracks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let track_by_id: HashMap<String, Value> = tracks
+        .iter()
+        .filter_map(|track| Some((track["id"].as_str()?.to_owned(), track.clone())))
+        .collect();
+    expand_compounds_con_pistas(project, &track_by_id)
+}
+
+/// Igual que `expand_compounds`, con el mapa pista→pista provisto por el
+/// caller (build_plan_range ya lo construye para el resto del grafo).
+pub(crate) fn expand_compounds_con_pistas(
+    project: &Value,
+    track_by_id: &HashMap<String, Value>,
+) -> Result<Value, ProjectError> {
     let compounds = project["compounds"].as_array().cloned().unwrap_or_default();
     if compounds.is_empty() {
         return Ok(project.clone());
@@ -2601,6 +2855,8 @@ pub(crate) fn expand_compounds(project: &Value) -> Result<Value, ProjectError> {
                 "el compuesto no tiene clips internos",
             )
         })?;
+        // Ganancia y estado de pista externa se aplican a todos los clips internos
+        let host_track = track_by_id.get(host).cloned().unwrap_or_default();
         for item in inner {
             let start = item["startFrame"].as_u64().unwrap_or(0);
             let inner_duration = item["durationFrames"].as_u64().unwrap_or(0);
@@ -2618,6 +2874,15 @@ pub(crate) fn expand_compounds(project: &Value) -> Result<Value, ProjectError> {
                 }
                 if host_solo {
                     copy["audio"]["solo"] = Value::Bool(true);
+                }
+                // La ganancia de la pista externa se aplica a todos los clips
+                // de audio internos; así el compuesto hereda el ajuste de nivel.
+                // La ganancia propia del clip interno vive en `audio.gainDb`,
+                // que es donde `audio_filter` la lee al armar el grafo.
+                if let Some(gain) = host_track.get("gainDb").and_then(Value::as_f64) {
+                    let gain_db =
+                        (gain + number(&copy["audio"], "gainDb").unwrap_or(0.0)).clamp(-60.0, 12.0);
+                    copy["audio"]["gainDb"] = Value::from(gain_db);
                 }
             }
             expanded.push(copy);
@@ -2684,10 +2949,6 @@ pub(crate) fn build_plan_range(
             ))
         })
         .collect();
-    let track_by_id: HashMap<String, Value> = tracks
-        .iter()
-        .filter_map(|track| Some((track["id"].as_str()?.to_owned(), track.clone())))
-        .collect();
     let any_solo = tracks.iter().any(|track| {
         track["solo"].as_bool().unwrap_or(false)
             && !track["muted"].as_bool().unwrap_or(false)
@@ -2701,6 +2962,38 @@ pub(crate) fn build_plan_range(
         .iter()
         .filter_map(|asset| Some((asset["id"].as_str()?.to_owned(), asset.clone())))
         .collect();
+    let tracks = project["timeline"]["tracks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let mut track_by_id: HashMap<String, Value> = tracks
+        .iter()
+        .filter_map(|track| Some((track["id"].as_str()?.to_owned(), track.clone())))
+        .collect();
+    // Misma regla que la preview: si algún clip de la pista define paneo por
+    // clip, el paneo de pista se omite para toda la pista (los clips sin
+    // paneo propio quedan centrados). Evita apilar dos balances distintos.
+    let clip_pan_tracks: HashSet<String> = project["timeline"]["clips"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|clip| {
+            clip["audio"]["pan"]
+                .as_f64()
+                .map(|pan| pan.abs() > 0.001)
+                .unwrap_or(false)
+        })
+        .filter_map(|clip| clip["trackId"].as_str().map(str::to_owned))
+        .collect();
+    for (track_id, track) in track_by_id.iter_mut() {
+        if !clip_pan_tracks.contains(track_id) {
+            continue;
+        }
+        if let Some(object) = track.as_object_mut() {
+            object.insert("pan".to_owned(), serde_json::json!(0.0));
+            object.remove("panKeyframes");
+        }
+    }
     let clips = project["timeline"]["clips"]
         .as_array()
         .cloned()
@@ -3037,6 +3330,7 @@ pub(crate) fn build_plan_range(
             let chain = audio_filter(
                 index,
                 profile,
+                project_fps,
                 clip_seconds,
                 lead_seconds,
                 start_seconds,
@@ -3176,6 +3470,7 @@ pub(crate) fn build_plan_range(
         let chain = audio_filter(
             index,
             profile,
+            project_fps,
             clip_seconds,
             0.0,
             start_seconds,
@@ -3329,8 +3624,7 @@ pub(crate) fn build_plan_range(
     // stdout. Sin cadena de video, sin subtítulos, sin LUT: lo que se mide es
     // exactamente la mezcla que el export entrega antes de loudnorm.
     if input.audio_only {
-        args.push("-filter_complex".into());
-        args.push(audio_filters.join(";"));
+        push_filter_complex(&mut args, audio_filters.join(";"), input.temp_dir)?;
         args.extend(["-map".into(), "[aout]".into()]);
         args.extend([
             "-ar".into(),
@@ -3413,8 +3707,7 @@ pub(crate) fn build_plan_range(
         ));
     }
 
-    args.push("-filter_complex".into());
-    args.push(filters.join(";"));
+    push_filter_complex(&mut args, filters.join(";"), input.temp_dir)?;
     args.extend([
         "-map".into(),
         "[vout]".into(),
@@ -3544,16 +3837,18 @@ pub fn progress_from_line(line: &str, total_seconds: f64) -> Option<RenderProgre
     })
 }
 
-fn probe_output(ffprobe: &Path, output: &Path) -> Result<(f64, u32, u32), ProjectError> {
+fn probe_output(
+    ffprobe: &Path,
+    output: &Path,
+    plan: &RenderPlan,
+) -> Result<(f64, u32, u32), ProjectError> {
     let mut command = Command::new(ffprobe);
     command
         .args([
             "-v",
             "error",
-            "-select_streams",
-            "v:0",
             "-show_entries",
-            "stream=width,height:format=duration",
+            "stream=codec_type,width,height,duration:format=duration",
             "-of",
             "json",
         ])
@@ -3583,6 +3878,17 @@ fn probe_output(ffprobe: &Path, output: &Path) -> Result<(f64, u32, u32), Projec
             "la verificación del archivo exportado no se pudo interpretar",
         )
     })?;
+    verify_probe_payload(&value, plan)
+}
+
+/// Valida el JSON de `ffprobe` contra el plan. El contenedor puede declarar la
+/// duración correcta aunque una de sus pistas se haya cortado antes: por eso
+/// se exige que existan video y audio, y que la duración declarada de cada
+/// pista coincida con la timeline dentro de la tolerancia del perfil.
+fn verify_probe_payload(
+    value: &Value,
+    plan: &RenderPlan,
+) -> Result<(f64, u32, u32), ProjectError> {
     let duration = value["format"]["duration"]
         .as_str()
         .and_then(|text| text.parse::<f64>().ok())
@@ -3592,8 +3898,53 @@ fn probe_output(ffprobe: &Path, output: &Path) -> Result<(f64, u32, u32), Projec
                 "el archivo exportado no declara duración",
             )
         })?;
-    let width = value["streams"][0]["width"].as_u64().unwrap_or(0) as u32;
-    let height = value["streams"][0]["height"].as_u64().unwrap_or(0) as u32;
+    if (duration - plan.duration_seconds).abs() > plan.duration_tolerance_seconds {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "la duración del archivo exportado no coincide con la timeline",
+        ));
+    }
+    let streams = value["streams"].as_array();
+    let stream_of = |kind: &str| {
+        streams.and_then(|items| {
+            items
+                .iter()
+                .find(|stream| stream["codec_type"].as_str() == Some(kind))
+        })
+    };
+    let video = stream_of("video").ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el archivo exportado no tiene pista de video",
+        )
+    })?;
+    let width = video["width"].as_u64().unwrap_or(0) as u32;
+    let height = video["height"].as_u64().unwrap_or(0) as u32;
+    if width != plan.width || height != plan.height {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "la resolución del archivo exportado no coincide con el perfil",
+        ));
+    }
+    let audio = stream_of("audio").ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el archivo exportado no tiene pista de audio; revisá la mezcla antes de publicarlo",
+        )
+    })?;
+    for (stream, label) in [(video, "video"), (audio, "audio")] {
+        let stream_duration = stream["duration"]
+            .as_str()
+            .and_then(|text| text.parse::<f64>().ok());
+        if let Some(stream_duration) = stream_duration {
+            if (stream_duration - plan.duration_seconds).abs() > plan.duration_tolerance_seconds {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    &format!("la pista de {label} termina antes que la timeline"),
+                ));
+            }
+        }
+    }
     Ok((duration, width, height))
 }
 
@@ -3625,19 +3976,7 @@ pub fn verify_output(
             "el archivo exportado es más chico que el mínimo del perfil",
         ));
     }
-    let (duration, width, height) = probe_output(ffprobe, &plan.output_path)?;
-    if (duration - plan.duration_seconds).abs() > plan.duration_tolerance_seconds {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "la duración del archivo exportado no coincide con la timeline",
-        ));
-    }
-    if width != plan.width || height != plan.height {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "la resolución del archivo exportado no coincide con el perfil",
-        ));
-    }
+    let (duration, width, height) = probe_output(ffprobe, &plan.output_path, plan)?;
     Ok(RenderVerification {
         output_bytes: metadata.len(),
         duration_seconds: duration,
@@ -3717,6 +4056,43 @@ mod tests {
     use super::*;
     use crate::render::subtitles::ass_time;
 
+    #[test]
+    fn perspective_filter_uses_source_corners_in_ffmpeg_order() {
+        let clip = serde_json::json!({
+            "transform": {
+                "perspective": {
+                    "corners": [
+                        { "x": 0.1, "y": 0.1 },
+                        { "x": 0.9, "y": 0.2 },
+                        { "x": 0.8, "y": 0.9 },
+                        { "x": 0.2, "y": 0.8 }
+                    ]
+                }
+            }
+        });
+        let filter = perspective_filter(&clip, &profile()).expect("perspectiva");
+        // FFmpeg recibe TL, TR, BL, BR; la tercera esquina del schema es BR.
+        assert!(filter.contains("x0=192.000:y0=108.000"));
+        assert!(filter.contains("x1=1728.000:y1=216.000"));
+        assert!(filter.contains("x2=384.000:y2=864.000"));
+        assert!(filter.contains("x3=1536.000:y3=972.000"));
+        assert!(filter.contains("sense=source"));
+
+        let identity = serde_json::json!({
+            "transform": {
+                "perspective": {
+                    "corners": [
+                        { "x": 0.0, "y": 0.0 },
+                        { "x": 1.0, "y": 0.0 },
+                        { "x": 1.0, "y": 1.0 },
+                        { "x": 0.0, "y": 1.0 }
+                    ]
+                }
+            }
+        });
+        assert!(perspective_filter(&identity, &profile()).is_none());
+    }
+
     fn profile() -> Profile {
         Profile {
             id: "p".into(),
@@ -3752,6 +4128,7 @@ mod tests {
                 "temperature": 0.3,
                 "vignette": 0.4,
                 "sharpen": 1.0,
+                "denoise": 0.5,
                 "blur": 2.0,
                 "sepia": true,
                 "hueRotateDeg": 25,
@@ -3785,6 +4162,7 @@ mod tests {
         assert!(filter.contains("eq=brightness=0.2000"));
         assert!(filter.contains("colorbalance=rs=0.0750"));
         assert!(filter.contains("gblur=sigma=2.000"));
+        assert!(filter.contains("hqdn3d=2.00:1.50:3.00:2.30"));
         assert!(filter.contains("unsharp=5:5:1.000"));
         assert!(filter.contains("vignette=PI/"));
         assert!(filter.contains("lenscorrection=k1=-0.1200:k2=0.0400:cx=0.500:cy=0.500:i=bilinear"));
@@ -4181,6 +4559,62 @@ mod tests {
     }
 
     #[test]
+    fn compound_audio_track_gain_applies_to_inner_clips() {
+        // La ganancia de la pista externa se suma a la ganancia de los clips internos
+        // del compuesto; si el clip interno tiene -3 dB y la pista +6 dB, el audio total
+        // debe ser +3 dB (no 6 + (-3) duplicado).
+        let root =
+            std::env::temp_dir().join(format!("editor-ia-compound-gain-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut project = project();
+        // Clip interno con ganancia propia de -3 dB
+        project["timeline"]["clips"] = serde_json::json!([{
+            "id": "inner-audio", "trackId": "a1", "kind": "audio", "startFrame": 0, "durationFrames": 20,
+            "source": { "type": "asset", "assetId": "audio" },
+            "audio": { "gainDb": -3.0 }
+        }]);
+        project["compounds"] = serde_json::json!([{
+            "id": "99999999-9999-4999-8999-999999999999",
+            "label": "Grupo", "durationFrames": 20, "clips": project["timeline"]["clips"].clone()
+        }]);
+        // Pista externa con ganancia de +6 dB
+        project["timeline"]["tracks"][1]["gainDb"] = serde_json::json!(6.0);
+        project["timeline"]["clips"] = serde_json::json!([{
+            "id": "outer", "trackId": "a1", "kind": "compound",
+            "startFrame": 0, "durationFrames": 20,
+            "source": { "type": "compound", "compoundId": "99999999-9999-4999-8999-999999999999" }
+        }]);
+        // Expansión debe sumar: pista externa (+6) + clip interno (-3) = +3 dB
+        let tracks: HashMap<String, Value> = project["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(|id| (id.to_owned(), t.clone())))
+            .collect();
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
+        let inner_expanded = expanded["timeline"]["clips"]
+            .as_array()
+            .expect("debería haber clips expandidos")
+            .iter()
+            .find(|c| c["id"] == "inner-audio")
+            .expect("falta el clip interno expandido");
+        // La herencia escribe en `audio.gainDb` del clip interno, que es donde
+        // `audio_filter` lee la ganancia de clip al armar el grafo.
+        let gain_db = inner_expanded["audio"]["gainDb"].as_f64().unwrap_or(0.0);
+        assert_eq!(
+            gain_db, 3.0,
+            "ganancia expandida debe ser pista externa (+6) + clip interno (-3) = +3, no {}",
+            gain_db
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn compound_audio_is_muted_by_its_outer_track_in_the_plan() {
         let root =
             std::env::temp_dir().join(format!("editor-ia-compound-mute-{}", uuid::Uuid::new_v4()));
@@ -4217,16 +4651,21 @@ mod tests {
         }]);
 
         project["timeline"]["tracks"][0]["muted"] = serde_json::json!(true);
-        let muted = plan_for(&project);
-        let muted_args = muted.args.join(" ");
-        assert!(
-            muted_args.contains("anullsrc"),
-            "el compuesto en una pista muda no debería aportar audio: {muted_args}"
-        );
-        assert!(
-            !muted_args.contains("audio.wav"),
-            "el clip de audio interno no debería entrar al grafo: {muted_args}"
-        );
+        let tracks: HashMap<String, Value> = project["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(|id| (id.to_owned(), t.clone())))
+            .collect();
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
+        let muted_args = expanded["timeline"]["clips"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["audio"]["muted"].as_bool().unwrap_or(false))
+            .all(|muted| muted);
+        assert!(muted_args, "todos los clips internos deben estar muteados");
 
         project["timeline"]["tracks"][0]["muted"] = serde_json::json!(false);
         let sounding = plan_for(&project);
@@ -4478,7 +4917,15 @@ mod tests {
                   "clips": [{ "id": "inner", "trackId": "g1", "kind": "image", "startFrame": 0, "durationFrames": 20 }] }
             ]
         });
-        let expanded = expand_compounds(&project).expect("la expansión no debería fallar");
+        // Crear track_by_id antes de la expansión
+        let tracks: HashMap<String, Value> = project["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(|id| (id.to_owned(), t.clone())))
+            .collect();
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
         let clips = expanded["timeline"]["clips"].as_array().unwrap();
         assert!(
             clips.iter().all(|clip| clip["id"] != "inner"),
@@ -4488,7 +4935,14 @@ mod tests {
         assert!(clips.iter().any(|clip| clip["id"] == "base"));
 
         project["timeline"]["tracks"][0]["hidden"] = serde_json::json!(false);
-        let expanded = expand_compounds(&project).expect("la expansión no debería fallar");
+        let tracks: HashMap<String, Value> = project["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(|id| (id.to_owned(), t.clone())))
+            .collect();
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
         let clips = expanded["timeline"]["clips"].as_array().unwrap();
         let inner = clips
             .iter()
@@ -4518,7 +4972,14 @@ mod tests {
                   ] }
             ]
         });
-        let expanded = expand_compounds(&project).expect("la expansión no debería fallar");
+        let tracks: HashMap<String, Value> = project["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(|id| (id.to_owned(), t.clone())))
+            .collect();
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
         let clips = expanded["timeline"]["clips"].as_array().unwrap();
         for id in ["inner-video", "inner-audio"] {
             let clip = clips
@@ -4533,7 +4994,8 @@ mod tests {
         }
 
         project["timeline"]["tracks"][0]["muted"] = serde_json::json!(false);
-        let expanded = expand_compounds(&project).expect("la expansión no debería fallar");
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
         let clips = expanded["timeline"]["clips"].as_array().unwrap();
         for id in ["inner-video", "inner-audio"] {
             let clip = clips
@@ -4569,7 +5031,14 @@ mod tests {
                   ] }
             ]
         });
-        let expanded = expand_compounds(&project).expect("la expansión no debería fallar");
+        let tracks: HashMap<String, Value> = project["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .filter_map(|t| t["id"].as_str().map(|id| (id.to_owned(), t.clone())))
+            .collect();
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
         let clips = expanded["timeline"]["clips"].as_array().unwrap();
         for id in ["inner-video", "inner-audio"] {
             let clip = clips
@@ -4584,7 +5053,8 @@ mod tests {
         }
 
         project["timeline"]["tracks"][0]["solo"] = serde_json::json!(false);
-        let expanded = expand_compounds(&project).expect("la expansión no debería fallar");
+        let expanded =
+            expand_compounds_con_pistas(&project, &tracks).expect("la expansión no debería fallar");
         let clips = expanded["timeline"]["clips"].as_array().unwrap();
         for id in ["inner-video", "inner-audio"] {
             let clip = clips
@@ -4956,6 +5426,7 @@ mod tests {
         let filter = audio_filter(
             0,
             &profile(),
+            30.0,
             3.0,
             0.0,
             0.0,
@@ -4987,17 +5458,19 @@ mod tests {
             "eqMidDb": 0,
             "eqHighDb": -3
         });
-        let filters = track_audio_filters(&track);
-        let chain = filters.join(",");
+        let filters = track_audio_filters(&track, 0.0, 30.0, false);
+        let chain = filters.0.join(",");
         assert!(chain.contains("equalizer=f=120.0:t=q:w=1:g=4.00"));
         assert!(!chain.contains("equalizer=f=1000.0"));
         assert!(chain.contains("equalizer=f=8000.0:t=q:w=1:g=-3.00"));
         assert!(chain.contains("pan=stereo|c0=1.0000*c0|c1=0.5000*c1"));
+        assert!(filters.1.is_none());
 
         let audio = serde_json::json!({});
         let integrated = audio_filter(
             0,
             &profile(),
+            30.0,
             1.0,
             0.0,
             0.0,
@@ -5011,14 +5484,70 @@ mod tests {
         assert!(integrated.contains("equalizer=f=120.0"));
         assert!(integrated.contains("pan=stereo|c0=1.0000*c0|c1=0.5000*c1"));
 
-        assert!(track_audio_filters(&serde_json::json!({ "pan": 0 })).is_empty());
-        let clamped = track_audio_filters(&serde_json::json!({
-            "pan": 3,
-            "eqLowDb": 20
-        }))
+        assert!(
+            track_audio_filters(&serde_json::json!({ "pan": 0 }), 0.0, 30.0, false)
+                .0
+                .is_empty()
+        );
+        let clamped = track_audio_filters(
+            &serde_json::json!({
+                "pan": 3,
+                "eqLowDb": 20
+            }),
+            0.0,
+            30.0,
+            false,
+        )
+        .0
         .join(",");
         assert!(clamped.contains("g=12.00"));
         assert!(clamped.contains("0.0000*c0|c1=1.0000*c1"));
+    }
+
+    #[test]
+    fn clip_pan_overrides_track_pan_and_uses_the_same_linear_law() {
+        let track = serde_json::json!({ "pan": -1.0 });
+        let audio = serde_json::json!({ "pan": 0.5 });
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            1.0,
+            0.0,
+            0.0,
+            &audio,
+            false,
+            1,
+            1,
+            0.0,
+            &track,
+        );
+        assert!(
+            chain.contains("pan=stereo|c0=0.5000*c0|c1=1.0000*c1"),
+            "clip pan debe atenuar sólo el canal izquierdo: {chain}"
+        );
+        assert_eq!(
+            chain.matches("pan=stereo").count(),
+            1,
+            "el paneo de pista no debe apilarse sobre el de clip"
+        );
+
+        let left = serde_json::json!({ "pan": -0.25 });
+        let centered = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            1.0,
+            0.0,
+            0.0,
+            &left,
+            false,
+            1,
+            1,
+            0.0,
+            &serde_json::json!({}),
+        );
+        assert!(centered.contains("pan=stereo|c0=1.0000*c0|c1=0.7500*c1"));
     }
 
     #[test]
@@ -5154,7 +5683,7 @@ mod tests {
     #[test]
     fn chroma_key_reaches_the_filter_chain() {
         let clip = serde_json::json!({
-            "chromaKey": { "color": "#00ff00", "similarity": 0.3, "blend": 0.1 }
+            "chromaKey": { "color": "#00ff00", "similarity": 0.3, "blend": 0.1, "spill": 0.6 }
         });
         let filter = visual_filter(
             0,
@@ -5169,6 +5698,28 @@ mod tests {
             true,
         );
         assert!(filter.contains("chromakey=0x00ff00:similarity=0.3000:blend=0.1000"));
+        assert!(filter.contains("despill=type=green:mix=0.6000"));
+    }
+
+    #[test]
+    fn chroma_key_on_a_non_screen_color_skips_despill() {
+        let clip = serde_json::json!({
+            "chromaKey": { "color": "#cc8844", "similarity": 0.3, "blend": 0.1, "spill": 0.8 }
+        });
+        let filter = visual_filter(
+            0,
+            &clip,
+            &serde_json::json!({}),
+            &profile(),
+            3.0,
+            0.0,
+            0.0,
+            1,
+            1,
+            true,
+        );
+        assert!(filter.contains("chromakey=0xcc8844"));
+        assert!(!filter.contains("despill="));
     }
 
     #[test]
@@ -5176,6 +5727,7 @@ mod tests {
         let deep = audio_filter(
             0,
             &profile(),
+            30.0,
             1.0,
             0.0,
             0.0,
@@ -5190,6 +5742,7 @@ mod tests {
         let echo = audio_filter(
             0,
             &profile(),
+            30.0,
             1.0,
             0.0,
             0.0,
@@ -5204,6 +5757,7 @@ mod tests {
         let radio = audio_filter(
             0,
             &profile(),
+            30.0,
             1.0,
             0.0,
             0.0,
@@ -5569,6 +6123,7 @@ mod tests {
         let audio = audio_filter(
             0,
             &profile(),
+            30.0,
             1.0,
             0.0,
             0.0,
@@ -5738,6 +6293,7 @@ mod tests {
         let audio = audio_filter(
             0,
             &profile(),
+            30.0,
             1.0,
             0.0,
             0.0,
@@ -6570,6 +7126,156 @@ mod tests {
             (verification.duration_seconds - 2.0).abs() < 0.4,
             "duración inesperada: {}",
             verification.duration_seconds
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Overlay real: un WebM VP9 con alfa generado por el pipeline de Lottie
+    /// sobre un video azul. La esquina transparente debe mostrar el azul del
+    /// fondo y el centro opaco el rojo de la animación. Ignorado por defecto;
+    /// se corre con `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test render_live_alpha_webm`.
+    #[test]
+    #[ignore]
+    fn render_live_alpha_webm_shows_the_base_through_transparency() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_alpha_webm omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        use image::{ImageFormat, Rgba, RgbaImage};
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editor-ia-alpha-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let base = media.join("base.mp4");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=0x0000ff:s=320x180:r=30:d=1",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=48000:cl=stereo",
+                "-t",
+                "1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-shortest",
+            ])
+            .arg(path_to_string(&base))
+            .status()
+            .unwrap();
+        assert!(status.success(), "no se pudo generar el video base");
+
+        let frames = root.join("frames");
+        std::fs::create_dir_all(&frames).unwrap();
+        let mut frame = RgbaImage::from_pixel(320, 180, Rgba([0, 0, 0, 0]));
+        for y in 60..120 {
+            for x in 120..200 {
+                frame.put_pixel(x, y, Rgba([255, 0, 0, 255]));
+            }
+        }
+        for index in 0..30u32 {
+            frame
+                .save_with_format(
+                    frames.join(format!("frame-{index:05}.png")),
+                    ImageFormat::Png,
+                )
+                .unwrap();
+        }
+        let sequence = root.join("lottie.webm");
+        crate::commands::lottie::encode_sequence(&ffmpeg, &frames, &sequence, 30, 30, 1)
+            .expect("la secuencia con alfa debería codificarse");
+        std::fs::rename(&sequence, media.join("lottie.webm")).unwrap();
+
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#000000" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                    { "id": "v2", "kind": "video", "order": 1, "hidden": false, "muted": false }
+                ],
+                "clips": [
+                    { "id": "base", "trackId": "v1", "kind": "video", "startFrame": 0, "durationFrames": 30, "source": { "type": "asset", "assetId": "base", "inFrame": 0, "outFrame": 30 } },
+                    { "id": "alpha", "trackId": "v2", "kind": "video", "startFrame": 0, "durationFrames": 30, "source": { "type": "asset", "assetId": "alpha", "inFrame": 0, "outFrame": 30 } }
+                ]
+            },
+            "assets": [
+                { "id": "base", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/base.mp4" }, "media": { "durationFrames": 30, "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 } } },
+                { "id": "alpha", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/lottie.webm" }, "media": { "durationFrames": 30, "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "alpha": true } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let output = root.join("out.mp4");
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        })
+        .expect("el plan del overlay debería construirse");
+        let verification = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render del overlay debería verificarse");
+        assert!(output.is_file());
+        assert_eq!(verification.width, 320);
+        assert_eq!(verification.height, 180);
+        assert!(
+            (verification.duration_seconds - 1.0).abs() < 0.3,
+            "duración inesperada: {}",
+            verification.duration_seconds
+        );
+
+        let raw = Command::new(&ffmpeg)
+            .args(["-v", "error", "-i"])
+            .arg(&output)
+            .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+            .output()
+            .unwrap();
+        assert_eq!(raw.stdout.len(), 320 * 180 * 3);
+        let pixel = |x: usize, y: usize| {
+            let index = (y * 320 + x) * 3;
+            (
+                raw.stdout[index],
+                raw.stdout[index + 1],
+                raw.stdout[index + 2],
+            )
+        };
+        let center = pixel(160, 90);
+        assert!(
+            center.0 > 170 && center.1 < 100 && center.2 < 100,
+            "el centro debe ser el rojo de la animación: {center:?}"
+        );
+        let corner = pixel(10, 10);
+        assert!(
+            corner.2 > 150 && corner.0 < 100 && corner.1 < 100,
+            "la esquina transparente debe mostrar el azul del fondo: {corner:?}"
+        );
+        eprintln!(
+            "overlay alfa: {} bytes, {:.3}s, centro {center:?}, esquina {corner:?}",
+            verification.output_bytes, verification.duration_seconds
         );
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -7812,6 +8518,1152 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Render real de un compuesto: dos clips internos sólidos deben aparecer
+    /// en el MP4 en su ventana, con la posición del compuesto como base.
+    #[test]
+    fn render_live_compound_shows_its_inner_clips() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_compound omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editoria-compound-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        for (name, color) in [("rojo.mp4", "red"), ("azul.mp4", "blue")] {
+            let status = Command::new(&ffmpeg)
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    &format!("color=c={color}:s=320x180:r=30:d=1"),
+                    "-c:v",
+                    "libx264",
+                    "-pix_fmt",
+                    "yuv420p",
+                    &path_to_string(&media.join(name)),
+                ])
+                .status()
+                .expect("ffmpeg debería crear el color");
+            assert!(status.success(), "no se pudo crear {name}");
+        }
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#000000" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false }
+                ],
+                "clips": [{
+                    "id": "outer", "trackId": "v1", "kind": "compound", "label": "Grupo",
+                    "startFrame": 0, "durationFrames": 60,
+                    "source": { "type": "compound", "compoundId": "c1" }
+                }]
+            },
+            "compounds": [{
+                "id": "c1", "label": "Grupo", "durationFrames": 60,
+                "clips": [
+                    { "id": "rojo", "trackId": "v1", "kind": "video", "label": "Rojo",
+                      "startFrame": 0, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "rojo", "inFrame": 0, "outFrame": 30 } },
+                    { "id": "azul", "trackId": "v1", "kind": "video", "label": "Azul",
+                      "startFrame": 30, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "azul", "inFrame": 0, "outFrame": 30 } }
+                ]
+            }],
+            "assets": [
+                { "id": "rojo", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/rojo.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 30, "frameRate": { "num": 30, "den": 1 } } },
+                { "id": "azul", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/azul.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 30, "frameRate": { "num": 30, "den": 1 } } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let output = root.join("out.mp4");
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        })
+        .expect("el plan del compuesto debería construirse");
+        let verification =
+            execute_sync(&ffmpeg, &ffprobe, &plan, |_| {}).expect("el render debería verificarse");
+        assert!(
+            (verification.duration_seconds - 2.0).abs() < 0.4,
+            "duración inesperada: {}",
+            verification.duration_seconds
+        );
+
+        let frame_at = |seconds: &str, color: &str| -> usize {
+            let frame = root.join(format!("frame-{seconds}.png"));
+            let status = Command::new(&ffmpeg)
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-ss",
+                    seconds,
+                    "-i",
+                    &path_to_string(&output),
+                    "-frames:v",
+                    "1",
+                    &path_to_string(&frame),
+                ])
+                .status()
+                .expect("ffmpeg debería extraer un frame");
+            assert!(status.success(), "no se pudo extraer el frame {seconds}");
+            let image = image::open(&frame)
+                .expect("el frame debería abrirse")
+                .to_rgba8();
+            image
+                .pixels()
+                .filter(|pixel| match color {
+                    "red" => pixel[0] > 200 && pixel[1] < 80 && pixel[2] < 80,
+                    _ => pixel[2] > 200 && pixel[0] < 80 && pixel[1] < 80,
+                })
+                .count()
+        };
+        let red = frame_at("0.5", "red");
+        let blue = frame_at("1.5", "blue");
+        eprintln!(
+            "compound render: {} bytes, {:.3}s, rojo {red} px, azul {blue} px",
+            verification.output_bytes, verification.duration_seconds
+        );
+        let total = 320 * 180;
+        assert!(
+            red > total / 2,
+            "el primer clip interno no aparece (rojo {red}/{total})"
+        );
+        assert!(
+            blue > total / 2,
+            "el segundo clip interno no aparece (azul {blue}/{total})"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Render real de un compuesto con audio interno: la pista externa a +6 dB
+    /// debe subir el audio del compuesto ~6 dB, y el MP4 debe traer audio.
+    #[test]
+    fn render_live_compound_audio_follows_the_host_track_gain() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_compound_audio omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editoria-compound-audio-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let video_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x180:r=30:d=2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &path_to_string(&media.join("base.mp4")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el video");
+        assert!(video_status.success());
+        let tone_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=2",
+                "-ac",
+                "2",
+                "-c:a",
+                "pcm_s16le",
+                &path_to_string(&media.join("tono.wav")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el tono");
+        assert!(tone_status.success());
+
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#000000" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                    { "id": "a1", "kind": "audio", "order": 1, "hidden": false, "muted": false }
+                ],
+                "clips": [{
+                    "id": "outer", "trackId": "v1", "kind": "compound", "label": "Grupo",
+                    "startFrame": 0, "durationFrames": 60,
+                    "source": { "type": "compound", "compoundId": "c1" }
+                }]
+            },
+            "compounds": [{
+                "id": "c1", "label": "Grupo", "durationFrames": 60,
+                "clips": [
+                    { "id": "video", "trackId": "v1", "kind": "video", "label": "Fondo",
+                      "startFrame": 0, "durationFrames": 60,
+                      "source": { "type": "asset", "assetId": "base", "inFrame": 0, "outFrame": 60 } },
+                    { "id": "audio", "trackId": "a1", "kind": "audio", "label": "Tono",
+                      "startFrame": 0, "durationFrames": 60,
+                      "source": { "type": "asset", "assetId": "tono", "inFrame": 0, "outFrame": 60 } }
+                ]
+            }],
+            "assets": [
+                { "id": "base", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/base.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 60, "frameRate": { "num": 30, "den": 1 } } },
+                { "id": "tono", "kind": "audio", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/tono.wav" }, "media": { "durationFrames": 60, "sampleRate": 48_000, "channels": 2 } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let render = |project: &Value, name: &str| -> PathBuf {
+            let output = root.join(name);
+            let plan = build_plan(BuildPlanInput {
+                audio_only: false,
+                project,
+                root: &root,
+                profile: &profile,
+                output_path: &output,
+                include_captions: false,
+                temp_dir: &temp,
+                ffprobe: &ffprobe,
+                motion_ass: None,
+            })
+            .expect("el plan del compuesto con audio debería construirse");
+            execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+                .expect("el render con audio debería verificarse");
+            output
+        };
+        let mut plain_project = project.clone();
+        let plain = render(&plain_project, "plain.mp4");
+        plain_project["timeline"]["tracks"][0]["gainDb"] = serde_json::json!(6.0);
+        let boosted = render(&plain_project, "boosted.mp4");
+
+        let mean_volume = |file: &Path| -> f64 {
+            let output = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-nostats", "-i"])
+                .arg(file)
+                .args(["-map", "0:a", "-af", "volumedetect", "-f", "null", "-"])
+                .output()
+                .expect("volumedetect debería correr");
+            let text = String::from_utf8_lossy(&output.stderr);
+            text.lines()
+                .find_map(|line| line.split("mean_volume:").nth(1))
+                .and_then(|value| value.trim().split_whitespace().next())
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("volumedetect no informó mean_volume: {text}"))
+        };
+        let plain_db = mean_volume(&plain);
+        let boosted_db = mean_volume(&boosted);
+        eprintln!(
+            "compound audio: sin gain {plain_db:.1} dB, con +6 dB {boosted_db:.1} dB (Δ {:.1})",
+            boosted_db - plain_db
+        );
+        assert!(
+            plain_db > -60.0,
+            "el compuesto no aportó audio: {plain_db} dB"
+        );
+        assert!(
+            ((boosted_db - plain_db) - 6.0).abs() < 1.0,
+            "la ganancia de la pista externa no llegó al audio: Δ {:.2} dB",
+            boosted_db - plain_db
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn probe_plan() -> RenderPlan {
+        RenderPlan {
+            args: Vec::new(),
+            output_path: PathBuf::from("salida.mp4"),
+            working_dir: PathBuf::from("."),
+            duration_seconds: 5.0,
+            min_output_bytes: 1_000,
+            duration_tolerance_seconds: 0.4,
+            width: 1920,
+            height: 1080,
+            fps: 30.0,
+            profile_name: "prueba".into(),
+        }
+    }
+
+    fn probe_value(container: &str, video: Option<&str>, audio: Option<&str>) -> Value {
+        let mut streams = vec![serde_json::json!({
+            "codec_type": "video",
+            "width": 1920,
+            "height": 1080,
+            "duration": video,
+        })];
+        if let Some(audio) = audio {
+            streams.push(serde_json::json!({
+                "codec_type": "audio",
+                "duration": audio,
+            }));
+        }
+        serde_json::json!({
+            "format": { "duration": container },
+            "streams": streams,
+        })
+    }
+
+    #[test]
+    fn probe_payload_accepts_a_complete_render() {
+        let result = verify_probe_payload(
+            &probe_value("5.0", Some("5.0"), Some("5.0")),
+            &probe_plan(),
+        )
+        .expect("un render completo debería verificarse");
+        assert!((result.0 - 5.0).abs() < f64::EPSILON);
+        assert_eq!((result.1, result.2), (1920, 1080));
+    }
+
+    #[test]
+    fn probe_payload_rejects_a_short_video_track() {
+        let error =
+            verify_probe_payload(&probe_value("5.0", Some("2.0"), Some("5.0")), &probe_plan())
+                .expect_err("un video cortado no debería pasar");
+        assert!(
+            error.message.contains("pista de video"),
+            "mensaje inesperado: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn probe_payload_rejects_a_short_audio_track() {
+        let error =
+            verify_probe_payload(&probe_value("5.0", Some("5.0"), Some("2.0")), &probe_plan())
+                .expect_err("un audio cortado no debería pasar");
+        assert!(
+            error.message.contains("pista de audio"),
+            "mensaje inesperado: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn probe_payload_rejects_a_render_without_audio_stream() {
+        let error = verify_probe_payload(&probe_value("5.0", Some("5.0"), None), &probe_plan())
+            .expect_err("sin audio no debería pasar");
+        assert!(
+            error.message.contains("pista de audio"),
+            "mensaje inesperado: {}",
+            error.message
+        );
+    }
+
+    /// Un MP4 sin pista de audio no debe pasar la verificación del render.
+    #[test]
+    fn verify_output_rejects_a_render_without_audio() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("verify_output_sin_audio omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editoria-verify-audio-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let silent = root.join("silent.mp4");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x180:r=30:d=2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &path_to_string(&silent),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el video sin audio");
+        assert!(status.success());
+        let plan = RenderPlan {
+            args: Vec::new(),
+            output_path: silent.clone(),
+            working_dir: root.clone(),
+            duration_seconds: 2.0,
+            min_output_bytes: 100,
+            duration_tolerance_seconds: 0.4,
+            width: 320,
+            height: 180,
+            fps: 30.0,
+            profile_name: "verificación".into(),
+        };
+        let error = verify_output(&ffprobe, &plan).expect_err("sin audio debe fallar");
+        assert!(
+            error.message.contains("pista de audio"),
+            "mensaje inesperado: {}",
+            error.message
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// El paneo por clip debe separar los canales en el MP4: con pan 0,5 el
+    /// canal derecho queda ~6 dB por encima del izquierdo.
+    #[test]
+    fn render_live_clip_pan_separates_channels() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_pan omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root = std::env::temp_dir().join(format!("editoria-pan-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let video_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x180:r=30:d=2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &path_to_string(&media.join("base.mp4")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el video");
+        assert!(video_status.success());
+        // Tono distinto por canal: 440 Hz a la izquierda, 880 Hz a la derecha.
+        let audio_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "aevalsrc=0.125*sin(2*PI*440*t)|0.125*sin(2*PI*880*t):s=48000:d=2",
+                "-c:a",
+                "pcm_s16le",
+                &path_to_string(&media.join("estereo.wav")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el estéreo");
+        assert!(audio_status.success());
+        let project = |pan: f64| {
+            serde_json::json!({
+                "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#000000" },
+                "timeline": {
+                    "tracks": [
+                        { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                        { "id": "a1", "kind": "audio", "order": 1, "hidden": false, "muted": false }
+                    ],
+                    "clips": [
+                        { "id": "v", "trackId": "v1", "kind": "video", "label": "Fondo", "startFrame": 0, "durationFrames": 60,
+                          "source": { "type": "asset", "assetId": "base", "inFrame": 0, "outFrame": 60 } },
+                        { "id": "a", "trackId": "a1", "kind": "audio", "label": "Estéreo", "startFrame": 0, "durationFrames": 60,
+                          "source": { "type": "asset", "assetId": "estereo", "inFrame": 0, "outFrame": 60 },
+                          "audio": { "pan": pan } }
+                    ]
+                },
+                "assets": [
+                    { "id": "base", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                      "source": { "path": "media/base.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 60, "frameRate": { "num": 30, "den": 1 } } },
+                    { "id": "estereo", "kind": "audio", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                      "source": { "path": "media/estereo.wav" }, "media": { "durationFrames": 60, "sampleRate": 48_000, "channels": 2 } }
+                ],
+                "captions": { "styles": [], "cues": [] },
+                "audio": { "master": { "gainDb": 0 } }
+            })
+        };
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let render = |project: &Value, name: &str| -> PathBuf {
+            let output = root.join(name);
+            let plan = build_plan(BuildPlanInput {
+                audio_only: false,
+                project,
+                root: &root,
+                profile: &profile,
+                output_path: &output,
+                include_captions: false,
+                temp_dir: &temp,
+                ffprobe: &ffprobe,
+                motion_ass: None,
+            })
+            .expect("el plan con paneo debería construirse");
+            execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+                .expect("el render con paneo debería verificarse");
+            output
+        };
+        let band = |file: &Path, channel: &str, frequency: u32| -> f64 {
+            let output = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-nostats", "-i"])
+                .arg(file)
+                .args([
+                    "-map",
+                    "0:a",
+                    "-af",
+                    &format!(
+                        "pan=mono|c0={channel},bandpass=f={frequency}:width_type=h:w=50,volumedetect"
+                    ),
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .output()
+                .expect("volumedetect debería correr");
+            let text = String::from_utf8_lossy(&output.stderr);
+            text.lines()
+                .find_map(|line| line.split("mean_volume:").nth(1))
+                .and_then(|value| value.trim().split_whitespace().next())
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("volumedetect no informó mean_volume: {text}"))
+        };
+        let centered = render(&project(0.0), "centro.mp4");
+        let center_left = band(&centered, "c0", 440);
+        let center_right = band(&centered, "c1", 880);
+        assert!(
+            (center_right - center_left).abs() < 1.5,
+            "sin paneo los canales deben quedar parejos: L {center_left} dB, R {center_right} dB"
+        );
+        let panned = render(&project(0.5), "paneado.mp4");
+        let panned_left = band(&panned, "c0", 440);
+        let panned_right = band(&panned, "c1", 880);
+        eprintln!(
+            "pan medido: centro L {center_left:.1}/R {center_right:.1} dB; pan 0.5 L {panned_left:.1}/R {panned_right:.1} dB"
+        );
+        assert!(
+            (panned_right - panned_left - 6.0).abs() < 1.5,
+            "pan 0,5 debe atenuar el izquierdo ~6 dB: L {panned_left} dB, R {panned_right} dB"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Keyframes de opacidad: el rojo debe bajar de forma monótona en el MP4.
+    #[test]
+    fn render_live_opacity_keyframes_fade_the_clip() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_opacity omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editoria-opacity-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=320x180:r=30:d=2",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &path_to_string(&media.join("rojo.mp4")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el rojo");
+        assert!(status.success());
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#000000" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false }
+                ],
+                "clips": [{
+                    "id": "v", "trackId": "v1", "kind": "video", "label": "Rojo",
+                    "startFrame": 0, "durationFrames": 60,
+                    "source": { "type": "asset", "assetId": "rojo", "inFrame": 0, "outFrame": 60 },
+                    "transform": { "keyframes": [
+                        { "frame": 0, "opacity": 1.0 },
+                        { "frame": 60, "opacity": 0.0 }
+                    ] }
+                }]
+            },
+            "assets": [
+                { "id": "rojo", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/rojo.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 60, "frameRate": { "num": 30, "den": 1 } } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let output = root.join("out.mp4");
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        })
+        .expect("el plan con opacidad debería construirse");
+        execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render con opacidad debería verificarse");
+        let mean_red = |seconds: &str| -> f64 {
+            let frame = root.join(format!("op-{seconds}.png"));
+            let status = Command::new(&ffmpeg)
+                .args([
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-ss",
+                    seconds,
+                    "-i",
+                    &path_to_string(&output),
+                    "-frames:v",
+                    "1",
+                    &path_to_string(&frame),
+                ])
+                .status()
+                .expect("ffmpeg debería extraer un frame");
+            assert!(status.success());
+            let image = image::open(&frame)
+                .expect("el frame debería abrirse")
+                .to_rgba8();
+            let total: f64 = image.pixels().map(|pixel| pixel[0] as f64).sum();
+            total / image.pixels().len() as f64
+        };
+        let start = mean_red("0.1");
+        let middle = mean_red("0.9");
+        let end = mean_red("1.9");
+        eprintln!("opacidad medida: rojo inicial {start:.1}, medio {middle:.1}, final {end:.1}");
+        assert!(
+            start > 200.0,
+            "el clip debería arrancar casi opaco: {start}"
+        );
+        assert!(
+            middle < start - 30.0,
+            "la opacidad no bajó a mitad del clip: {start} → {middle}"
+        );
+        assert!(
+            end < middle - 30.0,
+            "la opacidad no siguió bajando: {middle} → {end}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Export real de 5 s a 24 fps: el MP4 debe seguir las dos leyes que la
+    /// preview ya aplica. Paneo por clip medido con `astats` (la ley lineal de
+    /// `panGains`: pan 0,5 deja el derecho 6,0206 dB arriba) y opacidad Bézier
+    /// en los frames 0/64/119 contra `cubicBezierProgress` (1 → 0 con
+    /// ease-in-out (0.42,0,0.58,1) sobre 119 frames).
+    #[test]
+    fn render_live_5s_pan_astats_and_bezier_opacity_match_preview() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_5s omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root = std::env::temp_dir().join(format!("editoria-5s-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+
+        let video_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=320x180:r=24:d=5",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &path_to_string(&media.join("rojo.mp4")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el rojo");
+        assert!(video_status.success());
+        // Tono parejo en ambos canales: la única diferencia entre L y R es el paneo.
+        let audio_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "aevalsrc=0.125*sin(2*PI*440*t)|0.125*sin(2*PI*440*t):s=48000:d=5",
+                "-c:a",
+                "pcm_s16le",
+                &path_to_string(&media.join("tono.wav")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el tono");
+        assert!(audio_status.success());
+
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 24, "den": 1 }, "backgroundColor": "#000000" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                    { "id": "a1", "kind": "audio", "order": 1, "hidden": false, "muted": false }
+                ],
+                "clips": [
+                    { "id": "v", "trackId": "v1", "kind": "video", "label": "Rojo", "startFrame": 0, "durationFrames": 120,
+                      "source": { "type": "asset", "assetId": "rojo", "inFrame": 0, "outFrame": 120 },
+                      "transform": { "keyframes": [
+                          { "frame": 0, "opacity": 1.0,
+                            "bezier": { "cp1X": 0.42, "cp1Y": 0.0, "cp2X": 0.58, "cp2Y": 1.0 } },
+                          { "frame": 119, "opacity": 0.0 }
+                      ] } },
+                    { "id": "a", "trackId": "a1", "kind": "audio", "label": "Tono", "startFrame": 0, "durationFrames": 120,
+                      "source": { "type": "asset", "assetId": "tono", "inFrame": 0, "outFrame": 120 },
+                      "audio": { "pan": 0.5 } }
+                ]
+            },
+            "assets": [
+                { "id": "rojo", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/rojo.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 120, "frameRate": { "num": 24, "den": 1 } } },
+                { "id": "tono", "kind": "audio", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/tono.wav" }, "media": { "durationFrames": 120, "sampleRate": 48_000, "channels": 2 } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let output = root.join("cinco-segundos.mp4");
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        profile.fps_num = 24;
+        profile.fps_den = 1;
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        })
+        .expect("el plan de 5 s debería construirse");
+        execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render de 5 s debería verificarse");
+
+        let rms_db = |channel: &str| -> f64 {
+            let probe = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-nostats", "-i"])
+                .arg(&output)
+                .args([
+                    "-map",
+                    "0:a",
+                    "-af",
+                    &format!("pan=mono|c0={channel},astats=metadata=0:reset=0"),
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .output()
+                .expect("astats debería correr");
+            let text = String::from_utf8_lossy(&probe.stderr);
+            text.lines()
+                .filter_map(|line| line.split("RMS level dB:").nth(1))
+                .last()
+                .and_then(|value| value.trim().split_whitespace().next())
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("astats no informó RMS: {text}"))
+        };
+        // Preview: `panGains(0.5)` deja left 0.5 y right 1.0.
+        let preview_pan_db = 20.0 * (1.0f64 / 0.5).log10();
+        let left = rms_db("c0");
+        let right = rms_db("c1");
+        let pan_db = right - left;
+        eprintln!(
+            "paneo astats 5 s: L {left:.2} dB, R {right:.2} dB, diferencia {pan_db:.2} dB (preview {preview_pan_db:.2} dB)"
+        );
+        assert!(
+            (pan_db - preview_pan_db).abs() <= 1.0,
+            "el paneo exportado debe seguir la ley lineal: medido {pan_db:.2} dB, preview {preview_pan_db:.2} dB"
+        );
+
+        let frame_mean_red = |index: u32| -> f64 {
+            let frame = root.join(format!("bz-{index}.png"));
+            let status = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+                .arg(&output)
+                .args([
+                    "-vf",
+                    &format!("select=eq(n\\,{index})"),
+                    "-frames:v",
+                    "1",
+                ])
+                .arg(&frame)
+                .status()
+                .expect("ffmpeg debería extraer el frame");
+            assert!(status.success());
+            let image = image::open(&frame)
+                .expect("el frame debería abrirse")
+                .to_rgba8();
+            let total: f64 = image.pixels().map(|pixel| pixel[0] as f64).sum();
+            total / image.pixels().len() as f64
+        };
+        // Golden de la preview: cubicBezierProgress(64/119, .42, 0, .58, 1) =
+        // 0.564961, medido con node sobre packages/project-schema/src/keyframes.ts.
+        let preview_eased = cubic_bezier_progress(64.0 / 119.0, 0.42, 0.0, 0.58, 1.0);
+        assert!(
+            (preview_eased - 0.564_961).abs() < 1e-6,
+            "el port de Rust debe reproducir la curva de la preview: {preview_eased}"
+        );
+        let preview_middle = 255.0 * (1.0 - preview_eased);
+        let start = frame_mean_red(0);
+        let middle = frame_mean_red(64);
+        let end = frame_mean_red(119);
+        eprintln!(
+            "opacidad Bézier 5 s: rojo frame 0 {start:.1} (preview 255.0), frame 64 {middle:.1} (preview {preview_middle:.2}), frame 119 {end:.1} (preview 0.0)"
+        );
+        assert!(start >= 245.0, "el frame 0 debería estar casi opaco: {start}");
+        assert!(
+            (middle - preview_middle).abs() <= 12.0,
+            "el frame 64 debe coincidir con la Bézier de la preview: medido {middle:.1}, esperado {preview_middle:.2}"
+        );
+        assert!(end <= 12.0, "el frame 119 debería quedar en negro: {end}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Paneo animado de pista en el MP4: mesetas −0,8 y +0,36 unidas por un
+    /// tramo Bézier. El export parte el estéreo y aplica `volume` por frame; la
+    /// preview muestrea `panKeyframes` con `sampleTrackPan` y aplica `panGains`.
+    /// Las ventanas caen dentro de cada meseta, así el priming de AAC no sesga
+    /// la medición; los goldens salen de la ley lineal de la preview.
+    #[test]
+    fn render_live_5s_animated_track_pan_astats_matches_preview() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!(
+                "render_live_5s_animated_track_pan omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1"
+            );
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root = std::env::temp_dir().join(format!(
+            "editoria-5s-animated-pan-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+
+        let video_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=320x180:r=24:d=5",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                &path_to_string(&media.join("rojo.mp4")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el rojo");
+        assert!(video_status.success());
+        // Tono parejo en ambos canales: la única diferencia entre L y R es el paneo.
+        let audio_status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "aevalsrc=0.125*sin(2*PI*440*t)|0.125*sin(2*PI*440*t):s=48000:d=5",
+                "-c:a",
+                "pcm_s16le",
+                &path_to_string(&media.join("tono.wav")),
+            ])
+            .status()
+            .expect("ffmpeg debería crear el tono");
+        assert!(audio_status.success());
+
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 24, "den": 1 }, "backgroundColor": "#000000" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                    {
+                        "id": "a1", "kind": "audio", "order": 1, "hidden": false, "muted": false,
+                        "panKeyframes": [
+                            { "frame": 0, "value": -0.8, "easing": "hold" },
+                            {
+                                "frame": 36, "value": -0.8, "easing": "linear",
+                                "bezier": { "cp1X": 0.42, "cp1Y": 0.0, "cp2X": 0.58, "cp2Y": 1.0 }
+                            },
+                            { "frame": 95, "value": 0.36, "easing": "hold" },
+                            { "frame": 119, "value": 0.36, "easing": "linear" }
+                        ]
+                    }
+                ],
+                "clips": [
+                    { "id": "v", "trackId": "v1", "kind": "video", "label": "Rojo", "startFrame": 0, "durationFrames": 120,
+                      "source": { "type": "asset", "assetId": "rojo", "inFrame": 0, "outFrame": 120 } },
+                    { "id": "a", "trackId": "a1", "kind": "audio", "label": "Tono", "startFrame": 0, "durationFrames": 120,
+                      "source": { "type": "asset", "assetId": "tono", "inFrame": 0, "outFrame": 120 } }
+                ]
+            },
+            "assets": [
+                { "id": "rojo", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/rojo.mp4" }, "media": { "width": 320, "height": 180, "durationFrames": 120, "frameRate": { "num": 24, "den": 1 } } },
+                { "id": "tono", "kind": "audio", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } },
+                  "source": { "path": "media/tono.wav" }, "media": { "durationFrames": 120, "sampleRate": 48_000, "channels": 2 } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let output = root.join("paneo-animado.mp4");
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        profile.fps_num = 24;
+        profile.fps_den = 1;
+        // El canal atenuado queda a −14 dB: con 128 kbps la cuantización AAC
+        // sesga su RMS. El test mide la ley de paneo, no el códec.
+        profile.audio_bps = 320_000;
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        })
+        .expect("el plan de paneo animado debería construirse");
+        // El grafo con la Bézier duplicada supera el límite de línea de
+        // comandos de Windows: debe viajar en archivo, no en `args`.
+        assert!(
+            plan.args.iter().any(|arg| arg == "-/filter_complex"),
+            "el grafo largo debe leerse del archivo: {:?}",
+            plan.args.iter().find(|arg| arg.contains("filter_complex"))
+        );
+        assert!(
+            plan.args.iter().map(|arg| arg.len()).sum::<usize>() < 8_000,
+            "la línea de comandos no debe acercarse al límite de Windows"
+        );
+        execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render de paneo animado debería verificarse");
+
+        let window_db = |start: f64, end: f64, channel: &str| -> f64 {
+            let probe = Command::new(&ffmpeg)
+                .args(["-hide_banner", "-nostats", "-i"])
+                .arg(&output)
+                .args([
+                    "-map",
+                    "0:a",
+                    "-af",
+                    &format!(
+                        "atrim=start={start:.3}:end={end:.3},asetpts=PTS-STARTPTS,pan=mono|c0={channel},astats=metadata=0:reset=0"
+                    ),
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .output()
+                .expect("astats debería correr");
+            let text = String::from_utf8_lossy(&probe.stderr);
+            text.lines()
+                .filter_map(|line| line.split("RMS level dB:").nth(1))
+                .last()
+                .and_then(|value| value.trim().split_whitespace().next())
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("astats no informó RMS: {text}"))
+        };
+
+        // Goldens de la preview: meseta −0,8 (R−L −13,979 dB) y meseta +0,36
+        // (R−L +3,876 dB). El tramo central interpola con la Bézier
+        // (.42,0,.58,1), así que el grafo largo se ejerce igual.
+        let first_left = window_db(0.3, 0.7, "c0");
+        let first_right = window_db(0.3, 0.7, "c1");
+        let last_left = window_db(4.2, 4.6, "c0");
+        let last_right = window_db(4.2, 4.6, "c1");
+        let first_diff = first_right - first_left;
+        let last_diff = last_right - last_left;
+        eprintln!(
+            "paneo animado 5 s: ventana 0,3–0,7 s R−L {first_diff:.2} dB (preview −13,98 dB); ventana 4,2–4,6 s R−L {last_diff:.2} dB (preview +3,88 dB)"
+        );
+        // La curva de la preview en el frame 84 (Bézier .42,0,.58,1) es
+        // 0,929319: mismo golden que usa el port de Rust.
+        let preview_eased = cubic_bezier_progress((84.0 - 36.0) / 59.0, 0.42, 0.0, 0.58, 1.0);
+        assert!(
+            (preview_eased - 0.929_319).abs() < 1e-5,
+            "la Bézier del paneo debe ser la de la preview: {preview_eased}"
+        );
+        assert!(
+            (first_diff + 13.979).abs() <= 1.0,
+            "la meseta izquierda debe seguir la ley de la preview: medido {first_diff:.2} dB, esperado −13,98 dB"
+        );
+        assert!(
+            (last_diff - 3.876).abs() <= 1.0,
+            "la meseta derecha debe seguir la ley de la preview: medido {last_diff:.2} dB, esperado +3,88 dB"
+        );
+        // Control de movimiento: un paneo estático daría la misma diferencia en
+        // ambas ventanas; el barrido debe alejarse ≥10 dB de punta a punta.
+        assert!(
+            first_diff < -8.0 && last_diff > 1.0 && last_diff - first_diff >= 10.0,
+            "el paneo debe moverse de izquierda a derecha: {first_diff:.2} → {last_diff:.2} dB"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// El grafo de un proyecto con automatización Bézier supera el límite de
+    /// línea de comandos de Windows: debe viajar en un archivo, y los grafos
+    /// cortos deben seguir inline. Sin FFmpeg: sólo se construye el plan.
+    #[test]
+    fn long_filter_graphs_use_a_file_and_short_ones_stay_inline() {
+        let root = std::env::temp_dir().join(format!("editor-ia-graph-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut animated = project();
+        animated["timeline"]["tracks"][1]["panKeyframes"] = serde_json::json!([
+            {
+                "frame": 0, "value": -0.8, "easing": "linear",
+                "bezier": { "cp1X": 0.42, "cp1Y": 0.0, "cp2X": 0.58, "cp2Y": 1.0 }
+            },
+            {
+                "frame": 10, "value": 0.2, "easing": "linear",
+                "bezier": { "cp1X": 0.42, "cp1Y": 0.0, "cp2X": 0.58, "cp2Y": 1.0 }
+            },
+            {
+                "frame": 20, "value": -0.2, "easing": "linear",
+                "bezier": { "cp1X": 0.2, "cp1Y": 0.0, "cp2X": 0.8, "cp2Y": 1.0 }
+            },
+            { "frame": 30, "value": 0.4, "easing": "linear" }
+        ]);
+        let plan_for = |project: &Value| {
+            build_plan(BuildPlanInput {
+                audio_only: false,
+                project,
+                root: &root,
+                profile: &profile(),
+                output_path: &root.join("salida.mp4"),
+                include_captions: false,
+                temp_dir: &temp,
+                ffprobe: Path::new("ffprobe"),
+                motion_ass: None,
+            })
+            .expect("el plan debería construirse")
+        };
+        let long = plan_for(&animated);
+        let index = long
+            .args
+            .iter()
+            .position(|arg| arg == "-/filter_complex")
+            .expect("el grafo largo debe ir a archivo");
+        assert!(
+            !long.args.iter().any(|arg| arg == "-filter_complex"),
+            "el grafo largo no debe ir inline"
+        );
+        let graph_path = PathBuf::from(&long.args[index + 1]);
+        assert!(graph_path.ends_with("filter-graph.txt"), "{graph_path:?}");
+        let graph = std::fs::read_to_string(&graph_path).expect("el grafo debe existir");
+        assert!(
+            graph.len() > 8_000,
+            "el fixture debe superar el umbral: {}",
+            graph.len()
+        );
+        assert!(graph.contains("channelsplit=channel_layout=stereo"));
+        assert!(graph.contains("join=inputs=2:channel_layout=stereo"));
+        assert!(
+            long.args.iter().map(|arg| arg.len()).sum::<usize>() < 8_000,
+            "la línea de comandos debe quedar lejos del límite de Windows"
+        );
+
+        let short = plan_for(&project());
+        assert!(short.args.iter().any(|arg| arg == "-filter_complex"));
+        assert!(!short.args.iter().any(|arg| arg == "-/filter_complex"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     fn average_luma(ffmpeg: &Path, path: &Path, seconds: f64) -> f64 {
         let probe = Command::new(ffmpeg)
             .args([
@@ -8115,6 +9967,256 @@ mod tests {
         assert!(
             bezier_y < lineal_y,
             "y(0.5) bezier={bezier_y} debería quedar por debajo de linear={lineal_y}"
+        );
+    }
+
+    // ---------- Automatización de fader/paneo por keyframes de pista ----------
+
+    /// Expresión dB dentro del `volume=volume='pow(10,(EXPR)/20)':eval=frame`
+    /// que emite el fader animado de pista.
+    fn expresion_db_de_pista(chain: &str) -> &str {
+        let marca = "volume=volume='pow(10,(";
+        let start = chain
+            .find(marca)
+            .expect("el fader animado debe envolver la expresión en pow(10,..)");
+        let from = start + marca.len();
+        let end = chain[from..]
+            .find(")/20)")
+            .expect("cierre del pow del fader animado");
+        &chain[from..from + end]
+    }
+
+    /// Expresión de ganancia de un canal del paneo animado (`tplN`/`tprN`).
+    fn expresion_canal(chain: &str, etiqueta: &str) -> String {
+        let marca = format!("[{etiqueta}]volume=volume='");
+        let start = chain
+            .find(&marca)
+            .expect("el canal del paneo animado debe existir");
+        let from = start + marca.len();
+        let cierre: char = '\'';
+        let end = chain[from..]
+            .find(cierre)
+            .expect("cierre de la expresión del canal");
+        chain[from..from + end].to_owned()
+    }
+
+    #[test]
+    fn los_keyframes_de_fader_de_pista_reemplazan_al_fader_estatico() {
+        let track = serde_json::json!({
+            "gainDb": 3.0,
+            "gainKeyframes": [
+                { "frame": 0, "gainDb": -6.0 },
+                { "frame": 60, "gainDb": 6.0 }
+            ]
+        });
+        // Clip de 2 s que arranca en el frame 30 (1 s): el grafo ve `t` local.
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            2.0,
+            0.0,
+            1.0,
+            &serde_json::json!({}),
+            false,
+            1,
+            1,
+            3.0,
+            &track,
+        );
+        assert!(
+            chain.contains("volume=volume='pow(10,(") && chain.contains(")/20)':eval=frame"),
+            "el fader animado debe evaluarse por frame en dB→lineal: {chain}"
+        );
+        assert!(
+            !chain.contains("volume=3.00dB"),
+            "el fader estático no debe convivir con sus keyframes: {chain}"
+        );
+        // En t=1.0 (frame 60 absoluto) se alcanza la última clave: +6 dB.
+        let fin = eval_ffmpeg_expression(expresion_db_de_pista(&chain), 1.0);
+        assert!((fin - 6.0).abs() < 1e-3, "t=1 dio {fin}");
+        // En t=0 el tiempo absoluto es 1 s (mitad del segmento -6→6): 0 dB.
+        let inicio = eval_ffmpeg_expression(expresion_db_de_pista(&chain), 0.0);
+        assert!((inicio - 0.0).abs() < 1e-3, "t=0 dio {inicio}");
+        // En t=0.5 (frame 45 absoluto, 3/4 del segmento -6→6): +3 dB.
+        let medio = eval_ffmpeg_expression(expresion_db_de_pista(&chain), 0.5);
+        assert!((medio - 3.0).abs() < 1e-3, "t=0.5 dio {medio}");
+        // Después de la última clave el valor queda clampeado.
+        let despues = eval_ffmpeg_expression(expresion_db_de_pista(&chain), 1.5);
+        assert!((despues - 6.0).abs() < 1e-3, "t=1.5 dio {despues}");
+    }
+
+    #[test]
+    fn el_fader_estatico_de_pista_se_mantiene_sin_keyframes() {
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            2.0,
+            0.0,
+            1.0,
+            &serde_json::json!({}),
+            false,
+            1,
+            1,
+            3.0,
+            &serde_json::json!({ "gainDb": 3.0 }),
+        );
+        assert!(
+            chain.contains("volume=3.00dB"),
+            "sin keyframes el fader estático se aplica: {chain}"
+        );
+        assert!(
+            !chain.contains("eval=frame"),
+            "sin keyframes no hay volumen por frame: {chain}"
+        );
+        assert!(chain.ends_with("[a0]"));
+    }
+
+    #[test]
+    fn los_keyframes_de_paneo_de_pista_parten_la_cadena_por_canal() {
+        let track = serde_json::json!({
+            "pan": 0.5,
+            "panKeyframes": [
+                { "frame": 0, "value": -1.0 },
+                { "frame": 30, "value": 1.0 }
+            ]
+        });
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            1.0,
+            0.0,
+            0.0,
+            &serde_json::json!({ "fadeInFrames": 15 }),
+            false,
+            1,
+            1,
+            0.0,
+            &track,
+        );
+        assert!(
+            !chain.contains("pan=stereo|c0="),
+            "el paneo estático no debe convivir con sus keyframes: {chain}"
+        );
+        assert!(
+            chain.contains("channelsplit=channel_layout=stereo"),
+            "{chain}"
+        );
+        assert!(
+            chain.contains("join=inputs=2:channel_layout=stereo"),
+            "{chain}"
+        );
+        // El fade del clip se aplica al estéreo recompuesto y la cadena cierra
+        // con la etiqueta que el mezclador espera.
+        assert!(
+            chain.contains("join=inputs=2:channel_layout=stereo,afade=t=in:st=0:d=0.5"),
+            "el resto de la cadena debe seguir al join: {chain}"
+        );
+        assert!(chain.ends_with("[a0]"), "{chain}");
+
+        // Balance lineal evaluado por frame: a 1/4 del barrido -1→1 el pan es
+        // -0.5 (izquierdo 1.0, derecho 0.5); a 3/4, 0.5 (al revés).
+        let left = expresion_canal(&chain, "tpl0");
+        let right = expresion_canal(&chain, "tpr0");
+        let left_cuarto = eval_ffmpeg_expression(&left, 0.25);
+        let right_cuarto = eval_ffmpeg_expression(&right, 0.25);
+        assert!(
+            (left_cuarto - 1.0).abs() < 1e-6,
+            "izq(0.25) = {left_cuarto}"
+        );
+        assert!(
+            (right_cuarto - 0.5).abs() < 1e-3,
+            "der(0.25) = {right_cuarto}"
+        );
+        let left_tres = eval_ffmpeg_expression(&left, 0.75);
+        let right_tres = eval_ffmpeg_expression(&right, 0.75);
+        assert!((left_tres - 0.5).abs() < 1e-3, "izq(0.75) = {left_tres}");
+        assert!((right_tres - 1.0).abs() < 1e-6, "der(0.75) = {right_tres}");
+        // En el extremo izquierdo el canal derecho queda mudo, como el paneo
+        // estático.
+        assert!((eval_ffmpeg_expression(&left, 0.0) - 1.0).abs() < 1e-6);
+        assert!((eval_ffmpeg_expression(&right, 0.0) - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn los_keyframes_de_paneo_se_anclan_al_frame_absoluto_del_clip() {
+        let track = serde_json::json!({
+            "panKeyframes": [
+                { "frame": 30, "value": -1.0 },
+                { "frame": 60, "value": 1.0 }
+            ]
+        });
+        // Clip que arranca en el frame 30 (1 s) y dura 2 s: los keyframes
+        // caen en t local 0 y 1.
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            2.0,
+            0.0,
+            1.0,
+            &serde_json::json!({}),
+            false,
+            1,
+            1,
+            0.0,
+            &track,
+        );
+        let left = expresion_canal(&chain, "tpl0");
+        let right = expresion_canal(&chain, "tpr0");
+        // t local 0 = frame 30 absoluto: pan -1 (izquierdo 1.0, derecho mudo).
+        assert!((eval_ffmpeg_expression(&left, 0.0) - 1.0).abs() < 1e-6);
+        assert!((eval_ffmpeg_expression(&right, 0.0) - 0.0).abs() < 1e-6);
+        // t local 0.5 = frame 45 absoluto: pan 0 (centro, ambos a 1.0).
+        assert!((eval_ffmpeg_expression(&left, 0.5) - 1.0).abs() < 1e-6);
+        assert!((eval_ffmpeg_expression(&right, 0.5) - 1.0).abs() < 1e-6);
+        // t local 1.5 = frame 75 absoluto: después de la última clave, pan 1.
+        assert!((eval_ffmpeg_expression(&left, 1.5) - 0.0).abs() < 1e-6);
+        assert!((eval_ffmpeg_expression(&right, 1.5) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn los_keyframes_de_paneo_pre_muestrean_la_curva_bezier() {
+        let track = serde_json::json!({
+            "panKeyframes": [
+                {
+                    "frame": 0,
+                    "value": -1.0,
+                    "bezier": { "cp1X": 0.42, "cp1Y": 0.0, "cp2X": 1.0, "cp2Y": 1.0 }
+                },
+                { "frame": 30, "value": 1.0 }
+            ]
+        });
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            1.0,
+            0.0,
+            0.0,
+            &serde_json::json!({}),
+            false,
+            1,
+            1,
+            0.0,
+            &track,
+        );
+        let right = expresion_canal(&chain, "tpr0");
+        // La Bézier se emite como 16 tramos lineales anidados (el mismo enfoque
+        // Newton del resto del render), no como la paramétrica x(u).
+        let tramos = right.matches("if(lt(").count();
+        assert!(
+            tramos >= 16,
+            "la curva debe venir pre-muestreada en tramos, hay {tramos}: {right}"
+        );
+        // ease-in (0.42,0,1,1): a mitad del barrido el progreso va por debajo
+        // del lineal, así que el pan no llegó a 0 y el derecho sigue atenuado.
+        let mitad = eval_ffmpeg_expression(&right, 0.5);
+        assert!(
+            mitad < 1.0 && mitad > 0.0,
+            "der(0.5) debe estar entre 0 y 1 para una ease-in, dio {mitad}"
         );
     }
 }

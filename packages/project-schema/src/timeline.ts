@@ -64,6 +64,70 @@ export const CubicBezierSchema = z.object({
 export type CubicBezier = z.infer<typeof CubicBezierSchema>;
 
 /**
+ * Corrección de perspectiva a cuatro puntos. Cada esquina es una coordenada
+ * normalizada 0..1 del cuadro de origen, en orden TL, TR, BR, BL; el render
+ * mapea ese cuadrilátero al cuadro completo. Es estática (no se anima) y no se
+ * combina con máscaras de texto.
+ */
+export const PerspectiveCornerSchema = z
+  .object({ x: UnitIntervalSchema, y: UnitIntervalSchema })
+  .strict();
+export type PerspectiveCorner = z.infer<typeof PerspectiveCornerSchema>;
+
+export const PerspectiveSchema = z
+  .object({
+    corners: z.tuple([
+      PerspectiveCornerSchema,
+      PerspectiveCornerSchema,
+      PerspectiveCornerSchema,
+      PerspectiveCornerSchema,
+    ]),
+    interpolation: z.enum(['linear', 'cubic']).optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const [tl, tr, br, bl] = value.corners;
+    const area =
+      0.5 *
+      Math.abs(
+        tl.x * tr.y -
+          tr.x * tl.y +
+          tr.x * br.y -
+          br.x * tr.y +
+          br.x * bl.y -
+          bl.x * br.y +
+          bl.x * tl.y -
+          tl.x * bl.y,
+      );
+    if (area < 0.01) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'la perspectiva necesita un cuadrilátero con al menos 1% de área',
+      });
+    }
+    const points = [tl, tr, br, bl];
+    let sign = 0;
+    let convex = true;
+    for (let index = 0; index < 4; index += 1) {
+      const a = points[index]!;
+      const b = points[(index + 1) % 4]!;
+      const c = points[(index + 2) % 4]!;
+      const cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+      if (Math.abs(cross) < 1e-9) continue;
+      const current = Math.sign(cross);
+      if (sign === 0) sign = current;
+      else if (current !== sign) convex = false;
+    }
+    if (!convex) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'la perspectiva debe ser un cuadrilátero convexo y no degenerado',
+      });
+    }
+  });
+export type Perspective = z.infer<typeof PerspectiveSchema>;
+
+/**
  * Un keyframe de fader de pista. El frame es absoluto de la timeline (no
  * relativo a un clip, como las claves de audio de clip) y el valor replica el
  * fader estático de la pista.
@@ -206,6 +270,8 @@ export const ClipTransformSchema = z
     opacity: UnitIntervalSchema.optional(),
     flipH: z.boolean().optional(),
     flipV: z.boolean().optional(),
+    /** Corrección de perspectiva estática; ver PerspectiveSchema. */
+    perspective: PerspectiveSchema.optional(),
     keyframes: z.array(ClipTransformKeyframeSchema).min(1).max(MAX_TRANSFORM_KEYFRAMES).optional(),
   })
   .strict();
@@ -442,6 +508,11 @@ export const ClipEffectsSchema = z
       .strict()
       .optional(),
     sharpen: z.number().gte(0).lte(5).optional(),
+    /**
+     * Reducción de ruido de imagen/video (0 = apagada, 1 = máxima). Usa
+     * hqdn3d temporal en el export; la preview del editor no la simula.
+     */
+    denoise: z.number().gte(0).lte(1).optional(),
     blur: z.number().gte(0).lte(50).optional(),
     /** Halo alrededor de las zonas claras (estilo MrBeast / glow). */
     glow: z
@@ -494,6 +565,8 @@ export const ChromaKeySchema = z
     color: z.string().regex(/^#[0-9a-f]{6}$/i),
     similarity: z.number().gte(0.01).lte(1),
     blend: z.number().gte(0).lte(1),
+    /** Supresión del derrame verde/azul en bordes (0 = apagada). */
+    spill: z.number().gte(0).lte(1).optional(),
   })
   .strict();
 

@@ -25,6 +25,7 @@ export interface BoxTransform {
   readonly scaleX: number;
   readonly scaleY: number;
   readonly rotationDeg: number;
+  readonly opacity?: number;
 }
 
 /** Caja en coordenadas del lienzo, con centro y rotación. */
@@ -106,6 +107,25 @@ export function scalePatch(
     scaleX: Math.round(clampScale(start.scaleX * ratio) * 1000) / 1000,
     scaleY: Math.round(clampScale(start.scaleY * ratio) * 1000) / 1000,
   };
+}
+
+/** Escala de un solo eje: los tiradores de los bordes estiran ancho o alto. */
+export function scaleAxisPatch(
+  axis: 'x' | 'y',
+  start: BoxTransform,
+  from: { readonly x: number; readonly y: number },
+  to: { readonly x: number; readonly y: number },
+  center: { readonly x: number; readonly y: number },
+): Pick<BoxTransform, 'scaleX' | 'scaleY'> {
+  const startDistance = Math.abs(axis === 'x' ? from.x - center.x : from.y - center.y);
+  const nextDistance = Math.abs(axis === 'x' ? to.x - center.x : to.y - center.y);
+  if (startDistance < 1) {
+    return { scaleX: start.scaleX, scaleY: start.scaleY };
+  }
+  const ratio = nextDistance / startDistance;
+  return axis === 'x'
+    ? { scaleX: Math.round(clampScale(start.scaleX * ratio) * 1000) / 1000, scaleY: start.scaleY }
+    : { scaleX: start.scaleX, scaleY: Math.round(clampScale(start.scaleY * ratio) * 1000) / 1000 };
 }
 
 /** Rotación en grados a partir del ángulo puntero-centro. */

@@ -30,6 +30,12 @@ Leyenda de estado:
 | `End` | Ir al final de la timeline | `setPlayhead(totalFrames(project))` (`project-actions.ts:4280`; grip en `Timeline.tsx:1690`) | 🟡 |
 | `Space` | Reproducir / Pausar (existente) | `playback.playPause` | (ya registrado antes) |
 
+Desde la fase 2 de accesibilidad, `Space` **no roba la activación**: si el foco
+está sobre un control activable (botón, ítem de menú, clip de la timeline con
+`role="button"`…), el despacho global de `App.tsx` deja pasar el evento para que
+el navegador active el control; el click de Space ocurre en keyup y se anula si
+el keydown se previene (`isActivatableTarget` en `state/shortcuts.ts`).
+
 ## Timeline
 
 | Tecla | Acción (etiqueta en Ajustes) | Acción existente que ejecuta | Estado |
@@ -41,6 +47,30 @@ Leyenda de estado:
 | `+` | Acercar timeline | Botón «Acercar»: `setPxPerFrame(×1.4)` (`Timeline.tsx:1193`) | 🟡 |
 | `-` | Alejar timeline | Botón «Alejar»: `setPxPerFrame(÷1.4)` (`Timeline.tsx:1184`) | 🟡 |
 | `F` | Ajustar zoom a la duración | Botón «Ajustar»: zoom a la duración del proyecto (`Timeline.tsx:1199-1206`) | 🟡 |
+| `Alt+←` | Mover el clip seleccionado 1 frame a la izquierda | `moveClip` (`project-actions.ts:903`); responde vía `EditorWorkspace.tsx` (edición de clip por teclado) | ✅ |
+| `Alt+→` | Mover el clip seleccionado 1 frame a la derecha | `moveClip` | ✅ |
+| `Alt+↑` | Subir el clip a la pista compatible anterior | `moveClip` con pista de `nearestCompatibleTrack` (`features/editor/timeline-keyboard.ts`) | ✅ |
+| `Alt+↓` | Bajar el clip a la pista compatible siguiente | `moveClip` con pista de `nearestCompatibleTrack` | ✅ |
+| `Ctrl+Alt+←` | Recortar el borde de entrada del clip seleccionado | `trimClip(…, 'start', …)` (`project-actions.ts:1242`) | ✅ |
+| `Ctrl+Alt+→` | Recortar el borde de salida del clip seleccionado | `trimClip(…, 'end', …)` | ✅ |
+
+### Edición de clip por teclado (fase 2 de accesibilidad)
+
+Con un clip seleccionado, las flechas con modificadores editan el clip; sin
+selección siguen moviendo el playhead. La decisión vive en el módulo puro
+`features/editor/timeline-keyboard.ts` y la ejecución en el keydown del
+contenedor de la timeline (`EditorWorkspace.tsx`), junto a Supr y S:
+
+- `Alt+←/→` mueve el clip ±1 frame; `Alt+Shift+←/→` lo mueve ±1 segundo
+  (fps frames, fuera del registro: es la misma acción con paso mayor).
+- `Alt+↑/↓` lleva el clip a la pista compatible más cercana hacia arriba/abajo
+  en el orden de la interfaz (salta pistas de otro tipo).
+- `Ctrl+Alt+←/→` recorta el **borde activo de entrada** y `Ctrl+Alt+Shift+←/→`
+  el de salida: la flecha apunta hacia dónde se mueve el borde agarrado (con el
+  borde de entrada, `←` estira y `→` acorta; con el de salida, al revés).
+- Flechas sin Alt (y con Shift) siguen moviendo el playhead como siempre; los
+  eventos ya prevenidos por otros controles (grip del playhead, asas de fade,
+  menú contextual) se ignoran.
 
 ## Pendientes
 
@@ -64,10 +94,11 @@ Leyenda de estado:
 6. **Categoría «Timeline» en Ajustes**: `ShortcutsCard.tsx` ordena los grupos
    con `CATEGORY_ORDER` fijo; la categoría nueva aparece primera por no estar
    en esa lista. Agregarla al orden queda pendiente (archivo fuera del alcance).
-7. **Reasignación de `S`/`M`**: los handlers propios del editor no leen el
-   registro (`getShortcut`); si el usuario reasigna esas teclas en Ajustes, el
-   handler hardcodeado seguirá respondiendo a `S`/`M`. Unificar exige que
-   `Timeline.tsx` / `EditorWorkspace.tsx` consulten el registro.
+7. **Reasignación de `S`/`M` y de las combinaciones de clip con Alt**: los
+   handlers propios del editor no leen el registro (`getShortcut`); si el
+   usuario reasigna esas teclas en Ajustes, el handler hardcodeado seguirá
+   respondiendo a las teclas de fábrica. Unificar exige que `Timeline.tsx` /
+   `EditorWorkspace.tsx` consulten el registro.
 
 ## Notas técnicas
 

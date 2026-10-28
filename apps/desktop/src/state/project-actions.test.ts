@@ -44,6 +44,7 @@ import {
   moveTrack,
   newId,
   removeAsset,
+  relinkAsset,
   replaceClipWithDerivedAsset,
   setClipSpeed,
   setClipStabilization,
@@ -178,6 +179,38 @@ describe('biblioteca y timeline', () => {
     expect(totalFrames(next)).toBe(300);
   });
 
+  it('reconecta un material conservando identidad, licencia y clips', () => {
+    const asset = videoAsset(300);
+    asset.label = 'Toma original';
+    asset.tags = ['entrevista'];
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const replacement = videoAsset(420, {
+      id: newId(),
+      label: 'Toma nueva',
+      source: { type: 'local', path: 'media/toma-nueva.mp4' },
+      integrity: { sha256: 'c'.repeat(64), bytes: 20_000 },
+    });
+    const next = validated(relinkAsset(added.project, asset.id, replacement));
+    const linked = next.assets.find((item) => item.id === asset.id);
+    if (linked?.kind !== 'video') throw new Error('se esperaba video');
+    expect(linked.label).toBe('Toma original');
+    expect(linked.tags).toEqual(['entrevista']);
+    expect(linked.rights.license.id).toBe('owned');
+    expect(linked.source).toEqual({ type: 'local', path: 'media/toma-nueva.mp4' });
+    expect(linked.integrity?.sha256).toBe('c'.repeat(64));
+    expect(linked.media?.durationFrames).toBe(420);
+    expect(next.timeline.clips).toHaveLength(1);
+  });
+
+  it('rechaza reconectar con un archivo más corto que un clip o de otro tipo', () => {
+    const asset = videoAsset(300);
+    const added = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const short = videoAsset(120, { id: newId() });
+    expect(() => relinkAsset(added.project, asset.id, short)).toThrow(/más largo/);
+    const image = imageAsset();
+    expect(() => relinkAsset(added.project, asset.id, image)).toThrow(/material es video/);
+  });
+
   it('no monta material sin derechos confirmados', () => {
     const project = base();
     const asset = audioAsset();
@@ -244,6 +277,37 @@ describe('biblioteca y timeline', () => {
     expect(left.source.outFrame).toBe(120);
     expect(right.source.inFrame).toBe(120);
     expect(right.source.outFrame).toBe(300);
+  });
+
+  it('reparte los keyframes al dividir y no los reinicia en el clip derecho', () => {
+    const asset = videoAsset();
+    const added = addClipFromAsset(addAsset(base(), asset), asset, {
+      atFrame: 0,
+    });
+    let project = setTransformKeyframe(added.project, added.clipId, 0, { scale: 1 });
+    project = setTransformKeyframe(project, added.clipId, 200, { scale: 2 });
+    const split = splitClip(project, added.clipId, 100);
+    expect(split).not.toBeNull();
+    const after = validated(split!.project);
+    const left = after.timeline.clips.find((clip) => clip.id === added.clipId);
+    const right = after.timeline.clips.find((clip) => clip.id === split!.rightClipId);
+    expect(left?.transform?.keyframes?.some((keyframe) => keyframe.frame === 0)).toBe(true);
+    expect(left?.transform?.keyframes?.every((keyframe) => keyframe.frame < 100)).toBe(true);
+    expect(right?.transform?.keyframes?.[0]?.frame).toBe(0);
+    expect(
+      right?.transform?.keyframes?.some(
+        (keyframe) => keyframe.frame === 100 && keyframe.scale === 2,
+      ),
+    ).toBe(true);
+  });
+
+  it('no permite recortar el inicio sobre otro clip de la misma pista', () => {
+    const asset = videoAsset();
+    const first = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const second = addClipFromAsset(first.project, asset, { atFrame: 100 });
+    expect(
+      trimClip(second.project, second.clipId, 'start', 0),
+    ).toBeNull();
   });
 
   it('borra un clip y lo quita de las escenas', () => {
@@ -1503,6 +1567,26 @@ describe('velocidad y efectos de clip', () => {
     const empty = updateProjectLook(cleared, {});
     expect(empty.look).toBeUndefined();
     validated(empty);
+  });
+
+  it('conserva el LUT al elegir un look o volver a neutro', () => {
+    const withLut = updateProjectLook(base(), {
+      lutFile: 'luts/teal.cube',
+      lutIntensity: 0.6,
+    });
+    const preset = setProjectLook(withLut, { sepia: true });
+    expect(preset.look).toEqual({
+      sepia: true,
+      lutFile: 'luts/teal.cube',
+      lutIntensity: 0.6,
+    });
+    const neutral = setProjectLook(withLut, null);
+    expect(neutral.look).toEqual({
+      lutFile: 'luts/teal.cube',
+      lutIntensity: 0.6,
+    });
+    validated(preset);
+    validated(neutral);
   });
 
   it('aplica y limpia movimiento Ken Burns en un clip de imagen', () => {

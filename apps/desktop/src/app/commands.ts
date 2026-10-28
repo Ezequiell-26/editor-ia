@@ -1,4 +1,5 @@
 import type { ViewId } from './navigation';
+import { NAV_VIEWS } from './navigation';
 import { getShortcut, type ShortcutId } from '../state/shortcuts';
 
 export interface Command {
@@ -42,7 +43,7 @@ export function buildCommands(ctx: CommandContext): Command[] {
     action: () => ctx.navigate(id),
   });
 
-  return [
+  const primaryNavigation: Command[] = [
     nav('home', 'Inicio', 'nav.home'),
     nav('editor', 'Editor de video', 'nav.editor'),
     nav('script', 'Guion y escenas', 'nav.script'),
@@ -57,6 +58,20 @@ export function buildCommands(ctx: CommandContext): Command[] {
     nav('learn', 'Aprender'),
     nav('mcp', 'Servidores MCP'),
     nav('projects', 'Proyectos'),
+  ];
+  // La paleta es la vía rápida para llegar a cualquier vista; se genera desde
+  // el registro de navegación para que ninguna herramienta quede afuera al
+  // agregar una vista nueva.
+  const listedViews = new Set(
+    primaryNavigation.map((command) => command.id.replace(/^nav\./, '')),
+  );
+  const extraNavigation = NAV_VIEWS.filter((view) => !listedViews.has(view.id)).map(
+    (view) => nav(view.id, view.label),
+  );
+
+  return [
+    ...primaryNavigation,
+    ...extraNavigation,
 
     {
       id: 'file.save',

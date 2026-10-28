@@ -17,6 +17,7 @@ import {
 import {
   duplicateClip,
   ensureDelivery,
+  moveClip,
   rippleDeleteClip,
   splitClip,
   totalFrames,
@@ -109,6 +110,14 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'timeline.zoomIn': [Timeline],
     'timeline.zoomOut': [Timeline],
     'timeline.zoomFit': [Timeline],
+    // Edición de clip por teclado (fase 2 de accesibilidad): operan vía el
+    // handler de EditorWorkspace.tsx con las mismas acciones de dominio.
+    'timeline.clipMoveLeft': [moveClip, store.update],
+    'timeline.clipMoveRight': [moveClip, store.update],
+    'timeline.clipMoveTrackUp': [moveClip, store.update],
+    'timeline.clipMoveTrackDown': [moveClip, store.update],
+    'timeline.clipTrimIn': [trimClip, store.update],
+    'timeline.clipTrimOut': [trimClip, store.update],
   };
 }
 

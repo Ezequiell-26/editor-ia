@@ -19,19 +19,13 @@ describe('modo de uso (guiado / pro)', () => {
     expect(filterViewsForMode(NAV_VIEWS, 'pro')).toEqual(NAV_VIEWS);
   });
 
-  it('el modo guiado saca las herramientas de especialistas y conserva la ruta', () => {
+  it('el modo guiado esconde las superficies de especialistas y conserva la ruta', () => {
     const guided = filterViewsForMode(NAV_VIEWS, 'guiada');
     const ids = guided.map((view) => view.id);
-    // La ruta completa sigue.
-    for (const id of ['home', 'projects', 'script', 'assets', 'production', 'editor']) {
+    for (const id of ['home', 'projects', 'editor', 'download', 'creator']) {
       expect(ids).toContain(id);
     }
-    // Herramientas de todos los días también.
-    for (const id of ['download', 'convert', 'compare', 'compress', 'background', 'upscale']) {
-      expect(ids).toContain(id);
-    }
-    // Las de especialistas, no.
-    for (const id of ['director', 'factory', 'compliance', 'mcp']) {
+    for (const id of ['lab', 'production']) {
       expect(ids).not.toContain(id);
     }
   });

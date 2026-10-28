@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import type { Clip, ClipEffects, ClipMask, MaskPoint } from '@editor-ia/project-schema';
 import { sampleMaskKeyframes } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
@@ -6,6 +6,7 @@ import { Icon } from '../../components/Icon';
 import { fpsOf, setMaskKeyframe, updateClip } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { maskFromFaceTrack, polygonAroundCenter } from './face-mask';
+import { ChromaPreview, sampleBackgroundColor, type ChromaSettings } from './ChromaPreview';
 
 export interface VfxViewProps {
   readonly onNavigate: (view: ViewId) => void;
@@ -30,6 +31,17 @@ export function VfxView({ onNavigate }: VfxViewProps) {
   const [error, setError] = useState<string | null>(null);
   const [editPoints, setEditPoints] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
+  const [mediaEl, setMediaEl] = useState<HTMLVideoElement | HTMLImageElement | null>(null);
+  const [chromaPreview, setChromaPreview] = useState(true);
+  const attachVideo = useCallback((node: HTMLVideoElement | null) => {
+    videoRef.current = node;
+    setMediaEl((current) => (current === node ? current : node));
+  }, []);
+  const attachImage = useCallback((node: HTMLImageElement | null) => {
+    imageRef.current = node;
+    setMediaEl((current) => (current === node ? current : node));
+  }, []);
   const dragIndex = useRef<number | null>(null);
   const dragMoved = useRef(false);
 
@@ -73,7 +85,61 @@ export function VfxView({ onNavigate }: VfxViewProps) {
     clip && 'effects' in clip
       ? ((clip as Clip & { effects?: ClipEffects }).effects ?? {})
       : {};
-  const chroma = clip && 'chromaKey' in clip ? clip.chromaKey : undefined;
+  const chroma: ChromaSettings | undefined =
+    clip && 'chromaKey' in clip
+      ? (clip as Clip & { chromaKey?: ChromaSettings }).chromaKey
+      : undefined;
+
+  function applyChroma(next: ChromaSettings): void {
+    if (!clip) return;
+    store.update((current) =>
+      updateClip(current, clip.id, { chromaKey: next }),
+    );
+  }
+
+  function updateChroma(patch: Partial<ChromaSettings>): void {
+    if (!chroma) return;
+    applyChroma({ ...chroma, ...patch });
+  }
+
+  function removeChroma(): void {
+    if (!clip) return;
+    store.update((current) => updateClip(current, clip.id, { chromaKey: undefined }));
+  }
+
+  function enableChroma(screen: 'green' | 'blue'): void {
+    applyChroma({
+      color: screen === 'green' ? '#00ff00' : '#0000ff',
+      similarity: 0.3,
+      blend: 0.12,
+      spill: 0.6,
+    });
+    setChromaPreview(true);
+  }
+
+  function detectBackground(): void {
+    const color = sampleBackgroundColor(mediaEl);
+    if (!color) {
+      setNotice(
+        'La vista todavía no tiene un frame disponible; esperá a que cargue y reintentá.',
+      );
+      return;
+    }
+    const red = Number.parseInt(color.slice(1, 3), 16);
+    const green = Number.parseInt(color.slice(3, 5), 16);
+    const blue = Number.parseInt(color.slice(5, 7), 16);
+    const isScreen = (green > red && green > blue) || (blue > red && blue > green);
+    applyChroma({
+      color,
+      similarity: 0.28,
+      blend: 0.12,
+      spill: isScreen ? 0.5 : 0,
+    });
+    setChromaPreview(true);
+    setNotice(
+      `Fondo detectado: ${color.toUpperCase()}. Ajustá similitud y suavizado hasta que el borde quede limpio.`,
+    );
+  }
 
   useEffect(() => {
     const video = videoRef.current;
@@ -125,6 +191,15 @@ export function VfxView({ onNavigate }: VfxViewProps) {
   }
 
   function createPolygon(): void {
+    if (
+      polygon &&
+      ((polygon.keyframes?.length ?? 0) > 0 || points.length > 3) &&
+      !window.confirm(
+        'Reiniciar el polígono descarta los vértices y las claves de seguimiento. ¿Continuar?',
+      )
+    ) {
+      return;
+    }
     setError(null);
     setNotice('Polígono creado. Hacé clic en el visor para sumar vértices.');
     setEditPoints(true);
@@ -197,7 +272,7 @@ export function VfxView({ onNavigate }: VfxViewProps) {
         startSeconds,
         endSeconds,
       });
-      const tracked = maskFromFaceTrack(result, fps, startSeconds);
+      const tracked = maskFromFaceTrack(result, fps);
       if (!tracked) {
         setError('No se detectaron rostros con suficiente confianza en este clip.');
         return;
@@ -271,10 +346,16 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                   frame {localFrame + 1}/{clip.durationFrames} · {fps} fps
                 </span>
               </div>
-              <div className="vfx-frame">
+              <p className="fine-print vfx-stage-note">
+                La vista aproxima el chroma sobre un damero y conserva la máscara. Sharpen y
+                viñeta se aplican recién en el export; el color (HSL y match) sí se ve en el
+                monitor del editor.
+              </p>
+              <div className={`vfx-frame${chroma && chromaPreview ? ' chroma-active' : ''}`}>
                 {clip.kind === 'video' && url ? (
                   <video
-                    ref={videoRef}
+                    ref={attachVideo}
+                    className={chroma && chromaPreview ? 'chroma-source-hidden' : undefined}
                     src={url}
                     crossOrigin="anonymous"
                     muted
@@ -282,10 +363,27 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                     preload="auto"
                   />
                 ) : url ? (
-                  <img src={url} alt="" crossOrigin="anonymous" />
+                  <img
+                    ref={attachImage}
+                    className={chroma && chromaPreview ? 'chroma-source-hidden' : undefined}
+                    src={url}
+                    alt=""
+                    crossOrigin="anonymous"
+                  />
                 ) : (
                   <div className="media-missing">Sin vista previa del medio</div>
                 )}
+                <ChromaPreview
+                  source={mediaEl}
+                  active={Boolean(chroma) && chromaPreview}
+                  settings={{
+                    color: chroma?.color ?? '#00ff00',
+                    similarity: chroma?.similarity ?? 0.3,
+                    blend: chroma?.blend ?? 0.12,
+                    spill: chroma?.spill ?? 0,
+                  }}
+                  revision={localFrame}
+                />
                 <svg
                   className={`vfx-overlay${editPoints ? ' editing' : ''}`}
                   viewBox="0 0 1 1"
@@ -355,37 +453,45 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                     <input
                       type="checkbox"
                       checked={Boolean(chroma)}
-                      onChange={(event) =>
-                        store.update((current) =>
-                          updateClip(current, clip.id, {
-                            chromaKey: event.target.checked
-                              ? { color: '#00ff00', similarity: 0.3, blend: 0.1 }
-                              : undefined,
-                          }),
-                        )
-                      }
+                      onChange={(event) => {
+                        if (event.target.checked) enableChroma('green');
+                        else removeChroma();
+                      }}
                     />
                     <span>{chroma ? 'on' : 'off'}</span>
                   </label>
                 </header>
                 {chroma ? (
                   <div className="vfx-node-fields">
+                    <div className="vfx-preset-row">
+                      <button type="button" className="small" onClick={() => enableChroma('green')}>
+                        Verde
+                      </button>
+                      <button type="button" className="small" onClick={() => enableChroma('blue')}>
+                        Azul
+                      </button>
+                      <button type="button" className="small" onClick={detectBackground}>
+                        Detectar fondo
+                      </button>
+                      <button
+                        type="button"
+                        className="small ghost"
+                        aria-pressed={chromaPreview}
+                        onClick={() => setChromaPreview((value) => !value)}
+                      >
+                        {chromaPreview ? 'Vista de clave' : 'Vista original'}
+                      </button>
+                    </div>
                     <label className="field">
-                      <span>Color</span>
+                      <span>Color clave</span>
                       <input
                         type="color"
                         value={chroma.color}
-                        onChange={(event) =>
-                          store.update((current) =>
-                            updateClip(current, clip.id, {
-                              chromaKey: { ...chroma, color: event.target.value },
-                            }),
-                          )
-                        }
+                        onChange={(event) => updateChroma({ color: event.target.value })}
                       />
                     </label>
                     <label className="field">
-                      <span>Similitud</span>
+                      <span>Similitud {(chroma.similarity * 100).toFixed(0)} %</span>
                       <input
                         type="range"
                         min={0.01}
@@ -393,17 +499,74 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                         step={0.01}
                         value={chroma.similarity}
                         onChange={(event) =>
-                          store.update((current) =>
-                            updateClip(current, clip.id, {
-                              chromaKey: { ...chroma, similarity: Number(event.target.value) },
-                            }),
-                          )
+                          updateChroma({ similarity: Number(event.target.value) })
                         }
                       />
                     </label>
+                    <label className="field">
+                      <span>Suavizado {(chroma.blend * 100).toFixed(0)} %</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={chroma.blend}
+                        onChange={(event) => updateChroma({ blend: Number(event.target.value) })}
+                      />
+                    </label>
+                    <label className="field">
+                      <span>Derrame {((chroma.spill ?? 0) * 100).toFixed(0)} %</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={chroma.spill ?? 0}
+                        onChange={(event) => updateChroma({ spill: Number(event.target.value) })}
+                      />
+                    </label>
+                    <p className="fine-print">
+                      Cualquier fondo parejo sirve: usá “Detectar fondo” sobre una pared o una
+                      tela. Si hay textura o personas detrás,{' '}
+                      <button
+                        type="button"
+                        className="link"
+                        onClick={() => onNavigate('background')}
+                      >
+                        abrí Quitar fondo (IA)
+                      </button>
+                      .
+                    </p>
                   </div>
                 ) : (
-                  <p className="vfx-node-hint">Fondo verde/azul apagado.</p>
+                  <div className="vfx-node-fields">
+                    <div className="vfx-preset-row">
+                      <button
+                        type="button"
+                        className="small"
+                        onClick={() => enableChroma('green')}
+                      >
+                        Pantalla verde
+                      </button>
+                      <button
+                        type="button"
+                        className="small"
+                        onClick={() => enableChroma('blue')}
+                      >
+                        Pantalla azul
+                      </button>
+                      <button
+                        type="button"
+                        className="small"
+                        onClick={detectBackground}
+                      >
+                        Detectar fondo
+                      </button>
+                    </div>
+                    <p className="vfx-node-hint">
+                      Elegí una pantalla o detectá el color del fondo actual.
+                    </p>
+                  </div>
                 )}
               </article>
 
@@ -468,7 +631,15 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                     type="button"
                     className="small"
                     disabled={!polygon}
-                    onClick={() => patchMask(undefined)}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          'Quitar la máscara borra sus vértices y claves. ¿Continuar?',
+                        )
+                      ) {
+                        patchMask(undefined);
+                      }
+                    }}
                   >
                     Quitar máscara
                   </button>
@@ -527,9 +698,20 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                 <header>
                   <span className="vfx-node-index">05</span>
                   <strong>Detalle</strong>
-                  <span className="vfx-node-kind">Sharpen / Blur</span>
+                  <span className="vfx-node-kind">Denoise / Sharpen / Blur</span>
                 </header>
                 <div className="vfx-node-fields">
+                  <label className="field">
+                    <span>Reducción de ruido {((effects.denoise ?? 0) * 100).toFixed(0)} %</span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={effects.denoise ?? 0}
+                      onChange={(event) => patchEffects({ denoise: Number(event.target.value) })}
+                    />
+                  </label>
                   <label className="field">
                     <span>Sharpen {(effects.sharpen ?? 0).toFixed(1)}</span>
                     <input

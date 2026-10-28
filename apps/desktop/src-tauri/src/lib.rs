@@ -8,10 +8,97 @@
 use tauri::{Emitter, Listener, Manager};
 
 pub mod commands;
+pub mod license;
 pub mod media;
 pub mod projects;
 pub mod render;
 pub mod state;
+
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static BACKGROUND_START: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(windows)]
+fn claim_single_instance() -> bool {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn CreateMutexW(attributes: *mut c_void, initial: i32, name: *const u16) -> *mut c_void;
+        fn GetLastError() -> u32;
+    }
+    static HANDLE: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    let mut name: Vec<u16> = r"Local\OlyviaQueueAgent".encode_utf16().collect();
+    name.push(0);
+    let handle = unsafe { CreateMutexW(std::ptr::null_mut(), 0, name.as_ptr()) };
+    if handle.is_null() {
+        return true;
+    }
+    HANDLE.get_or_init(|| handle as usize);
+    unsafe { GetLastError() != 183 }
+}
+
+#[cfg(not(windows))]
+fn claim_single_instance() -> bool {
+    true
+}
+
+#[cfg(windows)]
+fn hide_splash_for_background(app: &tauri::App) {
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.hide();
+    }
+}
+
+#[cfg(not(windows))]
+fn hide_splash_for_background(_app: &tauri::App) {}
+
+fn show_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    use tauri::menu::{Menu, MenuItem};
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    let show = MenuItem::with_id(app, "show", "Mostrar Olyvia", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Salir de Olyvia", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let mut builder = TrayIconBuilder::with_id("olyvia-tray")
+        .tooltip("Olyvia · estudio local")
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "show" => show_main_window(app),
+            "quit" => {
+                QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
+                app.state::<state::AppState>().cancel_all_renders();
+                commands::downloader::cancel_active_download();
+                commands::agent::remove_watchdog_silent();
+                app.exit(0);
+            }
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+    if let Some(icon) = app.default_window_icon().cloned() {
+        builder = builder.icon(icon);
+    }
+    builder.build(app)?;
+    Ok(())
+}
 
 /// Revelado de la ventana principal. Se llena en `setup` y lo disparan tres
 /// caminos: la carga de la página principal, el evento `app-ready` del
@@ -19,12 +106,13 @@ pub mod state;
 static REVEAL: std::sync::OnceLock<std::sync::Arc<dyn Fn() + Send + Sync>> =
     std::sync::OnceLock::new();
 
-/// Tiempo mínimo que el splash permanece en pantalla, aunque la app ya esté
-/// lista: la bienvenida es parte de la identidad, no un parpadeo.
-const MIN_SPLASH_MS: u64 = 4000;
+/// Tiempo mínimo que el splash permanece en pantalla. La bienvenida es parte
+/// de la identidad, pero no debe tapar una app que ya está lista: 0,9 s evita
+/// el flash blanco sin castigar el arranque.
+const MIN_SPLASH_MS: u64 = 450;
 
 fn maybe_reveal_after_page_load(window_label: &str) {
-    if window_label != "main" {
+    if window_label != "main" || BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     let Some(reveal) = REVEAL.get() else {
@@ -46,9 +134,12 @@ fn maybe_reveal_after_page_load(window_label: &str) {
 fn reveal_after_ready(app: &tauri::AppHandle) {
     let started = std::time::Instant::now();
     let Some(splash) = app.get_webview_window("splash") else {
-        // Sin splash (p. ej. desarrollo): la principal se muestra sola.
-        if let Some(main) = app.get_webview_window("main") {
-            let _ = main.show();
+        // Sin splash (p. ej. desarrollo): la principal se muestra sola,
+        // salvo que el proceso haya arrancado como agente de fondo.
+        if !BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.show();
+            }
         }
         return;
     };
@@ -69,8 +160,12 @@ fn reveal_after_ready(app: &tauri::AppHandle) {
                 if elapsed < MIN_SPLASH_MS {
                     std::thread::sleep(std::time::Duration::from_millis(MIN_SPLASH_MS - elapsed));
                 }
-                let _ = main.show();
-                let _ = main.set_focus();
+                if BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = main.hide();
+                } else {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
                 let _ = splash.close();
             }
         }
@@ -116,18 +211,58 @@ fn emit_splash_progress(app: &tauri::AppHandle, step: u32, total: u32, message: 
 
 #[cfg(not(test))]
 pub fn run() {
+    let background = std::env::args().any(|arg| arg == "--background");
+    BACKGROUND_START.store(background, std::sync::atomic::Ordering::SeqCst);
+    if !claim_single_instance() {
+        return;
+    }
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .on_page_load(|window, _payload| {
             maybe_reveal_after_page_load(window.label());
         })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if !QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+        })
         .setup(|app| {
             let handle = app.handle().clone();
+            setup_tray(app)?;
+            if BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
+                hide_splash_for_background(app);
+            }
 
             // Cargar estado central (sincrónico para dependencias)
             let state = state::AppState::load(app.handle());
             app.manage(state);
+
+            if std::env::args().any(|arg| arg == "--test-notification") {
+                use tauri_plugin_notification::NotificationExt;
+                let result = app
+                    .notification()
+                    .builder()
+                    .title("Olyvia")
+                    .body("Notificación de prueba desde el descargador.")
+                    .show();
+                let marker = std::env::temp_dir().join("olyvia-notification-test.txt");
+                let _ = std::fs::write(
+                    marker,
+                    if result.is_ok() {
+                        "ok"
+                    } else {
+                        "error"
+                    },
+                );
+            }
 
             // Iniciar puente de descarga si está disponible
             if let Some(runtime) = commands::downloader_bridge::start(handle.clone()) {
@@ -207,6 +342,9 @@ pub fn run() {
             commands::capabilities::list_capabilities,
             commands::background::remove_background,
             commands::background::remove_background_asset,
+            commands::lottie::write_alpha_frames,
+            commands::lottie::alpha_frames_to_asset,
+            commands::lottie::discard_alpha_frames,
             commands::upscale::upscale_image,
             commands::analysis::detect_scenes,
             commands::analysis::analyze_stabilization,
@@ -235,15 +373,39 @@ pub fn run() {
             commands::media_tools::trim_video,
             commands::media_tools::watermark_video,
             commands::media_tools::set_metadata,
+            commands::media_tools::extract_subtitles,
             commands::audio::audio_peaks,
             commands::loudness::analyze_mix_loudness,
             commands::audio::hardware_encoders,
             commands::downloader::downloader_status,
+            commands::youtube_analytics::analyze_youtube_channel,
             commands::downloader::install_downloader,
+            commands::downloader::update_downloader,
+            commands::downloader::pause_download,
+            commands::downloader::resume_download,
+            commands::downloader::cancel_download,
             commands::downloader::probe_download,
+            commands::downloader::sponsorblock_preview,
+            commands::downloader::notify_user,
+            commands::downloader::list_playlist_entries,
+            commands::downloader::list_audio_tracks,
+            commands::automation::scan_watch_folder,
+            commands::automation::fetch_rss_feed,
+            commands::automation::test_proxy,
+            commands::automation::probe_source_checksum,
+            commands::agent::install_watchdog,
+            commands::agent::remove_watchdog,
+            commands::agent::watchdog_status,
+            commands::downloader::download_disk_space,
             commands::downloader::choose_cookies_file,
             commands::downloader::download_media,
             commands::downloader::cleanup_download,
+            commands::creator::creator_inject_hook,
+            commands::creator::creator_export_multi_aspect,
+            commands::creator::creator_inject_cta,
+            commands::creator::creator_interleave_broll,
+            commands::creator::creator_split_chapters,
+            commands::creator::creator_burn_subtitles,
             commands::downloader::choose_download_directory,
             commands::extension::extension_status,
             commands::extension::prepare_extension,
@@ -261,6 +423,11 @@ pub fn run() {
             commands::transcribe::transcribe_asset,
             commands::variants::write_project_variant,
             commands::variants::render_project_variant,
+            commands::license::license_status,
+            commands::license::start_trial,
+            commands::license::choose_license_file,
+            commands::license::activate_license,
+            commands::license::deactivate_license,
             commands::system::system_info,
             commands::system::choose_tool,
             commands::system::reveal_output,
@@ -302,10 +469,11 @@ pub fn run() {
     // otherwise FFmpeg would keep writing a file nobody is waiting for.
     app.run(|app_handle, event| {
         if matches!(
-            event,
+            &event,
             tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit
         ) {
             app_handle.state::<state::AppState>().cancel_all_renders();
+            commands::downloader::cancel_active_download();
         }
     });
 }

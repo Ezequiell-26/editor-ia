@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Command } from '../app/commands';
 import { fuzzyMatch } from '../app/commands';
 import { GLOBAL_HIT_LABEL, type GlobalSearchHit } from '../state/global-search';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
 
 interface CommandPaletteProps {
@@ -21,8 +22,15 @@ type PaletteItem =
 
 export function CommandPalette({ commands, onClose, search, onPickHit }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+
+  // Trampa de foco (auditoría de accesibilidad, H1/H2): guarda el disparador,
+  // enfoca el primer enfocable del panel (la búsqueda), atrapa Tab —antes
+  // escapaba al editor detrás— y cierra con Escape devolviendo el foco. La
+  // paleta se monta sólo mientras está abierta, así que no hace falta
+  // `active`. El atajo de flechas y Enter vive en el efecto de más abajo.
+  useDialogFocus({ containerRef: dialogRef, onClose });
 
   const commandMatches = useMemo(() => {
     const q = query.trim();
@@ -75,10 +83,6 @@ export function CommandPalette({ commands, onClose, search, onPickHit }: Command
     setSelected(0);
   }, [query]);
 
-  useEffect(() => {
-    inputRef.current?.focus();
-  }, []);
-
   const activate = useCallback(
     (item: PaletteItem | undefined) => {
       if (!item) return;
@@ -95,11 +99,7 @@ export function CommandPalette({ commands, onClose, search, onPickHit }: Command
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
+      // El Escape lo maneja useDialogFocus (con guarda de overlays superiores).
       if (e.key === 'ArrowDown') {
         e.preventDefault();
         setSelected((i) => Math.min(i + 1, items.length - 1));
@@ -169,6 +169,7 @@ export function CommandPalette({ commands, onClose, search, onPickHit }: Command
   return (
     <div
       className="cmdp-overlay"
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label="Paleta de comandos"
@@ -180,7 +181,6 @@ export function CommandPalette({ commands, onClose, search, onPickHit }: Command
         <div className="cmdp-search">
           <Icon name="search" size={14} />
           <input
-            ref={inputRef}
             type="text"
             placeholder="Escribí un comando o buscá en el proyecto…"
             value={query}

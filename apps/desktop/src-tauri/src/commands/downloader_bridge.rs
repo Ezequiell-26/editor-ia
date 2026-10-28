@@ -420,7 +420,7 @@ fn probe_route(stream: TcpStream, app: &AppHandle, body: &[u8]) {
             return;
         }
     };
-    match probe_with_engine(&engine, &url, None) {
+    match probe_with_engine(&engine, &url, None, None) {
         Ok(probe) => respond(
             stream,
             200,
@@ -701,8 +701,18 @@ fn run_job(
                 job.message = message.to_owned();
             });
         };
+        let piper = crate::commands::piper::resolve_assets(&app);
+        let watermark = crate::commands::piper::resolve_watermark(&app);
         let outcome = download_blocking(
-            &progress, &engine, &cache_dir, request, ffmpeg, ffprobe, None,
+            &progress,
+            &engine,
+            &cache_dir,
+            request,
+            ffmpeg,
+            ffprobe,
+            None,
+            piper,
+            watermark,
         )?;
         let platform_dir = downloads_dir.join(platform);
         let destination_dir = outcome

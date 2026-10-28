@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ViewId } from '../app/navigation';
 import { detectNativeRuntime } from '../services/project-service';
 import { loadProfile } from '../state/profile';
 import { useProjectStore } from '../state/project-store';
+import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
 import { PandaGuide } from './PandaGuide';
 
@@ -40,6 +41,17 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [open, setOpen] = useState(() => detectNativeRuntime() && !seen());
   const [tip, setTip] = useState(0);
   const profile = loadProfile();
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+
+  // Trampa de foco (auditoría de accesibilidad, H1/H2): guarda el disparador,
+  // enfoca el primer control del panel, atrapa Tab y cierra con Escape
+  // (guardando "vista" como el resto de los cierres). El componente vive
+  // montado aunque el diálogo no esté en pantalla: `active` lo cubre.
+  useDialogFocus({
+    containerRef: dialogRef,
+    active: open,
+    onClose: close,
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -69,7 +81,13 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
 
   return (
     <div className="app-modal-backdrop welcome-backdrop">
-      <div className="app-modal welcome-modal" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      <div
+        className="app-modal welcome-modal"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="welcome-title"
+      >
         <div className="welcome-panda">
           <PandaGuide message={tipCopy.title} detail={tipCopy.detail} />
           <button

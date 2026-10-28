@@ -5,9 +5,19 @@ import { LogicalSize } from '@tauri-apps/api/dpi';
 import { AppShell } from './components/AppShell';
 import { CommandPalette } from './components/CommandPalette';
 import { SettingsWindow } from './components/SettingsWindow';
+import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { buildCommands } from './app/commands';
-import { NAV_VIEWS, type ViewId } from './app/navigation';
+import {
+  MAIN_NAV_VIEWS,
+  NAV_VIEWS,
+  SECONDARY_NAV_VIEWS,
+  type ViewId,
+} from './app/navigation';
+import {
+  resolveViewRoute,
+  type EditorModeId,
+} from './app/view-routing';
 import { ProjectHome } from './features/projects/ProjectHome';
 import { AppearanceProvider } from './state/AppearanceProvider';
 import { duplicateClip, rippleDeleteClip, totalFrames } from './state/project-actions';
@@ -17,6 +27,7 @@ import {
   type DesktopService,
 } from './services/project-service';
 import { ProjectProvider, useProjectStore } from './state/project-store';
+import { LicenseProvider } from './state/LicenseProvider';
 import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
 import { ExperienceProvider, filterViewsForMode, useExperienceMode } from './state/experience';
@@ -35,6 +46,7 @@ import {
   SHORTCUTS_CHANGED_EVENT,
   bindingMatches,
   eventToBinding,
+  isActivatableTarget,
   loadShortcuts,
   normalizeBinding,
   type ShortcutId,
@@ -53,8 +65,20 @@ const loadProduction = () =>
   }));
 const loadFactory = () =>
   import('./features/factory/FactoryView').then((module) => ({ default: module.FactoryView }));
+const loadCreator = () =>
+  import('./features/creator/CreatorHubView').then((module) => ({
+    default: module.CreatorHubView,
+  }));
 const loadDirector = () =>
   import('./features/director/DirectorView').then((module) => ({ default: module.DirectorView }));
+const loadAutoEdit = () =>
+  import('./features/autoedit/AutoEditView').then((module) => ({
+    default: module.AutoEditView,
+  }));
+const loadYouTube = () =>
+  import('./features/youtube/YouTubeAnalyzerView').then((module) => ({
+    default: module.YouTubeAnalyzerView,
+  }));
 const loadEditor = () =>
   import('./features/editor/EditorWorkspace').then((module) => ({
     default: module.EditorWorkspace,
@@ -100,7 +124,13 @@ const loadMixer = () =>
 const loadVfx = () =>
   import('./features/vfx/VfxView').then((module) => ({ default: module.VfxView }));
 const loadDownload = () =>
-  import('./features/download/DownloadView').then((module) => ({ default: module.DownloadView }));
+  import('./features/download/DownloadsHubView').then((module) => ({
+    default: module.DownloadsHubView,
+  }));
+const loadLab = () =>
+  import('./features/lab/MediaLabView').then((module) => ({
+    default: module.MediaLabView,
+  }));
 const loadCompliance = () =>
   import('./features/compliance/ComplianceView').then((module) => ({
     default: module.ComplianceView,
@@ -114,28 +144,15 @@ const loadSettings = () =>
 
 const HomeView = lazy(loadHome);
 const ProductionView = lazy(loadProduction);
-const FactoryView = lazy(loadFactory);
+const CreatorHubView = lazy(loadCreator);
 const DirectorView = lazy(loadDirector);
+const AutoEditView = lazy(loadAutoEdit);
 const EditorWorkspace = lazy(loadEditor);
 const ScriptView = lazy(loadScript);
 const AssetsPanel = lazy(loadAssets);
-const ConvertView = lazy(loadConvert);
-const CompareView = lazy(loadCompare);
-const CompressView = lazy(loadCompress);
-const DenoiseView = lazy(loadDenoise);
-const ThumbnailView = lazy(loadThumbnails);
-const LocalizationView = lazy(loadLocalization);
 const AiHubView = lazy(loadAiHub);
-const MotionView = lazy(loadMotion);
-const VisualsView = lazy(loadVisuals);
-const RemoveBackgroundView = lazy(loadBackground);
-const UpscaleView = lazy(loadUpscale);
-const TextEditView = lazy(loadTextEdit);
-const MulticamView = lazy(loadMulticam);
-const MixerView = lazy(loadMixer);
-const VfxView = lazy(loadVfx);
-const DownloadView = lazy(loadDownload);
-const ComplianceView = lazy(loadCompliance);
+const DownloadsHubView = lazy(loadDownload);
+const MediaLabView = lazy(loadLab);
 const LearnView = lazy(loadLearn);
 const McpView = lazy(loadMcp);
 const SettingsHome = lazy(loadSettings);
@@ -144,9 +161,13 @@ const SettingsHome = lazy(loadSettings);
 const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown>> = {
   home: loadHome,
   director: loadDirector,
+  'auto-edit': loadAutoEdit,
+  youtube: loadYouTube,
   production: loadProduction,
   factory: loadFactory,
+  creator: loadCreator,
   editor: loadEditor,
+  lab: loadLab,
   script: loadScript,
   assets: loadAssets,
   'text-edit': loadTextEdit,
@@ -172,14 +193,22 @@ const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown
 };
 
 /**
- * Descarga los chunks de todas las vistas sin bloquear el arranque: uno por
- * turno ocioso, con una pausa corta entre cada uno para no competir con la
- * primera pintura ni con el trabajo del usuario.
+ * Descarga los chunks de las vistas de uso frecuente sin bloquear el arranque.
+ * Antes se precargaban las 27 vistas en los primeros segundos (≈1,5 MB de JS
+ * evaluado): eso competía con la primera pintura. Las vistas secundarias se
+ * cargan al abrirse; éstas cubren el recorrido habitual.
  */
+const PRIMARY_PRELOADS: readonly Exclude<ViewId, 'projects'>[] = [
+  'home',
+  'editor',
+  'assets',
+  'download',
+];
+
 function preloadViews(): () => void {
   let cancelled = false;
   let timer: number | null = null;
-  const ids = Object.keys(VIEW_PRELOADERS) as (keyof typeof VIEW_PRELOADERS)[];
+  const ids = PRIMARY_PRELOADS;
   let index = 0;
   const step = (): void => {
     if (cancelled || index >= ids.length) return;
@@ -189,11 +218,11 @@ function preloadViews(): () => void {
       .catch(() => null)
       .then(() => {
         if (cancelled) return;
-        timer = window.setTimeout(step, 90);
+        timer = window.setTimeout(step, 120);
       });
   };
   const schedule = (): void => {
-    timer = window.setTimeout(step, 350);
+    timer = window.setTimeout(step, 1200);
   };
   if (typeof window.requestIdleCallback === 'function') {
     window.requestIdleCallback(schedule, { timeout: 1500 });
@@ -240,19 +269,26 @@ interface ShellProps {
 }
 
 function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
+  const initialRoute = resolveViewRoute(initialView);
   // Ajustes es una ventana flotante, no una vista: si se entra directo a ella
   // desde el inicio, el fondo muestra Inicio y la ventana aparece encima.
   const [activeId, setActiveId] = useState<ViewId>(
-    initialView === 'settings' ? 'home' : initialView,
+    initialRoute.view === 'settings' ? 'home' : initialRoute.view,
   );
+  const [hubTab, setHubTab] = useState<string | null>(initialRoute.hubTab ?? null);
+  const [editorMode, setEditorMode] = useState<EditorModeId>(
+    initialRoute.editorMode ?? 'timeline',
+  );
+  const [hubRequest, setHubRequest] = useState(0);
+  const [editorRequest, setEditorRequest] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const store = useProjectStore();
   const { mode: experienceMode } = useExperienceMode();
-  // El rail se ordena y filtra según el modo: pro muestra todo, guiado deja el
-  // camino de trabajo. El menú Ver sigue listando todas las vistas.
+  // El rail es la lista corta de superficies; las herramientas avanzadas
+  // quedan detrás de «Más». El menú Ver sigue listando el rail visible.
   const railViews = useMemo(
-    () => filterViewsForMode(NAV_VIEWS, experienceMode),
+    () => filterViewsForMode(MAIN_NAV_VIEWS, experienceMode),
     [experienceMode],
   );
 
@@ -316,11 +352,18 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   }, []);
 
   const navigate = useCallback((id: ViewId) => {
-    if (id === 'settings') {
+    const route = resolveViewRoute(id);
+    if (route.view === 'settings') {
       setSettingsOpen(true);
       return;
     }
-    setActiveId(id);
+    setActiveId(route.view);
+    setHubTab(route.hubTab ?? null);
+    setHubRequest((request) => request + 1);
+    if (route.view === 'editor') {
+      setEditorMode(route.editorMode ?? 'timeline');
+      setEditorRequest((request) => request + 1);
+    }
   }, []);
 
   // Precalienta el motor de búsqueda en un momento ocioso: el chunk ya está
@@ -456,6 +499,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       'nav.assets': 'assets',
       'nav.production': 'production',
       'nav.factory': 'factory',
+      'nav.creator': 'creator',
       'nav.director': 'director',
       'nav.download': 'download',
       'nav.settings': 'settings',
@@ -493,13 +537,13 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         case 'file.open':
           event.preventDefault();
           void store.openProject().then((ok) => {
-            if (ok) setActiveId('editor');
+            if (ok) navigate('editor');
           });
           return;
         case 'file.export': {
           if (!project?.timeline.clips.length) return;
           event.preventDefault();
-          setActiveId('editor');
+          navigate('editor');
           store.requestExport();
           return;
         }
@@ -546,6 +590,11 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           return;
         case 'playback.playPause':
           if (!project) return;
+          // Fase 2 de accesibilidad (H16): si el foco está sobre un control
+          // que se activa con Space (botón, ítem de menú, clip de la
+          // timeline…), dejar pasar el evento: el click de activación ocurre
+          // en keyup y no se dispara si este keydown se previene.
+          if (isActivatableTarget(event.target)) return;
           event.preventDefault();
           store.setPlaying(!store.state.playing);
           return;
@@ -553,14 +602,14 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           const target = NAV_TARGET[matched];
           if (target) {
             event.preventDefault();
-            setActiveId(target);
+            navigate(target);
           }
         }
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [project, store]);
+  }, [project, store, navigate]);
 
   const renderView = useCallback(
     (id: ViewId) => {
@@ -571,50 +620,48 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           return <ProjectHome onNavigate={navigate} />;
         case 'director':
           return <DirectorView onNavigate={navigate} />;
+        case 'auto-edit':
+          return <AutoEditView onNavigate={navigate} />;
         case 'production':
           return <ProductionView onNavigate={navigate} />;
-        case 'factory':
-          return <FactoryView onNavigate={navigate} />;
+        case 'creator':
+          return (
+            <CreatorHubView
+              onNavigate={navigate}
+              initialTab={hubTab ?? undefined}
+              requestId={hubRequest}
+            />
+          );
         case 'editor':
-          return <EditorWorkspace onNavigate={navigate} />;
+          return (
+            <EditorWorkspace
+              onNavigate={navigate}
+              initialMode={editorMode}
+              modeRequest={editorRequest}
+            />
+          );
+        case 'lab':
+          return (
+            <MediaLabView
+              onNavigate={navigate}
+              initialTab={hubTab ?? undefined}
+              requestId={hubRequest}
+            />
+          );
         case 'script':
           return <ScriptView onNavigate={navigate} />;
         case 'assets':
           return <AssetsPanel onNavigate={navigate} />;
-        case 'text-edit':
-          return <TextEditView onNavigate={navigate} />;
-        case 'multicam':
-          return <MulticamView onNavigate={navigate} />;
-        case 'mixer':
-          return <MixerView onNavigate={navigate} />;
-        case 'vfx':
-          return <VfxView onNavigate={navigate} />;
         case 'download':
-          return <DownloadView onNavigate={navigate} />;
-        case 'compliance':
-          return <ComplianceView onNavigate={navigate} />;
-        case 'convert':
-          return <ConvertView onNavigate={navigate} />;
-        case 'compare':
-          return <CompareView onNavigate={navigate} />;
-        case 'compress':
-          return <CompressView onNavigate={navigate} />;
-        case 'denoise':
-          return <DenoiseView onNavigate={navigate} />;
-        case 'thumbnails':
-          return <ThumbnailView onNavigate={navigate} />;
-        case 'localization':
-          return <LocalizationView onNavigate={navigate} />;
+          return (
+            <DownloadsHubView
+              onNavigate={navigate}
+              initialTab={hubTab ?? undefined}
+              requestId={hubRequest}
+            />
+          );
         case 'ai-hub':
           return <AiHubView onNavigate={navigate} />;
-        case 'motion':
-          return <MotionView onNavigate={navigate} />;
-        case 'visuals':
-          return <VisualsView onNavigate={navigate} />;
-        case 'background':
-          return <RemoveBackgroundView onNavigate={navigate} />;
-        case 'upscale':
-          return <UpscaleView onNavigate={navigate} />;
         case 'learn':
           return <LearnView onNavigate={navigate} />;
         case 'mcp':
@@ -625,21 +672,30 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           return null;
       }
     },
-    [navigate],
+    [navigate, hubTab, hubRequest, editorMode, editorRequest],
   );
 
   // Una sola vista activa: el cambio es inmediato porque el chunk ya está
   // precargado en memoria, y así ninguna vista oculta conserva estado, timers
   // ni audio. El fallback no muestra texto de carga.
   const content = (
-    <Suspense fallback={<ViewFallback />}>{renderView(activeId)}</Suspense>
+    <ViewErrorBoundary
+      resetKey={activeId}
+      onHome={() => navigate('home')}
+      onSettings={() => navigate('settings')}
+    >
+      <Suspense fallback={<ViewFallback />}>{renderView(activeId)}</Suspense>
+    </ViewErrorBoundary>
   );
 
   return (
     <>
       <AppShell
         activeId={activeId}
+        views={railViews}
+        moreViews={SECONDARY_NAV_VIEWS}
         onSelect={navigate}
+        onOpenPalette={() => setPaletteOpen(true)}
         {...(onReturnToStart ? { onReturnToStart } : {})}
         content={content}
         flush={
@@ -647,26 +703,20 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           activeId === 'script' ||
           activeId === 'assets' ||
           activeId === 'production' ||
-          activeId === 'factory' ||
           activeId === 'director' ||
-          activeId === 'convert' ||
-          activeId === 'compare' ||
-          activeId === 'compress' ||
-          activeId === 'denoise' ||
-          activeId === 'thumbnails' ||
-          activeId === 'localization' ||
           activeId === 'ai-hub' ||
-          activeId === 'motion' ||
-          activeId === 'visuals' ||
-          activeId === 'background' ||
-          activeId === 'upscale' ||
           activeId === 'mcp'
         }
       />
       <WelcomeDialog onNavigate={navigate} />
       {settingsOpen && (
         <SettingsWindow onClose={() => setSettingsOpen(false)}>
-          <SettingsHome />
+          <SettingsHome
+            onNavigate={(id) => {
+              setSettingsOpen(false);
+              navigate(id);
+            }}
+          />
         </SettingsWindow>
       )}
       {paletteOpen && (
@@ -683,14 +733,22 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
 
 export function App({ service = createDesktopService(), initialShowStart }: AppProps) {
   const editorPreferences = useEditorPreferences();
+  const deepView = (() => {
+    if (typeof window === 'undefined') return null;
+    const requested = new URLSearchParams(window.location.search).get('view');
+    return requested && NAV_VIEWS.some((view) => view.id === requested)
+      ? (requested as ViewId)
+      : null;
+  })();
   const [showStart, setShowStart] = useState(() => {
     if (typeof initialShowStart === 'boolean') return initialShowStart;
+    if (deepView) return false;
     if (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test') {
       return false;
     }
     return true;
   });
-  const [initialView, setInitialView] = useState<ViewId>('home');
+  const [initialView, setInitialView] = useState<ViewId>(deepView ?? 'home');
 
   useEffect(() => {
     document.documentElement.dataset.emojiStyle = editorPreferences.emojiStyle;
@@ -738,9 +796,10 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
   return (
     <AppearanceProvider>
       <ProjectProvider service={service}>
-        {/* La cola de Flow vive por encima de las vistas: una corrida larga no
-            debe cortarse al cambiar de pantalla. */}
-        <FlowQueueProvider>
+        <LicenseProvider service={service}>
+          {/* La cola de Flow vive por encima de las vistas: una corrida larga no
+              debe cortarse al cambiar de pantalla. */}
+          <FlowQueueProvider>
           <ExperienceProvider>
             {showStart ? (
               <StartScreen onEnterApp={handleEnterApp} />
@@ -748,7 +807,8 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
               <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
             )}
           </ExperienceProvider>
-        </FlowQueueProvider>
+          </FlowQueueProvider>
+        </LicenseProvider>
       </ProjectProvider>
     </AppearanceProvider>
   );

@@ -143,7 +143,22 @@ export function parseSubtitles(content: string): ParsedSubtitles {
     format === 'vtt'
       ? normalized.replace(/^\s*WEBVTT[^\n]*\n/i, '')
       : normalized;
-  const blocks = body.split(/\n{2,}/);
+  // Acepta SRT sin línea en blanco entre cues. Primero separa un índice que
+  // empieza justo después del texto anterior; después inserta el blanco antes
+  // de una línea de tiempos sólo si no viene precedida por su índice.
+  const withCueBreaks = body
+    .replace(
+      /\n(?=\d{1,3}\s*\n\s*(?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3}\s*-->)/g,
+      '\n\n',
+    )
+    .replace(
+      /\n(?=(?:\d{1,3}:)?\d{1,2}:\d{1,2}[.,]\d{1,3}\s*-->)/g,
+      (match, offset: number, whole: string) => {
+        const previous = whole.slice(0, offset).split('\n').pop()?.trim() ?? '';
+        return /^\d{1,3}$/.test(previous) ? match : '\n\n';
+      },
+    );
+  const blocks = withCueBreaks.split(/\n{2,}/);
   const cues: SubtitleCueSeconds[] = [];
   const warnings: string[] = [];
   for (const [index, rawBlock] of blocks.entries()) {

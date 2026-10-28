@@ -6,8 +6,9 @@ import { defineConfig, devices } from '@playwright/test';
  */
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
-  expect: { timeout: 7_000 },
+  // El primer test paga la compilación en frío de Vite: hay que darle margen.
+  timeout: 120_000,
+  expect: { timeout: 20_000 },
   fullyParallel: false,
   workers: 1,
   retries: 0,
@@ -17,8 +18,8 @@ export default defineConfig({
     headless: true,
     channel: 'chrome',
     viewport: { width: 1360, height: 820 },
-    actionTimeout: 8_000,
-    navigationTimeout: 15_000,
+    actionTimeout: 15_000,
+    navigationTimeout: 90_000,
   },
   projects: [{ name: 'chrome', use: { ...devices['Desktop Chrome'] } }],
   webServer: {

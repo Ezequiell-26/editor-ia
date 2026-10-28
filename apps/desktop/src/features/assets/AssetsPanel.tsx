@@ -27,6 +27,7 @@ import {
   framesToSeconds,
   fpsOf,
   markAssetReady,
+  relinkAsset,
   removeAsset,
   setAssetProxy,
   toggleAssetFavorite,
@@ -91,11 +92,48 @@ function AssetCard({
   const [metaOpen, setMetaOpen] = useState(false);
   const [binDraft, setBinDraft] = useState(asset.bin ?? '');
   const [tagsDraft, setTagsDraft] = useState((asset.tags ?? []).join(', '));
+  const [relinkBusy, setRelinkBusy] = useState(false);
   const inUse = project?.timeline.clips.some(
     (clip) => clip.source.type === 'asset' && clip.source.assetId === asset.id,
   );
   const selected = store.state.selection.kind === 'asset' && store.state.selection.id === asset.id;
   const canMount = asset.status === 'ready' && (asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio');
+  const relinkable = asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio';
+
+  async function reconectar(): Promise<void> {
+    if (!project || relinkBusy || !relinkable) return;
+    const title = `Reconectar ${asset.label}`;
+    setRelinkBusy(true);
+    try {
+      const path =
+        asset.kind === 'video'
+          ? await store.service.chooseVideoFile(title)
+          : asset.kind === 'image'
+            ? await store.service.chooseImageFile(title)
+            : await store.service.chooseAudioFile(title);
+      if (!path) return;
+      const outcome = await store.service.importMediaPaths({
+        paths: [path],
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+        confirmRights: true,
+      });
+      const imported = outcome.assets[0];
+      if (!imported) {
+        store.setNotice(outcome.warnings[0] ?? 'no se pudo leer el archivo elegido');
+        return;
+      }
+      store.update((current) => relinkAsset(current, asset.id, imported), {
+        notice: `Material reconectado: ${asset.label}. Los clips mantienen su lugar.`,
+      });
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo reconectar el material',
+      );
+    } finally {
+      setRelinkBusy(false);
+    }
+  }
 
   return (
     <article
@@ -170,6 +208,19 @@ function AssetCard({
           Bin: {asset.bin ?? 'Sin bin'}{' '}
           {asset.tags?.length ? `· ${asset.tags.join(' · ')}` : '· sin etiquetas'}
         </p>
+        {relinkable ? (
+          <div className="actions compact" onClick={(event) => event.stopPropagation()}>
+            <button
+              type="button"
+              className="small ghost"
+              disabled={relinkBusy}
+              title="Elegí otro archivo para este material; conserva nombre, licencia y clips"
+              onClick={() => void reconectar()}
+            >
+              {relinkBusy ? 'Reconectando…' : 'Reconectar archivo…'}
+            </button>
+          </div>
+        ) : null}
         {asset.status !== 'ready' ? (
           <div className="rights-actions" onClick={(event) => event.stopPropagation()}>
             <span>Sin derechos confirmados</span>

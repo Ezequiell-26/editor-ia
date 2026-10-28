@@ -965,10 +965,14 @@ export function Timeline() {
       }
       if (!doc) return;
       if (current.mode === 'move') {
+        const currentClip = doc.timeline.clips.find(
+          (item) => item.id === current.clipId,
+        );
         if (
           current.previewStart === current.originalStart &&
-          current.previewTrackId === trackById(doc, current.clipId)?.id
+          currentClip?.trackId === current.previewTrackId
         ) {
+          // Un clic sin arrastre no debe mover ni cerrar huecos.
           return;
         }
         const hovered = document

@@ -30,6 +30,7 @@ import {
   type RenderQueue,
 } from '../../state/render-queue';
 import { useProjectStore } from '../../state/project-store';
+import { useLicense } from '../../state/LicenseProvider';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { recordDirectorOutcome } from '../../state/editor-memory';
 import { evaluateProjectQuality } from '../../state/quality';
@@ -74,6 +75,10 @@ interface BatchResult {
 
 export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const store = useProjectStore();
+  const { status: license } = useLicense();
+  const isPro = license.isPro;
+  const profileLocked = (profile: { resolution: { width: number; height: number }; videoCodec: string }) =>
+    !isPro && (profile.resolution.width > 1920 || profile.resolution.height > 1080 || profile.videoCodec !== 'h264');
   const project = store.state.project;
   const [profileId, setProfileId] = useState('');
   const [includeCaptions, setIncludeCaptions] = useState(true);
@@ -573,6 +578,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         ) : (
           <>
             <div className="modal-body">
+              {!isPro ? (
+                <div className="notice">
+                  Plan Free: exportá hasta 1080p en H.264. Los perfiles 4K y H.265 requieren Pro.
+                </div>
+              ) : null}
               <label className="field">
                 <span>Perfil</span>
                 <select
@@ -581,9 +591,14 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   disabled={running}
                 >
                   {profiles.map((profile) => (
-                    <option key={profile.id} value={profile.id}>
+                    <option
+                      key={profile.id}
+                      value={profile.id}
+                      disabled={profileLocked(profile)}
+                    >
                       {profile.name} · {profile.resolution.width}×{profile.resolution.height} ·{' '}
                       {profile.aspectRatio} · {profile.videoCodec.toUpperCase()}
+                      {profileLocked(profile) ? ' · Pro' : ''}
                     </option>
                   ))}
                 </select>

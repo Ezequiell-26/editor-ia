@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { EMOJI_GROUPS, EMOJI_TOTAL, findEmoji, type EmojiEntry } from './emoji-data';
+import { spanishName } from './emoji-es';
 
 const RECENT_KEY = 'editoria.emoji-recent.v1';
 const MAX_RECENT = 24;
@@ -44,6 +46,17 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
   const [groupId, setGroupId] = useState('smileys-emotion');
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // Trampa de foco (auditoría de accesibilidad, H1/H2): guarda el disparador
+  // (el botón que abre el selector), enfoca el primer control (la búsqueda),
+  // atrapa Tab y al cerrar devuelve el foco al disparador. El Escape propio
+  // del efecto de abajo se conserva: cubre el caso de foco fuera del panel
+  // (p. ej. sobre el propio disparador), que la trampa no debe robar.
+  useDialogFocus({
+    containerRef: popoverRef,
+    active: open,
+    onClose: () => setOpen(false),
+  });
 
   const groups = useMemo(() => {
     const base = EMOJI_GROUPS.filter((group) => group.emojis.length > 0);
@@ -171,8 +184,8 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
                   key={`${entry.emoji}-${entry.name}`}
                   type="button"
                   className="emoji-cell"
-                  aria-label={entry.name}
-                  title={entry.name}
+                  aria-label={spanishName(entry.emoji) ?? entry.name}
+                  title={spanishName(entry.emoji) ?? entry.name}
                   onClick={() => pick(entry)}
                 >
                   {entry.emoji}

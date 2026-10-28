@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
+use crate::license::LicenseTier;
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -108,6 +109,7 @@ pub type SharedRenderJobs = Arc<Mutex<HashMap<String, Arc<Mutex<RenderJob>>>>>;
 pub struct AppState {
     pub session: Mutex<Option<Session>>,
     pub settings: Mutex<Settings>,
+    pub license: Mutex<crate::commands::license::LicenseState>,
     pub config_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub render_jobs: SharedRenderJobs,
@@ -129,6 +131,7 @@ impl AppState {
             .unwrap_or_else(|_| std::env::temp_dir().join("editor-ia-cache"));
         let _ = std::fs::create_dir_all(&config_dir);
         let _ = std::fs::create_dir_all(&cache_dir);
+        let license = crate::commands::license::LicenseState::load(&config_dir);
 
         // yt-dlp que vino con el instalador, si la carpeta gestionada está vacía.
         crate::commands::downloader::ensure_bundled_engine(&config_dir);
@@ -142,6 +145,7 @@ impl AppState {
         Self {
             session: Mutex::new(None),
             settings: Mutex::new(settings),
+            license: Mutex::new(license),
             config_dir,
             cache_dir,
             render_jobs: Arc::new(Mutex::new(HashMap::new())),
@@ -149,6 +153,13 @@ impl AppState {
             analysis_cache: Mutex::new(HashMap::new()),
             downloader_bridge: Mutex::new(None),
         }
+    }
+
+    pub fn license_tier(&self) -> LicenseTier {
+        self.license
+            .lock()
+            .map(|license| license.tier)
+            .unwrap_or(LicenseTier::Free)
     }
 
     pub fn settings_snapshot(&self) -> Result<Settings, ProjectError> {

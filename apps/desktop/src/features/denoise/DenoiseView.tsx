@@ -11,6 +11,7 @@ import type {
   MediaProbe,
 } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
+import { addAsset } from '../../state/project-actions';
 import { queuePendingComparison } from '../compare/pending';
 import {
   DENOISE_PRESETS,
@@ -42,6 +43,7 @@ export function DenoiseView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
   const [result, setResult] = useState<DenoiseResult | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importBusy, setImportBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioPath, setAudioPath] = useState<string | null>(null);
   const [dialoguePreset, setDialoguePreset] = useState<DialoguePreset>('dialogo');
@@ -167,6 +169,39 @@ export function DenoiseView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
     if (!result || !inputPath) return;
     queuePendingComparison({ beforePath: inputPath, afterPath: result.path });
     onNavigate('compare');
+  }
+
+  async function importResult(): Promise<void> {
+    if (!result || importBusy) return;
+    const project = store.state.project;
+    if (!project) {
+      store.setNotice('Abrí un proyecto para importar el resultado a Medios.');
+      return;
+    }
+    setImportBusy(true);
+    try {
+      const outcome = await store.service.importMediaPaths({
+        paths: [result.path],
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+        confirmRights: true,
+        provider: 'denoise',
+      });
+      const asset = outcome.assets[0];
+      if (!asset) {
+        store.setNotice(outcome.warnings[0] ?? 'no se pudo importar el archivo con denoise');
+        return;
+      }
+      store.update((current) => addAsset(current, asset), {
+        notice: `${asset.label} se importó a Medios.`,
+      });
+    } catch (failure) {
+      store.setNotice(
+        failure instanceof Error ? failure.message : 'no se pudo importar el resultado',
+      );
+    } finally {
+      setImportBusy(false);
+    }
   }
 
   async function pickAudio(): Promise<void> {
@@ -436,6 +471,16 @@ export function DenoiseView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
             <button
               type="button"
               className="primary icon-text"
+              disabled={importBusy || !store.state.project}
+              onClick={() => void importResult()}
+              title="Copia el resultado a la carpeta media del proyecto y lo agrega a Medios"
+            >
+              <Icon name="assets" size={15} />
+              <span>{importBusy ? 'Importando…' : 'Importar a Medios'}</span>
+            </button>
+            <button
+              type="button"
+              className="ghost icon-text"
               onClick={() => void store.service.revealOutput(result.path)}
             >
               <Icon name="folder" size={15} />

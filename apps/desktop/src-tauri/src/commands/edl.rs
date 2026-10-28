@@ -65,6 +65,7 @@ fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
         .as_str()
         .unwrap_or("Editor IA")
         .replace(['\r', '\n'], " ");
+    // `export_edl` ya expandió los compuestos: acá sólo se escribe la spine.
     let assets = project["assets"].as_array().cloned().unwrap_or_default();
     let asset_by_id: std::collections::HashMap<String, Value> = assets
         .iter()
@@ -389,6 +390,12 @@ mod tests {
         let text = std::fs::read_to_string(&result.path).expect("leer");
         assert_eq!(result.events, 1);
         assert!(text.contains("* FROM CLIP NAME: Toma"), "{text}");
+        assert!(
+            !text.contains("Grupo"),
+            "el compuesto no debe exportarse como un clip suelto: {text}"
+        );
+        // El clip interno hereda la posición del compuesto (frame 10).
+        assert!(text.contains("00:00:00:10"), "{text}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

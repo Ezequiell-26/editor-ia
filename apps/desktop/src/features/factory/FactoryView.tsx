@@ -11,6 +11,8 @@ import {
   type FactoryVariantResult,
 } from '../../state/batch-factory';
 import { useProjectStore } from '../../state/project-store';
+import { useLicense } from '../../state/LicenseProvider';
+import { ProLock } from '../../components/ProLock';
 import { buildProjectMotionPlans } from '../motion/plan';
 import { AutopilotPanel } from './AutopilotPanel';
 
@@ -49,6 +51,20 @@ function formatBytes(bytes: number): string {
 }
 
 export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
+  const { status, loading } = useLicense();
+  if (!loading && !status.isPro) {
+    return (
+      <ProLock
+        feature="Fábrica de Variantes"
+        description="Generar varios proyectos y renders desde un brief, con imágenes compartidas y montaje automático, forma parte de Pro."
+        onOpenSettings={() => onNavigate('settings')}
+      />
+    );
+  }
+  return <FactoryWorkspace onNavigate={onNavigate} />;
+}
+
+function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
   const project = store.state.project;
   const root = store.state.opened?.root ?? '';
@@ -67,6 +83,7 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
   const [photoMotion, setPhotoMotion] = useState<'auto' | 'none'>('auto');
   const [transitionFrames, setTransitionFrames] = useState(8);
   const [confirmRights, setConfirmRights] = useState(false);
+  const [approveCost, setApproveCost] = useState(false);
   const [renderVideos, setRenderVideos] = useState(false);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState('');
@@ -187,6 +204,7 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
               photoMotion,
               transitionFrames,
               confirmRights,
+              approveCost,
             },
           );
           const assembled = assembleVariant(variant.project, variant.narrations, {
@@ -214,7 +232,7 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
               const rendered = await store.service.renderProjectVariant({
                 projectPath: written.path,
                 profileId: assembled.renderProfiles[0]?.id ?? '',
-                outputPath: `${outputDir}\${slug(plan.name)}-${runId}.mp4`,
+                outputPath: `${outputDir}\\${slug(plan.name)}-${runId}.mp4`,
                 includeCaptions: true,
                 motionPlans: motionBundle.plans,
               });
@@ -441,6 +459,17 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
                   onChange={(event) => setConfirmRights(event.target.checked)}
                 />
                 <span>Confirmo derechos de las imágenes y de la voz para estas variantes.</span>
+              </label>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={approveCost}
+                  onChange={(event) => setApproveCost(event.target.checked)}
+                />
+                <span>
+                  Autorizo el consumo de créditos si el proveedor de guion es remoto.
+                  Con proveedor local no hace falta.
+                </span>
               </label>
               <button
                 type="button"

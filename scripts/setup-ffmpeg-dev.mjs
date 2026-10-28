@@ -18,6 +18,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  rmSync,
   statSync,
 } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -71,12 +72,14 @@ function copyIfChanged(source, target) {
       return false;
     }
   }
-  // Force overwrite even if locked
   try {
-    copyFileSync(source, target, { flag: 'w' });
+    // En Windows una DLL cargada por un proceso vivo no se puede sobrescribir;
+    // borrarla primero falla con EBUSY en vez de dejar un archivo parcial.
+    if (existsSync(target)) rmSync(target, { force: true });
+    copyFileSync(source, target);
     return true;
-  } catch (e) {
-    console.error(`Failed to copy ${source} → ${target}:`, e.message);
+  } catch (error) {
+    console.error(`No se pudo copiar ${source} → ${target}: ${error.message}`);
     return false;
   }
 }

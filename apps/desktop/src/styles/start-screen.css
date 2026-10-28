@@ -1259,6 +1259,16 @@
   flex-shrink: 0;
 }
 
+.updater-state-icon-info {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  background: #28333e;
+  color: #4881c2;
+  flex-shrink: 0;
+}
+
 .updater-available-panel {
   display: flex;
   flex-direction: column;

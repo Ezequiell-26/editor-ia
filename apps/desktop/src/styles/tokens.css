@@ -17,7 +17,8 @@
   --color-danger: #ff9a9a;
   --color-danger-strong: #d94b4b;
   --color-warning: #f5c76a;
-  --color-success: #7ee2a8;
+  --color-success: #22c55e;
+  --color-cta: #ff6b2b;
   --color-video: #4d8df0;
   --color-image: #8b74e8;
   --color-audio: #2eb8a6;
@@ -39,9 +40,9 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
-  --radius-1: 7px;
+  --radius-1: 8px;
   --radius-2: 10px;
-  --radius-3: 14px;
+  --radius-3: 10px;
   --sidebar-min: 224px;
   --sidebar-max: 224px;
   --timeline-row: 48px;

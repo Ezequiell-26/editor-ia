@@ -7,10 +7,12 @@ import {
   movePatch,
   resetPatch,
   rotatePatch,
+  scaleAxisPatch,
   scalePatch,
   type BoxTransform,
   type CanvasSize,
 } from './transform-overlay';
+import { snapMove, type GuideLine } from './snap-guides';
 
 interface PreviewTransformBoxProps {
   readonly clip: Clip;
@@ -19,7 +21,7 @@ interface PreviewTransformBoxProps {
   readonly canvas: CanvasSize;
 }
 
-type DragKind = 'move' | 'scale' | 'rotate';
+type DragKind = 'move' | 'scale' | 'scale-x' | 'scale-y' | 'rotate';
 
 /** Captura de puntero tolerante: jsdom no la implementa y algunos WebView tampoco. */
 function capturePointer(target: HTMLElement, pointerId: number): void {
@@ -67,6 +69,7 @@ export function PreviewTransformBox({
   const store = useProjectStore();
   const dragRef = useRef<DragState | null>(null);
   const [dragging, setDragging] = useState<DragKind | null>(null);
+  const [guides, setGuides] = useState<readonly GuideLine[]>([]);
 
   const relativeFrame = Math.max(
     0,
@@ -82,8 +85,16 @@ export function PreviewTransformBox({
       scaleX: sampled.scaleX ?? 1,
       scaleY: sampled.scaleY ?? 1,
       rotationDeg: sampled.rotationDeg ?? 0,
+      opacity: sampled.opacity ?? 1,
     }),
-    [sampled.offsetX, sampled.offsetY, sampled.scaleX, sampled.scaleY, sampled.rotationDeg],
+    [
+      sampled.offsetX,
+      sampled.offsetY,
+      sampled.scaleX,
+      sampled.scaleY,
+      sampled.rotationDeg,
+      sampled.opacity,
+    ],
   );
   const hasKeyframes = (clip.transform?.keyframes?.length ?? 0) > 0;
   const box = boxRect(transform, project.video, canvas);
@@ -113,6 +124,7 @@ export function PreviewTransformBox({
                       ...(patch.rotationDeg === 0 ? { rotationDeg: undefined } : {}),
                       ...(patch.scaleX === 1 ? { scaleX: undefined } : {}),
                       ...(patch.scaleY === 1 ? { scaleY: undefined } : {}),
+                      ...(patch.opacity === 1 ? { opacity: undefined } : {}),
                     },
                   }
                 : item,
@@ -147,19 +159,30 @@ export function PreviewTransformBox({
     const to = { x: event.clientX, y: event.clientY };
 
     if (drag.kind === 'move') {
-      apply(
-        movePatch(
-          drag.transform,
-          { x: to.x - from.x, y: to.y - from.y },
-          project.video,
-          canvas,
-          !event.altKey,
-        ),
+      const moved = movePatch(
+        drag.transform,
+        { x: to.x - from.x, y: to.y - from.y },
+        project.video,
+        canvas,
+        // El imán del centro lo resuelve snapMove con guías visibles.
+        false,
       );
+      // Alt desactiva las guías por completo.
+      const snapped = snapMove(moved.offsetX, moved.offsetY, project.video, canvas, !event.altKey);
+      setGuides(snapped.guides);
+      apply({ offsetX: snapped.offsetX, offsetY: snapped.offsetY });
       return;
     }
     if (drag.kind === 'scale') {
       apply(scalePatch(drag.transform, from, to, center));
+      return;
+    }
+    if (drag.kind === 'scale-x') {
+      apply(scaleAxisPatch('x', drag.transform, from, to, center));
+      return;
+    }
+    if (drag.kind === 'scale-y') {
+      apply(scaleAxisPatch('y', drag.transform, from, to, center));
       return;
     }
     apply(rotatePatch(drag.transform, from, to, center, event.shiftKey));
@@ -169,6 +192,7 @@ export function PreviewTransformBox({
     if (!dragRef.current) return;
     dragRef.current = null;
     setDragging(null);
+    setGuides([]);
     releasePointer(event.currentTarget, event.pointerId);
   }
 
@@ -181,66 +205,103 @@ export function PreviewTransformBox({
   };
 
   return (
-    <div
-      className={`transform-box${dragging ? ' dragging' : ''}${hasKeyframes ? ' locked' : ''}`}
-      style={style}
-      role="group"
-      aria-label={`Encuadre de ${clip.label}`}
-      data-testid="transform-box"
-      onPointerDown={(event) => begin('move', event)}
-      onPointerMove={move}
-      onPointerUp={end}
-      onPointerCancel={end}
-    >
-      <span className="transform-size">
-        {Math.round(box.width / (canvas.width / project.video.width))}×
-        {Math.round(box.height / (canvas.height / project.video.height))}
-      </span>
-      {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
+    <>
+      {guides.map((guide) => (
         <span
-          key={corner}
-          className={`transform-handle ${corner}`}
+          key={`${guide.axis}-${guide.kind}-${Math.round(guide.at)}`}
+          className={`transform-guide ${guide.axis} ${guide.kind}`}
+          data-testid={`guide-${guide.axis}`}
+          style={guide.axis === 'x' ? { left: guide.at } : { top: guide.at }}
+          aria-hidden="true"
+        />
+      ))}
+      <div
+        className={`transform-box${dragging ? ' dragging' : ''}${hasKeyframes ? ' locked' : ''}`}
+        style={style}
+        role="group"
+        aria-label={`Encuadre de ${clip.label}`}
+        data-testid="transform-box"
+        onPointerDown={(event) => begin('move', event)}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerCancel={end}
+      >
+        <span className="transform-size">
+          {Math.round(box.width / (canvas.width / project.video.width))}×
+          {Math.round(box.height / (canvas.height / project.video.height))}
+        </span>
+        {(['nw', 'ne', 'sw', 'se'] as const).map((corner) => (
+          <span
+            key={corner}
+            className={`transform-handle ${corner}`}
+            role="presentation"
+            onPointerDown={(event) => begin('scale', event)}
+            onPointerMove={move}
+            onPointerUp={end}
+            onPointerCancel={end}
+          />
+        ))}
+        {(['n', 's', 'w', 'e'] as const).map((edge) => (
+          <span
+            key={edge}
+            className={`transform-handle edge-${edge}`}
+            role="presentation"
+            title="Arrastrá para estirar en un solo eje"
+            onPointerDown={(event) => begin(edge === 'e' || edge === 'w' ? 'scale-x' : 'scale-y', event)}
+            onPointerMove={move}
+            onPointerUp={end}
+            onPointerCancel={end}
+          />
+        ))}
+        <span
+          className="transform-rotate"
           role="presentation"
-          onPointerDown={(event) => begin('scale', event)}
+          title="Arrastrá para rotar (Shift: pasos de 15°)"
+          onPointerDown={(event) => begin('rotate', event)}
           onPointerMove={move}
           onPointerUp={end}
           onPointerCancel={end}
         />
-      ))}
-      <span
-        className="transform-rotate"
-        role="presentation"
-        title="Arrastrá para rotar (Shift: pasos de 15°)"
-        onPointerDown={(event) => begin('rotate', event)}
-        onPointerMove={move}
-        onPointerUp={end}
-        onPointerCancel={end}
-      />
-      <div className="transform-toolbar">
-        <button
-          type="button"
-          className="ghost"
-          title="Centrar en el cuadro"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => apply({ offsetX: 0, offsetY: 0 })}
-        >
-          Centrar
-        </button>
-        <button
-          type="button"
-          className="ghost"
-          title="Volver a escala 1 y sin rotación"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={() => apply(resetPatch())}
-        >
-          Restablecer
-        </button>
+        <div className="transform-toolbar">
+          <label className="transform-opacity" title="Transparencia del clip">
+            <span>Opacidad</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={transform.opacity ?? 1}
+              aria-label="Opacidad"
+              onPointerDown={(event) => event.stopPropagation()}
+              onChange={(event) => apply({ opacity: Number(event.target.value) })}
+            />
+            <strong>{Math.round((transform.opacity ?? 1) * 100)}%</strong>
+          </label>
+          <button
+            type="button"
+            className="ghost"
+            title="Centrar en el cuadro"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => apply({ offsetX: 0, offsetY: 0 })}
+          >
+            Centrar
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            title="Volver a escala 1 y sin rotación"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => apply(resetPatch())}
+          >
+            Restablecer
+          </button>
+        </div>
+        {hasKeyframes ? (
+          <span className="transform-locked-hint">
+            Con keyframes, editá el encuadre en el Inspector
+          </span>
+        ) : null}
       </div>
-      {hasKeyframes ? (
-        <span className="transform-locked-hint">
-          Con keyframes, editá el encuadre en el Inspector
-        </span>
-      ) : null}
-    </div>
+    </>
   );
 }

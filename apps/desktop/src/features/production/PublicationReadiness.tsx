@@ -38,6 +38,7 @@ export function PublicationReadiness({
 
   if (!project || !audit) return null;
   const snapshot = project;
+  const hasContent = project.timeline.clips.length > 0;
 
   async function copyMetadata(): Promise<void> {
     if (!metadata) return;
@@ -55,7 +56,7 @@ export function PublicationReadiness({
   const rows = [
     {
       label: 'Materiales listos',
-      ok: audit.checks.allAssetsReady,
+      ok: project.assets.length > 0 && audit.checks.allAssetsReady,
       detail: `${project.assets.length} asset(s) en la biblioteca`,
     },
     {
@@ -76,7 +77,7 @@ export function PublicationReadiness({
     },
     {
       label: 'Subtítulos',
-      ok: audit.checks.captionCount > 0 || audit.checks.scenes === 0,
+      ok: audit.checks.captionCount > 0,
       detail: `${audit.checks.captionCount} cue(s) para ${audit.checks.scenes} escena(s)`,
     },
     {
@@ -250,9 +251,15 @@ export function PublicationReadiness({
               <Icon name="shield" size={15} />
             </button>
           ) : null}
-          <span className="count-pill">{audit.score}/100</span>
+          <span className="count-pill">{hasContent ? `${audit.score}/100` : 'Sin contenido'}</span>
         </div>
       </div>
+      {!hasContent ? (
+        <p className="fine-print">
+          Todavía no hay clips en la timeline. Montá al menos un clip antes de guardar el
+          manifiesto o exportar EDL/OTIO/FCPXML.
+        </p>
+      ) : null}
       <div className="production-result">
         <div>
           <strong>{audit.checks.aiGeneratedAssets}</strong>
@@ -325,14 +332,14 @@ export function PublicationReadiness({
         </div>
       ) : null}
       <div className="actions">
-        <button type="button" className="primary" onClick={() => void saveManifest()} disabled={busy}>
+        <button type="button" className="primary" onClick={() => void saveManifest()} disabled={busy || !hasContent}>
           {busy ? 'Guardando…' : 'Guardar manifiesto de publicación'}
         </button>
         <button
           type="button"
           className="primary"
           onClick={() => void exportInterchangeBundle()}
-          disabled={edlBusy}
+          disabled={edlBusy || !hasContent}
           title="Escribe EDL, OTIO y FCPXML en una sola carpeta"
         >
           {edlBusy ? 'Exportando…' : 'Paquete EDL+OTIO+FCPXML'}
@@ -341,7 +348,7 @@ export function PublicationReadiness({
           type="button"
           className="ghost"
           onClick={() => void exportEdl()}
-          disabled={edlBusy}
+          disabled={edlBusy || !hasContent}
           title="CMX 3600 para llevar la timeline a Resolve o Premiere"
         >
           {edlBusy ? 'Exportando…' : 'Exportar EDL'}
@@ -350,7 +357,7 @@ export function PublicationReadiness({
           type="button"
           className="ghost"
           onClick={() => void exportOtio()}
-          disabled={edlBusy}
+          disabled={edlBusy || !hasContent}
           title="OpenTimelineIO JSON para Resolve/Premiere y otras apps"
         >
           Exportar OTIO
@@ -359,7 +366,7 @@ export function PublicationReadiness({
           type="button"
           className="ghost"
           onClick={() => void exportFcpxml()}
-          disabled={edlBusy}
+          disabled={edlBusy || !hasContent}
           title="FCPXML 1.11 para Final Cut Pro / Resolve"
         >
           Exportar FCPXML

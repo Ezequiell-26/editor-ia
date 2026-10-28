@@ -394,7 +394,7 @@ export async function runOrchestratorJob(
         brief: job.options.brief.trim(),
         sceneCount: job.options.scenes,
         language: job.options.language,
-        approvedCost: true,
+        approvedCost: job.options.approveCredits,
       });
       if (script.simulated) {
         log('warn', 'El guion vino del proveedor simulado; configurá un proveedor real para producción.');
@@ -530,7 +530,13 @@ export async function runOrchestratorJob(
       clipCount: finalProject?.timeline.clips.length ?? 0,
       captionCount: finalProject?.captions.cues.length ?? 0,
       mediaUsed: finalProject?.assets.filter((asset) => asset.kind === 'image' || asset.kind === 'video').length ?? 0,
-      warnings: [],
+      warnings: [
+        ...new Set(
+          job.log
+            .filter((entry) => entry.level !== 'info')
+            .map((entry) => entry.message),
+        ),
+      ],
     };
     emit({
       status: 'done',

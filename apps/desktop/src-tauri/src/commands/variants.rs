@@ -12,6 +12,7 @@ use serde_json::Value;
 use tauri::State;
 
 use crate::commands::system::resolve_tools;
+use crate::license::{check_render, LicenseTier};
 use crate::media::resolve_inside_root;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{self, build_plan, parse_profile, BuildPlanInput};
@@ -162,6 +163,12 @@ pub async fn write_project_variant(
     file_name: String,
     project: Value,
 ) -> Result<VariantWritten, ProjectError> {
+    if state.license_tier() != LicenseTier::Pro {
+        return Err(ProjectError::message(
+            ProjectErrorCode::LicenseRequired,
+            "La Fábrica de Variantes requiere el plan Pro.",
+        ));
+    }
     let session = state.require_session()?;
     let directory = PathBuf::from(directory.trim());
     if directory.as_os_str().is_empty() {
@@ -270,6 +277,17 @@ pub async fn render_project_variant(
         )
     })?;
     let mut profile = parse_profile(&profile_value)?;
+    if let Err(error) = check_render(
+        state.license_tier(),
+        profile.width,
+        profile.height,
+        &profile.video_codec,
+    ) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::LicenseRequired,
+            &error.message,
+        ));
+    }
     // Short social variants can legitimately compress below the conservative
     // delivery floor; keep a real anti-empty-render check.
     profile.min_output_bytes = profile.min_output_bytes.min(50_000);

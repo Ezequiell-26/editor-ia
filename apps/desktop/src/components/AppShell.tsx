@@ -4,7 +4,7 @@ import { Icon } from './Icon';
 import { MenuBar } from './MenuBar';
 import { WindowControls } from './WindowControls';
 import { AssistantDock } from '../features/assistant/AssistantDock';
-import { NAV_VIEWS, type ViewId } from '../app/navigation';
+import { NAV_VIEWS, type NavView, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
 
 /** Último segmento de una ruta, para mostrar sólo el nombre del archivo. */
@@ -15,16 +15,22 @@ function fileNameOf(path: string): string {
 
 interface AppShellProps {
   readonly activeId: ViewId;
+  readonly views?: readonly NavView[];
+  readonly moreViews?: readonly NavView[];
   readonly onSelect: (id: ViewId) => void;
   readonly onReturnToStart?: () => void;
+  readonly onOpenPalette?: () => void;
   readonly content: ReactNode;
   readonly flush?: boolean;
 }
 
 export function AppShell({
   activeId,
+  views = NAV_VIEWS,
+  moreViews = [],
   onSelect,
   onReturnToStart,
+  onOpenPalette,
   content,
   flush = false,
 }: AppShellProps) {
@@ -85,6 +91,7 @@ export function AppShell({
         )}
         <MenuBar
           activeId={activeId}
+          views={views}
           onSelect={onSelect}
           {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
         />
@@ -107,6 +114,17 @@ export function AppShell({
           </div>
         ) : null}
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="topbar-search"
+            aria-label="Buscar o ejecutar un comando"
+            data-tooltip="Buscar vistas, proyectos y comandos · Ctrl+K"
+            onClick={onOpenPalette}
+          >
+            <Icon name="search" size={14} />
+            <span>Buscar</span>
+            <kbd>Ctrl K</kbd>
+          </button>
           <button
             type="button"
             className="icon-button"
@@ -208,7 +226,8 @@ export function AppShell({
       ) : null}
       <div className="app-body">
         <Sidebar
-          views={NAV_VIEWS}
+          views={views}
+          moreViews={moreViews}
           activeId={activeId}
           onSelect={onSelect}
           projectName={project?.name ?? null}

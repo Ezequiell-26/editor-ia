@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::commands::system::resolve_tools;
+use crate::license::check_render;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
     self, build_plan_range, expand_compounds, parse_profile, sanitize_log, BuildPlanInput,
@@ -189,12 +190,16 @@ fn publish_output(temporary: &Path, final_path: &Path) -> Result<(), ProjectErro
             "no se pudo preparar la carpeta de salida",
         )
     })?;
-    std::fs::copy(temporary, final_path).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "el render pasó la verificación pero no se pudo publicar el archivo final",
-        )
-    })?;
+    // Mover es instantáneo cuando origen y destino están en el mismo volumen;
+    // sólo se copia si el sistema no puede renombrar entre carpetas/unidades.
+    if std::fs::rename(temporary, final_path).is_err() {
+        std::fs::copy(temporary, final_path).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "el render pasó la verificación pero no se pudo publicar el archivo final",
+            )
+        })?;
+    }
     Ok(())
 }
 
@@ -293,6 +298,17 @@ fn start_render_with_output(
         profile_json["hardwareEncoder"] = Value::String(encoder);
     }
     let profile = parse_profile(&profile_json)?;
+    if let Err(error) = check_render(
+        state.license_tier(),
+        profile.width,
+        profile.height,
+        &profile.video_codec,
+    ) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::LicenseRequired,
+            &error.message,
+        ));
+    }
     let project_width = project["video"]["width"].as_u64().unwrap_or(1920) as u32;
     let project_height = project["video"]["height"].as_u64().unwrap_or(1080) as u32;
     let project_fps = project["video"]["frameRate"]["num"].as_u64().unwrap_or(30) as f64
@@ -768,7 +784,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn publishing_copies_the_verified_temp_file_to_the_final_path() {
+    fn publishing_moves_the_verified_temp_file_to_the_final_path() {
         let base = std::env::temp_dir().join(format!("editor-ia-publish-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&base).unwrap();
         let temporary = base.join("temp.mp4");
@@ -776,7 +792,21 @@ mod tests {
         std::fs::write(&temporary, b"verified-bytes").unwrap();
         publish_output(&temporary, &final_path).unwrap();
         assert_eq!(std::fs::read(&final_path).unwrap(), b"verified-bytes");
-        assert!(temporary.exists());
+        assert!(!temporary.exists(), "el temporal se movió, no se duplicó");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn publishing_replaces_an_existing_export_with_the_new_render() {
+        let base =
+            std::env::temp_dir().join(format!("editor-ia-republish-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&base).unwrap();
+        let temporary = base.join("temp.mp4");
+        let final_path = base.join("final.mp4");
+        std::fs::write(&temporary, b"nuevo").unwrap();
+        std::fs::write(&final_path, b"viejo").unwrap();
+        publish_output(&temporary, &final_path).unwrap();
+        assert_eq!(std::fs::read(&final_path).unwrap(), b"nuevo");
         let _ = std::fs::remove_dir_all(&base);
     }
 

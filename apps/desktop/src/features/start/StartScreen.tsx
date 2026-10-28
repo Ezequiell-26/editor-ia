@@ -1,6 +1,7 @@
 import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { forgetRecent, loadRecents, type RecentProject } from '../../lib/recents';
 import { useProjectStore } from '../../state/project-store';
 import {
@@ -14,11 +15,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { SettingsWindow } from '../../components/SettingsWindow';
 import { AppUpdaterModal } from '../updater/AppUpdaterModal';
-import {
-  CURRENT_APP_VERSION,
-  checkForUpdates,
-  loadUpdaterConfig,
-} from '../updater/updater-service';
+import { CURRENT_APP_VERSION } from '../../app/version';
 
 const SettingsHome = lazy(() =>
   import('../settings/SettingsHome').then((module) => ({ default: module.SettingsHome })),
@@ -181,7 +178,6 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
   const [showSettings, setShowSettings] = useState(false);
   const [recentThumbs, setRecentThumbs] = useState<Record<string, string>>({});
   const requestedThumbs = useRef(new Set<string>());
-  const [hasUpdateAvailable, setHasUpdateAvailable] = useState(false);
 
   // Drag and drop overlay
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -199,18 +195,17 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
 
   const native = detectNativeRuntime();
   const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const createDialogRef = useRef<HTMLDivElement | null>(null);
 
-  // Auto-check for updates silently on launch if enabled in preferences
-  useEffect(() => {
-    const cfg = loadUpdaterConfig();
-    if (cfg.autoCheck) {
-      void checkForUpdates(cfg.channel)
-        .then((res) => {
-          if (res.available) setHasUpdateAvailable(true);
-        })
-        .catch(() => {});
-    }
-  }, []);
+  // Trampa de foco (auditoría de accesibilidad, H1/H2) para el diálogo de
+  // nuevo proyecto: guarda el disparador (la tarjeta "Crear proyecto"), enfoca
+  // el primer control, atrapa Tab y cierra con Escape. El componente vive
+  // montado y el diálogo sólo a ratos: `active` lo cubre.
+  useDialogFocus({
+    containerRef: createDialogRef,
+    active: showCreateModal,
+    onClose: () => setShowCreateModal(false),
+  });
 
   // Portadas de los proyectos recientes: se piden de a una para no lanzar
   // varios FFmpeg a la vez. Si un proyecto no tiene visual, queda el icono.
@@ -265,18 +260,10 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
     }
   }, [showCreateModal]);
 
-  // Handle Escape key to close modal
-  useEffect(() => {
-    if (!showCreateModal && !showUpdaterModal) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowCreateModal(false);
-        setShowUpdaterModal(false);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [showCreateModal, showUpdaterModal]);
+  // El Escape de cada modal lo maneja su propia trampa de foco: el diálogo de
+  // nuevo proyecto usa useDialogFocus y AppUpdaterModal tiene el suyo (con la
+  // guarda de descarga en curso). El efecto único que cerraba ambos a la vez
+  // se retiró: cerraba el actualizador aun mientras descargaba.
 
   function pickFormat(id: string) {
     setFormatId(id);
@@ -457,18 +444,14 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             {/* Version & Update button */}
             <button
               type="button"
-              className={`start-version-btn ${hasUpdateAvailable ? 'has-update' : ''}`}
-              title="Actualizador de la app · Buscar nuevas versiones"
+              className="start-version-btn"
+              title="Versión instalada y estado de actualizaciones"
               aria-label="Abrir actualizador de la app"
               onClick={() => setShowUpdaterModal(true)}
             >
               <span className="start-version-dot" aria-hidden="true" />
               <span>v{CURRENT_APP_VERSION}</span>
-              {hasUpdateAvailable ? (
-                <span className="start-update-chip">Actualización</span>
-              ) : (
-                <Icon name="refresh" size={10} />
-              )}
+              <Icon name="refresh" size={10} />
             </button>
           </div>
 
@@ -781,6 +764,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
       {showCreateModal && (
         <div
           className="start-modal-backdrop"
+          ref={createDialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby="create-dialog-title"

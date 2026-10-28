@@ -32,16 +32,17 @@ describe('roto asistido por seguimiento facial', () => {
     expect(mask?.feather).toBe(0);
   });
 
-  it('resta el inicio del análisis para que las claves sean locales al clip', () => {
+  it('usa el tiempo relativo del backend sin restar inFrame otra vez', () => {
+    // El backend analiza con -ss antes de -i y devuelve time relativo al
+    // tramo. Aunque el clip empiece en inFrame=90, las claves son 0 y 60.
     const mask = maskFromFaceTrack(
       result({
         samples: [
-          { time: 10, centerX: 0.5, centerY: 0.5, size: 0.2 },
-          { time: 12, centerX: 0.6, centerY: 0.5, size: 0.2 },
+          { time: 0, centerX: 0.5, centerY: 0.5, size: 0.2 },
+          { time: 2, centerX: 0.6, centerY: 0.5, size: 0.2 },
         ],
       }),
       30,
-      10,
     );
     expect(mask?.keyframes?.[0]?.frame).toBe(0);
     expect(mask?.keyframes?.[1]?.frame).toBe(60);

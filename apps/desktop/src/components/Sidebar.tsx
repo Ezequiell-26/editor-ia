@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { NavGroup, NavView, ViewId } from '../app/navigation';
 import type { ProjectPhase } from '../state/project-store';
 import { useAppearance } from '../state/AppearanceProvider';
@@ -18,7 +18,10 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   vfx: 'effects',
   download: 'download',
   director: 'director',
+  'auto-edit': 'sparkles',
+  youtube: 'globe',
   factory: 'factory',
+  creator: 'sparkles',
   compliance: 'shield',
   convert: 'convert',
   compare: 'split',
@@ -31,44 +34,74 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   visuals: 'filters',
   background: 'background',
   upscale: 'upscale',
+  lab: 'lab',
   learn: 'learn',
   mcp: 'plug',
   settings: 'settings',
 };
 
-const BREAK_BEFORE_GROUP: ReadonlySet<NavGroup> = new Set<NavGroup>(['herramientas', 'ayuda']);
+/** Cada grupo, salvo el primero, abre con un separador rotulado. */
+const GROUP_LABELS: Readonly<Partial<Record<NavGroup, string>>> = {
+  ruta: 'RUTA',
+  herramientas: 'HERRAMIENTAS',
+  ayuda: 'AYUDA',
+};
 
 interface SidebarProps {
   readonly views: readonly NavView[];
+  readonly moreViews?: readonly NavView[];
   readonly activeId: ViewId;
   readonly onSelect: (id: ViewId) => void;
   readonly projectName: string | null;
   readonly phase: ProjectPhase;
 }
 
-export function Sidebar({ views, activeId, onSelect, projectName, phase }: SidebarProps) {
+export function Sidebar({
+  views,
+  moreViews = [],
+  activeId,
+  onSelect,
+  projectName,
+  phase,
+}: SidebarProps) {
   const { appearance } = useAppearance();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const rootRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+        setMoreOpen(false);
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [moreOpen]);
+
+  useEffect(() => {
+    setMoreOpen(false);
+  }, [activeId]);
+
   return (
     <nav
+      ref={rootRef}
       className={`sidebar${appearance.sidebarLabels !== false ? ' expanded' : ''}`}
       aria-label="Vistas principales"
     >
       <ul>
         {views.map((view, index) => (
           <Fragment key={view.id}>
-            {view.id === 'projects' ? (
-              <li className="nav-group-header" aria-hidden="true">
-                <span className="nav-separator-label">RUTA</span>
-              </li>
-            ) : null}
-            {BREAK_BEFORE_GROUP.has(view.group) &&
-            views[index - 1]?.group !== view.group ? (
+            {GROUP_LABELS[view.group] && views[index - 1]?.group !== view.group ? (
               <li className="nav-separator" aria-hidden="true">
-                <span className="nav-separator-label">
-                  {view.group === 'herramientas'
-                    ? 'HERRAMIENTAS IA'
-                    : 'AYUDA'}
-                </span>
+                <span className="nav-separator-label">{GROUP_LABELS[view.group]}</span>
               </li>
             ) : null}
             <li>
@@ -89,6 +122,46 @@ export function Sidebar({ views, activeId, onSelect, projectName, phase }: Sideb
             </li>
           </Fragment>
         ))}
+        {moreViews.length > 0 ? (
+          <li className="nav-more">
+            <button
+              type="button"
+              aria-label={moreOpen ? 'Cerrar herramientas avanzadas' : 'Más herramientas'}
+              aria-expanded={moreOpen}
+              aria-controls="sidebar-more-list"
+              data-tooltip="Más herramientas · Director, Automático y modos del editor (Texto, Multicámara, Mezcla, VFX, Motion, Efectos)"
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              <Icon name="grid" className="nav-icon" size={15} />
+              <span className="nav-label" aria-hidden="true">Más</span>
+            </button>
+            {moreOpen ? (
+              <ul
+                className="nav-more-list"
+                id="sidebar-more-list"
+                aria-label="Herramientas avanzadas"
+              >
+                {moreViews.map((view) => (
+                  <li key={view.id}>
+                    <button
+                      type="button"
+                      aria-label={view.label}
+                      aria-current={view.id === activeId ? 'page' : undefined}
+                      data-tooltip={view.hint}
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onSelect(view.id);
+                      }}
+                    >
+                      <Icon name={VIEW_ICONS[view.id]} className="nav-icon" size={14} />
+                      <span className="nav-label" aria-hidden="true">{view.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ) : null}
       </ul>
       <div className="sidebar-tail">
         <span

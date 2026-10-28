@@ -205,11 +205,22 @@ duplicado de slider de paneo eliminado y schema JSON regenerado.
 
 ## Continuidad
 
-1. Ejecutar las fases 0–2 del plan de accesibilidad (trampa de foco en
-   diálogos, teclado para mover/trim, Space global).
-2. Automatización de fader/pan por keyframes (P2 #4).
-3. Pre-muestrear la Bézier en el render Rust para exactitud `y(x=t)` (P4 #16).
-4. Time-remap por frame (P2 #5).
-5. Multicámara por timecode (P2 #6) y secuencias anidadas (P2 #7).
-6. Re-empaquetar la build con este ciclo y verificar export desde la app
-   instalada; renovar Playwright E2E (P1 #1).
+(Actualizada 2026-10-26 tras la fusión ciclo 2 + voz: la Bézier exacta en el
+render Rust y la multicámara por timecode ya están hechas y salen de esta lista.)
+
+1. **Cerrar lo a medias del ciclo 2 (iteración 3)**: teclado para mover/trim en
+   Timeline y Space global que no roba activación (fase 2 de accesibilidad,
+   revertida a medias); render Rust y UI de captura de la automatización de
+   fader/pan por keyframes; wiring de UI de «cortar silencios»;
+   `useDialogFocus` en los diálogos restantes (MenuBar, WelcomeDialog,
+   AppUpdaterModal, StartScreen, EmojiPicker, CommandPalette); fallbacks
+   multicámara timecode→audio→manual.
+2. Time-remap por frame (P2 #5).
+3. Secuencias anidadas / clips compuestos y multicam con ángulos editables
+   como clips (P2 #7).
+4. Renovar Playwright E2E y re-empaquetar la build instalada, verificando
+   export desde la app instalada (P1 #1).
+5. Perfilado de rendimiento de timelines largas: memoria, preview y export
+   (P1 #2).
+6. Saltos de paridad pro: color HDR/ACES 10-bit, tracking planar + roto
+   deformable, paint/object removal, VFX como grafo DAG (P3 #8–11).

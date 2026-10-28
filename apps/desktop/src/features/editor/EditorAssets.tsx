@@ -20,7 +20,7 @@ import {
   type EffectPreset,
 } from '../../state/effect-presets';
 import { TITLE_TEMPLATES, type TitleTemplate } from '../../state/title-templates';
-import { COLOR_LOOKS } from './Inspector';
+import { COLOR_LOOKS } from './color-looks';
 import { useProjectStore } from '../../state/project-store';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';

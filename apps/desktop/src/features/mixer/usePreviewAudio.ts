@@ -16,6 +16,7 @@ import {
   trackGainDb,
   trackPan,
 } from '../../state/audio-mix';
+import { sampleTrackPan } from '../../state/track-automation';
 
 /**
  * Utilidades de mezcla de la preview y la vista Mezcla.
@@ -153,7 +154,49 @@ let context: AudioContext | null = null;
 let contextFailed = false;
 let master: MasterChain | null = null;
 const chains = new Map<string, TrackChain>();
-const sources = new WeakMap<HTMLMediaElement, { node: MediaElementAudioSourceNode; trackId: string }>();
+interface ClipPanChain {
+  readonly splitter: ChannelSplitterNode;
+  readonly left: GainNode;
+  readonly right: GainNode;
+  readonly merger: ChannelMergerNode;
+}
+
+interface SourceEntry {
+  readonly node: MediaElementAudioSourceNode;
+  trackId: string;
+  pan: ClipPanChain | undefined;
+}
+
+const sources = new WeakMap<HTMLMediaElement, SourceEntry>();
+
+/** Ajusta las dos ganancias del paneo por clip con la misma ley lineal del export. */
+function applyClipPan(chain: ClipPanChain, pan: number): void {
+  const gains = linearPanGains(pan);
+  chain.left.gain.value = gains.left;
+  chain.right.gain.value = gains.right;
+}
+
+/** Cadena splitter→gains→merger para paneo por clip sin convertir a mono. */
+function buildClipPanChain(
+  ctx: AudioContext,
+  pan: number,
+): ClipPanChain | null {
+  try {
+    const splitter = ctx.createChannelSplitter(2);
+    const left = ctx.createGain();
+    const right = ctx.createGain();
+    const merger = ctx.createChannelMerger(2);
+    splitter.connect(left, 0);
+    splitter.connect(right, 1);
+    left.connect(merger, 0, 0);
+    right.connect(merger, 0, 1);
+    const chain = { splitter, left, right, merger };
+    applyClipPan(chain, pan);
+    return chain;
+  } catch {
+    return null;
+  }
+}
 // Últimos parámetros vistos en el proyecto: se aplican a las cadenas cuando
 // aparezcan (el contexto se crea recién en el primer attach, no al sincronizar).
 const pendingParams = new Map<string, TrackAudioParams>();
@@ -260,7 +303,53 @@ function ensureChain(trackId: string): TrackChain | null {
  * el nodo se guarda en un WeakMap y se reutiliza (React StrictMode monta,
  * limpia y vuelve a montar los efectos).
  */
-export function attachPreviewAudio(trackId: string, element: HTMLMediaElement): boolean {
+/**
+ * Conecta el elemento a su pista. El paneo por clip sólo agrega la cadena
+ * splitter→gains→merger cuando el clip lo necesita; en el caso común (pan 0)
+ * el grafo queda igual al histórico (elemento → entrada → EQ), sin nodos de
+ * más ni cambios de topología.
+ */
+function connectSource(entry: SourceEntry, trackId: string, clipPan: number): boolean {
+  const ctx = ensureContext();
+  const chain = chains.get(trackId);
+  if (!ctx || !chain) return false;
+  try {
+    entry.node.disconnect();
+  } catch {
+    // Ya estaba desconectado.
+  }
+  if (entry.pan) {
+    try {
+      entry.pan.merger.disconnect();
+    } catch {
+      // Ya estaba desconectado.
+    }
+    entry.pan = undefined;
+  }
+  try {
+    if (Math.abs(clipPan) > 0.001) {
+      const panChain = buildClipPanChain(ctx, clipPan);
+      if (panChain) {
+        entry.node.connect(panChain.splitter);
+        panChain.merger.connect(chain.input);
+        entry.pan = panChain;
+        entry.trackId = trackId;
+        return true;
+      }
+    }
+    entry.node.connect(chain.input);
+    entry.trackId = trackId;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function attachPreviewAudio(
+  trackId: string,
+  element: HTMLMediaElement,
+  clipPan = 0,
+): boolean {
   const ctx = ensureContext();
   if (!ctx) return false;
   if (ctx.state === 'suspended') {
@@ -274,26 +363,29 @@ export function attachPreviewAudio(trackId: string, element: HTMLMediaElement): 
   let entry = sources.get(element);
   if (!entry) {
     try {
-      entry = { node: ctx.createMediaElementSource(element), trackId };
+      entry = { node: ctx.createMediaElementSource(element), trackId, pan: undefined };
       sources.set(element, entry);
     } catch {
       return false;
     }
   }
-  if (entry.trackId !== trackId) {
-    try {
-      entry.node.disconnect();
-    } catch {
-      // Ya estaba desconectado; no importa.
-    }
-    entry.trackId = trackId;
+  return connectSource(entry, trackId, clipPan);
+}
+
+/**
+ * Actualiza el paneo por clip. Si el clip pasa de 0 a un valor (o al revés),
+ * reconstruye la conexión para no dejar una cadena de paneo inerte.
+ */
+export function setPreviewClipPan(element: HTMLMediaElement, pan: number): void {
+  const entry = sources.get(element);
+  if (!entry) return;
+  const hasChain = entry.pan !== undefined;
+  const wantsChain = Math.abs(pan) > 0.001;
+  if (hasChain && wantsChain) {
+    applyClipPan(entry.pan!, pan);
+    return;
   }
-  try {
-    entry.node.connect(chain.input);
-  } catch {
-    return false;
-  }
-  return true;
+  connectSource(entry, entry.trackId, pan);
 }
 
 /** Deja de enrutar un elemento (al desmontar su capa en la preview). */
@@ -304,6 +396,14 @@ export function detachPreviewAudio(trackId: string, element: HTMLMediaElement): 
     entry.node.disconnect();
   } catch {
     // Ya estaba desconectado.
+  }
+  if (entry.pan) {
+    try {
+      entry.pan.merger.disconnect();
+    } catch {
+      // Ya estaba desconectado.
+    }
+    entry.pan = undefined;
   }
   void trackId;
 }
@@ -317,6 +417,51 @@ export function resumePreviewAudio(): void {
 }
 
 /**
+ * Parámetros de mezcla de una pista. Con `frame`, el paneo sale de sus
+ * `panKeyframes` (el mismo muestreo del export); sin `frame` se usa el knob
+ * estático. En ambos casos el paneo por clip gana y la pista queda al centro.
+ */
+function trackAudioParams(
+  project: ProjectDocument,
+  track: Track,
+  frame?: number,
+): TrackAudioParams {
+  const hasClipPan = project.timeline.clips.some(
+    (clip) => clip.trackId === track.id && Math.abs(clip.audio?.pan ?? 0) > 0.001,
+  );
+  const sampledPan =
+    frame === undefined ? undefined : sampleTrackPan(track.panKeyframes, frame);
+  return {
+    gainDb: trackGainDb(track),
+    pan: hasClipPan ? 0 : (sampledPan ?? trackPan(track)),
+    eqLowDb: trackEqDb(track, 'eqLowDb'),
+    eqMidDb: trackEqDb(track, 'eqMidDb'),
+    eqHighDb: trackEqDb(track, 'eqHighDb'),
+  };
+}
+
+function applyParams(trackId: string, params: TrackAudioParams): void {
+  pendingParams.set(trackId, params);
+  const chain = chains.get(trackId);
+  if (chain) applyTrackParams(chain, params);
+}
+
+/**
+ * Aplica el paneo animado de cada pista en `frame` sobre el grafo vivo. Las
+ * claves son frames absolutos de la timeline, con clamp en los extremos y la
+ * misma curva easing/Bézier por segmento que `sampleTrackPan` y el export
+ * Rust; el paneo por clip conserva su prioridad. Barato e idempotente: la
+ * preview lo llama en cada cambio de playhead.
+ */
+export function syncPreviewAudioPanAtFrame(project: ProjectDocument, frame: number): void {
+  for (const track of project.timeline.tracks) {
+    if (!AUDIO_KINDS.has(track.kind)) continue;
+    if ((track.panKeyframes?.length ?? 0) === 0) continue;
+    applyParams(track.id, trackAudioParams(project, track, frame));
+  }
+}
+
+/**
  * Sincroniza fader, paneo y EQ de cada pista con audio y la ganancia master
  * con el documento actual. Barato e idempotente: lo llaman la preview y la
  * vista Mezcla en cada cambio de proyecto, con o sin contexto creado.
@@ -326,16 +471,7 @@ export function syncPreviewAudioFromProject(project: ProjectDocument): void {
   for (const track of project.timeline.tracks) {
     if (!AUDIO_KINDS.has(track.kind)) continue;
     seen.add(track.id);
-    const params: TrackAudioParams = {
-      gainDb: trackGainDb(track),
-      pan: trackPan(track),
-      eqLowDb: trackEqDb(track, 'eqLowDb'),
-      eqMidDb: trackEqDb(track, 'eqMidDb'),
-      eqHighDb: trackEqDb(track, 'eqHighDb'),
-    };
-    pendingParams.set(track.id, params);
-    const chain = chains.get(track.id);
-    if (chain) applyTrackParams(chain, params);
+    applyParams(track.id, trackAudioParams(project, track));
   }
   for (const trackId of [...chains.keys()]) {
     if (seen.has(trackId)) continue;

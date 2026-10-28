@@ -84,14 +84,73 @@ describe('handleDistance', () => {
     const onHandle = handleDistance({ x: 0, y: 0 }, segment, 'cp1');
     expect(onHandle).toBeCloseTo(0, 9);
     const far = handleDistance({ x: 0.9, y: 0.9 }, segment, 'cp1');
-    expect(far).toBeGreaterThan(0.5);
+    expect(far).toBeGreaterThan(60);
+  });
+
+  it('ubica el manejador del segundo segmento en su tramo global, no en x=0', () => {
+    const segments = segmentsOf(keyframes);
+    const second = segments[1]!;
+    // El segundo segmento empieza en la mitad del canvas: su cp1=(0,0) se
+    // dibuja en (0.5, 0), no en (0, 0).
+    expect(handleDistance({ x: 0.5, y: 0 }, second, 'cp1', 0.5, 0.5, 600, 200)).toBeCloseTo(0, 6);
+    expect(handleDistance({ x: 0, y: 0 }, second, 'cp1', 0.5, 0.5, 600, 200)).toBeGreaterThan(200);
+  });
+
+  it('responde al teclado sobre el manejador inicial', () => {
+    const changes: CubicBezier[] = [];
+    const { getByRole } = render(
+      <KeyframeCurveEditor
+        keyframes={keyframes}
+        property="scale"
+        onEditBezier={(_i, b) => {
+          changes.push(b);
+        }}
+      />,
+    );
+    const canvas = getByRole('application') as HTMLCanvasElement;
+    fireEvent.keyDown(canvas, { key: 'ArrowRight' });
+    expect(changes).toHaveLength(1);
+    expect(changes[0]!.cp1X).toBeCloseTo(0.01, 6);
+  });
+
+  it('no secuestra Tab: el foco puede salir del editor', () => {
+    const { getByRole } = render(<KeyframeCurveEditor keyframes={keyframes} />);
+    const canvas = getByRole('application') as HTMLCanvasElement;
+    const event = new KeyboardEvent('keydown', {
+      key: 'Tab',
+      bubbles: true,
+      cancelable: true,
+    });
+    canvas.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('revierte la curva local si el proyecto rechaza el cambio', () => {
+    const changes: CubicBezier[] = [];
+    const { getByRole } = render(
+      <KeyframeCurveEditor
+        keyframes={keyframes}
+        onEditBezier={(_i, b) => {
+          changes.push(b);
+          return false;
+        }}
+      />,
+    );
+    const canvas = getByRole('application') as HTMLCanvasElement;
+    fireEvent.keyDown(canvas, { key: 'ArrowRight' });
+    fireEvent.keyDown(canvas, { key: 'ArrowRight' });
+    expect(changes).toHaveLength(2);
+    // Ambos intentos parten de la curva original (0), no de la edición
+    // fantasma anterior.
+    expect(changes[0]!.cp1X).toBeCloseTo(0.01, 6);
+    expect(changes[1]!.cp1X).toBeCloseTo(0.01, 6);
   });
 });
 
 describe('KeyframeCurveEditor (interacción)', () => {
   it('renderiza el editor con aria y el aviso de canvas no disponible en jsdom', () => {
     const { getByRole, getByText } = render(<KeyframeCurveEditor keyframes={keyframes} property="scale" />);
-    const canvas = getByRole('img');
+    const canvas = getByRole('application');
     expect(canvas.getAttribute('aria-label')).toContain('2 segmentos');
     expect(canvas.getAttribute('aria-label')).toContain('escala');
     expect(getByText(/la edición por arrastre requiere canvas/i)).toBeTruthy();
@@ -102,7 +161,7 @@ describe('KeyframeCurveEditor (interacción)', () => {
     const { getByRole } = render(
       <KeyframeCurveEditor keyframes={keyframes} property="scale" onEditBezier={onEditBezier} />,
     );
-    const canvas = getByRole('img') as HTMLCanvasElement;
+    const canvas = getByRole('application') as HTMLCanvasElement;
 
     // Segmento 0 (frames 0..50) sin estilo: curva linear con cp1 en (0, 0);
     // en pantalla queda en la fracción 0 del ancho total.
@@ -126,7 +185,7 @@ describe('KeyframeCurveEditor (interacción)', () => {
     const { getByRole } = render(
       <KeyframeCurveEditor keyframes={keyframes} property="scale" onEditBezier={onEditBezier} />,
     );
-    const canvas = getByRole('img') as HTMLCanvasElement;
+    const canvas = getByRole('application') as HTMLCanvasElement;
 
     firePointer(canvas, 'pointerdown', 0.5, 0.5);
     firePointer(canvas, 'pointermove', 0.3, 0.3);

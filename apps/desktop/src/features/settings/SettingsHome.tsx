@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import type { ViewId } from '../../app/navigation';
 import type {
   ProviderInfo,
   SystemInfo,
@@ -12,8 +13,10 @@ import { AppearanceCard } from './AppearanceCard';
 import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
+import { LicenseCard } from './LicenseCard';
 
 type SettingsSectionId =
+  | 'licencia'
   | 'apariencia'
   | 'editor'
   | 'atajos'
@@ -32,6 +35,13 @@ interface SettingsSectionInfo {
 }
 
 const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
+  {
+    id: 'licencia',
+    label: 'Licencia',
+    hint: 'Plan Free o Pro',
+    icon: 'shield',
+    blurb: 'Estado del plan, activación local y límites de la versión. Tus proyectos se abren igual en Free.',
+  },
   {
     id: 'apariencia',
     label: 'Apariencia',
@@ -143,7 +153,11 @@ function VersionLine({ label, info }: { readonly label: string; readonly info: S
   );
 }
 
-export function SettingsHome() {
+export function SettingsHome({
+  onNavigate,
+}: {
+  readonly onNavigate?: (id: ViewId) => void;
+} = {}) {
   const store = useProjectStore();
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [kind, setKind] = useState('openai-compatible');
@@ -300,6 +314,10 @@ export function SettingsHome() {
             <p className="notice notice-warning">{store.service.unavailableReason}</p>
           ) : null}
 
+          <SettingsSection section={sectionById('licencia')} active={activeSection === 'licencia'}>
+            <LicenseCard />
+          </SettingsSection>
+
           <SettingsSection section={sectionById('apariencia')} active={activeSection === 'apariencia'}>
             <AppearanceCard />
           </SettingsSection>
@@ -384,6 +402,31 @@ export function SettingsHome() {
               ? 'Almacén de Windows disponible. La clave se lee sólo al hacer una llamada.'
               : 'El almacén de credenciales no respondió; las claves no se guardarán hasta que esté disponible.'}
               </p>
+            </article>
+            <article className="card">
+              <p className="eyebrow">Asistente e integraciones</p>
+              <h3>IA y MCP</h3>
+              <p className="muted">
+                El asistente global se abre con Ctrl+K o con el dock flotante. Las skills,
+                prompts y el operador local viven en AI Hub; los servidores MCP se administran
+                en una pantalla aparte.
+              </p>
+              <div className="actions">
+                {onNavigate ? (
+                  <>
+                    <button type="button" className="ghost" onClick={() => onNavigate('ai-hub')}>
+                      Abrir AI Hub
+                    </button>
+                    <button type="button" className="ghost" onClick={() => onNavigate('mcp')}>
+                      Servidores MCP
+                    </button>
+                  </>
+                ) : (
+                  <span className="fine-print">
+                    Cerrá esta ventana y usá Ctrl+K para abrir el asistente.
+                  </span>
+                )}
+              </div>
             </article>
           </SettingsSection>
 

@@ -98,7 +98,7 @@ export function formatTimecode(frames: number, fps: number): string {
     .join(':');
 }
 
-function touch(project: MutableProject): void {
+export function touch(project: MutableProject): void {
   project.revision += 1;
   project.updatedAt = new Date().toISOString();
 }
@@ -160,7 +160,10 @@ function findGap(
   duration: number,
 ): number {
   let start = Math.max(0, Math.floor(preferred));
-  for (const interval of intervals) {
+  // No asumir que el caller ya ordenó: una cue movida o importada puede dejar
+  // intervalos fuera de orden y el primer hueco sería falso.
+  const ordered = [...intervals].sort((a, b) => a.start - b.start);
+  for (const interval of ordered) {
     if (start + duration <= interval.start) {
       return start;
     }
@@ -572,6 +575,62 @@ export function updateAssetMetadata(
     if (patch.favorite) asset.favorite = true;
     else delete asset.favorite;
   }
+  touch(next);
+  return next;
+}
+
+/**
+ * Reconecta un material con un archivo nuevo ya importado. Conserva identidad,
+ * nombre, licencia, etiquetas y bin; reemplaza ruta, medición, hash y estado.
+ * Rechaza un cambio de tipo o un archivo más corto que los clips que lo usan:
+ * un relink no puede dejar la timeline apuntando fuera del medio.
+ */
+export function relinkAsset(
+  project: ProjectDocument,
+  assetId: string,
+  replacement: Asset,
+): ProjectDocument {
+  const current = project.assets.find((item) => item.id === assetId);
+  if (!current) throw new ProjectActionError('el material no está en el proyecto');
+  if (current.kind !== replacement.kind) {
+    throw new ProjectActionError(
+      `el archivo elegido es ${replacement.kind} y el material es ${current.kind}`,
+    );
+  }
+  const durationFrames =
+    replacement.kind === 'video' || replacement.kind === 'audio'
+      ? replacement.media?.durationFrames
+      : undefined;
+  if (durationFrames !== undefined) {
+    const clips = [
+      ...project.timeline.clips,
+      ...(project.compounds ?? []).flatMap((compound) => compound.clips),
+    ];
+    let requiredFrames = 0;
+    for (const clip of clips) {
+      if (clip.source.type !== 'asset' || clip.source.assetId !== assetId) continue;
+      if (!('outFrame' in clip.source)) continue;
+      requiredFrames = Math.max(requiredFrames, clip.source.outFrame);
+    }
+    if (requiredFrames > durationFrames) {
+      throw new ProjectActionError(
+        `el archivo nuevo dura ${durationFrames} frames y un clip necesita ${requiredFrames}; elegí uno más largo`,
+      );
+    }
+  }
+  const next = cloneProject(project);
+  const asset = next.assets.find((item) => item.id === assetId)!;
+  asset.status = replacement.status;
+  asset.source = replacement.source;
+  if (replacement.integrity) asset.integrity = replacement.integrity;
+  else delete asset.integrity;
+  if ('media' in replacement && replacement.media) {
+    (asset as typeof replacement).media = replacement.media;
+  } else if ('media' in asset) {
+    delete (asset as { media?: unknown }).media;
+  }
+  // El proxy anterior mide el archivo viejo: ya no representa a este material.
+  if ('proxy' in asset) delete (asset as { proxy?: unknown }).proxy;
   touch(next);
   return next;
 }
@@ -1290,8 +1349,12 @@ export function trimClip(
       }
       clip.source.inFrame = newIn;
     }
+    const newDuration = maxStart + 1 - newStart;
+    if (!canPlaceClip(next, clip.trackId, newStart, newDuration, clip.id)) {
+      return null;
+    }
     clip.startFrame = newStart;
-    clip.durationFrames = maxStart + 1 - newStart;
+    clip.durationFrames = newDuration;
   } else {
     const source = clip.source;
     const asset = source.type === 'asset'
@@ -1610,13 +1673,14 @@ export function splitClip(
   const leftDuration = at - clip.startFrame;
   const rightDuration = clip.durationFrames - leftDuration;
   const rightId = newId();
+  let rightClip: Clip;
   if (isWindowed(clip)) {
     const { num, den } = speedOf(clip);
     const splitSource = clip.source.inFrame + (leftDuration * num) / den;
     if (!Number.isInteger(splitSource)) {
       return null;
     }
-    const right = {
+    rightClip = {
       ...JSON.parse(JSON.stringify(clip)),
       id: rightId,
       startFrame: at,
@@ -1625,17 +1689,27 @@ export function splitClip(
     } as Clip;
     clip.durationFrames = leftDuration;
     clip.source.outFrame = splitSource;
-    next.timeline.clips.push(right);
+    next.timeline.clips.push(rightClip);
   } else {
-    const right = {
+    rightClip = {
       ...JSON.parse(JSON.stringify(clip)),
       id: rightId,
       startFrame: at,
       durationFrames: rightDuration,
     } as Clip;
     clip.durationFrames = leftDuration;
-    next.timeline.clips.push(right);
+    next.timeline.clips.push(rightClip);
   }
+  // El corte debe repartir las curvas/animaciones: el clip derecho no puede
+  // reiniciar los keyframes en 0 ni el izquierdo conservar claves fuera de su
+  // nueva duración.
+  applySplitKeyframes(
+    clip,
+    rightClip,
+    leftDuration,
+    originalTransformKeyframes,
+    originalGainKeyframes,
+  );
   for (const scene of next.scenes) {
     const index = scene.clipIds.indexOf(clip.id);
     if (index >= 0) {
@@ -4207,14 +4281,29 @@ export function updateProjectLook(
   return next;
 }
 
-/** Replaces the whole project look, used by presets so no stale fields survive. */
+/**
+ * Replaces the creative look used by presets, pero conserva el LUT cargado:
+ * elegir un look no debe borrar `lutFile`/`lutIntensity`, que son una capa
+ * separada del grade. Si el preset trae su propio LUT, ese gana.
+ */
 export function setProjectLook(
   project: ProjectDocument,
   look: ClipEffects | null,
 ): ProjectDocument {
   const next = cloneProject(project);
-  if (look === null || Object.keys(look).length === 0) delete next.look;
-  else next.look = look;
+  const previous = next.look ?? {};
+  const incoming: ClipEffects = look ? { ...look } : {};
+  const merged: ClipEffects = {
+    ...incoming,
+    ...(incoming.lutFile === undefined && previous.lutFile !== undefined
+      ? { lutFile: previous.lutFile }
+      : {}),
+    ...(incoming.lutIntensity === undefined && previous.lutIntensity !== undefined
+      ? { lutIntensity: previous.lutIntensity }
+      : {}),
+  };
+  if (Object.keys(merged).length === 0) delete next.look;
+  else next.look = merged;
   touch(next);
   return next;
 }

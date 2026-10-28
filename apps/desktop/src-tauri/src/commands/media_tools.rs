@@ -551,3 +551,148 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractedSubtitles {
+    pub language: Option<String>,
+    pub title: Option<String>,
+    pub srt: String,
+}
+
+/// Extrae el primer subtítulo incrustado (prefiere español) a SRT, sin IA ni
+/// red. Si el archivo no trae pistas de subtítulos devuelve `None`.
+#[tauri::command]
+pub async fn extract_subtitles(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Option<ExtractedSubtitles>, ProjectError> {
+    let session = state.require_session()?;
+    let input = resolve_inside_root(&session.root, path.trim())?;
+    if !input.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el video ya no está en el proyecto",
+        ));
+    }
+    let settings = state.settings_snapshot()?;
+    let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
+    let Some(ffmpeg) = ffmpeg else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg no está disponible para extraer subtítulos",
+        ));
+    };
+    let Some(ffprobe) = ffprobe else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFprobe no está disponible para leer los subtítulos",
+        ));
+    };
+
+    let mut probe = Command::new(&ffprobe);
+    probe
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "s",
+            "-show_entries",
+            "stream=index:stream_tags=language,title",
+            "-of",
+            "json",
+        ])
+        .arg(&input)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    crate::commands::hide_console(&mut probe);
+    let probed = probe.output().map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo consultar los subtítulos del video",
+        )
+    })?;
+    if !probed.status.success() {
+        return Ok(None);
+    }
+    let value: serde_json::Value =
+        serde_json::from_slice(&probed.stdout).unwrap_or_else(|_| serde_json::json!({}));
+    let streams = value["streams"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if streams.is_empty() {
+        return Ok(None);
+    }
+    let mut chosen = 0usize;
+    for (index, stream) in streams.iter().enumerate() {
+        let language = stream["tags"]["language"]
+            .as_str()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        if language.starts_with("es") || language == "spa" {
+            chosen = index;
+            break;
+        }
+    }
+    let stream = &streams[chosen];
+    let language = stream["tags"]["language"]
+        .as_str()
+        .map(|value| value.to_owned());
+    let title = stream["tags"]["title"].as_str().map(|value| value.to_owned());
+
+    let temp = std::env::temp_dir().join(format!(
+        "editoria-subs-{}.srt",
+        Uuid::new_v4()
+    ));
+    let mut command = Command::new(&ffmpeg);
+    command
+        .args(["-hide_banner", "-v", "error", "-y", "-i"])
+        .arg(&input)
+        .arg("-map")
+        .arg(format!("0:s:{chosen}"))
+        .args(["-c:s", "srt", "-f", "srt"])
+        .arg(&temp)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    crate::commands::hide_console(&mut command);
+    let output = command.output().map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo iniciar FFmpeg para extraer subtítulos",
+        )
+    })?;
+    if !output.status.success() {
+        let _ = std::fs::remove_file(&temp);
+        let detail = String::from_utf8_lossy(&output.stderr);
+        let last = detail.lines().last().unwrap_or("FFmpeg no pudo extraer los subtítulos");
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudieron extraer los subtítulos: {last}"),
+        ));
+    }
+    let bytes = std::fs::metadata(&temp).map(|meta| meta.len()).unwrap_or(0);
+    if bytes == 0 || bytes > 4 * 1024 * 1024 {
+        let _ = std::fs::remove_file(&temp);
+        return if bytes == 0 {
+            Ok(None)
+        } else {
+            Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                "los subtítulos incrustados superan los 4 MB",
+            ))
+        };
+    }
+    let srt = std::fs::read_to_string(&temp).unwrap_or_default();
+    let _ = std::fs::remove_file(&temp);
+    if srt.trim().is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(ExtractedSubtitles {
+        language,
+        title,
+        srt,
+    }))
+}

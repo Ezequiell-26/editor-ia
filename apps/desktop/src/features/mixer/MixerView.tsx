@@ -8,7 +8,6 @@ import {
   levelPercentFromDb,
   panLabel,
   peakDbFromPeaks,
-  samplePanGain,
   trackEqDb,
   trackGainDb,
   trackPan,
@@ -17,6 +16,7 @@ import { updateAudioMix, updateTrack } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LoudnessMonitor } from './LoudnessMonitor';
 import { LiveMeters } from './LiveMeters';
+import { TrackAutomationPanel } from './TrackAutomationPanel';
 
 export interface MixerViewProps {
   readonly onNavigate: (view: ViewId) => void;
@@ -218,10 +218,15 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                     type="range"
                     className="mixer-pan"
                     aria-label={`Paneo de ${track.label}`}
+                    aria-valuetext={panLabel(trackPan(track))}
+                    title="Doble clic para volver al centro"
                     min={-1}
                     max={1}
                     step={0.05}
                     value={trackPan(track)}
+                    onDoubleClick={() =>
+                      store.update((current) => updateTrack(current, track.id, { pan: 0 }))
+                    }
                     onChange={(event) =>
                       store.update((current) =>
                         updateTrack(current, track.id, { pan: Number(event.target.value) }),
@@ -230,6 +235,18 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                   />
                   <span className="mixer-pan-value">{panLabel(trackPan(track))}</span>
                 </div>
+                {(() => {
+                  const clipPans = clips.filter(
+                    (clip) => Math.abs(clip.audio?.pan ?? 0) > 0.001,
+                  ).length;
+                  if (clipPans === 0) return null;
+                  return (
+                    <small className="mixer-pan-override" role="note">
+                      Paneo de pista omitido: {clipPans}{' '}
+                      {clipPans === 1 ? 'clip define' : 'clips definen'} su propio paneo.
+                    </small>
+                  );
+                })()}
                 <div className="mixer-eq" role="group" aria-label={`EQ de ${track.label}`}>
                   {(
                     [
@@ -276,6 +293,7 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                     EQ 0
                   </button>
                 </div>
+                <TrackAutomationPanel track={track} />
                 {measuredPeak !== undefined && withFader !== null ? (
                   <div className="mixer-meter-block">
                     <div

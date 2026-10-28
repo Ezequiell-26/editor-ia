@@ -22,8 +22,12 @@ type KeyframeCurveEditorProps = {
   keyframes: readonly ClipTransformKeyframe[];
   /** Propiedad animada que se muestra como referencia en la etiqueta. */
   property?: 'scale' | 'opacity' | 'offsetX' | 'offsetY' | 'rotationDeg';
-  /** Se llama al soltar el arrastre de un manejador con la curva editada del segmento. */
-  onEditBezier?: (index: number, bezier: CubicBezier) => void;
+  /**
+   * Se llama al soltar el arrastre de un manejador con la curva editada del
+   * segmento. Devolver `false` indica que el proyecto no aceptó el cambio y el
+   * editor revierte la curva local.
+   */
+  onEditBezier?: (index: number, bezier: CubicBezier) => boolean | void;
 };
 
 function clamp01(value: number): number {
@@ -49,23 +53,32 @@ export function segmentsOf(keyframes: readonly ClipTransformKeyframe[]): CurveSe
 }
 
 /**
- * Distancia cuadrada entre el puntero (en coordenadas del canvas 0..1) y un
- * manejador del segmento; expuesto para probar el hit-test sin DOM.
+ * Distancia en píxeles entre el puntero y un manejador del segmento.
+ * `origin` es la fracción x donde arranca el segmento y `span` su ancho
+ * relativo, para que el hit-test coincida con el dibujo aunque haya más de un
+ * segmento. Expuesto para probar la matemática sin DOM.
  */
 export function handleDistance(
   point: { x: number; y: number },
   segment: CurveSegment,
   kind: 'cp1' | 'cp2',
+  origin = 0,
+  span = 1,
+  width = 600,
+  height = 200,
 ): number {
   const hx = kind === 'cp1' ? segment.bezier.cp1X : segment.bezier.cp2X;
   const hy = kind === 'cp1' ? segment.bezier.cp1Y : segment.bezier.cp2Y;
-  return Math.hypot(point.x - hx, point.y - hy);
+  const dx = (point.x - (origin + hx * span)) * width;
+  const dy = (point.y - hy) * height;
+  return Math.hypot(dx, dy);
 }
 
 export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: KeyframeCurveEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [segments, setSegments] = useState<CurveSegment[]>(() => segmentsOf(keyframes));
   const draggingRef = useRef<{ index: number; kind: 'cp1' | 'cp2' } | null>(null);
+  const [selectedHandle, setSelectedHandle] = useState<{ index: number; kind: 'cp1' | 'cp2' } | null>(null);
 
   useEffect(() => {
     setSegments(segmentsOf(keyframes));
@@ -163,10 +176,19 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
   };
 
   const hitHandle = (point: { x: number; y: number }): { index: number; kind: 'cp1' | 'cp2' } | null => {
-    const radius = HANDLE_HIT_RADIUS / width;
+    const firstFrame = segments[0]?.frameStart ?? 0;
+    const totalFrames = Math.max(
+      1,
+      (segments[segments.length - 1]?.frameEnd ?? firstFrame + 1) - firstFrame,
+    );
     for (const segment of segments) {
+      const origin = (segment.frameStart - firstFrame) / totalFrames;
+      const span = Math.max(1e-6, (segment.frameEnd - segment.frameStart) / totalFrames);
       for (const kind of ['cp2', 'cp1'] as const) {
-        if (handleDistance(point, segment, kind) <= radius) {
+        if (
+          handleDistance(point, segment, kind, origin, span, width, height) <=
+          HANDLE_HIT_RADIUS
+        ) {
           return { index: segment.index, kind };
         }
       }
@@ -177,6 +199,7 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const hit = hitHandle(toLocalFraction(event));
     if (!hit) return;
+    setSelectedHandle(hit);
     // El estado del arrastre va primero: la captura de puntero es una mejora
     // opcional que falla en entornos sin punteros activos (jsdom, tests).
     draggingRef.current = hit;
@@ -220,7 +243,67 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
     }
     const segment = segments.find((s) => s.index === drag.index);
     if (segment) {
-      onEditBezier?.(drag.index, segment.bezier);
+      const accepted = onEditBezier?.(drag.index, segment.bezier);
+      if (accepted === false) {
+        setSegments(segmentsOf(keyframes));
+        setSelectedHandle(null);
+      }
+    }
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLCanvasElement>) => {
+    const target = selectedHandle ?? { index: segments[0]!.index, kind: 'cp1' as const };
+    const step = event.shiftKey ? 0.05 : 0.01;
+    let dx = 0;
+    let dy = 0;
+    if (event.key === 'ArrowLeft') dx = -step;
+    else if (event.key === 'ArrowRight') dx = step;
+    else if (event.key === 'ArrowUp') dy = step;
+    else if (event.key === 'ArrowDown') dy = -step;
+    else if (event.key === '[' || event.key === ']') {
+      // Ciclo entre cp1/cp2 y segmentos sin secuestrar Tab: Tab debe seguir
+      // moviendo el foco fuera del canvas.
+      const order: Array<{ index: number; kind: 'cp1' | 'cp2' }> = [];
+      for (const segment of segments) {
+        order.push({ index: segment.index, kind: 'cp1' }, { index: segment.index, kind: 'cp2' });
+      }
+      const current = order.findIndex(
+        (item) => item.index === target.index && item.kind === target.kind,
+      );
+      if (current >= 0) {
+        event.preventDefault();
+        const direction = event.key === ']' ? 1 : -1;
+        const next = order[(current + direction + order.length) % order.length]!;
+        setSelectedHandle(next);
+      }
+      return;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    const segment = segments.find((item) => item.index === target.index);
+    if (!segment) return;
+    const nextBezier: CubicBezier = {
+      ...segment.bezier,
+      ...(target.kind === 'cp1'
+        ? {
+            cp1X: clamp01(segment.bezier.cp1X + dx),
+            cp1Y: clamp01(segment.bezier.cp1Y + dy),
+          }
+        : {
+            cp2X: clamp01(segment.bezier.cp2X + dx),
+            cp2Y: clamp01(segment.bezier.cp2Y + dy),
+          }),
+    };
+    setSelectedHandle(target);
+    setSegments((prev) =>
+      prev.map((item) =>
+        item.index === target.index ? { ...item, bezier: nextBezier } : item,
+      ),
+    );
+    const accepted = onEditBezier?.(target.index, nextBezier);
+    if (accepted === false) {
+      setSegments(segmentsOf(keyframes));
     }
   };
 
@@ -249,20 +332,24 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
         ref={canvasRef}
         width={width}
         height={height}
-        role="img"
+        role="application"
+        aria-roledescription="editor de curvas Bézier"
         tabIndex={0}
-        aria-label={`Editor de curvas Bézier de ${propertyLabel}: ${segments.length} segmentos entre ${keyframes.length} keyframes. Arrastrá los manejadores naranjas para ajustar la interpolación.`}
+        aria-describedby="keyframe-curve-help"
+        aria-label={`Editor de curvas Bézier de ${propertyLabel}: ${segments.length} segmentos entre ${keyframes.length} keyframes.${selectedHandle ? ` Manejador seleccionado: ${selectedHandle.kind === 'cp1' ? 'entrada' : 'salida'} del segmento ${selectedHandle.index + 1}.` : ''}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onKeyDown={onKeyDown}
       />
       {!canvasReady ? (
         <p className="fine-print">Vista de curvas no disponible en este entorno; la edición por arrastre requiere canvas.</p>
       ) : null}
-      <p className="fine-print">
-        Arrastrá los puntos naranjas para editar la curva de cada segmento; el extremo de cada manejador respeta el
-        rango 0–1 del esquema.
+      <p className="fine-print" id="keyframe-curve-help">
+        Arrastrá los puntos naranjas o usá las flechas del teclado (Shift para pasos grandes) para editar la curva de
+        cada segmento; las teclas [ y ] recorren los manejadores y Tab sale del editor. El valor queda dentro del rango
+        0–1 del esquema.
       </p>
     </div>
   );

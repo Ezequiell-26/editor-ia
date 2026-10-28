@@ -12,7 +12,7 @@
  * Se cambia la clave a propósito para que una instalación existente reciba el
  * tema de marca en vez de conservar el grafito de la etapa Editor IA.
  */
-export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v3';
+export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v4';
 
 export type ThemePresetId =
   | 'olyvia'
@@ -53,11 +53,11 @@ export interface AppearanceSettings extends ThemeColors {
 export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, ThemeColors>> = {
   /** Olyvia: el emblema orbital en cian, azul y violeta sobre tinta nocturna. */
   olyvia: {
-    accent: '#35d6ff',
-    info: '#a78bfa',
-    background: '#05070f',
-    surface: '#0a0f1e',
-    text: '#eef4ff',
+    accent: '#1f5eff',
+    info: '#22c55e',
+    background: '#0f1115',
+    surface: '#181b20',
+    text: '#f2f5ff',
   },
   /**
    * DaVinci Resolve: grafito neutro, sin tinte azul ni verde, y un azul
@@ -258,20 +258,23 @@ function stack(name: string, fallback: string): string {
 /** CSS custom properties and data attributes for the current appearance. */
 export function appearanceCssVariables(appearance: AppearanceSettings): Record<string, string> {
   const sidebar = appearance.sidebarLabels ? appearance.sidebarWidth : 40;
+  const commercial = appearance.preset === 'olyvia';
   return {
     '--color-bg': appearance.background,
     '--color-surface': appearance.surface,
-    '--color-panel': mixHex(appearance.surface, appearance.text, 0.035),
-    '--color-panel-2': mixHex(appearance.surface, appearance.text, 0.075),
-    '--color-panel-3': mixHex(appearance.surface, appearance.text, 0.115),
-    '--color-border': mixHex(appearance.surface, appearance.text, 0.14),
-    '--color-border-strong': mixHex(appearance.surface, appearance.text, 0.28),
+    '--color-panel': commercial ? '#181B20' : mixHex(appearance.surface, appearance.text, 0.035),
+    '--color-panel-2': commercial ? '#1C2027' : mixHex(appearance.surface, appearance.text, 0.075),
+    '--color-panel-3': commercial ? '#222731' : mixHex(appearance.surface, appearance.text, 0.115),
+    '--color-border': commercial ? '#2D3240' : mixHex(appearance.surface, appearance.text, 0.14),
+    '--color-border-strong': commercial ? '#3A4152' : mixHex(appearance.surface, appearance.text, 0.28),
     '--color-text': appearance.text,
-    '--color-text-muted': mixHex(appearance.text, appearance.background, 0.42),
-    '--color-empty': mixHex(appearance.text, appearance.background, 0.6),
+    '--color-text-muted': commercial ? '#9CA3AF' : mixHex(appearance.text, appearance.background, 0.42),
+    '--color-empty': commercial ? '#6B7280' : mixHex(appearance.text, appearance.background, 0.6),
     '--color-accent': appearance.accent,
-    '--color-accent-strong': mixHex(appearance.accent, appearance.background, 0.24),
+    '--color-accent-strong': commercial ? '#1748C9' : mixHex(appearance.accent, appearance.background, 0.24),
     '--color-accent-ink': contrastInk(appearance.accent),
+    '--color-cta': '#FF6B2B',
+    '--color-success': '#22C55E',
     '--color-info': appearance.info,
     '--font-ui': stack(appearance.fontUi, "'Segoe UI', system-ui, sans-serif"),
     '--font-display': stack(appearance.fontDisplay, "'Segoe UI', system-ui, sans-serif"),
@@ -279,18 +282,20 @@ export function appearanceCssVariables(appearance: AppearanceSettings): Record<s
     '--sidebar-width': `${sidebar}px`,
     '--sidebar-min': `${sidebar}px`,
     '--sidebar-max': `${sidebar}px`,
-    '--radius-1': `${Math.max(2, appearance.radius - 3)}px`,
-    '--radius-2': `${appearance.radius}px`,
-    '--radius-3': `${appearance.radius + 4}px`,
+    '--radius-1': commercial ? '8px' : `${Math.max(2, appearance.radius - 3)}px`,
+    '--radius-2': commercial ? '10px' : `${appearance.radius}px`,
+    '--radius-3': commercial ? '10px' : `${appearance.radius + 4}px`,
     '--timeline-row': `${appearance.timelineRows}px`,
     '--app-zoom': String(appearance.scale),
     '--app-width': `${100 / appearance.scale}vw`,
     '--app-height': `${100 / appearance.scale}dvh`,
-    '--glow-accent': `0 0 0 1px ${mixHex(appearance.accent, appearance.background, 0.65)}, 0 0 26px ${mixHex(
-      appearance.accent,
-      appearance.background,
-      0.8,
-    )}`,
+    '--glow-accent': commercial
+      ? '0 0 12px rgba(31, 94, 255, 0.3)'
+      : `0 0 0 1px ${mixHex(appearance.accent, appearance.background, 0.65)}, 0 0 26px ${mixHex(
+          appearance.accent,
+          appearance.background,
+          0.8,
+        )}`,
   };
 }
 

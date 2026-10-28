@@ -15,6 +15,7 @@ export function ViewToolbar({
 }) {
   return (
     <div className="view-toolbar" role="group" aria-label={label}>
+      <span className="view-toolbar-label">{label}</span>
       <div className="view-toolbar-main">{children}</div>
       {actions ? <div className="view-toolbar-actions">{actions}</div> : null}
     </div>

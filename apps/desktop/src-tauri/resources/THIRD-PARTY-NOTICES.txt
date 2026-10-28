@@ -1,0 +1,48 @@
+Olyvia — avisos de terceros del bundle base
+============================================
+
+Este archivo acompaña al instalador. No reemplaza las licencias completas de
+cada componente, que se distribuyen con el proyecto o en los enlaces citados.
+
+FFmpeg 9.0 (shared, DLL)
+  Licencia: GNU Lesser General Public License v3 (LGPL-3.0).
+  Evidencia: resources/ffmpeg-dll/LICENSE.txt, incluido en el instalador.
+  Se enlaza dinámicamente como DLL; se conserva el aviso y se ofrece el código
+  fuente correspondiente desde el proyecto upstream.
+
+yt-dlp
+  Licencia: The Unlicense (dominio público).
+  Evidencia: https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE
+  Se ejecuta como herramienta externa administrada por Olyvia.
+
+ONNX Runtime
+  Licencia: MIT.
+  Evidencia: https://github.com/microsoft/onnxruntime/blob/main/LICENSE
+  Se usa para inferencia local de voz y modelos ONNX.
+
+Piper TTS
+  Licencia: MIT.
+  Evidencia: resources/piper/THIRD-PARTY-NOTICES.txt.
+  La voz española incluida declara el dataset de entrenamiento como CC0 en su
+  model card de piper-voices.
+
+eSpeak NG (runtime de Piper)
+  Licencia: GNU General Public License v3 (GPL-3.0).
+  Evidencia: https://github.com/espeak-ng/espeak-ng/blob/master/COPYING
+  Se distribuye como DLL separada dentro de resources/piper. Antes de vender
+  una build comercial hay que completar las obligaciones de la GPLv3 (aviso,
+  oferta de fuente) o reemplazar este runtime por uno compatible.
+
+Wav2Lip
+  Licencia: uso personal, investigación y fines no comerciales.
+  Estado: NO se incluye en el bundle base ni en el instalador. El adaptador
+  local vive en scripts/lipsync-engine y requiere una instalación externa;
+  no debe formar parte de una build comercial sin autorización.
+
+Modelos descargados en tiempo de ejecución
+  Los modelos de upscale, segmentación y seguimiento se instalan aparte en el
+  directorio de datos del usuario. Su licencia debe revisarse antes de
+  redistribuirlos; no forman parte de este instalador.
+
+WebView2
+  Componente del sistema provisto por Microsoft; se rige por sus términos.

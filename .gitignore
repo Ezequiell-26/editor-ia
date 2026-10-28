@@ -40,3 +40,12 @@ apps/desktop/src-tauri/resources/onnxruntime/
 target-loop/
 .worktrees/
 target-build/
+
+# Claves privadas de firma: nunca dentro del árbol de build.
+*.pem
+
+# Piper: binario y voces pesadas; se instalan con el setup/CI, no en Git
+apps/desktop/src-tauri/resources/piper/
+
+# Capturas temporales de diagnóstico
+.tmp-*.png

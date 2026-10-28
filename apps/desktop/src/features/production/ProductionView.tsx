@@ -116,7 +116,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
   const canGenerate =
     Boolean(project) &&
     scenes.length > 0 &&
-    images.length > 0 &&
+    images.length + videos.length > 0 &&
     !busy &&
     (needsSynthesis.length === 0 || Boolean(voice)) &&
     (!requiresVoiceRights || confirmVoice);
@@ -140,8 +140,8 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
       setWarnings(['El proyecto necesita escenas de guion antes de montar el video.']);
       return;
     }
-    if (images.length === 0) {
-      setWarnings(['Importá y confirmá al menos una imagen en Medios.']);
+    if (images.length + videos.length === 0) {
+      setWarnings(['Importá y confirmá al menos una imagen o un video en Medios.']);
       return;
     }
     if (requiresVoiceRights && !confirmVoice) {
@@ -211,7 +211,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
       id: 'prod-recursos',
       label: 'Recursos',
       detail: `${images.length} imagen(es) · ${videos.length} video(s)`,
-      state: images.length > 0 ? 'done' : 'pending',
+      state: images.length + videos.length > 0 ? 'done' : 'pending',
     },
     {
       id: 'prod-voz',
@@ -495,8 +495,8 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
               <p className="fine-print">
                 {scenes.length === 0
                   ? 'Faltan escenas de guion.'
-                  : images.length === 0
-                    ? 'Faltan imágenes confirmadas.'
+                  : images.length + videos.length === 0
+                    ? 'Faltan imágenes o videos confirmados.'
                     : requiresVoiceRights && !confirmVoice
                       ? 'Confirmá los derechos de la voz para continuar.'
                       : needsSynthesis.length > 0 && !voice

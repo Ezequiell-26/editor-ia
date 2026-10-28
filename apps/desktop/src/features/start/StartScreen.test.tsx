@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StartScreen } from './StartScreen';
 import { ProjectProvider } from '../../state/project-store';
+import { LicenseProvider } from '../../state/LicenseProvider';
 import { AppearanceProvider } from '../../state/AppearanceProvider';
 import { createFakeService } from '../../test/fake-service';
 
@@ -11,7 +12,9 @@ function renderStartScreen(onEnterApp = vi.fn(), injectedService?: ReturnType<ty
   const result = render(
     <AppearanceProvider>
       <ProjectProvider service={service}>
-        <StartScreen onEnterApp={onEnterApp} />
+        <LicenseProvider service={service}>
+          <StartScreen onEnterApp={onEnterApp} />
+        </LicenseProvider>
       </ProjectProvider>
     </AppearanceProvider>,
   );
@@ -105,9 +108,10 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     const updaterBtn = screen.getByRole('button', { name: /actualizador/i });
     fireEvent.click(updaterBtn);
 
-    // Modal del actualizador visible
-    expect(screen.getByRole('heading', { name: /Actualizador de Olyvia/i })).toBeTruthy();
+    // Ventana de actualizaciones visible
+    expect(screen.getByRole('heading', { name: /Actualizaciones de Olyvia/i })).toBeTruthy();
     expect(screen.getByText(/Versión instalada:/i)).toBeTruthy();
+    expect(screen.getByText(/Sin canal de actualizaciones configurado/i)).toBeTruthy();
   });
 
   it('navega directamente a la herramienta al hacer clic en una herramienta rápida', async () => {

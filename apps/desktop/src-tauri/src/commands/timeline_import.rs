@@ -23,6 +23,9 @@ use crate::state::AppState;
 
 const MAX_CLIPS: usize = 1_000;
 const MAX_MEDIA: usize = 200;
+/// Un EDL/OTIO/FCPXML real es de KB; el tope evita cargar un binario gigante
+/// en memoria cuando el usuario elige el archivo equivocado.
+const MAX_TIMELINE_BYTES: u64 = 32 * 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,6 +69,9 @@ struct ParsedClip {
     start_seconds: f64,
     source_in_seconds: f64,
     duration_seconds: f64,
+    /// Retime del clip en la timeline (OTIO `LinearTimeWarp`); 1/1 si no hay.
+    speed_num: u32,
+    speed_den: u32,
     media: Option<String>,
     media_hint: Option<String>,
 }
@@ -143,6 +149,15 @@ fn import_timeline_file(
     project: &Value,
 ) -> Result<TimelineImportResult, ProjectError> {
     let format = detect_format(path)?;
+    let size = std::fs::metadata(path)
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    if size > MAX_TIMELINE_BYTES {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el archivo de timeline supera los 32 MB; verificá que sea un EDL, OTIO o FCPXML",
+        ));
+    }
     let text = std::fs::read_to_string(path).map_err(|error| {
         ProjectError::message(
             ProjectErrorCode::Io,
@@ -359,19 +374,35 @@ fn import_timeline_file(
                 ));
                 continue;
             }
+            let speed_num = clip.speed_num.max(1);
+            let speed_den = clip.speed_den.max(1);
+            let playback = speed_num as f64 / speed_den as f64;
             let mut duration = seconds_to_frames(clip.duration_seconds, fps);
             if duration == 0 {
                 warnings.push(format!("{}: duración de clip cero", clip.label));
                 continue;
             }
-            if duration > media_duration - source_in {
-                duration = media_duration - source_in;
+            // `duration` es tiempo de timeline; el medio consumido se escala por
+            // la velocidad (un clip a 2× dura la mitad en la timeline).
+            let mut source_frames = ((duration as f64) * playback).round().max(1.0) as u64;
+            if source_in + source_frames > media_duration {
+                let available = media_duration - source_in;
+                let trimmed = ((available as f64) / playback).floor() as u64;
+                if trimmed == 0 {
+                    warnings.push(format!(
+                        "{}: la ventana se recortó a los medios disponibles",
+                        clip.label
+                    ));
+                    continue;
+                }
+                duration = trimmed;
+                source_frames = ((duration as f64) * playback).round().max(1.0) as u64;
                 warnings.push(format!(
                     "{}: la ventana se recortó a los medios disponibles",
                     clip.label
                 ));
             }
-            json!({
+            let mut clip_json = json!({
                 "id": Uuid::new_v4().to_string(),
                 "trackId": track_id,
                 "label": label,
@@ -382,17 +413,32 @@ fn import_timeline_file(
                     "type": "asset",
                     "assetId": asset_id,
                     "inFrame": source_in,
-                    "outFrame": source_in + duration
+                    "outFrame": source_in + source_frames
                 }
-            })
+            });
+            if speed_num != speed_den {
+                clip_json["speed"] = json!({ "num": speed_num, "den": speed_den });
+            }
+            clip_json
         };
         clips.push(clip_json);
     }
 
     if clips.is_empty() {
+        // El usuario necesita saber por qué no entró nada: sin los motivos,
+        // "ningún clip pudo importarse" es un callejón sin salida.
+        let reasons: Vec<String> = warnings.iter().take(3).cloned().collect();
+        let message = if reasons.is_empty() {
+            "ningún clip de la timeline pudo importarse; revisá los medios referenciados".to_owned()
+        } else {
+            format!(
+                "ningún clip de la timeline pudo importarse. Motivos: {}",
+                reasons.join(" · ")
+            )
+        };
         return Err(ProjectError::message(
             ProjectErrorCode::EmptyTimeline,
-            "ningún clip de la timeline pudo importarse; revisá los medios referenciados",
+            &message,
         ));
     }
     let used_tracks: HashSet<String> = clips
@@ -556,6 +602,21 @@ fn candidate_paths(root: &Path, base: &Path, raw: &str) -> Vec<PathBuf> {
         candidates.push(root.join("media").join(name));
         candidates.push(base.join("media").join(name));
     }
+    // Seguridad: un EDL/OTIO/FCPXML de terceros no puede sacar archivos de
+    // fuera del proyecto o de la carpeta del propio archivo importado con
+    // rutas absolutas o `..`. Sólo se aceptan archivos existentes y contenidos
+    // en `root` o en `base`; el resto se ignora.
+    candidates.retain(|candidate| {
+        let Ok(canonical) = candidate.canonicalize() else {
+            return false;
+        };
+        let inside = |dir: &Path| {
+            dir.canonicalize()
+                .map(|root| canonical.starts_with(root))
+                .unwrap_or(false)
+        };
+        inside(root) || inside(base)
+    });
     candidates
 }
 
@@ -764,6 +825,8 @@ fn parse_edl(text: &str, fps: f64) -> ParsedTimeline {
             start_seconds: event.record_in as f64 / fps,
             source_in_seconds: event.source_in as f64 / fps,
             duration_seconds: duration,
+            speed_num: 1,
+            speed_den: 1,
             media: event.media,
             media_hint: event.hint,
         });
@@ -830,6 +893,47 @@ fn parse_otio(text: &str, project_fps: f64) -> Result<ParsedTimeline, ProjectErr
     };
     collect_otio(&root["tracks"], project_fps, &mut parsed);
     Ok(parsed)
+}
+
+fn gcd(mut a: u32, mut b: u32) -> u32 {
+    while b != 0 {
+        let rest = a % b;
+        a = b;
+        b = rest;
+    }
+    a.max(1)
+}
+
+/// Aproxima un retime a una fracción simple (2× → 2/1, 1,5× → 3/2).
+fn rational_speed(value: f64) -> Option<(u32, u32)> {
+    if !value.is_finite() || !(0.01..=100.0).contains(&value) {
+        return None;
+    }
+    let numerator = (value * 1000.0).round().max(1.0) as u32;
+    let divisor = gcd(numerator, 1000);
+    Some((numerator / divisor, 1000 / divisor))
+}
+
+/// Lee el retime de un clip OTIO (`LinearTimeWarp.1`) y avisa de los efectos
+/// que el importador no puede representar, para no perderlos en silencio.
+fn otio_speed(child: &Value) -> (u32, u32, Vec<String>) {
+    let label = child["name"].as_str().unwrap_or("clip");
+    let mut speed = (1u32, 1u32);
+    let mut warnings = Vec::new();
+    for effect in child["effects"].as_array().into_iter().flatten() {
+        let schema = effect["OTIO_SCHEMA"].as_str().unwrap_or("");
+        if schema.starts_with("LinearTimeWarp") {
+            match effect["time_scalar"].as_f64().and_then(rational_speed) {
+                Some(pair) => speed = pair,
+                None => warnings.push(format!(
+                    "OTIO: {label} tiene un time warp inválido; se importa a 100%"
+                )),
+            }
+        } else if !schema.is_empty() {
+            warnings.push(format!("OTIO: el efecto {schema} de {label} no se importa"));
+        }
+    }
+    (speed.0, speed.1, warnings)
 }
 
 fn collect_otio(value: &Value, project_fps: f64, parsed: &mut ParsedTimeline) {
@@ -904,16 +1008,21 @@ fn collect_otio(value: &Value, project_fps: f64, parsed: &mut ParsedTimeline) {
             .as_str()
             .map(str::to_owned);
         let media = relative.or_else(|| target.clone());
+        let (speed_num, speed_den, mut speed_warnings) = otio_speed(child);
+        parsed.warnings.append(&mut speed_warnings);
+        let timeline_duration = duration * speed_den as f64 / speed_num.max(1) as f64;
         parsed.clips.push(ParsedClip {
             track_index,
             label: label.clone(),
             start_seconds: cursor,
             source_in_seconds: source_in,
-            duration_seconds: duration,
+            duration_seconds: timeline_duration,
+            speed_num,
+            speed_den,
             media,
             media_hint: Some(label),
         });
-        cursor += duration;
+        cursor += timeline_duration;
     }
 }
 
@@ -1002,6 +1111,8 @@ fn read_fcpxml_item(
             start_seconds,
             source_in_seconds: source_in,
             duration_seconds: duration,
+            speed_num: 1,
+            speed_den: 1,
             media: Some(media.clone()),
             media_hint: Some(asset_name.clone()),
         },
@@ -1320,6 +1431,165 @@ mod tests {
         assert!((clip.source_in_seconds - 1.0).abs() < 0.001);
         assert!((clip.duration_seconds - 2.0).abs() < 0.001);
         assert_eq!(clip.media.as_deref(), Some("media/toma.mp4"));
+    }
+
+    fn otio_with_effect(effect: &str) -> String {
+        format!(
+            r#"{{
+              "OTIO_SCHEMA": "Timeline.1",
+              "tracks": {{
+                "OTIO_SCHEMA": "Stack.1",
+                "children": [{{
+                  "OTIO_SCHEMA": "Track.1",
+                  "name": "V1",
+                  "kind": "Video",
+                  "children": [{{
+                    "OTIO_SCHEMA": "Clip.2",
+                    "name": "Toma",
+                    "source_range": {{"start_time": {{"value": 0, "rate": 30}}, "duration": {{"value": 60, "rate": 30}}}},
+                    "media_reference": {{"OTIO_SCHEMA": "ExternalReference.1", "target_url": "file:///media/toma.mp4"}},
+                    "effects": [{effect}]
+                  }}]
+                }}]
+              }}
+            }}"#
+        )
+    }
+
+    #[test]
+    fn parses_otio_linear_time_warp_as_clip_speed() {
+        let parsed = parse_otio(
+            &otio_with_effect(
+                r#"{"OTIO_SCHEMA": "LinearTimeWarp.1", "name": "2x", "time_scalar": 2.0}"#,
+            ),
+            30.0,
+        )
+        .expect("OTIO");
+        assert_eq!(parsed.clips.len(), 1);
+        let clip = &parsed.clips[0];
+        // 60 cuadros de medio a 2× duran 1 s en la timeline.
+        assert!((clip.duration_seconds - 1.0).abs() < 0.001, "{clip:?}");
+        assert_eq!((clip.speed_num, clip.speed_den), (2, 1));
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+
+        let slow = parse_otio(
+            &otio_with_effect(
+                r#"{"OTIO_SCHEMA": "LinearTimeWarp.1", "name": "0.5x", "time_scalar": 0.5}"#,
+            ),
+            30.0,
+        )
+        .expect("OTIO");
+        let clip = &slow.clips[0];
+        assert!((clip.duration_seconds - 4.0).abs() < 0.001, "{clip:?}");
+        assert_eq!((clip.speed_num, clip.speed_den), (1, 2));
+    }
+
+    #[test]
+    fn warns_about_otio_effects_it_cannot_import() {
+        let parsed = parse_otio(
+            &otio_with_effect(r#"{"OTIO_SCHEMA": "FreezeFrame.1", "name": "Freeze"}"#),
+            30.0,
+        )
+        .expect("OTIO");
+        assert_eq!(parsed.clips.len(), 1);
+        assert!(
+            parsed
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("FreezeFrame.1")
+                    && warning.contains("no se importa")),
+            "{:?}",
+            parsed.warnings
+        );
+        assert!((parsed.clips[0].duration_seconds - 2.0).abs() < 0.001);
+        assert_eq!(
+            (parsed.clips[0].speed_num, parsed.clips[0].speed_den),
+            (1, 1)
+        );
+    }
+
+    #[test]
+    fn imported_otio_speed_reaches_the_clip_json() {
+        let dir = std::env::temp_dir().join(format!("editoria-otio-speed-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("media")).expect("media");
+        std::fs::write(dir.join("media").join("toma.mp4"), b"").expect("medio");
+        let timeline = dir.join("demo.otio");
+        std::fs::write(
+            &timeline,
+            otio_with_effect(
+                r#"{"OTIO_SCHEMA": "LinearTimeWarp.1", "name": "2x", "time_scalar": 2.0}"#,
+            ),
+        )
+        .expect("otio");
+        let project = json!({
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{
+                "id": "a", "kind": "video", "status": "ready",
+                "source": { "path": "media/toma.mp4" },
+                "media": { "durationFrames": 300 }
+            }],
+            "timeline": { "tracks": [], "clips": [] }
+        });
+        let result = import_timeline_file(&dir, Path::new("ffprobe"), &timeline, &project)
+            .expect("importar");
+        assert_eq!(result.clips.len(), 1);
+        let clip = &result.clips[0];
+        // 60 cuadros de medio a 2× → 30 en la timeline y 60 de medio consumido.
+        assert_eq!(clip["durationFrames"], 30, "{clip}");
+        assert_eq!(clip["source"]["inFrame"], 0);
+        assert_eq!(clip["source"]["outFrame"], 60);
+        assert_eq!(clip["speed"]["num"], 2);
+        assert_eq!(clip["speed"]["den"], 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_a_timeline_file_over_the_size_limit() {
+        let dir = std::env::temp_dir().join(format!("editoria-import-big-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let path = dir.join("grande.edl");
+        let file = std::fs::File::create(&path).expect("archivo");
+        file.set_len(MAX_TIMELINE_BYTES + 1).expect("tamaño");
+        drop(file);
+        let project = json!({
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [],
+            "timeline": { "tracks": [], "clips": [] }
+        });
+        let error = import_timeline_file(&dir, Path::new("ffprobe"), &path, &project)
+            .expect_err("un archivo de 32 MB no debe leerse");
+        assert!(
+            error.message.contains("32 MB"),
+            "mensaje inesperado: {}",
+            error.message
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn empty_import_error_keeps_the_skip_reasons() {
+        let dir = std::env::temp_dir().join(format!("editoria-import-empty-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let timeline = dir.join("demo.edl");
+        std::fs::write(
+            &timeline,
+            "TITLE: Falta\nFCM: NON-DROP FRAME\n\n001  AX       V     C        00:00:00:00 00:00:02:00 00:00:00:00 00:00:02:00\n* FROM CLIP NAME: Perdida\n* FILENAME: media/falta.mp4\n",
+        )
+        .expect("edl");
+        let project = json!({
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [],
+            "timeline": { "tracks": [], "clips": [] }
+        });
+        let error = import_timeline_file(&dir, Path::new("ffprobe"), &timeline, &project)
+            .expect_err("sin medios no se importa nada");
+        assert_eq!(error.code.name(), "EMPTY_TIMELINE");
+        assert!(
+            error.message.contains("no se encontró el medio"),
+            "el error debe conservar el motivo: {}",
+            error.message
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1656,6 +1926,44 @@ FCM: DROP FRAME
         assert!((clip.source_in_seconds - 0.5).abs() < 0.001, "{clip:?}");
         assert!((clip.duration_seconds - 2.0).abs() < 0.001, "{clip:?}");
         assert_eq!(clip.media.as_deref(), Some("media/toma.mp4"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn our_otio_export_round_trips_speed() {
+        let project = serde_json::json!({
+            "name": "RoundSpeed",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [{
+                    "id": "c", "kind": "video", "label": "Rápida", "trackId": "v1",
+                    "startFrame": 0, "durationFrames": 30,
+                    "speed": { "num": 2, "den": 1 },
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 5, "outFrame": 65 }
+                }]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let exported = crate::commands::otio::export_otio(crate::commands::otio::OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar OTIO");
+        let text = std::fs::read_to_string(&exported.path).expect("leer");
+        let parsed = parse_otio(&text, 30.0).expect("parsear OTIO");
+        assert_eq!(parsed.clips.len(), 1, "{:?}", parsed.warnings);
+        assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
+        let clip = &parsed.clips[0];
+        assert!((clip.start_seconds - 0.0).abs() < 0.001, "{clip:?}");
+        assert!(
+            (clip.source_in_seconds - 5.0 / 30.0).abs() < 0.001,
+            "{clip:?}"
+        );
+        assert!((clip.duration_seconds - 1.0).abs() < 0.001, "{clip:?}");
+        assert_eq!((clip.speed_num, clip.speed_den), (2, 1));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

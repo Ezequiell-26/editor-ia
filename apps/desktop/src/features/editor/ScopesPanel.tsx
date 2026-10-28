@@ -273,7 +273,11 @@ export function ScopesPanel({
         blue: histogram256(result.histogram[2]),
         waveform: resampleGrid(result.waveform, WAVEFORM_COLUMNS, WAVEFORM_LEVELS),
         vectorscope: resampleGrid(result.vectorscope, VECTOR_SIZE, VECTOR_SIZE, true),
-        parade: new Uint32Array(PARADE_COLUMNS * PARADE_LEVELS),
+        // El backend FilmCraft no devuelve parade: conservar el último válido
+        // en vez de vaciar la pestaña Parade al pulsar FilmCraft.
+        parade: data
+          ? data.parade
+          : new Uint32Array(PARADE_COLUMNS * PARADE_LEVELS),
       });
       setFilmcraft(true);
       setSignal(true);

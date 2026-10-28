@@ -5,6 +5,7 @@ import { createEmptyProject } from '@editor-ia/project-schema';
 import { ExportDialog } from './ExportDialog';
 import type { HardwareEncoders } from '../../services/project-service';
 import { ProjectProvider } from '../../state/project-store';
+import { LicenseProvider } from '../../state/LicenseProvider';
 import {
   addAsset,
   addClipFromAsset,
@@ -38,7 +39,9 @@ function renderDialog(hardware?: HardwareEncoders) {
         },
       }}
     >
-      <ExportDialog open onClose={() => {}} />
+      <LicenseProvider service={service}>
+        <ExportDialog open onClose={() => {}} />
+      </LicenseProvider>
     </ProjectProvider>,
   );
   return { service, project };
@@ -94,7 +97,9 @@ describe('ExportDialog · lote de variantes', () => {
           },
         }}
       >
-        <ExportDialog open onClose={() => {}} />
+        <LicenseProvider service={createFakeService()}>
+          <ExportDialog open onClose={() => {}} />
+        </LicenseProvider>
       </ProjectProvider>,
     );
 

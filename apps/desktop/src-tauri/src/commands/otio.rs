@@ -101,16 +101,27 @@ fn track_clips(project: &Value, track: &Value, rate: f64) -> (Vec<Value>, usize,
                 json!({ "OTIO_SCHEMA": "MissingReference.1" })
             }
         };
+        let speed_num = clip["speed"]["num"].as_u64().unwrap_or(1).max(1) as u32;
+        let speed_den = clip["speed"]["den"].as_u64().unwrap_or(1).max(1) as u32;
+        let playback = speed_num as f64 / speed_den.max(1) as f64;
+        // `source_range` va en tiempo de medio: un clip a 2× consume el doble.
+        let media_duration = ((duration as f64) * playback).round().max(1.0) as u64;
         let mut clip_json = json!({
             "OTIO_SCHEMA": "Clip.2",
             "name": name,
-            "source_range": range(source_in, duration, rate),
+            "source_range": range(source_in, media_duration, rate),
             "media_reference": media_reference,
             "metadata": { "editor_ia": { "clip_id": clip["id"] } }
         });
-        if clip["speed"]["num"].as_u64().unwrap_or(1) != clip["speed"]["den"].as_u64().unwrap_or(1)
-        {
-            warnings.push(format!("{name}: la velocidad no se exporta a OTIO"));
+        if speed_num != speed_den {
+            // `LinearTimeWarp` es el retime estándar de OTIO y el importador
+            // propio ya lo lee: el round-trip conserva la velocidad.
+            clip_json["effects"] = json!([{
+                "OTIO_SCHEMA": "LinearTimeWarp.1",
+                "name": "Speed",
+                "effect_name": "LinearTimeWarp",
+                "time_scalar": playback
+            }]);
             clip_json["metadata"]["editor_ia"]["speed"] = clip["speed"].clone();
         }
         if clip["reverse"].as_bool().unwrap_or(false) {
@@ -317,13 +328,13 @@ mod tests {
         })
         .expect("otio");
         assert_eq!(result.clips, 1);
-        assert_eq!(result.warnings.len(), 3, "{:?}", result.warnings);
+        assert_eq!(result.warnings.len(), 2, "{:?}", result.warnings);
         assert!(
             result
                 .warnings
                 .iter()
-                .any(|warning| warning.contains("velocidad")),
-            "{:?}",
+                .all(|warning| !warning.contains("velocidad")),
+            "la velocidad ya se exporta: {:?}",
             result.warnings
         );
         assert!(
@@ -341,6 +352,18 @@ mod tests {
                 .any(|warning| warning.contains("transición")),
             "{:?}",
             result.warnings
+        );
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert!(
+            text.contains("\"OTIO_SCHEMA\": \"LinearTimeWarp.1\"")
+                && text.contains("\"time_scalar\": 2.0"),
+            "falta el time warp: {text}"
+        );
+        // 30 cuadros de timeline a 2× consumen 60 cuadros de medio.
+        assert!(
+            text.contains("\"duration\": {\n            \"OTIO_SCHEMA\": \"RationalTime.1\",\n            \"rate\": 30.0,\n            \"value\": 60")
+                || text.contains("\"value\": 60"),
+            "el source_range debe ir en tiempo de medio: {text}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

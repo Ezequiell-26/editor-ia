@@ -25,6 +25,7 @@ export {
   MarkerColorSchema,
   MARKER_COLORS,
   MAX_MARKERS,
+  MAX_MARKER_NOTE,
 } from './markers.ts';
 export type { Marker, MarkerColor } from './markers.ts';
 export {
@@ -98,6 +99,8 @@ export {
   ClipTransformKeyframeSchema,
   ClipGainKeyframeSchema,
   CubicBezierSchema,
+  PerspectiveCornerSchema,
+  PerspectiveSchema,
   ChromaKeySchema,
   ClipTransitionSchema,
   KeyframeEasingSchema,
@@ -118,6 +121,8 @@ export {
 } from './timeline.ts';
 export type {
   Track,
+  TrackGainKeyframe,
+  TrackPanKeyframe,
   Clip,
   ClipEffects,
   CurvePoint,
@@ -127,6 +132,8 @@ export type {
   ClipTransformKeyframe,
   ClipGainKeyframe,
   CubicBezier,
+  PerspectiveCorner,
+  Perspective,
   ChromaKey,
   ClipTransition,
   KeyframeEasing,

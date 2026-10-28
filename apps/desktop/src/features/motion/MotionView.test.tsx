@@ -5,9 +5,13 @@ import { App } from '../../App';
 import { createFakeService } from '../../test/fake-service';
 
 function nav(label: string): void {
-  fireEvent.click(
-    within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: label }),
-  );
+  const navigation = screen.getByRole('navigation', { name: /vistas/i });
+  let button = within(navigation).queryByRole('button', { name: label });
+  if (!button) {
+    fireEvent.click(within(navigation).getByRole('button', { name: /Más herramientas/i }));
+    button = within(navigation).getByRole('button', { name: label });
+  }
+  fireEvent.click(button);
 }
 
 async function createProject(name = 'Motion QA'): Promise<void> {
@@ -45,7 +49,8 @@ describe('vista Motion', () => {
       await screen.findByText(/Gráfico agregado/i, {}, { timeout: 10_000 }),
     ).toBeTruthy();
     expect(screen.queryByRole('heading', { name: /Motion graphics/i })).toBeNull();
-    const title = screen.getByLabelText('Título') as HTMLInputElement;
+    // El Inspector vive en un chunk diferido: hay que esperar a que monte.
+    const title = (await screen.findByLabelText('Título', {}, { timeout: 10_000 })) as HTMLInputElement;
     fireEvent.change(title, { target: { value: 'Nuevo título' } });
     expect(title.value).toBe('Nuevo título');
   }, 20_000);

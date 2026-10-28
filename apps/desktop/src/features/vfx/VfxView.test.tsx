@@ -51,6 +51,17 @@ describe('vista VFX', () => {
     expect(screen.getByRole('button', { name: /Seguir rostro/i })).toBeTruthy();
   });
 
+  it('activa chroma con presets, derrame y vista de clave', () => {
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: /^Pantalla verde$/i }));
+    expect(screen.getByText('Color clave')).toBeTruthy();
+    expect(screen.getByText(/Suavizado/i)).toBeTruthy();
+    expect(screen.getByText(/Derrame/i)).toBeTruthy();
+    expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: /Vista de clave/i }));
+    expect(screen.getByRole('button', { name: /Vista original/i })).toBeTruthy();
+  });
+
   it('convierte el seguimiento facial en claves del polígono', async () => {
     renderView();
     fireEvent.click(screen.getByRole('button', { name: /Crear polígono/i }));

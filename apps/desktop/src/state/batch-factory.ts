@@ -87,6 +87,8 @@ export async function generateVariant(
     readonly photoMotion: 'auto' | 'none';
     readonly transitionFrames: number;
     readonly confirmRights: boolean;
+    /** Autorización explícita para proveedores que consumen créditos. */
+    readonly approveCost: boolean;
   },
 ): Promise<{ project: ProjectDocument; narrations: NarrationCandidate[] }> {
   const now = new Date().toISOString();
@@ -132,7 +134,7 @@ export async function generateVariant(
     brief: plan.brief,
     sceneCount: brief.scenes,
     language: brief.language,
-    approvedCost: true,
+    approvedCost: options.approveCost,
   };
   const scriptPlan = await service.generateScript(request);
   project = applyScenePlan(project, scriptPlan);

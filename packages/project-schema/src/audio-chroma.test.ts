@@ -57,11 +57,19 @@ describe('suite de audio del clip', () => {
 });
 
 describe('chroma key', () => {
-  it('acepta clave de color, similitud y mezcla', () => {
+  it('acepta clave de color, similitud, mezcla y derrame', () => {
     const parsed = ClipSchema.safeParse(
-      imageClip({ color: '#00ff00', similarity: 0.3, blend: 0.1 }),
+      imageClip({ color: '#00ff00', similarity: 0.3, blend: 0.1, spill: 0.6 }),
     );
     expect(parsed.success).toBe(true);
+  });
+
+  it('rechaza un derrame fuera de 0..1', () => {
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ color: '#00ff00', similarity: 0.3, blend: 0.1, spill: 1.4 }),
+      ).success,
+    ).toBe(false);
   });
 
   it('rechaza colores inválidos y valores fuera de rango', () => {

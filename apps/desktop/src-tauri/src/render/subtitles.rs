@@ -221,6 +221,13 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             0
         };
         let boxed = style["borderStyle"].as_str() == Some("box");
+        // En BorderStyle=3 libass pinta la caja opaca con OutlineColour, no con
+        // BackColour. Si no, el color de fondo elegido se ignora en el MP4.
+        let outline_for_style = if boxed {
+            background.clone()
+        } else {
+            outline.clone()
+        };
         let border_style = if boxed { 3 } else { 1 };
         let outline_width = if boxed { 8.0 } else { 2.4 };
         let mut shadow: f64 = if style["shadow"].as_bool().unwrap_or(false) {
@@ -239,7 +246,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             input.render_height,
         );
         header.push_str(&format!(
-            "Style: {name},{font},{size:.1},{color},&H00FFFFFF,{outline},{background},{bold},{italic},0,0,100,100,0,0,{border_style},{outline_width:.1},{shadow:.1},{alignment},70,70,{margin},1\n"
+            "Style: {name},{font},{size:.1},{color},&H00FFFFFF,{outline_for_style},{background},{bold},{italic},0,0,100,100,0,0,{border_style},{outline_width:.1},{shadow:.1},{alignment},70,70,{margin},1\n"
         ));
         names.push((id, name));
     }
@@ -343,6 +350,19 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
             "center" => input.render_height as f64 / 2.0,
             _ => input.render_height as f64 - 80.0,
         };
+        // Desplazamiento manual del subtítulo: se aplica con \pos centrado
+        // para que el preview y el MP4 coincidan píxel a píxel.
+        let offset_x = cue["offsetX"].as_f64().unwrap_or(0.0);
+        let offset_y = cue["offsetY"].as_f64().unwrap_or(0.0);
+        let pos_tag = if offset_x.abs() > 0.5 || offset_y.abs() > 0.5 {
+            format!(
+                "{{\\an5\\pos({:.0},{:.0})}}",
+                input.render_width as f64 / 2.0 + offset_x,
+                base_y + offset_y
+            )
+        } else {
+            String::new()
+        };
         let motion_tags = if word_count > 1 {
             None
         } else {
@@ -371,7 +391,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
                     start,
                     end,
                     &style,
-                    &format!("{{\\xshad{layer}\\yshad{layer}}}{tags}{depth_text}"),
+                    &format!("{pos_tag}{{\\xshad{layer}\\yshad{layer}}}{tags}{depth_text}"),
                 );
             }
         }
@@ -420,7 +440,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
                         word_start as f64 / input.project_fps.max(1.0),
                         word_end as f64 / input.project_fps.max(1.0),
                         &style,
-                        &format!("{tags}{}", line.trim_end()),
+                        &format!("{pos_tag}{tags}{}", line.trim_end()),
                     );
                 }
                 continue;
@@ -433,7 +453,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
                     start,
                     first_start as f64 / input.project_fps.max(1.0),
                     &style,
-                    &format!("{tags}{text}"),
+                    &format!("{pos_tag}{tags}{text}"),
                 );
             }
             for (index, word) in ordered.iter().enumerate() {
@@ -462,7 +482,7 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
                     word_start as f64 / input.project_fps.max(1.0),
                     word_end as f64 / input.project_fps.max(1.0),
                     &style,
-                    line.trim_end(),
+                    &format!("{pos_tag}{}", line.trim_end()),
                 );
             }
             continue;
@@ -471,7 +491,13 @@ pub fn build_ass(input: CaptionInput<'_>) -> String {
         let tags = motion_tags
             .clone()
             .unwrap_or_else(|| animation_tags(cue, style_id));
-        push_dialogue(&mut header, start, end, &style, &format!("{tags}{text}"));
+        push_dialogue(
+            &mut header,
+            start,
+            end,
+            &style,
+            &format!("{pos_tag}{tags}{text}"),
+        );
     }
 
     header

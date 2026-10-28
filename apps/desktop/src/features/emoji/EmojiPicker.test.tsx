@@ -24,7 +24,7 @@ describe('selector de emojis', () => {
     fireEvent.change(within(dialog).getByRole('textbox', { name: /Buscar emoji/i }), {
       target: { value: 'rocket' },
     });
-    const rocket = within(dialog).getByRole('button', { name: /^rocket$/i });
+    const rocket = within(dialog).getByRole('button', { name: /^(rocket|cohete)$/i });
     fireEvent.click(rocket);
     expect(onPick).toHaveBeenCalledWith('🚀');
     expect(screen.queryByRole('dialog')).toBeNull();

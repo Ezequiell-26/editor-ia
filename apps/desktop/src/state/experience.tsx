@@ -27,13 +27,10 @@ export type ExperienceMode = 'guiada' | 'pro';
 
 export const DEFAULT_EXPERIENCE_MODE: ExperienceMode = 'pro';
 
-/** Vistas que el modo guiado saca del rail: herramientas de especialistas. */
+/** Vistas que el modo guiado saca del rail: superficies de especialistas. */
 const GUIDED_HIDDEN_VIEWS: ReadonlySet<string> = new Set([
-  'director',
-  'factory',
-  'compliance',
-  'mcp',
-  'multicam',
+  'lab',
+  'production',
 ]);
 
 export function isExperienceMode(value: unknown): value is ExperienceMode {

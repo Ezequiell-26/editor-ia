@@ -1,5 +1,5 @@
 import type { Marker, MarkerColor, ProjectDocument } from '@editor-ia/project-schema';
-import { MAX_MARKERS } from '@editor-ia/project-schema';
+import { MAX_MARKERS, MAX_MARKER_NOTE } from '@editor-ia/project-schema';
 import { ProjectActionError, cloneProject, newId } from './project-actions';
 
 function touch(project: ProjectDocument): void {
@@ -20,10 +20,67 @@ function assertLabel(label: string): void {
   }
 }
 
+/**
+ * Normaliza la nota de un marcador: conserva los saltos de línea porque la
+ * nota es un texto largo, pero recorta los espacios de los extremos.
+ */
+function cleanNote(raw: string): string {
+  return raw.trim();
+}
+
+function assertNote(note: string): void {
+  if (note.length > MAX_MARKER_NOTE) {
+    throw new ProjectActionError(
+      `la nota del marcador admite hasta ${MAX_MARKER_NOTE} caracteres`,
+    );
+  }
+}
+
+/**
+ * Devuelve los marcadores ordenados por frame, del más antiguo al más tardío.
+ * El orden de `project.markers` es el de inserción, así que el panel y la
+ * navegación siempre pasan por aquí.
+ */
+export function sortedMarkers(project: ProjectDocument): Marker[] {
+  return [...project.markers].sort((a, b) => a.frame - b.frame);
+}
+
+/**
+ * El marcador más cercano estrictamente antes del frame dado. Con el playhead
+ * justo encima de un marcador, "anterior" salta al previo a ese marcador.
+ */
+export function previousMarker(
+  project: ProjectDocument,
+  atFrame: number,
+): Marker | undefined {
+  let best: Marker | undefined;
+  for (const marker of project.markers) {
+    if (marker.frame >= atFrame) continue;
+    if (best === undefined || marker.frame > best.frame) best = marker;
+  }
+  return best;
+}
+
+/**
+ * El marcador más cercano estrictamente después del frame dado. Con el playhead
+ * justo encima de un marcador, "siguiente" salta al posterior a ese marcador.
+ */
+export function nextMarker(
+  project: ProjectDocument,
+  atFrame: number,
+): Marker | undefined {
+  let best: Marker | undefined;
+  for (const marker of project.markers) {
+    if (marker.frame <= atFrame) continue;
+    if (best === undefined || marker.frame < best.frame) best = marker;
+  }
+  return best;
+}
+
 export function addMarker(
   project: ProjectDocument,
   atFrame: number,
-  options: { label?: string; color?: MarkerColor; endFrame?: number } = {},
+  options: { label?: string; color?: MarkerColor; endFrame?: number; note?: string } = {},
 ): { project: ProjectDocument; markerId: string; frame: number } {
   const frame = Math.max(0, Math.round(atFrame));
   const endFrame =
@@ -39,6 +96,11 @@ export function addMarker(
   }
   const label = cleanLabel(options.label ?? `Marcador ${project.markers.length + 1}`);
   assertLabel(label);
+  let note: string | undefined;
+  if (options.note !== undefined) {
+    note = cleanNote(options.note);
+    assertNote(note);
+  }
   const next = cloneProject(project);
   const markerId = newId();
   next.markers.push({
@@ -47,6 +109,7 @@ export function addMarker(
     ...(endFrame !== undefined ? { endFrame } : {}),
     label,
     ...(options.color ? { color: options.color } : {}),
+    ...(note ? { note } : {}),
   });
   touch(next);
   return { project: next, markerId, frame };
@@ -60,6 +123,7 @@ export function updateMarker(
     endFrame?: number | undefined;
     label?: string;
     color?: MarkerColor | undefined;
+    note?: string | undefined;
   },
 ): ProjectDocument {
   const next = cloneProject(project);
@@ -92,6 +156,19 @@ export function updateMarker(
     const label = cleanLabel(patch.label);
     assertLabel(label);
     marker.label = label;
+  }
+  if ('note' in patch) {
+    if (patch.note === undefined) {
+      delete marker.note;
+    } else {
+      const note = cleanNote(patch.note);
+      assertNote(note);
+      if (note) {
+        marker.note = note;
+      } else {
+        delete marker.note;
+      }
+    }
   }
   if ('color' in patch) {
     if (patch.color) marker.color = patch.color;

@@ -990,7 +990,7 @@ fuente vigente es el addendum de la matriz.
   idénticos al compuesto completo, diff **0,000/255**); comparación ventana vs.
   completo en los frames 30 y 600. La UI muestra “compuesto” o “clip” en la
   etiqueta del frame. Verificación completa: **942 tests Vitest en 110
-  archivos**, typecheck limpio y Rust **336 passed, 0 failed, 46 ignored**.
+  archivos**, typecheck limpio y Rust **360 passed, 0 failed, 46 ignored**.
 - **Escala animada centrada (2026-10-24)**: las curvas de escala se resuelven
   sin cambiar el tamaño de la capa que recibe `overlay`. Se pre-escala
   estáticamente por el mínimo de la curva (hasta 1×, con Lanczos), se centra
@@ -1232,7 +1232,15 @@ fuente vigente es el addendum de la matriz.
   el resultado como `media/voz-clonada-*.wav`. Los parámetros se aceptan desde
   UI; no acepta URLs remotas ni claves en disco. Test unitario de URL
   `engine_urls_are_loopback_and_get_the_right_path`; mock HTTP con test
-  `xtts_adapter_receives_a_wave_from_mock_server` (comprobado tras build limpio).
+  `xtts_adapter_receives_a_wave_from_mock_server` (comprobado tras build limpio);
+  suite Rust verificada (**349 passed**; cargo lock resuelto con build completo).
+- **Drop-frame EDL real (2026-10-26)**: importador interpreta correctamente `00:10:00;00` como 17982 frames a 29.97 fps; tests `import_real_drop_frame_edl_from_resolve_or_premiere` y `warns_if_drop_frame_applies_to_non_29_97_rate` en línea 1572 y 1609 de `timeline_import.rs`, **ejecutados y verdes**. Fixture `demo-df.edl` incluido en `resources/test/edl/`.
+- **Compuestos: ganancia de pista externa se suma al audio interno** (2026-10-26): cuando un compuesto se expande, la `gainDb` de la pista externa se añade a todos los clips de audio internos. Si el clip interno tiene -3 dB y la pista +6 dB, el audio total será +3 dB (no duplicado ni ignorado). Test `compound_audio_track_gain_applies_to_inner_clips` **verde**, y los 4 tests de mute/solo siguen pasando. El **exportador EDL expande compuestos** antes de escribir (`edl_expands_compound_clips` refuerza offset y que no aparezca el grupo).
+- **Render real de compuestos (2026-10-26)**: test live (`EDITOR_IA_RUN_RENDER_TESTS=1`) con un compuesto de dos clips sólidos: el MP4 dura **2,000 s**, el frame de 0,5 s tiene **57.600 px rojos** y el de 1,5 s **57.600 px azules** (pantalla completa 320×180). Cierra el pendiente de "crear, montar y exportar compuestos" en su parte de render, sin depender de la UI.
+- **Audio del render verificado (2026-10-26)**: `verify_output` ahora rechaza un MP4 **sin pista de audio** (antes un audio perdido pasaba como éxito). Test live `render_live_compound_audio_follows_the_host_track_gain`: el compuesto con tono interno mide **−23,7 dB** sin ganancia y **−17,7 dB** con la pista externa a +6 dB (**Δ 6,0 dB**), y `verify_output_rejects_a_render_without_audio` confirma el rechazo del archivo mudo.
+- **OTIO con velocidad (2026-10-26)**: el importador lee `LinearTimeWarp.time_scalar` de los `effects` del clip, lo convierte a fracción (2× → 2/1, 1,5× → 3/2) y ajusta la duración de timeline (medio/velocidad) y el `outFrame` (medio consumido). Los efectos que no puede representar (p. ej. `FreezeFrame.1`) se avisan en vez de perderse en silencio. El **exportador** escribe ahora el retime como `LinearTimeWarp.1` y un `source_range` en tiempo de medio, así que el round-trip propio conserva la velocidad y ya no avisa "la velocidad no se exporta". Tests: `parses_otio_linear_time_warp_as_clip_speed`, `warns_about_otio_effects_it_cannot_import`, `imported_otio_speed_reaches_the_clip_json` (60 cuadros de medio a 2× → 30 en la timeline, `outFrame` 60) y `our_otio_export_round_trips_speed`.
+- **Paneo y opacidad medidos en MP4 (2026-10-27)**: tests live con FFmpeg real. Paneo: estéreo 440 Hz L / 880 Hz R, sin paneo **L −20,7 / R −20,7 dB**, con `pan: 0.5` **L −26,7 / R −20,7 dB** (**−6,0 dB** en el canal izquierdo). Opacidad animada: clip rojo con keyframes 1→0, rojo medio **241,0 → 138,0 → 12,0** en 0,1/0,9/1,9 s. Tests `render_live_clip_pan_separates_channels` y `render_live_opacity_keyframes_fade_the_clip`.
+- **Importación de timelines endurecida (2026-10-27)**: el archivo se rechaza antes de leerlo si supera **32 MB** (evita cargar un binario gigante por error), y si ningún clip entra el error **conserva los motivos** (primeros 3 avisos) en vez de un mensaje genérico. Tests `rejects_a_timeline_file_over_the_size_limit` y `empty_import_error_keeps_the_skip_reasons`.
 - **Importador FCPXML de Final Cut (2026-10-24)**: el parser sólo aceptaba
   `<clip><video ref=...>`; Final Cut y Resolve exportan la storyline con
   `<asset-clip ref=...>`, así que un FCPXML real se importaba **vacío**. Ahora

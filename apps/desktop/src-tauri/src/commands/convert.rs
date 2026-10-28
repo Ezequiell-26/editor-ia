@@ -478,7 +478,7 @@ pub(crate) fn build_args(
             encoder_used = encoder.clone();
             args.extend(["-c:v".into(), encoder]);
             if !is_hardware_encoder(&encoder_used) {
-                args.extend(["-preset".into(), "medium".into()]);
+                args.extend(["-preset".into(), "faster".into()]);
             }
             push_rate_control(&mut args, options, &encoder_used);
             args.extend([

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../../components/Icon';
-import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
+import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, PerspectiveCorner, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
 import { MARKER_COLORS, MAX_MARKERS, type MarkerColor } from '@editor-ia/project-schema';
 import {
   addMarker,
@@ -31,6 +31,8 @@ import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
 import { KeyframeCurveEditor } from './KeyframeCurveEditor';
+import { SilenceCutsSection } from './SilenceCutsSection';
+import { COLOR_LOOKS } from './color-looks';
 import {
   addAsset,
   addCaptionCue,
@@ -134,6 +136,9 @@ function NumberField({
           ? Math.max(min ?? -Infinity, Math.min(max ?? Infinity, numeric))
           : numeric;
       onCommit(clamped);
+      // Si el proyecto ya estaba en el valor clampado, el efecto de `value`
+      // no corre y el input conservaría el texto fuera de rango (p. ej. 2).
+      setDraft(String(clamped));
     } else {
       setDraft(String(value));
     }
@@ -332,48 +337,20 @@ const MARKER_COLOR_LABELS: Record<MarkerColor, string> = {
   slate: 'Gris',
 };
 
-export const COLOR_LOOKS: readonly { readonly id: string; readonly label: string; readonly effects: ClipEffects }[] = [
-  { id: 'neutral', label: 'Neutro', effects: {} },
-  {
-    id: 'warm',
-    label: 'Cálido',
-    effects: { temperature: 0.22, saturation: 1.08, contrast: 1.03 },
-  },
-  {
-    id: 'cool',
-    label: 'Frío',
-    effects: { temperature: -0.22, saturation: 0.95, contrast: 1.04 },
-  },
-  {
-    id: 'cinema',
-    label: 'Cine',
-    effects: {
-      contrast: 1.14,
-      saturation: 0.9,
-      temperature: -0.05,
-      vignette: 0.18,
-      curvePreset: 'contrast-medium',
-    },
-  },
-  {
-    id: 'vintage',
-    label: 'Vintage',
-    effects: {
-      sepia: true,
-      saturation: 0.8,
-      contrast: 1.05,
-      vignette: 0.22,
-      curvePreset: 'vintage',
-    },
-  },
-  {
-    id: 'mono',
-    label: 'B/N',
-    effects: { grayscale: true, contrast: 1.08 },
-  },
-];
-
 type ClipTab = 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'style' | 'all';
+
+/** Esquinas por defecto de la corrección de perspectiva: el cuadro completo. */
+const DEFAULT_PERSPECTIVE_CORNERS: [
+  PerspectiveCorner,
+  PerspectiveCorner,
+  PerspectiveCorner,
+  PerspectiveCorner,
+] = [
+  { x: 0, y: 0 },
+  { x: 1, y: 0 },
+  { x: 1, y: 1 },
+  { x: 0, y: 1 },
+];
 
 function ClipInspector(props: {
   clip: Clip;
@@ -624,6 +601,26 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ...patch,
     };
     store.update((current) => updateClip(current, clip.id, { mask: next }));
+  }
+
+  const perspectiveCorners = transform.perspective?.corners ?? DEFAULT_PERSPECTIVE_CORNERS;
+  function patchPerspectiveCorner(
+    index: 0 | 1 | 2 | 3,
+    axis: 'x' | 'y',
+    value: number,
+  ): void {
+    const next = perspectiveCorners.map((corner) => ({ ...corner })) as [
+      PerspectiveCorner,
+      PerspectiveCorner,
+      PerspectiveCorner,
+      PerspectiveCorner,
+    ];
+    next[index] = { ...next[index]!, [axis]: Math.max(0, Math.min(1, value)) };
+    store.update((current) =>
+      updateClip(current, clip.id, {
+        transform: { ...transform, perspective: { corners: next } },
+      }),
+    );
   }
 
   const speedFactor =
@@ -1334,15 +1331,43 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
     { id: 'all', label: 'Todo' },
   ];
 
+  const onTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const index = tabs.findIndex((item) => item.id === tab);
+    const next =
+      event.key === 'ArrowRight'
+        ? (index + 1) % tabs.length
+        : event.key === 'ArrowLeft'
+          ? (index - 1 + tabs.length) % tabs.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? tabs.length - 1
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    setTab(tabs[next]!.id);
+    event.currentTarget
+      .querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]
+      ?.focus();
+  };
+
   return (
     <div className="clip-inspector" data-tab={tab}>
-      <div className="inspector-tabs" role="tablist" aria-label="Propiedades del clip">
+      <div
+        className="inspector-tabs"
+        role="tablist"
+        aria-label="Propiedades del clip"
+        onKeyDown={onTabKeyDown}
+      >
         {tabs.map((item) => (
           <button
             key={item.id}
             type="button"
             role="tab"
+            id={`inspector-tab-${item.id}`}
+            aria-controls="inspector-tabpanel"
             aria-selected={tab === item.id}
+            tabIndex={tab === item.id ? 0 : -1}
             className={tab === item.id ? 'active' : ''}
             onClick={() => setTab(item.id)}
           >
@@ -1350,6 +1375,12 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           </button>
         ))}
       </div>
+      <div
+        role="tabpanel"
+        id="inspector-tabpanel"
+        aria-labelledby={`inspector-tab-${tab}`}
+        className="inspector-tabpanel"
+      >
       <Section title="Clip">
         <TextField
           label="Nombre"
@@ -1584,7 +1615,47 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               store.update((current) => updateClip(current, clip.id, { transform: { ...transform, opacity: value } }))
             }
           />
+          {([
+            ['P. sup. izq. X', 0, 'x'],
+            ['P. sup. izq. Y', 0, 'y'],
+            ['P. sup. der. X', 1, 'x'],
+            ['P. sup. der. Y', 1, 'y'],
+            ['P. inf. der. X', 2, 'x'],
+            ['P. inf. der. Y', 2, 'y'],
+            ['P. inf. izq. X', 3, 'x'],
+            ['P. inf. izq. Y', 3, 'y'],
+          ] as const).map(([label, cornerIndex, axis]) => (
+            <NumberField
+              key={label}
+              label={label}
+              value={perspectiveCorners[cornerIndex][axis]}
+              min={0}
+              max={1}
+              step={0.01}
+              onCommit={(value) => patchPerspectiveCorner(cornerIndex, axis, value)}
+            />
+          ))}
         </div>
+        <div className="actions compact">
+          <button
+            type="button"
+            className="small ghost"
+            disabled={!transform.perspective}
+            onClick={() => {
+              const { perspective: _perspective, ...rest } = transform;
+              store.update((current) =>
+                updateClip(current, clip.id, { transform: rest }),
+              );
+            }}
+          >
+            Restablecer perspectiva
+          </button>
+        </div>
+        <p className="fine-print">
+          Corrección de perspectiva a 4 puntos: el cuadrilátero de origen se endereza al cuadro.
+          Se aplica en la preview, en <strong>Frame real</strong> y en el MP4. La preview usa la
+          misma homografía y recorta al cuadro; el MP4 sigue siendo la referencia.
+        </p>
         <label className="field">
           <span>Mezcla</span>
           <select
@@ -2413,17 +2484,18 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       {transformKeyframes.length >= 2 ? (
         <Section title="Curvas" group="video">
           <p className="fine-print">
-            Edita las curvas de interpolación entre keyframes. Arrastra los puntos naranjas para definir un easing
-            Bézier propio del segmento que empieza en cada clave.
+            Editá las curvas de interpolación entre keyframes. Arrastrá los puntos naranjas para definir una curva
+            Bézier propia del segmento que empieza en cada clave.
           </p>
           <KeyframeCurveEditor
             keyframes={transformKeyframes}
-            property="scale"
             onEditBezier={(index, bezier) => {
               const ordenados = [...transformKeyframes].sort((a, b) => a.frame - b.frame);
               const inicio = ordenados[index];
-              if (!inicio) return;
-              store.update((current) => setTransformKeyframe(current, clip.id, inicio.frame, { bezier }));
+              if (!inicio) return false;
+              return store.update((current) =>
+                setTransformKeyframe(current, clip.id, inicio.frame, { bezier }),
+              );
             }}
           />
           <p className="fine-print inspector-full">
@@ -3100,30 +3172,6 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
 
       {visual || isAdjustment ? (
         <Section title="Color y efectos" group="color">
-          {/* DaVinci Resolve Color Wheels (Lift, Gamma, Gain) */}
-          <div className="inspector-color-wheels" role="group" aria-label="Ruedas de color DaVinci">
-            <div className="color-wheel-item">
-              <span className="color-wheel-label">Lift</span>
-              <div className="color-wheel-circle" title="Lift (Sombras)">
-                <span className="color-wheel-reticle" />
-              </div>
-              <span className="color-wheel-sub">Sombras</span>
-            </div>
-            <div className="color-wheel-item">
-              <span className="color-wheel-label">Gamma</span>
-              <div className="color-wheel-circle" title="Gamma (Medios tonos)">
-                <span className="color-wheel-reticle" />
-              </div>
-              <span className="color-wheel-sub">Tonos</span>
-            </div>
-            <div className="color-wheel-item">
-              <span className="color-wheel-label">Gain</span>
-              <div className="color-wheel-circle" title="Gain (Altas luces)">
-                <span className="color-wheel-reticle" />
-              </div>
-              <span className="color-wheel-sub">Luces</span>
-            </div>
-          </div>
           <div className="inspector-grid">
             <NumberField
               label="Brillo"
@@ -3231,6 +3279,18 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               step={0.1}
               onCommit={(value) => setEffect('sharpen', value)}
             />
+            <NumberField
+              label="Reducción de ruido"
+              value={effects.denoise ?? 0}
+              min={0}
+              max={1}
+              step={0.05}
+              onCommit={(value) => setEffect('denoise', value)}
+            />
+            <p className="fine-print inspector-full">
+              La reducción de ruido se aplica en el export (hqdn3d temporal); la
+              preview no la simula.
+            </p>
             <NumberField
               label="Desenfoque"
               value={effects.blur ?? 0}
@@ -3889,6 +3949,20 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               onCommit={(value) => patchAudio({ gainDb: value })}
             />
             <NumberField
+              label="Paneo (−1 izq · +1 der)"
+              value={audio.pan ?? 0}
+              min={-1}
+              max={1}
+              step={0.05}
+              onCommit={(value) =>
+                patchAudio({ pan: Math.abs(value) > 0.001 ? value : undefined })
+              }
+            />
+            <p className="fine-print inspector-full">
+              Si un clip de la pista define paneo, el paneo de pista se omite en esa pista; los clips sin paneo
+              propio quedan centrados.
+            </p>
+            <NumberField
               label="High-pass (Hz)"
               value={audio.highPassHz ?? 0}
               min={0}
@@ -4150,6 +4224,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         </Section>
       ) : null}
 
+      {timed ? <SilenceCutsSection clips={[clip]} group="audio" /> : null}
+
       {clip.kind === 'audio' ? (
         <Section title="Ritmo" group="audio">
           <p className="fine-print">
@@ -4201,6 +4277,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           {beatInfo ? <p className="fine-print">{beatInfo}</p> : null}
         </Section>
       ) : null}
+      </div>
     </div>
   );
 }
@@ -4232,7 +4309,11 @@ function TrackInspector({ track }: { track: Track }) {
   const index = sorted.findIndex((item) => item.id === track.id);
   const canMoveUp = index >= 0 && index < sorted.length - 1;
   const canMoveDown = index > 0;
+  const trackClips = (store.state.project?.timeline.clips ?? []).filter(
+    (clip) => clip.trackId === track.id,
+  );
   return (
+    <>
     <Section title="Pista">
       <TextField
         label="Nombre"
@@ -4353,6 +4434,10 @@ function TrackInspector({ track }: { track: Track }) {
         </button>
       </div>
     </Section>
+    {track.kind === 'audio' || track.kind === 'narration' ? (
+      <SilenceCutsSection clips={trackClips} title="Cortar silencios de la pista" />
+    ) : null}
+    </>
   );
 }
 

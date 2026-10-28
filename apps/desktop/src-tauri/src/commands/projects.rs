@@ -77,6 +77,16 @@ fn thumbnail_source(project: &Value) -> Option<(&str, bool)> {
             .find(|asset| asset["id"].as_str() == Some(id))
             .filter(|asset| asset["status"].as_str() == Some("ready"))
     };
+    // Portada explícita puesta por el descargador en el namespace x-*.
+    if let Some(id) = project["x-coverAssetId"].as_str() {
+        if let Some(asset) = asset_for(id) {
+            if asset["kind"].as_str() == Some("image") {
+                if let Some(path) = asset["source"]["path"].as_str() {
+                    return Some((path, true));
+                }
+            }
+        }
+    }
     let mut clips = project["timeline"]["clips"]
         .as_array()
         .map(|items| {

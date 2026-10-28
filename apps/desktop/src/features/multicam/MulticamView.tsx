@@ -15,11 +15,13 @@ import {
   programDurationFrames,
   recordCut,
   syncOffsetsFromEnvelopes,
+  type AudioEnvelope,
   type MulticamBuild,
   type MulticamCamera,
   type MulticamCut,
 } from './multicam';
 import { deriveTimecodeOffsets } from './multicam-timecode';
+import { resolveMulticamSync } from './multicam-sync';
 
 function clock(seconds: number): string {
   const safe = Math.max(0, seconds);
@@ -58,6 +60,10 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [audioSyncBusy, setAudioSyncBusy] = useState(false);
   const [timecodeBusy, setTimecodeBusy] = useState(false);
   const [timecodeWarning, setTimecodeWarning] = useState<string | null>(null);
+  const [autoSyncBusy, setAutoSyncBusy] = useState(false);
+  const [syncReport, setSyncReport] = useState<{ text: string; warnings: readonly string[] } | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const rafRef = useRef(0);
@@ -256,6 +262,76 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }
   }
 
+  /**
+   * Cadena de fallbacks (docs/research/MULTICAM-TIMECODE-2026-10-25.md, fase 2):
+   * prueba el timecode y, si no cubre a todas las cámaras, carga las envolventes
+   * de audio para completar o reemplazar; si tampoco hay sonido en común, deja
+   * las entradas manuales como están. `resolveMulticamSync` decide y redacta el
+   * informe de qué método se usó y por qué.
+   */
+  async function syncAutomatically(): Promise<void> {
+    if (cameras.length < 2 || autoSyncBusy) return;
+    setAutoSyncBusy(true);
+    setError(null);
+    setTimecodeWarning(null);
+    setSyncReport(null);
+    try {
+      const probes: Array<{ assetId: string; timecode: string | null }> = [];
+      for (const camera of cameras) {
+        try {
+          const probe = await store.service.probeMediaFile(camera.asset.source.path);
+          probes.push({ assetId: camera.asset.id, timecode: probe.timecode });
+        } catch {
+          probes.push({ assetId: camera.asset.id, timecode: null });
+        }
+      }
+      const timecode = deriveTimecodeOffsets(probes, fps);
+      const needsAudio = cameras.some(
+        (camera) => timecode.offsets[camera.asset.id] === undefined,
+      );
+      let envelopes: AudioEnvelope[] | null = null;
+      let envelopesError: string | null = null;
+      if (needsAudio) {
+        try {
+          const collected: AudioEnvelope[] = [];
+          for (const camera of cameras) {
+            const duration = assetDurationFrames(camera.asset) / fps;
+            const buckets = Math.max(16, Math.min(4000, Math.round(duration * 25)));
+            const peaks = await store.service.audioPeaks(camera.asset.id, buckets);
+            const envelope = envelopeFromPeaks(peaks);
+            if (envelope.values.length === 0) {
+              throw new Error(`${camera.asset.label} no tiene audio analizable.`);
+            }
+            collected.push(envelope);
+          }
+          envelopes = collected;
+        } catch (failure) {
+          envelopesError = failure instanceof Error
+            ? failure.message
+            : 'no se pudo analizar el audio';
+        }
+      }
+      const outcome = resolveMulticamSync({
+        fps,
+        cameras: cameras.map((camera) => ({
+          assetId: camera.asset.id,
+          label: camera.asset.label,
+          durationSeconds: assetDurationFrames(camera.asset) / fps,
+        })),
+        timecode,
+        envelopes,
+        envelopesError,
+      });
+      if (Object.keys(outcome.offsets).length > 0) {
+        setOffsets((current) => ({ ...current, ...outcome.offsets }));
+      }
+      setSyncReport({ text: outcome.report, warnings: outcome.warnings });
+      store.setNotice(outcome.report);
+    } finally {
+      setAutoSyncBusy(false);
+    }
+  }
+
   function togglePlay(): void {
     if (playing) {
       stopClock();
@@ -369,7 +445,7 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             reproducís. Olyvia graba cada cambio y arma una pista nueva lista para el editor.
           </p>
         </div>
-        <span className="fine-print">Sync manual + automática por audio · timecode pendiente</span>
+        <span className="fine-print">Sync automática con degradación: timecode → audio → manual</span>
       </header>
 
       {!project ? (
@@ -397,6 +473,16 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               <div className="multicam-cams-head">
                 <p className="eyebrow">Cámaras y sincronización</p>
                 <div className="multicam-sync-actions">
+                  <button
+                    type="button"
+                    className="small ghost icon-text"
+                    onClick={() => void syncAutomatically()}
+                    disabled={autoSyncBusy || cameras.length < 2}
+                    title="Prueba el timecode y, si no alcanza, degrada al audio; si tampoco hay sonido en común, deja las entradas manuales"
+                  >
+                    <Icon name="sparkles" size={13} />
+                    <span>{autoSyncBusy ? 'Sincronizando todo…' : 'Sincronizar todo'}</span>
+                  </button>
                   <button
                     type="button"
                     className="small ghost icon-text"
@@ -463,7 +549,17 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   {timecodeWarning}
                 </p>
               ) : null}
+              {syncReport ? (
+                <div className="fine-print multicam-sync-hint" role="status">
+                  <p>{syncReport.text}</p>
+                  {syncReport.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              ) : null}
               <p className="fine-print multicam-sync-hint">
+                «Sincronizar todo» encadena los métodos: timecode primero, audio si el TC no
+                alcanza y aviso para ajustar a mano si tampoco hay sonido en común.
                 «Sincronizar por audio» compara hasta 120 s de las envolventes de sonido (máx.
                 ±10 s) y calcula el punto de entrada de cada cámara. «Sincronizar por timecode»
                 usa el TC de inicio grabado en el archivo (jam-sync) y no necesita sonido

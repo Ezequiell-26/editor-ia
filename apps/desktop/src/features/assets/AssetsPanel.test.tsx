@@ -86,6 +86,7 @@ describe('AssetsPanel · auto-montar lote', () => {
     expect(screen.getByText('002.png')).toBeTruthy();
     expect(screen.getByText('narracion.wav')).toBeTruthy();
     expect(screen.getByText(/3 clips en la timeline/i)).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: /Reconectar archivo/i })).toHaveLength(3);
   });
 
   it('exige confirmar derechos antes de abrir el selector', () => {

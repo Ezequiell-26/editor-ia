@@ -97,6 +97,9 @@ export const CaptionCueSchema = z
     wordReveal: z.boolean().optional(),
     animation: CaptionAnimationSchema.optional(),
     motion: CaptionMotionSchema.optional(),
+    /** Desplazamiento manual del subtítulo, en píxeles del proyecto. */
+    offsetX: z.number().finite().gte(-10_000).lte(10_000).optional(),
+    offsetY: z.number().finite().gte(-10_000).lte(10_000).optional(),
   })
   .strict()
   .superRefine((item, ctx) => {

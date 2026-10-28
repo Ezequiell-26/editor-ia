@@ -45,6 +45,7 @@ describe('fábrica de contenido', () => {
       photoMotion: 'auto',
       transitionFrames: 8,
       confirmRights: true,
+      approveCost: false,
     });
     expect(generated.project.scenes).toHaveLength(3);
     expect(generated.narrations).toHaveLength(3);

@@ -31,7 +31,8 @@
     "package:extension": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-extension.ps1",
     "test:web-tts": "npm --prefix extensions/web-tts-bridge test",
     "lipsync:engine": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lipsync-engine/start.ps1",
-    "rules:export": "node scripts/export-platform-rules.mjs"
+    "rules:export": "node scripts/export-platform-rules.mjs",
+    "audit:licenses": "node scripts/audit-bundle-licenses.mjs"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
@@ -40,13 +41,7 @@
     "zod-to-json-schema": "3.23.5"
   },
   "license": "MIT",
-  "dependencies": {
-    "@radix-ui/react-collapsible": "^1.2.1",
-    "@react-three/drei": "^10.7.9",
-    "@react-three/fiber": "^9.8.2",
-    "@types/three": "^0.186.0",
-    "three": "^0.186.1"
-  },
+  "dependencies": {},
   "overrides": {
     "zod": "3.24.1",
     "zod-to-json-schema": "3.23.5"

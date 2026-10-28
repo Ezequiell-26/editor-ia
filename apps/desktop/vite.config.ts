@@ -23,10 +23,11 @@ export default defineConfig({
   plugins: [react(), stripCrossorigin()],
   build: {
     outDir: 'dist',
-    sourcemap: true,
-    // No vaciar dist automáticamente: la limpieza se hace por lotes desde el
-    // script de build para no borrar en masa sin control.
-    emptyOutDir: false,
+    // Los mapas no se publican: filtraban fuente y engordaban el instalador.
+    sourcemap: false,
+    // Cada build parte de cero; antes se acumulaban cientos de assets viejos
+    // dentro del bundle comercial.
+    emptyOutDir: true,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),

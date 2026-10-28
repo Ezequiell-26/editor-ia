@@ -53,6 +53,16 @@ describe('SRT/VTT', () => {
     ]);
   });
 
+  it('parsea SRT sin línea en blanco entre cues', () => {
+    const parsed = parseSubtitles(
+      '1\n00:00:00,500 --> 00:00:02,000\nHola\n2\n00:00:03,000 --> 00:00:04,000\nChau\n',
+    );
+    expect(parsed.cues).toEqual([
+      { startSeconds: 0.5, endSeconds: 2, text: 'Hola' },
+      { startSeconds: 3, endSeconds: 4, text: 'Chau' },
+    ]);
+  });
+
   it('parsea VTT con tiempos sin horas', () => {
     const parsed = parseSubtitles(
       'WEBVTT\n\n00:01.000 --> 00:03.500\nHola\n\n00:04.000 --> 00:05.000\nChau\n',

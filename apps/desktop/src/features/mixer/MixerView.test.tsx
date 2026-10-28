@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { ProjectProvider } from '../../state/project-store';
-import { addAsset, addClipFromAsset, addTrack, ensureDelivery } from '../../state/project-actions';
+import { addAsset, addClipFromAsset, addTrack, ensureDelivery, updateClip } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { MixerView } from './MixerView';
 
@@ -11,7 +11,7 @@ const NOW = '2026-10-24T00:00:00.000Z';
 
 afterEach(cleanup);
 
-function renderMixer(withTracks = true) {
+function renderMixer(withTracks = true, clipPan = 0) {
   let project = ensureDelivery(createEmptyProject('Mezcla E2E', NOW));
   if (withTracks) {
     const music = addTrack(project, 'audio', 'Música');
@@ -26,6 +26,11 @@ function renderMixer(withTracks = true) {
       atFrame: 0,
       durationFrames: 90,
     }).project;
+    if (clipPan !== 0) {
+      project = updateClip(project, project.timeline.clips[0]!.id, {
+        audio: { pan: clipPan },
+      });
+    }
     project = addTrack(project, 'narration', 'Voz').project;
   }
   const service = createFakeService();
@@ -61,6 +66,14 @@ describe('vista de mezcla', () => {
     expect(screen.getByRole('slider', { name: /Medios de Música/i })).toBeTruthy();
     expect(screen.getByRole('slider', { name: /Agudos de Música/i })).toBeTruthy();
     expect(screen.getByRole('slider', { name: /Ganancia master/i })).toBeTruthy();
+  });
+
+  it('avisa cuando el paneo de pista queda omitido por clips con paneo propio', () => {
+    renderMixer(true, -0.6);
+    expect(screen.getByRole('note')).toHaveProperty(
+      'textContent',
+      expect.stringMatching(/Paneo de pista omitido: 1 clip define su propio paneo/i),
+    );
   });
 
   it('cambia paneo y EQ de pista y los deja en el proyecto', () => {

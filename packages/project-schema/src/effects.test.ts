@@ -27,6 +27,7 @@ describe('efectos de clip', () => {
         temperature: -0.3,
         vignette: 0.4,
         sharpen: 1.5,
+        denoise: 0.6,
         blur: 2,
         grayscale: false,
         sepia: true,
@@ -40,6 +41,11 @@ describe('efectos de clip', () => {
       }),
     );
     expect(parsed.success).toBe(true);
+  });
+
+  it('rechaza una reducción de ruido fuera de 0..1', () => {
+    expect(ClipSchema.safeParse(imageClip({ denoise: 1.4 })).success).toBe(false);
+    expect(ClipSchema.safeParse(imageClip({ denoise: -0.1 })).success).toBe(false);
   });
 
   it('acepta sombras, altas luces y fade tonal en rango', () => {

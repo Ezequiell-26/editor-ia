@@ -715,7 +715,7 @@ body {
 .inspector-tabs button.active,
 .inspector-tabs button[aria-selected='true'] {
   background: #2e3036 !important;
-  color: var(--color-accent) !important;
+  color: #9ec1ff !important;
   border-bottom-color: var(--color-accent) !important;
   border-radius: 0 !important;
 }

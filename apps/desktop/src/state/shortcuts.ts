@@ -49,7 +49,15 @@ export type ShortcutId =
   | 'timeline.trimOut'
   | 'timeline.zoomIn'
   | 'timeline.zoomOut'
-  | 'timeline.zoomFit';
+  | 'timeline.zoomFit'
+  // Fase 2 de accesibilidad: mover y recortar el clip seleccionado con el
+  // teclado (operan vía el handler propio del editor, como S y M).
+  | 'timeline.clipMoveLeft'
+  | 'timeline.clipMoveRight'
+  | 'timeline.clipMoveTrackUp'
+  | 'timeline.clipMoveTrackDown'
+  | 'timeline.clipTrimIn'
+  | 'timeline.clipTrimOut';
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'palette.toggle': 'Paleta de comandos',
@@ -85,6 +93,12 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'timeline.zoomIn': 'Acercar timeline',
   'timeline.zoomOut': 'Alejar timeline',
   'timeline.zoomFit': 'Ajustar zoom a la duración',
+  'timeline.clipMoveLeft': 'Mover el clip seleccionado 1 frame a la izquierda (con Shift: 1 s)',
+  'timeline.clipMoveRight': 'Mover el clip seleccionado 1 frame a la derecha (con Shift: 1 s)',
+  'timeline.clipMoveTrackUp': 'Subir el clip a la pista compatible anterior',
+  'timeline.clipMoveTrackDown': 'Bajar el clip a la pista compatible siguiente',
+  'timeline.clipTrimIn': 'Recortar el borde de entrada del clip seleccionado',
+  'timeline.clipTrimOut': 'Recortar el borde de salida del clip seleccionado',
 };
 
 export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
@@ -121,6 +135,12 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'timeline.zoomIn': 'Timeline',
   'timeline.zoomOut': 'Timeline',
   'timeline.zoomFit': 'Timeline',
+  'timeline.clipMoveLeft': 'Timeline',
+  'timeline.clipMoveRight': 'Timeline',
+  'timeline.clipMoveTrackUp': 'Timeline',
+  'timeline.clipMoveTrackDown': 'Timeline',
+  'timeline.clipTrimIn': 'Timeline',
+  'timeline.clipTrimOut': 'Timeline',
 };
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
@@ -161,6 +181,17 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'timeline.zoomIn': '+',
   'timeline.zoomOut': '-',
   'timeline.zoomFit': 'F',
+  // Edición de clip por teclado (fase 2 de accesibilidad): Alt mueve el clip
+  // (con Shift, de a 1 segundo); Ctrl+Alt recorta el borde que la combinación
+  // agarra (entrada sin Shift, salida con Shift). Flechas sin Alt siguen
+  // moviendo el playhead. Operan vía EditorWorkspace.tsx; detalle en
+  // docs/ATAJOS-PRO.md.
+  'timeline.clipMoveLeft': 'Alt+ArrowLeft',
+  'timeline.clipMoveRight': 'Alt+ArrowRight',
+  'timeline.clipMoveTrackUp': 'Alt+ArrowUp',
+  'timeline.clipMoveTrackDown': 'Alt+ArrowDown',
+  'timeline.clipTrimIn': 'Ctrl+Alt+ArrowLeft',
+  'timeline.clipTrimOut': 'Ctrl+Alt+ArrowRight',
 };
 
 const ALL_IDS = Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[];
@@ -262,6 +293,50 @@ export function normalizeBinding(binding: string): string {
 export function bindingMatches(event: KeyboardEvent, binding: string): boolean {
   if (!binding) return false;
   return eventToBinding(event) === normalizeBinding(binding);
+}
+
+// ---------------------------------------------------------------------------
+// Activación nativa de controles (auditoría de accesibilidad H16)
+// ---------------------------------------------------------------------------
+
+/** Controles que el navegador activa con Space/Enter cuando tienen el foco. */
+const ACTIVATABLE_TAGS = new Set([
+  'BUTTON',
+  'SUMMARY',
+  'MENUITEM',
+  'SELECT',
+  'OPTION',
+  'INPUT',
+  'TEXTAREA',
+]);
+
+/** Roles ARIA con el mismo contrato de activación que un botón. */
+const ACTIVATABLE_ROLES = new Set([
+  'button',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'checkbox',
+  'radio',
+  'switch',
+  'tab',
+]);
+
+/**
+ * ¿El evento de teclado cayó sobre un control que se activa con Space?
+ *
+ * El click de activación por Space ocurre en keyup y no se dispara si el
+ * keydown se previene: un atajo global que haga `preventDefault` en keydown
+ * (como Reproducir/Pausar con Espacio) roba la activación del control
+ * enfocado. El despacho global debe dejar pasar el evento cuando el foco está
+ * en uno de estos controles.
+ */
+export function isActivatableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (ACTIVATABLE_TAGS.has(target.tagName)) return true;
+  const role = target.getAttribute('role');
+  return role !== null && ACTIVATABLE_ROLES.has(role);
 }
 
 /**

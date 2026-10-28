@@ -2,12 +2,16 @@ import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { FALLBACK_VISUAL_CATALOG } from '../features/visuals/visuals';
 import type {
+  AlphaFramesRequest,
+  AlphaSequenceRequest,
   AssetFileInfo,
   AudioProviderInfo,
   CreateProjectRequest,
   DesktopService,
   GenerateScriptRequest,
   ImportOutcome,
+  LicenseStatus,
+  LicenseTier,
   McpCallResult,
   McpProbeResult,
   McpSessionInfo,
@@ -23,8 +27,10 @@ import type {
   ConvertProgress,
   ScriptPlan,
   SystemInfo,
+  YouTubeChannelReport,
   VoiceInfo,
 } from '../services/project-service';
+import { FREE_LICENSE_STATUS } from '../services/project-service';
 import { ensureDelivery, newId } from '../state/project-actions';
 
 /** Medición de mezcla determinista: 6 s, objetivo −14 LUFS, delta +2,2 dB. */
@@ -108,7 +114,10 @@ export interface FakeService extends DesktopService {
   emitFinished(event: RenderFinishedEvent): void;
   setSaveFailure(message: string | null): void;
   setImportOutcome(outcome: ImportOutcome | null): void;
+  setLicenseTier(tier: LicenseTier): void;
   readonly deliveries: { fileName: string; bytes: Uint8Array }[];
+  readonly alphaFrameBatches: { token: string; startIndex: number; count: number }[];
+  readonly alphaSequences: AlphaSequenceRequest[];
   current: OpenedProject | null;
 }
 
@@ -121,8 +130,118 @@ function opened(project: ProjectDocument, name = 'proyecto.editoria.json'): Open
   };
 }
 
+export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'): YouTubeChannelReport {
+  const preview =
+    'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AFwD/2Q==';
+  return {
+    channelName: 'Canal de prueba',
+    channelUrl,
+    subscribers: 120_000,
+    listedVideos: 12,
+    analyzedVideos: 2,
+    totalVideos: 340,
+    bestVideoId: 'aaaaaaaaaaa',
+    bestReasonSummary:
+      'Mejor score 92/100: 1.500 vistas/día, 4,2% de engagement y 120.000 vistas.',
+    videos: [
+      {
+        id: 'aaaaaaaaaaa',
+        title: 'Cómo editar 5 veces más rápido',
+        url: 'https://www.youtube.com/watch?v=aaaaaaaaaaa',
+        views: 120_000,
+        likes: 4_800,
+        comments: 320,
+        durationSeconds: 420,
+        uploadDate: '2026-10-01',
+        viewsPerDay: 1_500,
+        engagementRate: 4.2,
+        score: 92,
+        titleFlags: ['número', 'tutorial'],
+        reasons: ['1,8× las vistas por día de la mediana del canal'],
+        thumbnailUrl: 'https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg',
+        thumbnail: {
+          width: 1280,
+          height: 720,
+          brightness: 64,
+          saturation: 48,
+          contrast: 31,
+          palette: ['#ff8844', '#222222', '#ffffff'],
+          preview,
+        },
+        commentAnalysis: {
+          analyzed: 20,
+          positivePercent: 70,
+          negativePercent: 10,
+          neutralPercent: 20,
+          keywords: [{ keyword: 'edición', count: 9 }],
+          topComments: [
+            {
+              author: 'Ana',
+              text: 'Excelente, me sirvió muchísimo.',
+              likes: 40,
+              videoTitle: 'Cómo editar 5 veces más rápido',
+            },
+          ],
+        },
+      },
+      {
+        id: 'bbbbbbbbbbb',
+        title: 'Mi rutina de trabajo',
+        url: 'https://www.youtube.com/watch?v=bbbbbbbbbbb',
+        views: 42_000,
+        likes: 900,
+        comments: 80,
+        durationSeconds: 900,
+        uploadDate: '2026-09-10',
+        viewsPerDay: 600,
+        engagementRate: 2.5,
+        score: 61,
+        titleFlags: [],
+        reasons: ['Duración 15 min'],
+        thumbnailUrl: null,
+        thumbnail: null,
+        commentAnalysis: null,
+      },
+    ],
+    insights: {
+      medianViews: 81_000,
+      averageEngagement: 3.3,
+      uploadsPerWeek: 1.2,
+      bestWeekday: 'miércoles',
+      bestHourUtc: 18,
+      medianDurationSeconds: 660,
+      commonTitleWords: [{ keyword: 'editar', count: 3 }],
+      titlePatterns: {
+        numbersPercent: 40,
+        questionsPercent: 20,
+        howToPercent: 30,
+        listsPercent: 10,
+      },
+      thumbnailAverage: {
+        brightness: 55,
+        saturation: 40,
+        contrast: 25,
+        samples: 2,
+      },
+      comments: {
+        analyzed: 20,
+        positivePercent: 70,
+        negativePercent: 10,
+        neutralPercent: 20,
+        keywords: [{ keyword: 'edición', count: 9 }],
+        topComments: [],
+      },
+      strengths: ['El mejor video rinde 1,8× las vistas por día de la mediana.'],
+      opportunities: ['Cadencia baja: 1,2 videos por semana.'],
+    },
+    warnings: ['Se detallaron 2 de 12 videos listados.'],
+    fetchedAt: '2026-10-27',
+  };
+}
+
 export function createFakeService(): FakeService {
   let current: OpenedProject | null = null;
+  let licenseTier: LicenseTier = 'pro';
   let saveFailure: string | null = null;
   let importOutcome: ImportOutcome | null = null;
   let mcpServers: McpServerConfig[] = [];
@@ -131,10 +250,27 @@ export function createFakeService(): FakeService {
   const openSessions = new Set<string>();
   const sessionCalls = new Map<string, number>();
   let flowGenerations = 0;
+  const licenseStatus = (): LicenseStatus =>
+    licenseTier === 'pro'
+      ? {
+          tier: 'pro',
+          isPro: true,
+          email: 'tester@example.com',
+          licenseId: 'lic-test',
+          issuedAt: '2026-10-28T00:00:00Z',
+          expiresAtUnix: null,
+          trialEndsAtUnix: null,
+          trialDaysLeft: null,
+          source: 'license-file',
+          error: null,
+        }
+      : { ...FREE_LICENSE_STATUS };
   const progressHandlers = new Set<(event: RenderProgressEvent) => void>();
   const finishedHandlers = new Set<(event: RenderFinishedEvent) => void>();
   const convertHandlers = new Set<(event: ConvertProgress) => void>();
   const deliveries: { fileName: string; bytes: Uint8Array }[] = [];
+  const alphaFrameBatches: { token: string; startIndex: number; count: number }[] = [];
+  const alphaSequences: AlphaSequenceRequest[] = [];
   const calls = {
     create: 0,
     open: 0,
@@ -151,6 +287,8 @@ export function createFakeService(): FakeService {
     unavailableReason: null,
     calls,
     deliveries,
+    alphaFrameBatches,
+    alphaSequences,
     current: null,
     async createProject(input: CreateProjectRequest) {
       calls.create += 1;
@@ -276,6 +414,98 @@ export function createFakeService(): FakeService {
         hint: null,
       };
     },
+    async updateDownloader() {
+      return {
+        available: true,
+        version: '2026.10.27',
+        path: 'yt-dlp',
+        managed: true,
+        canInstall: true,
+        hint: null,
+      };
+    },
+    async pauseDownload() {
+      return true;
+    },
+    async resumeDownload() {
+      return true;
+    },
+    async cancelDownload() {
+      return true;
+    },
+    async creatorInjectHook(request) {
+      return {
+        path: request.outputPath,
+        kind: 'hook',
+        width: 1920,
+        height: 1080,
+        durationSeconds: 10,
+        bytes: 1_000_000,
+      };
+    },
+    async creatorExportMultiAspect(request) {
+      return request.aspects?.map((kind) => ({
+        path: `${request.outputDir}\\${kind}.mp4`,
+        kind,
+        width: kind === 'vertical' ? 1080 : kind === 'square' ? 1080 : 1920,
+        height: kind === 'vertical' ? 1920 : kind === 'square' ? 1080 : 1080,
+        durationSeconds: 10,
+        bytes: 1_000_000,
+      })) ?? [];
+    },
+    async creatorInjectCta(request) {
+      return {
+        path: request.outputPath,
+        kind: 'cta',
+        width: 1920,
+        height: 1080,
+        durationSeconds: 10,
+        bytes: 1_000_000,
+      };
+    },
+    async creatorInterleaveBroll(request) {
+      return {
+        path: request.outputPath,
+        kind: 'broll',
+        width: 1920,
+        height: 1080,
+        durationSeconds: 10,
+        bytes: 1_000_000,
+      };
+    },
+    async creatorSplitChapters(request) {
+      return [
+        {
+          path: `${request.outputDir}\\capitulo-1.mp4`,
+          kind: 'chapter',
+          width: 1920,
+          height: 1080,
+          durationSeconds: 30,
+          bytes: 2_000_000,
+        },
+        {
+          path: `${request.outputDir}\\capitulo-2.mp4`,
+          kind: 'chapter',
+          width: 1920,
+          height: 1080,
+          durationSeconds: 45,
+          bytes: 3_000_000,
+        },
+      ];
+    },
+    async creatorBurnSubtitles(request) {
+      return {
+        path: request.outputPath,
+        kind: 'subtitled',
+        width: 1920,
+        height: 1080,
+        durationSeconds: 60,
+        bytes: 8_000_000,
+      };
+    },
+    async downloadDiskSpace() {
+      return 500_000_000_000;
+    },
     async chooseDownloadDirectory() {
       return 'D:\\Videos descargados';
     },
@@ -333,6 +563,63 @@ export function createFakeService(): FakeService {
     async chooseCookiesFile() {
       return 'C:\\cookies\\cookies.txt';
     },
+    async sponsorblockPreview() {
+      return [
+        { category: 'sponsor', startSeconds: 15, endSeconds: 42, action: 'skip' },
+        { category: 'intro', startSeconds: 0, endSeconds: 8, action: 'skip' },
+      ];
+    },
+    async notifyUser() {},
+    async scanWatchFolder() {
+      return [
+        {
+          path: 'D:\\Listas\\pendientes.txt',
+          name: 'pendientes.txt',
+          modifiedSeconds: 1700000000,
+          urls: ['https://www.youtube.com/watch?v=abc123', 'https://youtu.be/def456'],
+        },
+      ];
+    },
+    async fetchRssFeed() {
+      return [
+        {
+          title: 'Video del feed',
+          link: 'https://www.youtube.com/watch?v=feed001',
+          published: '2026-10-28T10:00:00Z',
+        },
+      ];
+    },
+    async testProxy(proxy: string) {
+      return { proxy, ok: true, latencyMs: 42, error: null };
+    },
+    async listPlaylistEntries() {
+      return [
+        { index: 1, title: 'Elemento uno', url: 'https://youtu.be/uno', durationSeconds: 30 },
+        { index: 2, title: 'Elemento dos', url: 'https://youtu.be/dos', durationSeconds: 45 },
+      ];
+    },
+    async listAudioTracks() {
+      return [
+        { formatId: '251', language: 'es', ext: 'webm', abr: 160, note: 'opus' },
+        { formatId: '140', language: 'en', ext: 'm4a', abr: 129, note: 'aac' },
+      ];
+    },
+    async probeSourceChecksum() {
+      return {
+        md5: '900150983cd24fb0d6963f7d28e17f72',
+        sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+        source: 'Content-MD5',
+      };
+    },
+    async installWatchdog() {
+      return { installed: true, tasks: ['Olyvia Queue Agent (watchdog)'], hint: 'activo' };
+    },
+    async removeWatchdog() {
+      return { installed: false, tasks: [], hint: 'inactivo' };
+    },
+    async watchdogStatus() {
+      return { installed: false, tasks: [], hint: 'inactivo' };
+    },
     async downloadMedia(request) {
       calls.destination = request.destinationRoot ?? null;
       return {
@@ -352,6 +639,12 @@ export function createFakeService(): FakeService {
     },
     async cleanupDownload() {},
     async onDownloadProgress() {
+      return () => {};
+    },
+    async analyzeYoutubeChannel(request) {
+      return fakeChannelReport(request.channelUrl);
+    },
+    async onChannelAnalysisProgress() {
       return () => {};
     },
     async fetchPlatformRules() {
@@ -521,6 +814,9 @@ export function createFakeService(): FakeService {
         bytes: 2048,
         message: `metadatos: ${title || artist || comment}`,
       };
+    },
+    async extractSubtitles() {
+      return null;
     },
     async audioPeaks(assetId, buckets) {
       return {
@@ -804,6 +1100,34 @@ export function createFakeService(): FakeService {
     async onBackgroundProgress() {
       return () => {};
     },
+    async writeAlphaFrames(request: AlphaFramesRequest) {
+      alphaFrameBatches.push({
+        token: request.token,
+        startIndex: request.startIndex,
+        count: request.frames.length,
+      });
+    },
+    async alphaFramesToAsset(request: AlphaSequenceRequest) {
+      alphaSequences.push(request);
+      return readyAsset({
+        label: request.label,
+        kind: 'video',
+        source: { type: 'local', path: `media/${request.label}.webm` },
+        status: 'unverified',
+        rights: {
+          license: { id: 'unknown', commercialUse: 'unknown' },
+          provenance: { origin: 'generated-locally', acquiredAt: NOW },
+        },
+        media: {
+          width: request.width,
+          height: request.height,
+          durationFrames: request.frameCount,
+          frameRate: { num: request.fpsNum, den: request.fpsDen },
+          alpha: true,
+        },
+      });
+    },
+    async discardAlphaFrames() {},
     async denoiseMedia(request) {
       const extension = request.mode === 'image' ? 'png' : 'mp4';
       return {
@@ -1158,6 +1482,32 @@ export function createFakeService(): FakeService {
           },
         ],
       };
+    },
+    async licenseStatus(): Promise<LicenseStatus> {
+      return licenseStatus();
+    },
+    async chooseLicenseFile() {
+      return 'C:\tmp\olyvia-license.json';
+    },
+    async activateLicense() {
+      licenseTier = 'pro';
+      return licenseStatus();
+    },
+    async startTrial() {
+      licenseTier = 'pro';
+      return {
+        ...licenseStatus(),
+        source: 'trial',
+        trialEndsAtUnix: Math.floor(Date.now() / 1000) + 14 * 86_400,
+        trialDaysLeft: 14,
+      };
+    },
+    async deactivateLicense() {
+      licenseTier = 'free';
+      return licenseStatus();
+    },
+    setLicenseTier(tier) {
+      licenseTier = tier;
     },
     async systemInfo(): Promise<SystemInfo> {
       return {

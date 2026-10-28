@@ -15,10 +15,32 @@ function renderApp() {
   return service;
 }
 
+function renderAppAt(search: string) {
+  window.history.replaceState({}, '', `/${search}`);
+  return renderApp();
+}
+
 function nav(label: string): void {
+  const navigation = screen.getByRole('navigation', { name: /vistas/i });
+  let button = within(navigation).queryByRole('button', { name: label });
+  if (!button) {
+    fireEvent.click(within(navigation).getByRole('button', { name: /Más herramientas/i }));
+    button = within(navigation).getByRole('button', { name: label });
+  }
+  fireEvent.click(button);
+}
+
+async function hubTab(label: string): Promise<void> {
+  fireEvent.click(await screen.findByRole('tab', { name: label }));
+}
+
+async function openAiHub(): Promise<void> {
+  nav('Ajustes');
+  const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
   fireEvent.click(
-    within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: label }),
+    within(dialog).getByRole('button', { name: /Inteligencia artificial/i }),
   );
+  fireEvent.click(await within(dialog).findByRole('button', { name: /Abrir AI Hub/i }));
 }
 
 async function createProject(name = 'Obra de prueba'): Promise<void> {
@@ -29,6 +51,9 @@ async function createProject(name = 'Obra de prueba'): Promise<void> {
   await waitFor(
     () => {
       expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/);
+      // La timeline es un chunk aparte: esperar su superficie evita leer clips
+      // antes de que el panel lazy termine de montarse.
+      expect(document.querySelector('.timeline-surface')).toBeTruthy();
     },
     { timeout: 5000 },
   );
@@ -38,6 +63,7 @@ afterEach(() => {
   cleanup();
   window.localStorage.clear();
   window.sessionStorage.clear();
+  window.history.replaceState({}, '', '/');
   vi.restoreAllMocks();
 });
 
@@ -52,46 +78,46 @@ describe('shell de Olyvia', () => {
     }
     const navigation = screen.getByRole('navigation', { name: /vistas/i });
     expect(
-      [...navigation.querySelectorAll('ul button')].map((button) => button.getAttribute('aria-label')),
+      [
+        ...navigation.querySelectorAll(
+          ':scope > ul > li:not(.nav-more) > button',
+        ),
+      ].map((button) => button.getAttribute('aria-label')),
     ).toEqual([
       'Inicio',
-      'Proyectos',
-      'Guion',
-      'Medios',
-      'Producción',
-      'Editor',
-      'Texto',
-      'Multicámara',
-      'Mezcla',
-      'VFX',
       'Descargar',
-      'Director',
-      'Fábrica',
-      'Cumplimiento',
-      'Convertir',
-      'Comparar',
-      'Comprimir',
-      'Denoise',
-      'Miniaturas',
-      'Localización',
-      'AI Hub',
-      'Motion',
-      'Efectos',
-      'Fondo',
-      'Upscale',
-      'MCP',
+      'Creador',
+      'Proyectos',
+      'Editor',
+      'Laboratorio',
+      'Producción',
       'Aprender',
       'Ajustes',
     ]);
-    // Un separador al entrar a herramientas y otro al entrar a ayuda; no uno
-    // delante de cada herramienta.
-    expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(2);
+    expect(
+      within(navigation).getByRole('button', { name: /Más herramientas/i }),
+    ).toBeTruthy();
+    expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(1);
     expect(
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('aria-current'),
     ).toBe('page');
     expect(
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('data-tooltip'),
     ).toMatch(/Estado del estudio/i);
+  });
+
+  it('guarda las herramientas avanzadas detrás de Más', async () => {
+    renderApp();
+    const navigation = screen.getByRole('navigation', { name: /vistas/i });
+    expect(within(navigation).queryByRole('button', { name: 'Director' })).toBeNull();
+    fireEvent.click(
+      within(navigation).getByRole('button', { name: /Más herramientas/i }),
+    );
+    expect(within(navigation).getByRole('button', { name: 'Director' })).toBeTruthy();
+    expect(within(navigation).getByRole('button', { name: 'Motion' })).toBeTruthy();
+    expect(within(navigation).queryByRole('button', { name: 'AI Hub' })).toBeNull();
+    expect(within(navigation).queryByRole('button', { name: 'MCP' })).toBeNull();
+    expect(within(navigation).queryByRole('button', { name: 'Denoise' })).toBeNull();
   });
 
   it('abre en Inicio con la preparación y la extensión listas para configurar', async () => {
@@ -101,8 +127,19 @@ describe('shell de Olyvia', () => {
     expect(main.textContent).toContain('Extensión de Chrome / Edge');
     expect(main.textContent).toContain('Motor de descargas');
     expect(main.textContent).toContain('FFmpeg');
-    fireEvent.click(within(main).getByRole('button', { name: /Nuevo proyecto/i }));
+    expect(main.textContent).toContain('Todas las herramientas');
+    expect(within(main).getAllByRole('button', { name: /YouTube/i }).length).toBeGreaterThan(0);
+    expect(within(main).getAllByRole('button', { name: /Automático/i }).length).toBeGreaterThan(0);
+    fireEvent.click(within(main).getAllByRole('button', { name: /Nuevo proyecto/i })[0]!);
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Crear un proyecto'));
+  });
+
+  it('abre la paleta desde el buscador del topbar', async () => {
+    renderApp();
+    fireEvent.click(screen.getByRole('button', { name: /Buscar o ejecutar un comando/i }));
+    expect(await screen.findByRole('dialog', { name: /Paleta de comandos/i })).toBeTruthy();
+    expect(screen.getAllByText(/Automático/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/YouTube/i).length).toBeGreaterThan(0);
   });
 
   it('abre los menús y ejecuta acciones reales', async () => {
@@ -112,7 +149,7 @@ describe('shell de Olyvia', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: /Abrir proyecto/i }));
     await waitFor(() => expect(service.calls.open).toBe(1));
     fireEvent.click(screen.getByRole('button', { name: 'Ver' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Ajustes' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Ajustes' }));
     // Ajustes se abre como ventana flotante, no como vista de `main`.
     const dialog = await screen.findByRole('dialog', { name: 'Configuración' }, { timeout: 5000 });
     await waitFor(() => expect(dialog.textContent).toContain('Apariencia'), { timeout: 5000 });
@@ -153,6 +190,15 @@ describe('shell de Olyvia', () => {
     fireEvent.click(screen.getByRole('button', { name: /Descargar e importar/i }));
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Ver 1 archivo(s) en Medios'));
     expect(screen.getByRole('main').textContent).toContain('video.mp4');
+    expect(
+      within(screen.getByRole('main')).getByRole('button', { name: /Abrir en Studio/i }),
+    ).toBeTruthy();
+    fireEvent.click(
+      within(screen.getByRole('main')).getByRole('button', { name: /Auto-editar/i }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('Editor automático'),
+    );
   });
 
   it('descarga sin proyecto y deja el archivo en la carpeta de descargas', async () => {
@@ -236,9 +282,93 @@ describe('shell de Olyvia', () => {
     ).toBe('https://example.com/reel');
   });
 
+  it('agrupa YouTube dentro de Descargar y conserva el formulario al volver', async () => {
+    renderApp();
+    nav('Descargar');
+    const url = await screen.findByRole('textbox', { name: /URL para descargar/i });
+    fireEvent.change(url, { target: { value: 'https://youtube.com/watch?v=hub' } });
+    await hubTab('YouTube');
+    expect(await screen.findByText('Analizador de YouTube')).toBeTruthy();
+    await hubTab('Descargar');
+    expect(
+      (screen.getByRole('textbox', { name: /URL para descargar/i }) as HTMLInputElement).value,
+    ).toBe('https://youtube.com/watch?v=hub');
+  });
+
+  it('abre los modos de edición sin perder la timeline', async () => {
+    renderApp();
+    await createProject('Obra modos');
+    fireEvent.click(screen.getByRole('tab', { name: 'Mezcla' }));
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('Mezcla de audio'),
+    );
+    expect(document.querySelector('.timeline-surface')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Mezcla' }).getAttribute('aria-selected')).toBe(
+      'true',
+    );
+    fireEvent.click(screen.getByRole('tab', { name: 'Edición' }));
+    await waitFor(() => expect(document.querySelector('.preview-panel')).toBeTruthy());
+  });
+
+  it('redirige un deep link de utilidad al Laboratorio con su tab', async () => {
+    renderAppAt('?view=convert');
+    const main = screen.getByRole('main');
+    const tab = await within(main).findByRole('tab', { name: 'Convertir' });
+    await waitFor(() => expect(tab.getAttribute('aria-selected')).toBe('true'));
+    const rail = screen.getByRole('navigation', { name: /vistas/i });
+    expect(
+      within(rail).getByRole('button', { name: 'Laboratorio' }).getAttribute('aria-current'),
+    ).toBe('page');
+  });
+
+  it('redirige un deep link de creador al hub con su tab', async () => {
+    renderAppAt('?view=factory');
+    const main = screen.getByRole('main');
+    const tab = await within(main).findByRole('tab', { name: 'Fábrica' });
+    await waitFor(() => expect(tab.getAttribute('aria-selected')).toBe('true'));
+    const rail = screen.getByRole('navigation', { name: /vistas/i });
+    expect(
+      within(rail).getByRole('button', { name: 'Creador' }).getAttribute('aria-current'),
+    ).toBe('page');
+  });
+
+  it('redirige un deep link de modo del editor al editor canónico', async () => {
+    renderAppAt('?view=mixer');
+    const main = screen.getByRole('main');
+    await waitFor(() => expect(main.textContent).toContain('No hay proyecto abierto'));
+    const rail = screen.getByRole('navigation', { name: /vistas/i });
+    expect(
+      within(rail).getByRole('button', { name: 'Editor' }).getAttribute('aria-current'),
+    ).toBe('page');
+    expect(within(main).queryByText('Mezcla de audio')).toBeNull();
+  });
+
+  it('abre Motion como tab interno del editor sin perder la timeline', async () => {
+    renderApp();
+    await createProject('Obra Motion interno');
+    nav('Motion');
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Motion' }).getAttribute('aria-selected')).toBe(
+        'true',
+      ),
+    );
+    expect(document.querySelector('.timeline-surface')).toBeTruthy();
+    expect(
+      screen.getByRole('navigation', { name: /vistas/i }).textContent,
+    ).toContain('Editor');
+    fireEvent.click(screen.getByRole('tab', { name: 'Edición' }));
+    nav('Motion');
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Motion' }).getAttribute('aria-selected')).toBe(
+        'true',
+      ),
+    );
+  });
+
   it('abre Denoise Studio y muestra el flujo de reducción de ruido', async () => {
     renderApp();
-    nav('Denoise');
+    nav('Laboratorio');
+    await hubTab('Denoise');
     const main = screen.getByRole('main');
     await waitFor(() =>
       expect(main.textContent).toContain('Reducir ruido en tiempo real'),
@@ -249,7 +379,8 @@ describe('shell de Olyvia', () => {
 
   it('abre Miniaturas y muestra el editor con plantillas', async () => {
     renderApp();
-    nav('Miniaturas');
+    nav('Creador');
+    await hubTab('Miniaturas');
     const main = screen.getByRole('main');
     await waitFor(() =>
       expect(main.textContent).toContain('Miniaturas que se entienden en el feed'),
@@ -261,7 +392,8 @@ describe('shell de Olyvia', () => {
 
   it('abre Localización, lee subtítulos y muestra la traducción', async () => {
     renderApp();
-    nav('Localización');
+    nav('Creador');
+    await hubTab('Localización');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Un video, ocho idiomas'));
     for (const language of ['Español', 'Inglés', 'Chino', 'Hindi', 'Árabe', 'Portugués', 'Bengalí', 'Ruso']) {
@@ -281,7 +413,7 @@ describe('shell de Olyvia', () => {
   it('abre AI Hub y compone una skill con presupuesto de tokens', async () => {
     renderApp();
     await createProject('AI Hub');
-    nav('AI Hub');
+    await openAiHub();
     const main = screen.getByRole('main');
     await waitFor(() =>
       expect(main.textContent).toContain('Skills compactas para no gastar tokens de más'),
@@ -423,6 +555,18 @@ describe('shell de Olyvia', () => {
     expect(screen.getByRole('contentinfo').textContent).toMatch(/Guardado/i);
   });
 
+  it('abre un proyecto existente en Free sin bloquear su edición', async () => {
+    const service = createFakeService();
+    service.setLicenseTier('free');
+    render(<App service={service} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Abrir proyecto/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toMatch(/Timeline vacía|Timeline 01/),
+    );
+    await waitFor(() => expect(document.querySelector('.timeline-surface')).toBeTruthy());
+    expect(screen.queryByText(/proyecto bloqueado/i)).toBeNull();
+  });
+
   it('declara un guardado fallido sin fingir éxito', async () => {
     const service = renderApp();
     await createProject('Obra con fallo');
@@ -549,7 +693,8 @@ describe('shell de Olyvia', () => {
   it('Cumplimiento muestra reglas por red y audita el proyecto', async () => {
     renderApp();
     await createProject('Obra reglas');
-    nav('Cumplimiento');
+    nav('Descargar');
+    await hubTab('Cumplimiento');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Auditoría de preflight'));
     expect(main.textContent).toContain('Riesgos de strike');
@@ -577,6 +722,63 @@ describe('shell de Olyvia', () => {
     await createProject('Obra scopes CORS');
     const media = document.querySelector('.preview-media');
     expect(media?.getAttribute('crossorigin')).toBe('anonymous');
+  });
+
+  it('aplica la perspectiva del clip a la preview con matrix3d', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    // jsdom no mide layout: se fija el tamaño real del visor para que la
+    // homografía tenga un cuadro donde calcularse.
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const sized = this.classList?.contains('preview-stage');
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: sized ? 960 : 0,
+        bottom: sized ? 540 : 0,
+        width: sized ? 960 : 0,
+        height: sized ? 540 : 0,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra perspectiva', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const added = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const seeded = updateClip(added.project, added.clipId, {
+      transform: {
+        perspective: {
+          corners: [
+            { x: 0.2, y: 0.1 },
+            { x: 0.8, y: 0.15 },
+            { x: 0.9, y: 0.9 },
+            { x: 0.1, y: 0.85 },
+          ],
+        },
+      },
+    });
+    const seededOpened = {
+      project: seeded,
+      label: 'perspectiva.editoria.json',
+      path: 'C:\\tmp\\perspectiva.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra perspectiva');
+    const media = document.querySelector('.preview-media');
+    expect(media).toBeTruthy();
+    await waitFor(() =>
+      expect(media?.getAttribute('style') ?? '').toContain('matrix3d'),
+    );
   });
 
   it('congela el frame en la pista desde el Inspector y corre el resto', async () => {
@@ -1157,10 +1359,77 @@ describe('shell de Olyvia', () => {
     render(<App service={service} />);
     await createProject('Obra export');
     fireEvent.click(screen.getByRole('button', { name: /Exportar video/i }));
-    const dialog = screen.getByRole('dialog', { name: /Render MP4 verificado/i });
+    const dialog = await screen.findByRole('dialog', { name: /Render MP4 verificado/i });
     expect(dialog).toBeTruthy();
     expect(within(dialog).getAllByText(/YouTube 1080p/).length).toBeGreaterThan(0);
     expect(within(dialog).getByRole('button', { name: /Elegir destino y exportar/i })).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /Elegir carpeta y exportar lote/i })).toBeTruthy();
+  });
+});
+
+describe('menú principal por flujo de trabajo', () => {
+  function railLabels(): string[] {
+    return [
+      ...screen
+        .getByRole('navigation', { name: /vistas/i })
+        .querySelectorAll(':scope > ul > li:not(.nav-more) > button'),
+    ].map((button) => button.getAttribute('aria-label') ?? '');
+  }
+
+  it('ya no hay una segunda navegación por espacios de trabajo', () => {
+    renderApp();
+    expect(screen.queryByRole('navigation', { name: /espacios de trabajo/i })).toBeNull();
+    expect(railLabels()).toHaveLength(11);
+  });
+
+  it('Guion y Medios, pasos 2 y 3 de la ruta, están en el rail sin abrir «Más»', async () => {
+    renderApp();
+    expect(railLabels()).toEqual(expect.arrayContaining(['Guion', 'Medios']));
+    nav('Descargar');
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
+    expect(railLabels()).toHaveLength(11);
+  });
+
+  it('Creador navega a su superficie sin romper el rail', async () => {
+    renderApp();
+    nav('Creador');
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Fábrica' })).toBeTruthy());
+    expect(railLabels()).toHaveLength(11);
+    expect(railLabels()).not.toContain('Fábrica');
+  });
+
+  it('abre AI Hub desde Ajustes sin un acceso propio en el rail', async () => {
+    renderApp();
+    await openAiHub();
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain(
+        'Skills compactas para no gastar tokens',
+      ),
+    );
+    expect(railLabels()).not.toContain('AI Hub');
+  });
+
+  it('bloquea Director y Fábrica en Free sin bloquear el editor', async () => {
+    const service = createFakeService();
+    service.setLicenseTier('free');
+    render(<App service={service} />);
+    nav('Director');
+    expect(await screen.findByText(/Director IA es una herramienta Pro/i)).toBeTruthy();
+    nav('Creador');
+    await hubTab('Fábrica');
+    expect(await screen.findByText(/Fábrica de Variantes es una herramienta Pro/i)).toBeTruthy();
+  });
+
+  it('muestra la ayuda contextual de Descargas como tooltip accesible', async () => {
+    renderApp();
+    nav('Descargar');
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
+    const notes = screen.getAllByRole('note');
+    expect(notes.length).toBeGreaterThan(0);
+    expect(
+      notes.some((note) =>
+        (note.getAttribute('aria-label') ?? '').includes('Presets rápidos'),
+      ),
+    ).toBe(true);
   });
 });

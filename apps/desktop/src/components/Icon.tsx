@@ -81,7 +81,8 @@ export type IconName =
   | 'ai-hub'
   | 'motion'
   | 'background'
-  | 'upscale';
+  | 'upscale'
+  | 'lab';
 
 const paths: Record<IconName, ReactNode> = {
   home: (
@@ -548,6 +549,13 @@ const paths: Record<IconName, ReactNode> = {
       <path d="m8 14 3-4 2 2.5 3-4" />
       <path d="M16 8h2v2" />
       <path d="m14 10 4-4" />
+    </>
+  ),
+  lab: (
+    <>
+      <path d="M9 3h6" />
+      <path d="M10 3v6.5L4.6 18.2A2 2 0 0 0 6.3 21h11.4a2 2 0 0 0 1.7-2.8L14 9.5V3" />
+      <path d="M7.5 15h9" />
     </>
   ),
 };

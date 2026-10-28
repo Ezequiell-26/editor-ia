@@ -405,6 +405,11 @@
           "minimum": 0,
           "maximum": 5
         },
+        "denoise": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "blur": {
           "type": "number",
           "minimum": 0,
@@ -1350,6 +1355,54 @@
                       "flipV": {
                         "type": "boolean"
                       },
+                      "perspective": {
+                        "type": "object",
+                        "properties": {
+                          "corners": {
+                            "type": "array",
+                            "minItems": 4,
+                            "maxItems": 4,
+                            "items": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "$ref": "#/properties/look/properties/fade"
+                                  },
+                                  "y": {
+                                    "$ref": "#/properties/look/properties/fade"
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/perspective/properties/corners/items/0"
+                              },
+                              {
+                                "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/perspective/properties/corners/items/0"
+                              },
+                              {
+                                "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/transform/properties/perspective/properties/corners/items/0"
+                              }
+                            ]
+                          },
+                          "interpolation": {
+                            "type": "string",
+                            "enum": [
+                              "linear",
+                              "cubic"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "corners"
+                        ],
+                        "additionalProperties": false
+                      },
                       "keyframes": {
                         "type": "array",
                         "items": {
@@ -1669,6 +1722,11 @@
                         "maximum": 1
                       },
                       "blend": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "spill": {
                         "type": "number",
                         "minimum": 0,
                         "maximum": 1
@@ -2598,6 +2656,16 @@
                   "keyframes"
                 ],
                 "additionalProperties": false
+              },
+              "offsetX": {
+                "type": "number",
+                "minimum": -10000,
+                "maximum": 10000
+              },
+              "offsetY": {
+                "type": "number",
+                "minimum": -10000,
+                "maximum": 10000
               }
             },
             "required": [
@@ -2785,6 +2853,10 @@
               "violet",
               "slate"
             ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
           }
         },
         "required": [

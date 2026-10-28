@@ -281,6 +281,12 @@ pub struct HardwareEncoders {
 const HW_H264: &[&str] = &["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"];
 const HW_HEVC: &[&str] = &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"];
 
+/// La detección inicializa encoders de verdad (hasta 2 s). El hardware no
+/// cambia durante la sesión, así que se guarda por ruta de FFmpeg; si el
+/// usuario elige otro binario, se vuelve a medir.
+static ENCODER_CACHE: std::sync::Mutex<Option<(PathBuf, HardwareEncoders)>> =
+    std::sync::Mutex::new(None);
+
 #[cfg(test)]
 fn first_available(encoders: &str, wanted: &[&str]) -> Option<String> {
     wanted
@@ -337,9 +343,34 @@ fn first_working(ffmpeg: &Path, encoders: &str, wanted: &[&str]) -> Option<Strin
     first_working_with(encoders, wanted, |name| encoder_works(ffmpeg, name))
 }
 
-/// ¿La máquina tiene encoder de video por hardware? Se consulta una vez por
-/// llamado; el resultado se usa para proxies (donde la velocidad importa más
-/// que la máxima calidad).
+/// Detección real, sin Tauri. La comparten la vista de exportación y el
+/// pipeline de descargas.
+pub(crate) fn detect_hardware(ffmpeg: &Path) -> HardwareEncoders {
+    let mut command = Command::new(ffmpeg);
+    command
+        .arg("-hide_banner")
+        .arg("-encoders")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    crate::commands::hide_console(&mut command);
+    let Ok(output) = command.output() else {
+        return HardwareEncoders {
+            h264: None,
+            hevc: None,
+            checked: false,
+        };
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    HardwareEncoders {
+        h264: first_working(ffmpeg, &text, HW_H264),
+        hevc: first_working(ffmpeg, &text, HW_HEVC),
+        checked: true,
+    }
+}
+
+/// ¿La máquina tiene encoder de video por hardware? La primera consulta mide
+/// de verdad y el resultado se cachea por binario de FFmpeg.
 #[tauri::command]
 pub async fn hardware_encoders(
     state: State<'_, AppState>,
@@ -353,26 +384,18 @@ pub async fn hardware_encoders(
             checked: false,
         });
     };
-    let mut command = Command::new(&ffmpeg);
-    command
-        .arg("-hide_banner")
-        .arg("-encoders")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    crate::commands::hide_console(&mut command);
-    let output = command.output().map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            "no se pudo consultar los encoders de FFmpeg",
-        )
-    })?;
-    let text = String::from_utf8_lossy(&output.stdout);
-    Ok(HardwareEncoders {
-        h264: first_working(&ffmpeg, &text, HW_H264),
-        hevc: first_working(&ffmpeg, &text, HW_HEVC),
-        checked: true,
-    })
+    if let Ok(cache) = ENCODER_CACHE.lock() {
+        if let Some((cached_path, cached)) = cache.as_ref() {
+            if cached_path == &ffmpeg {
+                return Ok(cached.clone());
+            }
+        }
+    }
+    let detected = detect_hardware(&ffmpeg);
+    if let Ok(mut cache) = ENCODER_CACHE.lock() {
+        *cache = Some((ffmpeg, detected.clone()));
+    }
+    Ok(detected)
 }
 
 /// Encoder de video a usar para proxies: GPU si existe, libx264 si no.

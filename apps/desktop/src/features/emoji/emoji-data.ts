@@ -2,6 +2,8 @@
 // Fuente: https://unicode.org/Public/emoji/latest/emoji-test.txt
 // Términos: https://www.unicode.org/terms_of_use.html
 
+import { spanishName } from './emoji-es';
+
 export const EMOJI_VERSION = "18.0";
 
 export interface EmojiEntry {
@@ -32,7 +34,15 @@ export function findEmoji(query: string): readonly EmojiEntry[] {
   const out: EmojiEntry[] = [];
   for (const group of EMOJI_GROUPS) {
     for (const entry of group.emojis) {
-      if (entry.name.toLowerCase().includes(needle) || entry.emoji.includes(needle)) out.push(entry);
+      // Se busca en inglés y en español: "cara" y "face" llegan al mismo emoji.
+      const spanish = spanishName(entry.emoji);
+      if (
+        entry.name.toLowerCase().includes(needle) ||
+        (spanish !== undefined && spanish.includes(needle)) ||
+        entry.emoji.includes(needle)
+      ) {
+        out.push(entry);
+      }
       if (out.length >= 240) return out;
     }
   }

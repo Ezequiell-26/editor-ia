@@ -15,14 +15,15 @@ function clampUnit(value: number): number {
 export function maskFromFaceTrack(
   result: FaceTrackResult,
   fps: number,
-  startSeconds = 0,
 ): ClipMask | null {
+  // El backend devuelve `time` relativo al inicio del tramo analizado
+  // (`-ss` antes de `-i`), así que no hay que restar inFrame/60 otra vez.
   const samples = result.samples.filter(
     (sample) =>
       Number.isFinite(sample.time) &&
       Number.isFinite(sample.centerX) &&
       Number.isFinite(sample.centerY) &&
-      sample.time >= startSeconds - 0.001,
+      sample.time >= -0.001,
   );
   if (samples.length === 0 || !(fps > 0)) return null;
   const first = samples[0]!;
@@ -45,7 +46,7 @@ export function maskFromFaceTrack(
   const seen = new Set<number>();
   const keyframes = [];
   for (const sample of sampled.slice(0, MAX_TRACKED_KEYFRAMES)) {
-    const frame = Math.max(0, Math.round((sample.time - startSeconds) * fps));
+    const frame = Math.max(0, Math.round(sample.time * fps));
     if (seen.has(frame)) continue;
     seen.add(frame);
     keyframes.push({

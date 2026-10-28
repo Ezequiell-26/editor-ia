@@ -3,6 +3,7 @@ import { EntityIdSchema } from './primitives.ts';
 import { FrameSchema } from './time.ts';
 
 export const MAX_MARKERS = 200;
+export const MAX_MARKER_NOTE = 500;
 
 export const MARKER_COLORS = ['mint', 'amber', 'rose', 'blue', 'violet', 'slate'] as const;
 
@@ -26,6 +27,7 @@ export const MarkerSchema = z
         message: 'a marker label must stay on one line',
       }),
     color: MarkerColorSchema.optional(),
+    note: z.string().trim().max(MAX_MARKER_NOTE).optional(),
   })
   .strict()
   .superRefine((marker, ctx) => {
