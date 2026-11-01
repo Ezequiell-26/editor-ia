@@ -1409,15 +1409,19 @@ describe('menú principal por flujo de trabajo', () => {
     expect(railLabels()).not.toContain('AI Hub');
   });
 
-  it('bloquea Director y Fábrica en Free sin bloquear el editor', async () => {
+  it('abre Director y Fábrica sin licencia ni bloqueo Pro', async () => {
     const service = createFakeService();
     service.setLicenseTier('free');
     render(<App service={service} />);
     nav('Director');
-    expect(await screen.findByText(/Director IA es una herramienta Pro/i)).toBeTruthy();
+    expect(await screen.findByText(/No hay un proyecto abierto/i)).toBeTruthy();
+    expect(screen.queryByText(/herramienta Pro/i)).toBeNull();
     nav('Creador');
     await hubTab('Fábrica');
-    expect(await screen.findByText(/Fábrica de Variantes es una herramienta Pro/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/Un brief, varias variantes listas para editar/i),
+    ).toBeTruthy();
+    expect(screen.queryByText(/herramienta Pro/i)).toBeNull();
   });
 
   it('muestra la ayuda contextual de Descargas como tooltip accesible', async () => {

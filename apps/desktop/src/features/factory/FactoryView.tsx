@@ -11,8 +11,6 @@ import {
   type FactoryVariantResult,
 } from '../../state/batch-factory';
 import { useProjectStore } from '../../state/project-store';
-import { useLicense } from '../../state/LicenseProvider';
-import { ProLock } from '../../components/ProLock';
 import { buildProjectMotionPlans } from '../motion/plan';
 import { AutopilotPanel } from './AutopilotPanel';
 
@@ -51,16 +49,6 @@ function formatBytes(bytes: number): string {
 }
 
 export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
-  const { status, loading } = useLicense();
-  if (!loading && !status.isPro) {
-    return (
-      <ProLock
-        feature="Fábrica de Variantes"
-        description="Generar varios proyectos y renders desde un brief, con imágenes compartidas y montaje automático, forma parte de Pro."
-        onOpenSettings={() => onNavigate('settings')}
-      />
-    );
-  }
   return <FactoryWorkspace onNavigate={onNavigate} />;
 }
 

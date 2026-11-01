@@ -13,10 +13,8 @@ import { AppearanceCard } from './AppearanceCard';
 import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
-import { LicenseCard } from './LicenseCard';
 
 type SettingsSectionId =
-  | 'licencia'
   | 'apariencia'
   | 'editor'
   | 'atajos'
@@ -35,13 +33,6 @@ interface SettingsSectionInfo {
 }
 
 const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
-  {
-    id: 'licencia',
-    label: 'Licencia',
-    hint: 'Plan Free o Pro',
-    icon: 'shield',
-    blurb: 'Estado del plan, activación local y límites de la versión. Tus proyectos se abren igual en Free.',
-  },
   {
     id: 'apariencia',
     label: 'Apariencia',
@@ -313,10 +304,6 @@ export function SettingsHome({
           {!store.service.available ? (
             <p className="notice notice-warning">{store.service.unavailableReason}</p>
           ) : null}
-
-          <SettingsSection section={sectionById('licencia')} active={activeSection === 'licencia'}>
-            <LicenseCard />
-          </SettingsSection>
 
           <SettingsSection section={sectionById('apariencia')} active={activeSection === 'apariencia'}>
             <AppearanceCard />

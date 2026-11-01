@@ -29,7 +29,6 @@ import {
 import { addMarker } from '../../state/markers';
 import { parseSubtitles } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
-import { useLicense } from '../../state/LicenseProvider';
 import { takePendingDownloadUrl } from './pending';
 import {
   clampParallel,
@@ -243,8 +242,8 @@ export function routeLabel(duration: number | null, title: string | null): strin
 
 export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
-  const { status: license, loading: licenseLoading } = useLicense();
-  const isPro = license.isPro;
+  // Sin planes ni licencias: todas las funciones de descarga quedan abiertas.
+  const isPro = true;
   const freeQueueLimit = 25;
   const project = store.state.project;
   const service = store.service;
@@ -367,13 +366,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
       : RECOMMENDED_PARALLEL_MAX
     : 2;
 
-  useEffect(() => {
-    if (licenseLoading || isPro) return;
-    if (maxParallel > 2) {
-      setMaxParallel(2);
-      saveMaxParallel(2);
-    }
-  }, [licenseLoading, isPro, maxParallel]);
   const [scheduledFor, setScheduledFor] = useState('');
   const [repeat, setRepeat] = useState<'none' | 'hourly' | 'daily' | 'weekly'>('none');
   const [windowStart, setWindowStart] = useState('');
@@ -2146,16 +2138,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
         </div>
       ) : null}
 
-      {!licenseLoading && !isPro ? (
-        <div className="notice download-plan-free" role="status">
-          <strong>Plan Free</strong>
-          <span>2 simultáneas · 1080p MP4/H.264 · 25 en cola. El editor y tus proyectos siguen abiertos.</span>
-          <button type="button" className="link" onClick={() => onNavigate('settings')}>
-            Ver Pro
-          </button>
-        </div>
-      ) : null}
-
       <div className="download-layout">
         <div className="download-main">
           <div className="card quick-presets">
@@ -3214,11 +3196,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       />
                       <span>Quitar segmentos de SponsorBlock.</span>
                     </label>
-                    {!isPro ? (
-                      <p className="fine-print download-pro-note">
-                        El borrado automático de SponsorBlock requiere Pro.
-                      </p>
-                    ) : null}
                   </div>
                   {downloadSubtitles ? (
                     <label className="field">
@@ -3910,9 +3887,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   </button>
                 </div>
                 <p className="fine-print download-parallel-hint">
-                  {isPro
-                    ? '4–8 simultáneas es el rango recomendado. El modo avanzado permite hasta 512 y puede saturar conexiones domésticas.'
-                    : 'Plan Free: máximo 2 descargas simultáneas. Activá Pro para el rango 4–8 y hasta 512.'}
+                  4–8 simultáneas es el rango recomendado. El modo avanzado permite hasta 512 y
+                  puede saturar conexiones domésticas.
                 </p>
                 <ul className="download-queue-list">
                   {queue.map((job) => (

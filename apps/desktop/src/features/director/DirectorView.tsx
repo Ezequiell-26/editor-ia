@@ -29,8 +29,6 @@ import {
   type DirectorPlatform,
 } from '../../state/editor-memory';
 import { useProjectStore } from '../../state/project-store';
-import { useLicense } from '../../state/LicenseProvider';
-import { ProLock } from '../../components/ProLock';
 import { buildShortCandidates, shortPlanText } from './shorts';
 import {
   runShortBatch,
@@ -82,16 +80,6 @@ function formatShortBytes(bytes: number): string {
 }
 
 export function DirectorView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
-  const { status, loading } = useLicense();
-  if (!loading && !status.isPro) {
-    return (
-      <ProLock
-        feature="Director IA"
-        description="El análisis automático de cortes, silencios, encuadre y variantes para redes forma parte de Pro."
-        onOpenSettings={() => onNavigate('settings')}
-      />
-    );
-  }
   return <DirectorWorkspace onNavigate={onNavigate} />;
 }
 

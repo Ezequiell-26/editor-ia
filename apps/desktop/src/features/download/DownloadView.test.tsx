@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import type { DownloadOutcome, DownloadRequest } from '../../services/project-service';
 import { ProjectProvider, useProjectStore } from '../../state/project-store';
-import { LicenseProvider } from '../../state/LicenseProvider';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { DownloadView } from './DownloadView';
 
@@ -43,10 +42,8 @@ function renderView(patch?: (service: ReturnType<typeof createFakeService>) => v
         },
       }}
     >
-      <LicenseProvider service={service}>
-        <DownloadView onNavigate={() => {}} />
-        <Probe />
-      </LicenseProvider>
+      <DownloadView onNavigate={() => {}} />
+      <Probe />
     </ProjectProvider>,
   );
   return { service };
@@ -423,35 +420,3 @@ describe('descargador · cola consolidada', () => {
   });
 });
 
-describe('descargador · plan Free', () => {
-  it('limita a 2 simultáneas y bloquea el modo avanzado', async () => {
-    renderView((service) => service.setLicenseTier('free'));
-    expect(await screen.findByText('Plan Free')).toBeTruthy();
-    await analyzeSample();
-    fireEvent.click(screen.getByRole('checkbox', { name: /Tengo derechos/i }));
-    fireEvent.click(screen.getByText('Red, proxy y utilidades del motor'));
-    fireEvent.change(screen.getByLabelText(/Lote de URLs/i), {
-      target: {
-        value: [
-          'https://youtube.com/watch?v=free1',
-          'https://youtube.com/watch?v=free2',
-          'https://youtube.com/watch?v=free3',
-        ].join('\n'),
-      },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /Agregar lote a la cola/i }));
-    await waitFor(() => {
-      const footer = document.querySelector('.download-queue-footer');
-      expect(footer?.textContent).toContain('3 en total');
-    });
-    const footer = document.querySelector('.download-queue-footer') as HTMLElement;
-    fireEvent.click(within(footer).getByRole('button', { name: /Expandir/i }));
-    const parallel = screen.getByLabelText('Descargas simultáneas') as HTMLInputElement;
-    await waitFor(() => expect(parallel.value).toBe('2'));
-    expect(parallel.max).toBe('2');
-    expect(
-      (screen.getByLabelText(/Permitir hasta 512 descargas simultáneas/i) as HTMLInputElement)
-        .disabled,
-    ).toBe(true);
-  });
-});

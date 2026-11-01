@@ -27,7 +27,6 @@ import {
   type DesktopService,
 } from './services/project-service';
 import { ProjectProvider, useProjectStore } from './state/project-store';
-import { LicenseProvider } from './state/LicenseProvider';
 import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
 import { ExperienceProvider, filterViewsForMode, useExperienceMode } from './state/experience';
@@ -796,10 +795,9 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
   return (
     <AppearanceProvider>
       <ProjectProvider service={service}>
-        <LicenseProvider service={service}>
-          {/* La cola de Flow vive por encima de las vistas: una corrida larga no
-              debe cortarse al cambiar de pantalla. */}
-          <FlowQueueProvider>
+        {/* La cola de Flow vive por encima de las vistas: una corrida larga no
+            debe cortarse al cambiar de pantalla. */}
+        <FlowQueueProvider>
           <ExperienceProvider>
             {showStart ? (
               <StartScreen onEnterApp={handleEnterApp} />
@@ -807,8 +805,7 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
               <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
             )}
           </ExperienceProvider>
-          </FlowQueueProvider>
-        </LicenseProvider>
+        </FlowQueueProvider>
       </ProjectProvider>
     </AppearanceProvider>
   );
