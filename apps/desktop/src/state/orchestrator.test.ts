@@ -88,7 +88,6 @@ function script(scenes: readonly { title: string; narration: string; visual: str
     })),
     providerId: 'fake',
     model: 'fake-model',
-    simulated: true,
     costDisclosed: true,
     costApproved: true,
   };

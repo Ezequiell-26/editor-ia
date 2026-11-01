@@ -111,6 +111,18 @@ pub fn find_executable(name: &str, override_path: Option<&str>) -> Option<PathBu
     if let Some(bundled) = bundled_tool(name) {
         return Some(bundled);
     }
+    // En pruebas se usa el binario LGPL del repo (el mismo que se empaqueta),
+    // no el FFmpeg del PATH de la máquina.
+    #[cfg(test)]
+    {
+        let local = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("ffmpeg")
+            .join(format!("{name}.exe"));
+        if local.is_file() {
+            return Some(local);
+        }
+    }
     // 2) PATH y lugares comunes de la máquina
     let suffixes: &[&str] = if cfg!(windows) {
         &["", ".exe", ".cmd", ".bat"]

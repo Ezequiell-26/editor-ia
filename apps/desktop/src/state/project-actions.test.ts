@@ -52,6 +52,7 @@ import {
   setAssetProxy,
   pasteClip,
   rippleDeleteClip,
+  rippleTrimClip,
   setMaskKeyframe,
   setTransformKeyframe,
   splitClip,
@@ -72,6 +73,7 @@ import {
   setProjectLook,
   updateProjectSettings,
   updateTrack,
+  updateScene,
 } from './project-actions';
 
 const NOW = '2025-01-01T00:00:00.000Z';
@@ -1211,10 +1213,9 @@ describe('subtítulos', () => {
     const withScenes = validated(
       applyScenePlan(project, {
         title: 'Guion',
-        providerId: 'mock',
-        model: 'mock',
-        simulated: true,
-        costApproved: true,
+        providerId: 'openai-compatible',
+        model: 'test',
+            costApproved: true,
         scenes: [
           {
             id: newId(),
@@ -1247,10 +1248,9 @@ describe('guion y ajustes', () => {
     const next = validated(
       applyScenePlan(project, {
         title: 'Plan de prueba',
-        providerId: 'mock',
-        model: 'mock',
-        simulated: true,
-        costApproved: true,
+        providerId: 'openai-compatible',
+        model: 'test',
+            costApproved: true,
         scenes: [
           {
             id: newId(),
@@ -1284,6 +1284,32 @@ describe('guion y ajustes', () => {
     });
     const next = validated(second.project);
     expect(next.scenes.map((scene) => scene.order)).toEqual([0, 1]);
+  });
+
+  it('asocia clips existentes a una escena y rechaza ids inválidos', () => {
+    const asset = videoAsset(300);
+    const first = addClipFromAsset(addAsset(base(), asset), asset, { atFrame: 0 });
+    const second = addClipFromAsset(first.project, asset, { atFrame: 300 });
+    const scene = addScene(second.project, {
+      title: 'Escena con medios',
+      intent: 'demo',
+      narration: 'Narración con dos tomas.',
+    });
+    const clipIds = second.project.timeline.clips.map((clip) => clip.id);
+    const next = validated(
+      updateScene(scene.project, scene.sceneId, {
+        clipIds: [clipIds[0]!, clipIds[1]!, clipIds[0]!],
+      }),
+    );
+    expect(next.scenes[0]?.clipIds).toEqual(clipIds);
+    expect(() =>
+      updateScene(next, scene.sceneId, { clipIds: ['no-existe'] }),
+    ).toThrow(ProjectActionError);
+    expect(() =>
+      updateScene(next, scene.sceneId, {
+        clipIds: Array.from({ length: 51 }, (_, index) => `clip-${index}`),
+      }),
+    ).toThrow('50 clips');
   });
 
   it('cambia el nombre y las dimensiones del proyecto', () => {
@@ -1720,6 +1746,57 @@ describe('velocidad y efectos de clip', () => {
       .sort((a, b) => a - b);
     expect(remaining).toEqual([0, 30]);
     validated(ripped);
+  });
+
+  it('recorta la salida con ripple y corre lo que sigue sin dejar hueco', () => {
+    const image = imageAsset();
+    const first = addClipFromAsset(addAsset(base(), image), image, {
+      atFrame: 0,
+      durationFrames: 60,
+    });
+    const second = addClipFromAsset(first.project, image, {
+      atFrame: 60,
+      durationFrames: 60,
+    });
+
+    const trimmed = rippleTrimClip(second.project, first.clipId, 30);
+    if (!trimmed) throw new Error('se esperaba el recorte con ripple');
+    const after = [...trimmed.timeline.clips].sort((a, b) => a.startFrame - b.startFrame);
+    expect(after.map((clip) => [clip.startFrame, clip.durationFrames])).toEqual([
+      [0, 30],
+      [30, 60],
+    ]);
+    validated(trimmed);
+
+    // Extender la salida empuja a los posteriores el mismo delta.
+    const extended = rippleTrimClip(second.project, first.clipId, 90);
+    if (!extended) throw new Error('se esperaba la extensión con ripple');
+    const grown = [...extended.timeline.clips].sort((a, b) => a.startFrame - b.startFrame);
+    expect(grown.map((clip) => [clip.startFrame, clip.durationFrames])).toEqual([
+      [0, 90],
+      [90, 60],
+    ]);
+    validated(extended);
+  });
+
+  it('no recorta con ripple en una pista bloqueada', () => {
+    const image = imageAsset();
+    const first = addClipFromAsset(addAsset(base(), image), image, {
+      atFrame: 0,
+      durationFrames: 60,
+    });
+    const created = first.project.timeline.clips.find((item) => item.id === first.clipId);
+    const track = first.project.timeline.tracks.find((item) => item.id === created?.trackId);
+    const locked = {
+      ...first.project,
+      timeline: {
+        ...first.project.timeline,
+        tracks: first.project.timeline.tracks.map((item) =>
+          item.id === track?.id ? { ...item, locked: true } : item,
+        ),
+      },
+    };
+    expect(rippleTrimClip(locked, first.clipId, 30)).toBeNull();
   });
 
   it('agrega títulos con plantillas y reutiliza el estilo', () => {

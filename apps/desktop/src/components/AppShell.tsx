@@ -41,6 +41,7 @@ export function AppShell({
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
   const immersive = activeId === 'editor' && Boolean(project);
+  const currentView: ViewId = activeId;
   // Las vistas quedan montadas: cada una conserva su propia posición de scroll
   // en vez de heredar la de la anterior o volver siempre arriba.
   const scrollPositions = useRef(new Map<ViewId, number>());
@@ -89,6 +90,34 @@ export function AppShell({
             <span>Inicio</span>
           </button>
         )}
+        {immersive ? (
+          <nav className="topbar-workspaces" aria-label="Espacios de trabajo">
+            <button
+              type="button"
+              aria-current={currentView === 'download' ? 'page' : undefined}
+              onClick={() => onSelect('download')}
+              title="Ingesta: descargar y preparar medios"
+            >
+              Ingesta
+            </button>
+            <button
+              type="button"
+              aria-current={currentView === 'creator' ? 'page' : undefined}
+              onClick={() => onSelect('creator')}
+              title="Crear: guion, miniaturas, localización"
+            >
+              Crear
+            </button>
+            <button
+              type="button"
+              aria-current={currentView === 'editor' ? 'page' : undefined}
+              onClick={() => onSelect('editor')}
+              title="Studio: edición multipista"
+            >
+              Studio
+            </button>
+          </nav>
+        ) : null}
         <MenuBar
           activeId={activeId}
           views={views}

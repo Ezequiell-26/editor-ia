@@ -1,8 +1,322 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-10-28. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-01. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+## Estado verificado en código (2026-11-01, vuelta montaje inteligente + presets)
+
+- **Frontend**: `npm run typecheck` verde; suite raíz **1896/1896 en 245
+  archivos**. Sin Rust tocado en esta vuelta.
+- **Transiciones por corte**: `state/smart-transitions.ts` con 15 tests. El
+  montaje automático pasa a `transitionStyle: 'smart'` por defecto (antes:
+  disolvencia fija en todos los cortes) y expone `transitionRhythm`
+  (`calm`/`steady`/`punchy`) desde Producción. `plan.transitionSummary` resume
+  el plan en la revisión. El estilo histórico sigue disponible con
+  `transitionStyle: 'dissolve'` (test propio).
+- **Subtítulos**: `state/caption-timing.ts` con 13 tests. Reparto por peso de
+  habla (caracteres visibles + pausa de puntuación), mínimo 0,8 s, máximo 7 s y
+  aviso por encima de 17 c/s. `captionTiming: 'proportional'` conserva el
+  reparto anterior.
+- **Recorte con ripple**: `rippleTrimClip` en `state/project-actions.ts`
+  (2 tests: recorte, extensión y pista bloqueada) y atajo `Ctrl+Shift+→`
+  (`edit.rippleTrimOut`) cableado en `App.tsx`.
+- **Fábrica de Variantes**: cada variante del lote usa un ritmo distinto
+  (`steady`/`punchy`/`calm` por índice) en vez del mismo montaje; test nuevo
+  en `batch-factory.test.ts`.
+- **Presets de descarga**: `features/download/presets.ts` (13 tests) más 2
+  tests de UI en `DownloadView.test.tsx`; persisten en
+  `editor-ia.download.presets.v1`, máximo 24 y sin duplicados por nombre.
+- **Nota de entorno**: cuando el shim de FS no puede escribir en el temporal
+  del sistema, Vitest pierde archivos y la corrida informa menos tests con un
+  `EPERM` (visto: 1666/1698/1801/1834). **Solución medida**: apuntar el
+  temporal al repo —
+  `mkdir -p .tmp-vitest && TMPDIR="$PWD/.tmp-vitest" TEMP=… TMP=… npm test`
+  → 1896/1896 en 245 archivos, sin errores (corrida serial). `.tmp-vitest` ya está excluido en
+  `vitest.config.ts`.
+- **Autoedit (variantes por análisis)**: `features/autoedit/apply-auto-edit.ts`
+  usa el mismo plan inteligente con ritmo por estilo (pulso→punchy,
+  historia→calm, impacto→steady). Además corrige un bug real: ponía 5 u 8
+  frames fijos y el esquema rechaza `transitionIn.frames > durationFrames`
+  cuando el corte dura menos. 3 tests nuevos en `apply-auto-edit.test.ts`.
+- **Emoji diferido**: ver ítem 17 `[done]`.
+- **Preview 2D**: la ruta sin WebGL reutiliza sus lienzos de trabajo
+  (`features/editor/scratch-canvas.ts`, 4 tests) y pide el contexto con
+  `willReadFrequently`. Medición con `npm run bench:preview` (ruido ±10 fps):
+  `lut+denoise` 43,9→60, `vignette` 52,3→60, `motionblur` 41,3→48,3,
+  `denoise-spatial` 54,8→60. JSON en `docs/EFFECTS-PREVIEW-BENCH.json`.
+- **Receta de suite estable**: `npm run test:serial` con
+  `TMPDIR/TEMP/TMP=<repo>/.tmp-vitest` → **1896/1896 en 245 archivos** sin
+  errores. En paralelo, varios workers escriben el mismo archivo de caché SSR y
+  el shim de FS devuelve `EPERM`, lo que hace fluctuar el conteo.
+- **Rust**: `cargo build`/`cargo test` requieren que `editor-ia-desktop.exe`
+  esté cerrado (si está corriendo, `os error 32`). Con la app cerrada: build
+  del worker en ~4 min, suite lib **546 passed** (1 test de mock HTTP
+  `xtts_adapter…` es flaky y pasa aislado), live de render **23/23** con
+  `EDITOR_IA_RUN_RENDER_TESTS=1`.
+- **Renderizado inteligente**: `state/render-plan.ts` (20 tests) + tarjeta
+  «Plan sugerido» en `ExportDialog` (1 test de UI). Decide códec, compresión,
+  CRF y encoder por destino/duración/resolución/hardware, estima peso y tiempo
+  y explica cada decisión; «Aplicar plan» usa `applyCompression` y el toggle de
+  GPU que ya existían.
+- **Fotos**: `automaticPhotoMotion` acepta medidas de foto y encuadre
+  (10 tests nuevos en `photo-motion.test.ts`); panea en el eje donde sobra
+  imagen en vez de hacer zoom. `auto-edit.test.ts` actualizado al nuevo
+  contrato.
+- **Sin** commit, push, build Tauri ni instalación en esta vuelta.
+
+## Estado verificado en código (2026-10-29, vuelta Imagen IA)
+
+- **Frontend**: `npm run typecheck` verde; suite raíz **1488/1488 en 190
+  archivos**; build de Vite OK y `dist/open-design` con 23 MB de assets.
+- **Rust**: **483 passed + 56 ignored**; `design.rs` compila y pasa rustfmt.
+- **Medios real**: test Rust con proyecto temporal, `stage_media_file` +
+  `import_file` + FFprobe importó un PNG 1×1 como `image` y guardó la ruta
+  relativa `media/diseno-….png`.
+- **Diseño**: 152 sistemas, 11 reglas de craft, 189 prompts, 154 plantillas
+  (incluidas 55 recetas de ejemplo), 131 skills (27 workflows MIT, 45 referencias
+  de ejemplos y Hallmark/Humanize PPT), 13 HyperFrames renderizables y 9
+  previews; 55 tests de Diseño. Playwright real contra Vite en 1440×980 y
+  860×980: preview cargada, aplicación a miniaturas `#60a5fa`, 99 plantillas y
+  57 skills listadas, preview de `blog-post` y `release-notes-one-pager`, y
+  recetas enviadas al generador, sin errores de consola.
+- **Imagen IA**: `design_generate_image` con Pollinations (JPEG real 512×512,
+  45.163 B, 6,9 s) y gateway `/v1/images/generations`; cabeceras PNG/JPEG/WebP
+  medidas, stage JPEG/PNG + FFprobe importados a Medios, 7 tests de UI y la
+  pestaña nueva con handoff desde prompts. El watermark del plan libre de
+  Pollinations se advierte en la interfaz.
+- **Generador**: `design_generate` + `save_design_html`/`save_design_png`/
+  `save_design_video`/`stage_design_media`; ronda real FreeLLMAPI `auto` en
+  **26,7 s / 4 022 caracteres** de HTML seguro; PNG real 1080×1080 de
+  **95.135 bytes** con html2canvas; MP4 VP9 1080×1080, **3 s / 15 fps /
+  756.178 bytes en 4,4 s** con WebCodecs + mp4-muxer; deck de 4 diapositivas →
+  PDF de **4 páginas / 107.152 bytes** con jsPDF y MP4 de **4 escenas /
+  156.680 bytes**; envío a `<proyecto>/media`,
+  importación como asset y montaje en la timeline con `addClipFromAsset`;
+  9 tests Rust unitarios + 2 tests live ignorados.
+- **Licencias**: Open Design Apache-2.0; prompts CC-BY-4.0 (144), Apache-2.0
+  (44), MIT (1); 2 excluidos sin licencia reutilizable. Skills comunitarias MIT:
+  Hallmark y Humanize PPT; 120 skills excluidas en total. HyperFrames Apache-2.0
+  (13 incluidos, 10 excluidos) con fuentes OFL-1.1. Avisos en
+  `THIRD-PARTY-NOTICES.md`, `public/open-design/NOTICE.md` y el bundle.
+- **Pendiente de la integración**: el runtime de los 9 HyperFrames con
+  scripts/GSAP (sólo se incluye su preview MP4 oficial) y la composición
+  Remotion, excluida. Las 13 composiciones CSS ya se renderizan. HyperFrames
+  HTML→MP4 completo requiere Chrome headless y revisar la licencia de GSAP; no
+  se presenta como integrado.
+- **Sin** commit, push, build Tauri ni instalación en esta vuelta.
+
+## Estado verificado en código (2026-10-29, vuelta Motion MIT + themes/state machines)
+
+- **Frontend**: `npm run typecheck` verde; suite raíz **1431/1431 en 180
+  archivos**; build de Vite OK (MotionView 104 kB, lottie 307,82 kB).
+- **Rust**: **464 passed + 49 ignored**; `rustfmt --check` verde en los
+  archivos del ciclo. El check global conserva deuda de formato previa en 11
+  archivos ajenos que no se reformatearon para no contaminar el diff.
+- **Extensiones**: Flow Queue **31/31**, Web TTS **10/10**.
+- **Licencias**: `npm run audit:licenses` → `BUNDLE LICENCIAS: OK`.
+- **Medición Tauri/WebView2** (300 imágenes 64×64, 300 medios):
+  - **600 px**: 1 columna, 4→10 tarjetas, **61,3 FPS idle / 60,2 lento / 60,6 rápido**.
+  - **750 px**: 2 columnas, 18→18 tarjetas, **61,3 / 60,2 / 60,2 FPS**.
+  - **900 px**: 2 columnas, 18→18 tarjetas, **61,5 / 60,1 / 60,6 FPS**.
+  - 600 px es viewport emulado: el mínimo nativo es 760 lógicos. A 600 el topbar se superpone, fuera del tamaño soportado.
+  - Evidencia: [600 px](screenshots/olyvia-assets-300-600.png), [900 px](screenshots/olyvia-assets-300-900.png), [1266 px](screenshots/olyvia-assets-300-virtualized.png).
+- **Sin** commit, push, build Tauri ni instalación en esta vuelta.
+
+## Auditoría completa de la app (2026-10-29)
+
+- `[done]` **Atajos seguros con modales**: un `role="dialog" aria-modal` abierto
+  bloquea los atajos globales; Delete/Ctrl+D/S ya no editan el clip de fondo.
+- `[done]` **Ajustes por sección**: Licencia desde ProLock y Proveedor desde AI
+  Hub abren la sección correcta, no siempre Apariencia.
+- `[done]` **AI Hub exportar**: navega al editor antes de `requestExport()`.
+- `[done]` **SFX honestos**: “+ Agregar” pasó a “Buscar en Medios” con aviso;
+  la lista es referencia, no una biblioteca que monta clips.
+- `[done]` **Accesibilidad y datos**: nombre accesible en la paleta; tamaños
+  <1 KB en bytes; “Timeline 01” ya no es un tab muerto; errores de “Mostrar en
+  carpeta” ya no se silencian.
+- `[verified]` **Pruebas**: 3 tests nuevos del audit (guard de modal, formato de
+  bytes y ruta de Licencia); suite **1408/1408 en 177 archivos** en esa vuelta.
+- `[done]` **IA multiproveedor muerta retirada**: `useAiClient`,
+  `AiSettingsPanel`, `types/ai`, `src/tasks/ai_commands.rs`, `src/task.rs`, el
+  módulo Rust `ai/` y `state.ai_client` invocaban o declaraban 6 comandos
+  inexistentes y nunca se montaban. La única ruta de IA viva es Ajustes → IA
+  (OpenAI-compatible/simulado con Keyring), AI Hub y el operador local.
+  Respaldo fuera del repo:
+  `D:\DevCache\olyvia-removed-2026-10-29\dead-ai\`. Verificado con
+  `typecheck`, suite y `cargo test`: sin referencias restantes.
+- `[done]` **Aislamiento de voz no integrado retirado**: `voice-isolation.rs`
+  no estaba declarado en `commands/mod.rs` y su generador de filtros devolvía
+  un `silence` de relleno; se retiró junto al wrapper Demucs no instalado
+  (Python 3.14 sin `demucs`, sin pesos). Respaldo en
+  `D:\DevCache\olyvia-removed-2026-10-29\dead-voice-isolation\`. La cadena real
+  de diálogo (FilmCraft DSP: denoise, de-hum, de-esser, de-reverb, EQ,
+  compresor, realce y limitador) sigue siendo la vía soportada; no separa
+  voces superpuestas.
+- `[pending]` **Separación de fuentes (Demucs u otro)**: requiere runtime
+  Python/torch, pesos de ~2 GB y una licencia de pesos revisada; no se instala
+  ni se simula. Candidato MIT `deep_filter` a evaluar con presupuesto de
+  descarga.
+- `[done]` **LUT y curvas en la preview**: LUT `.cube` 3D/1D en WebGL2 con el orden del export y
+  curvas del clip con spline natural de 256 entradas, ambas antes del LUT y con fallback 2D para
+  imágenes; verificado en `e2e/lut-preview.spec.ts` (12/12). Sin WebGL2 el video queda sin preview.
+- `[pending]` **Relight interactivo en la preview**: el relight sólo se compone en el MP4 y el
+  “Frame real”; el monitor en vivo todavía no lo aproxima. Repos MIT evaluados (2026-10-29):
+  `glsl-lut` (MIT, sólo chunk GLSL, requiere glslify), `three.js` (MIT, pesado para un solo efecto)
+  y `cube-lut.js` (MIT, parser). Ninguno resuelve el remap ni el compuesto completo; no se agregó
+  dependencia.
+- `[done]` **Culling de Timeline**: sólo se montan los clips/cues que tocan la
+  ventana visible más 1,5 s de overscan (`visible-range.ts`). El cartel de
+  pista vacía mira el proyecto completo, no la ventana. Tests: rango, scroll
+  real y no-regresión del hint.
+- `[done]` **Automatización de fader en preview**: `syncPreviewAudioAutomationAtFrame`
+  muestrea `gainKeyframes` con `sampleTrackGain` (mismo easing/Bézier/clamp que
+  el export) además de `panKeyframes`; se conserva el alias
+  `syncPreviewAudioPanAtFrame`. Tests con el grafo Web Audio simulado.
+- `[done]` **`speedCurve` consumido de punta a punta**: muestreador compartido
+  TS/Rust (`state/time-remap.ts`, `render/time_remap.rs`) con fixture
+  `packages/project-schema/fixtures/time-remap.fixture.json`; preview e
+  Inspector usan la tabla, el export emite un `setpts` por frame de origen y
+  vuelve a CFR con `fps=…:round=near` (o `minterpolate` si `opticalFlow`).
+  Medición real con 100 frames sintéticos: **100/100 frames de salida**, 89
+  exactos y 11 con desvío de ±1 frame en los bordes (33 ms a 30 fps). La
+  expresión se agrupa para no superar el límite de ~99 `if` de FFmpeg; un test
+  vivo valida una curva de 120 frames. El audio del clip usa `atempo` con la
+  velocidad media (la curva exacta sólo se aplica al video). Guardas:
+  reverse, estabilización, Ken Burns, keyframes de transform/máscara y
+  transición de entrada; ventana máxima 120 000 frames. El invariante del
+  esquema se salta para clips con curva y la integral se normaliza a la ventana
+  real, así los documentos viejos siguen abriendo.
+- `[done]` **Frame real con clips gráficos**: el compuesto incluye títulos con
+  su plan de motion. Si hay un gráfico activo usa la timeline completa (conserva
+  el tiempo del ASS); si no, mantiene la ventana de un frame. El frontend envía
+  `motionPlans` y la imagen se invalida ante cualquier cambio de proyecto.
+  Prueba real con FFmpeg: compuesto 320×180 con título en **0,77 s** y píxeles
+  blancos verificados.
+- `[done]` **LUT y curvas interactivos en la preview**: el monitor en vivo aplica el LUT `.cube`
+  (3D/1D) y las curvas del clip en WebGL2 antes del LUT, con fallback 2D para imágenes; el
+  “Frame real” los compone con FFmpeg. Queda pendiente el relight (ver arriba).
+- `[pending]` **HDR/10-bit en el editor y backend `render-worker`**: el
+  descargador ya tonemapea/conserva HDR, pero el export del editor sigue en
+  8-bit SDR. `render-worker` es un esqueleto honesto
+  (`RENDERING_IMPLEMENTED = false`), no un motor.
+
+## UX Studio (2026-10-29)
+
+- `[done]` **Studio redimensionable**: divisores accesibles para biblioteca,
+  inspector y timeline; límites 180–520 / 220–520 / 120–520 px; doble clic
+  restaura cada panel.
+- `[done]` **Colapso y foco**: ocultar/restaurar Medios e Inspector, colapsar
+  la timeline, maximizar visor y maximizar timeline; “Restablecer” vuelve al
+  diseño base. Todo persiste en `editoria.editor-prefs.v1`.
+- `[done]` **Navegación en Studio**: conmutador global Inicio/Ingesta/Crear/Studio
+  en la barra superior cuando el rail está oculto.
+- `[done]` **Ingesta**: tira de pasos Origen → Analizar → Opciones → Cola →
+  Resultado y error arriba, junto al flujo, en vez de al pie del aside.
+- `[done]` **Visor**: estado de medio no disponible con nombre del asset, causa,
+  ruta de reconexión y reintento etiquetado; ya no es un texto genérico.
+- `[done]` **Inspector contextual**: sin selección muestra una guía breve y las
+  propiedades del proyecto; Procedencia queda plegada y el badge de selección
+  está traducido (clip, pista, subtítulo, medio, escena). Evidencia:
+  [Inspector](screenshots/olyvia-studio-inspector-context-2026-10-29.png).
+- `[verified]` Suite **1431/1431 en 180 archivos**, Rust **464 + 49 ignored**,
+  build y licencias OK. QA visual en 1376×784 y modo timeline ampliada:
+  [layout](screenshots/olyvia-studio-layout-2026-10-29.png),
+  [timeline ampliada](screenshots/olyvia-studio-timeline-focus-2026-10-29.png).
+- `[done]` **Tira de pasos navegable** en Ingesta: componente propio
+  `IngestSteps`, cada paso lleva a origen, opciones, cola o resultado y el
+  resultado se habilita cuando hay archivos.
+- `[done]` **Contraste y foco**: `--color-empty` sube a #8494b0, etiquetas de
+  sidebar/HUD de 8–8,5 px a 9–9,5 px y foco visible compartido para teclado.
+- `[done]` **Navegación muerta retirada**: `app/workspaces.ts` y su test no
+  tenían consumidores; se eliminaron sin tocar el conmutador real.
+- `[done]` **Inicio a 900×600 verificado** en app real:
+  [captura](screenshots/olyvia-narrow-start-2026-10-29.png). El Studio angosto
+  sigue pendiente: las ventanas WebView2 no se pudieron aislar de forma estable
+  con la automatización actual.
+- `[done]` **Accesibilidad de teclado**: pestañas de Medios con roving tabindex
+  y flechas/Home/End; el lienzo de la preview acepta Enter/Espacio para
+  seleccionar el clip superior; panel del asistente limitado a la ventana en
+  anchos ≤900 px.
+- `[pending]` Refactor profundo del resto de Ingesta en subcomponentes y
+  disclosures por sección.
+
+## Proveedor real (2026-10-29)
+
+- `[done]` **Eliminado el proveedor simulado**: no quedan `mock`/`simulated` en
+  producción. Ajustes sólo acepta OpenAI-compatible; Guion, Asistente,
+  Localización, Motion, Efecto IA, Fábrica y descarga de subtítulos fallan con
+  un error claro si no hay endpoint real. Se retiraron `mock_plan`,
+  `mock_reply`, `mock_motion`, `mock_translation` y sus pruebas.
+- `[done]` **Componentes demo retirados** (`Premium*Demo`, `ButtonDemo`) por no
+  estar montados en la app.
+- `[verified]` Suite **1431/1431**; Rust **464 passed + 49 ignored**; build y
+  licencias OK.
+
+## Lote Motion MIT (2026-10-29)
+
+- `[done]` **Investigación de repos MIT**: `lottie-web` 5.13.0 (MIT, ya en la
+  app), `react-useanimations` (MIT, 302 iconos), `dotlottie-web` 0.81.0 (MIT,
+  evaluado), `thorvg` (MIT, referencia nativa). Descartados: Remotion (licencia
+  propia) y `velato` (Apache-2.0, no MIT).
+- `[done]` **Pack base offline**: 12 iconos Lottie MIT empaquetados con la app
+  y su licencia. Funcionan sin red.
+- `[done]` **Marketplace bajo demanda**: catálogo de 52 iconos con URL, tamaño
+  y SHA-256; descarga en Rust con allowlist de host/repo, HTTPS, sin redirects,
+  límite de 512 KB y escritura atómica `.part → rename`.
+- `[done]` **Packs `.lottie`**: parser ZIP con `fflate`, manifest, todas las
+  animaciones, imágenes embebidas como data URLs y límites anti-zip-bomb. Una
+  imagen faltante o remota falla el import en vez de renderizar incompleto.
+- `[done]` **Themes dotLottie**: carga `t/*.json`, reglas por Slot ID (`sid`) y
+  aplica Color/Scalar/Position/Vector/Text con keyframes, filtro por animación e
+  `initialTheme`. Gradient/Image y expresiones se avisan y se omiten.
+- `[done]` **State machines dotLottie**: carga `s/*.json`, states Playback/Global,
+  transiciones/guards, acciones de inputs/theme/frame y segmentos. La UI ejecuta
+  inputs/eventos y el export usa el estado/segmento activo. Puntero/OnComplete no
+  se simulan; Tweened es inmediato y modo/velocidad fuera de Forward/1× se avisan.
+- `[done]` **Marcas para CTA**: 11 logos MIT (YouTube, Instagram, Facebook,
+  LinkedIn, Twitch, GitHub, Figma, Slack, Discord, Telegram, Behance) con aviso
+  de marca; `twitter` se omitió porque usa expresiones bloqueadas por la CSP.
+- `[done]` **Caché local** en `AppData/<app>/motions/cache`: listar, leer,
+  borrar y estadísticas; la UI muestra la ruta y el espacio usado.
+- `[done]` **UI Motion**: búsqueda, filtro por categoría, preview real,
+  descarga, “Usar en video” y acceso a fuente/licencia. Sin auto-play al
+  entrar a la vista.
+- `[done]` **Pipeline único**: `rasterizeLottieToAsset` compartido; los iconos
+  salen a 512 px con `scale` y conservan alfa VP9.
+- `[done]` **Build reparado**: módulo `ai/` y TypeScript del cliente AI; tests
+  del rail/README alineados al estado real.
+- `[done]` **Fuentes instaladas**: `fontdb` (MIT) y `list_system_fonts` con
+  caché; datalist en el estilo de subtítulos y texto libre para alias.
+- `[done]` **Metadatos de audio**: `lofty` (MIT/Apache-2.0) lee título,
+  artista, álbum y BPM al importar sin fallar el import; campos opcionales en
+  AudioAssetSchema y visualización en el Inspector.
+- `[done]` **Biblioteca de Medios virtualizada**: `@tanstack/react-virtual`
+  (MIT) con filas responsivas, medición dinámica, `scrollMargin`,
+  `directDomUpdates`, `useFlushSync:false` y `overscan:3`; con 300 assets se
+  montan ≤30 tarjetas y se encolan ≤30 miniaturas. Medido en Tauri a
+  600/750/900 px: 1/2/2 columnas y **59–61 FPS** en idle/scroll normal/extremo;
+  `overscan:3` subió el scroll extremo de 600 px de 48 a 60,6 FPS.
+- `[done]` **Selector de color**: `react-colorful` (MIT) en MotionForm con
+  popover, hex validado, presets y cierre por Escape/click fuera.
+- `[verified]` **Pruebas**: 42 tests nuevos en total (30 de los ciclos motion +
+  9 de fuentes/color/audio + 3 de virtualización), suite completa 1405/1405,
+  Rust 460+47, build OK.
+- `[next]` **Foco y topbar angosto**: conservar el foco al desmontar una
+  tarjeta virtualizada y decidir si el topbar necesita un modo compacto para
+  viewports menores al mínimo nativo. El culling nativo de Timeline (sin repo)
+  sigue pendiente para timelines largas.
+- `[next]` **State machines interactivas**: simular Click/Pointer y OnComplete
+  sobre las capas, aplicar easing de transiciones Tweened y respetar
+  `mode`/`speed`; hoy se avisan y el export usa Forward/1×.
+- `[next]` **Themes Gradient/Image**: los tipos Color/Scalar/Position/Vector/Text
+  ya se aplican; faltan gradientes e imágenes por slot.
+- `[pending]` **Catálogo remoto propio/CDN**: el catálogo y los hashes se
+  actualizan con el script; falta un índice firmado para packs Pro.
+- `[pending]` **Miniaturas**: la preview usa el motor real; falta thumbnail
+  estático para la grilla sin descargar.
+- `[pending]` **Instalador**: no se regeneró; la build instalada sigue siendo
+  la anterior.
 
 ## Estado verificado en código (2026-10-28 18:49, última vuelta)
 
@@ -990,6 +1304,8 @@ reconstruye el instalador salvo que el ítem lo pida.
   firma válida, app abierta (PID 26728).
 - Límite honesto: la vista es una aproximación RGB del chromakey YUV del
   export; sirve para encuadrar la clave, el MP4 sigue siendo la referencia.
+  (Superado el 2026-10-30: la preview del editor aplica el chroma key por WebGL
+  con paridad medida; ver `docs/EFFECTS-COMPLETION-AUDIT.md`.)
 
 ## Lote rendimiento y ruido (2026-10-27)
 
@@ -1193,15 +1509,23 @@ reconstruye el instalador salvo que el ítem lo pida.
     unificado en Inspector.
 16. **VFX preview honesta** `[done]` — la vista marca chroma, sharpen y
     viñeta como solo export; no se muestran inertes.
-17. **Emoji diferido** — el catálogo (~240 kB fuente) ya no está en el shell:
-    vive en el chunk `EmojiPicker` (**719,71 kB min / 113,13 gzip**, escapado
-    ASCII) que comparten rail e Inspector y todavía se carga al montar el
-    editor. Falta importarlo recién al abrir el picker y medir el chunk
-    antes/después.
-18. **Composición opaca en yuv420p** — si ningún clip necesita alfa
-    (sin chroma, máscara, opacidad, blend ni transición), componer sin
-    RGBA. Un benchmark externo midió −32% (2,08→1,41 s) con salida
-    idéntica; verificar con PSNR/SSIM y los tests live antes de adoptarlo.
+17. `[done]` **Emoji diferido** — el catálogo y los nombres en español ahora se
+    importan al abrir el selector, no al montar el editor. Medido en build:
+    `EmojiPicker` **719,71 kB / 113,13 gzip → 6,17 kB / 2,43 gzip**, con
+    `emoji-data` **214,93 kB** y `emoji-es` **499,49 kB** como chunks aparte.
+    El editor deja de cargar ~714 kB de JS al arrancar. Tests de emoji 12/12
+    (dos pasaron a esperar el chunk con `findByRole`).
+18. `[done]` **Composición opaca en yuv420p** — `project_needs_alpha` decide
+    el formato del grafo. Medición real con el worker headless (10 s de 1080p30,
+    4 cortes opacos, 3 corridas alternadas): **3717 ms → 3411 ms** de mediana
+    (−8,2 %); salida **PSNR Y 55,12 dB / SSIM 0,99993**. El −32 % del benchmark
+    externo no se reproduce con esta escena: el escalado sigue pasando por RGBA
+    en el `pad`. Verificado con 3 tests unitarios nuevos y las 23 pruebas live
+    de render (alfa, parallax, máscara de texto, wipes, LUT, grano, glow).
+    El predicado pide alfa ante la duda: el test de parallax detectó el caso
+    `media.alpha: true` que faltaba.
+    **Pendiente**: evitar el `format=rgba` intermedio del escalado cuando el
+    proyecto es opaco (ahí está el resto del ahorro).
 19. **Playhead fuera del contexto** — hoy cada tick de reproducción
     re-renderiza paneles; separar el playhead y memoizar mapas de clips
     en Preview. Medir frames >16 ms en 10 s de playback.

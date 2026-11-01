@@ -415,6 +415,9 @@
           "minimum": 0,
           "maximum": 50
         },
+        "grain": {
+          "$ref": "#/properties/look/properties/fade"
+        },
         "glow": {
           "type": "object",
           "properties": {
@@ -972,6 +975,19 @@
               "kind": {
                 "type": "string",
                 "const": "audio"
+              },
+              "artist": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "album": {
+                "$ref": "#/properties/assets/items/anyOf/2/properties/artist"
+              },
+              "bpm": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 400
               },
               "media": {
                 "type": "object",
@@ -1684,6 +1700,47 @@
                   "effects": {
                     "$ref": "#/properties/look"
                   },
+                  "effectKeyframes": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "frame": {
+                          "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/frame"
+                        },
+                        "property": {
+                          "type": "string",
+                          "enum": [
+                            "brightness",
+                            "contrast",
+                            "saturation",
+                            "temperature",
+                            "blur",
+                            "hueRotateDeg",
+                            "lutIntensity",
+                            "glowIntensity",
+                            "grain"
+                          ]
+                        },
+                        "value": {
+                          "type": "number"
+                        },
+                        "easing": {
+                          "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
+                        },
+                        "bezier": {
+                          "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/bezier"
+                        }
+                      },
+                      "required": [
+                        "frame",
+                        "property",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "maxItems": 64
+                  },
                   "motion": {
                     "type": "object",
                     "properties": {
@@ -1938,13 +1995,21 @@
                           "slide-left",
                           "slide-right",
                           "slide-up",
-                          "slide-down"
+                          "slide-down",
+                          "wipe-left",
+                          "wipe-right",
+                          "wipe-up",
+                          "wipe-down",
+                          "iris"
                         ]
                       },
                       "frames": {
                         "type": "integer",
                         "minimum": 1,
                         "maximum": 120
+                      },
+                      "easing": {
+                        "$ref": "#/properties/timeline/properties/tracks/items/properties/gainKeyframes/items/properties/easing"
                       }
                     },
                     "required": [
@@ -2100,6 +2165,13 @@
                   "effects": {
                     "$ref": "#/properties/look"
                   },
+                  "effectKeyframes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/effectKeyframes/items"
+                    },
+                    "maxItems": 64
+                  },
                   "motion": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/motion"
                   },
@@ -2233,6 +2305,13 @@
                   },
                   "effects": {
                     "$ref": "#/properties/look"
+                  },
+                  "effectKeyframes": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/effectKeyframes/items"
+                    },
+                    "maxItems": 64
                   },
                   "motion": {
                     "$ref": "#/properties/timeline/properties/clips/items/anyOf/0/properties/motion"
@@ -2704,6 +2783,9 @@
             "minLength": 1,
             "maxLength": 200
           },
+          "sequenceId": {
+            "$ref": "#/properties/id"
+          },
           "intent": {
             "type": "string",
             "enum": [
@@ -2751,6 +2833,21 @@
             },
             "maxItems": 2000
           },
+          "engine": {
+            "type": "string",
+            "enum": [
+              "ken-burns",
+              "parallax",
+              "motion-graphics",
+              "lottie",
+              "rig",
+              "three",
+              "face-tracking",
+              "object-tracking",
+              "effects",
+              "transition"
+            ]
+          },
           "sourceSceneId": {
             "$ref": "#/properties/id"
           },
@@ -2770,6 +2867,35 @@
         ],
         "additionalProperties": false
       }
+    },
+    "sequences": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "$ref": "#/properties/id"
+          },
+          "order": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "id",
+          "order",
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 200,
+      "default": []
     },
     "motion": {
       "type": "array",

@@ -41,10 +41,9 @@ function audio(durationFrames: number): Asset {
   } as Asset;
 }
 
-function renderPanel(assets: Asset[] = []) {
+function renderPanel(assets: Asset[] = [], service = createFakeService()) {
   const project = ensureDelivery(createEmptyProject('Lote', NOW));
   project.assets = assets;
-  const service = createFakeService();
   const onNavigate = vi.fn();
   render(
     <ProjectProvider
@@ -112,6 +111,23 @@ describe('AssetsPanel · auto-montar lote', () => {
 });
 
 describe('AssetsPanel · organización de medios', () => {
+  it('virtualiza una biblioteca grande: no monta ni pide miniaturas de todos', async () => {
+    const assets = Array.from({ length: 300 }, (_, index) =>
+      image(`grande-${String(index).padStart(3, '0')}.png`),
+    );
+    const service = createFakeService();
+    const thumbSpy = vi.spyOn(service, 'mediaThumbnail');
+    renderPanel(assets, service);
+
+    expect(await screen.findByText('300 de 300 medios')).toBeTruthy();
+    await waitFor(() => expect(document.querySelectorAll('.asset-card').length).toBeGreaterThan(0));
+    const cards = document.querySelectorAll('.asset-card').length;
+    expect(cards).toBeLessThan(300);
+    expect(cards).toBeLessThanOrEqual(30);
+    await waitFor(() => expect(thumbSpy.mock.calls.length).toBeGreaterThan(0));
+    expect(thumbSpy.mock.calls.length).toBeLessThanOrEqual(30);
+  });
+
   it('filtra por favoritos, etiqueta y bin, y alterna la estrella', () => {
     const favorite = {
       ...image('favorita.png'),
@@ -197,5 +213,22 @@ describe('AssetsPanel · proxies por lote', () => {
       name: /Proxies \(0\)/i,
     })) as HTMLButtonElement;
     expect(remaining.disabled).toBe(true);
+  });
+});
+
+describe('AssetsPanel · inventario de licencias', () => {
+  it('copia el inventario con los derechos de los medios', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      configurable: true,
+    });
+    renderPanel([image('foto.png')]);
+    fireEvent.click(screen.getByRole('button', { name: /Inventario/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+    const report = writeText.mock.calls[0]![0] as string;
+    expect(report).toContain('foto.png');
+    expect(report).toContain('owned');
+    expect(report).toContain('user-imported');
   });
 });

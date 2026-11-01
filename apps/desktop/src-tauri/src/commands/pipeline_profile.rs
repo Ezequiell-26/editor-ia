@@ -24,14 +24,12 @@ pub struct PipelineProfile {
 impl PipelineProfile {
     pub fn software() -> Self {
         Self {
-            label: "CPU · HEVC ultrafast".to_owned(),
+            label: "CPU · HEVC LGPL".to_owned(),
             args: vec![
                 "-c:v".into(),
-                "libx265".into(),
-                "-preset".into(),
-                "ultrafast".into(),
-                "-crf".into(),
-                "24".into(),
+                "libkvazaar".into(),
+                "-b:v".into(),
+                "6000000".into(),
                 "-threads".into(),
                 "0".into(),
             ],
@@ -45,14 +43,12 @@ impl PipelineProfile {
     /// encode del look manual cuando se pide un asset H.265 de calidad.
     pub fn software_hq() -> Self {
         Self {
-            label: "CPU · HEVC veryfast".to_owned(),
+            label: "CPU · HEVC LGPL HQ".to_owned(),
             args: vec![
                 "-c:v".into(),
-                "libx265".into(),
-                "-preset".into(),
-                "veryfast".into(),
-                "-crf".into(),
-                "20".into(),
+                "libkvazaar".into(),
+                "-b:v".into(),
+                "12000000".into(),
             ],
             hwaccel: None,
             hardware: false,
@@ -83,24 +79,22 @@ fn total_ram_gb() -> Option<u64> {
 }
 
 fn cpu_profile(low_memory: bool) -> PipelineProfile {
-    // El pipeline final siempre es H.265/HEVC. En CPU se usa x265 ultrafast
-    // (baja latencia) y con RAM ajustada se sube un punto el CRF para bajar
-    // CPU y memoria. El perfil se informa en las advertencias del resultado.
+    // El pipeline final siempre es H.265/HEVC. En CPU se usa libkvazaar (LGPL)
+    // con bitrate fijo; con RAM ajustada se baja el bitrate para reducir CPU y
+    // memoria. El perfil se informa en las advertencias del resultado.
     let args = vec![
         "-c:v".into(),
-        "libx265".into(),
-        "-preset".into(),
-        "ultrafast".into(),
-        "-crf".into(),
-        if low_memory { "24" } else { "23" }.into(),
+        "libkvazaar".into(),
+        "-b:v".into(),
+        if low_memory { "5000000" } else { "6000000" }.into(),
         "-threads".into(),
         "0".into(),
     ];
     PipelineProfile {
         label: if low_memory {
-            "CPU · HEVC ultrafast · RAM ajustada".to_owned()
+            "CPU · HEVC LGPL · RAM ajustada".to_owned()
         } else {
-            "CPU · HEVC ultrafast".to_owned()
+            "CPU · HEVC LGPL".to_owned()
         },
         args,
         hwaccel: None,
@@ -116,7 +110,7 @@ pub fn detect(ffmpeg: &Path) -> PipelineProfile {
     let low_memory = ram.is_some_and(|gb| gb <= 9);
     let hardware = detect_hardware(ffmpeg);
     // Se exige HEVC también en hardware: si el equipo sólo ofrece H.264 se
-    // prefiere x265 ultrafast para que el asset final sea siempre H.265.
+    // prefiere libkvazaar para que el asset final sea siempre H.265.
     if let Some(encoder) = hardware.hevc.as_ref() {
         let is_nvenc = encoder.ends_with("_nvenc");
         let is_amf = encoder.ends_with("_amf");
@@ -176,30 +170,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn software_profile_is_hevc_fast_and_bounded() {
+    fn software_profile_is_hevc_lgpl_and_bounded() {
         let profile = PipelineProfile::software();
-        assert!(profile.args.iter().any(|arg| arg == "libx265"));
-        assert!(profile.args.iter().any(|arg| arg == "ultrafast"));
-        assert!(profile.args.iter().any(|arg| arg == "24"));
+        assert!(profile.args.iter().any(|arg| arg == "libkvazaar"));
+        assert!(profile.args.iter().any(|arg| arg == "6000000"));
+        assert!(!profile.args.iter().any(|arg| arg == "-crf"));
+        assert!(!profile.args.iter().any(|arg| arg.contains("x265")));
         assert!(!profile.hardware);
     }
 
     #[test]
-    fn hq_software_profile_keeps_hevc_veryfast() {
+    fn hq_software_profile_raises_the_bitrate() {
         let profile = PipelineProfile::software_hq();
-        assert!(profile.args.iter().any(|arg| arg == "libx265"));
-        assert!(profile.args.iter().any(|arg| arg == "veryfast"));
-        assert!(profile.args.iter().any(|arg| arg == "20"));
+        assert!(profile.args.iter().any(|arg| arg == "libkvazaar"));
+        assert!(profile.args.iter().any(|arg| arg == "12000000"));
+        assert!(!profile.args.iter().any(|arg| arg.contains("x265")));
     }
 
     #[test]
-    fn cpu_profile_uses_more_crf_only_when_ram_is_tight() {
+    fn cpu_profile_lowers_bitrate_only_when_ram_is_tight() {
         let normal = cpu_profile(false);
         let low = cpu_profile(true);
-        assert!(normal.args.iter().any(|arg| arg == "libx265"));
-        assert!(normal.args.iter().any(|arg| arg == "23"));
-        assert!(low.args.iter().any(|arg| arg == "24"));
-        assert!(normal.args.iter().any(|arg| arg == "ultrafast"));
+        assert!(normal.args.iter().any(|arg| arg == "libkvazaar"));
+        assert!(normal.args.iter().any(|arg| arg == "6000000"));
+        assert!(low.args.iter().any(|arg| arg == "5000000"));
         assert!(low.label.contains("RAM ajustada"));
         assert!(!normal.hardware);
     }

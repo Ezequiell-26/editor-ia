@@ -113,8 +113,13 @@ export const AssetRightsSchema = z
 export const MAX_ASSET_TAGS = 8;
 export const MAX_ASSET_TAG_LENGTH = 24;
 export const MAX_ASSET_BIN_LENGTH = 40;
+/** Los tags embebidos se normalizan y recortan a 200 caracteres al importar. */
+export const MAX_AUDIO_TAG_LENGTH = 200;
+/** BPM embebido en el archivo; 0..400 deja fuera valores corruptos. */
+export const MAX_AUDIO_BPM = 400;
 
 const AssetTagSchema = z.string().trim().min(1).max(MAX_ASSET_TAG_LENGTH);
+const AudioTagTextSchema = z.string().trim().min(1).max(MAX_AUDIO_TAG_LENGTH);
 
 const baseShape = {
   id: EntityIdSchema,
@@ -165,6 +170,11 @@ const AudioAssetSchema = z
   .object({
     ...baseShape,
     kind: z.literal('audio'),
+    /** Tags opcionales leídos del archivo; no existen en proyectos viejos. */
+    artist: AudioTagTextSchema.optional(),
+    album: AudioTagTextSchema.optional(),
+    /** Beats per minute embebidos en el archivo, no el BPM detectado al editar. */
+    bpm: z.number().finite().gte(0).lte(MAX_AUDIO_BPM).optional(),
     media: z
       .object({
         sampleRate: SampleRateSchema,

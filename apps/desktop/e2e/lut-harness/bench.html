@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Benchmark de preview</title>
+    <style>
+      body { font: 13px monospace; background: #111; color: #ddd; margin: 12px; }
+      #frame { position: relative; width: 960px; height: 540px; background: #000; overflow: hidden; }
+      #frame video, #frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      #status { margin: 8px 0; padding: 8px; background: #1c1c1c; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <div id="status">running</div>
+    <div id="frame"></div>
+    <script type="module" src="/e2e/lut-harness/bench.tsx"></script>
+  </body>
+</html>

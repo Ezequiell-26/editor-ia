@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
-import { ProjectProvider } from '../../state/project-store';
+import { ProjectProvider, useProjectStore } from '../../state/project-store';
 import {
   addAsset,
   addClipFromAsset,
@@ -165,6 +165,87 @@ describe('Timeline · arrastre del cabezal', () => {
   });
 });
 
+describe('Timeline · culling por viewport', () => {
+  it('sólo monta los clips que tocan la ventana visible', async () => {
+    const base = ensureDelivery(createEmptyProject('Timeline culling', NOW));
+    const asset = readyAsset();
+    const withAsset = addAsset(base, asset);
+    const first = addClipFromAsset(withAsset, asset, { atFrame: 0, durationFrames: 300 }).project;
+    const project = addClipFromAsset(first, asset, {
+      atFrame: 2_000,
+      durationFrames: 300,
+    }).project;
+    const service = createFakeService();
+    const view = render(
+      <ProjectProvider
+        service={service}
+        initial={{
+          project,
+          opened: {
+            project,
+            label: 'timeline.editoria.json',
+            path: 'C:\\tester\\timeline.editoria.json',
+            root: 'C:\\tester',
+          },
+        }}
+      >
+        <Timeline />
+      </ProjectProvider>,
+    );
+    const { container } = view;
+    expect(container.querySelectorAll('.timeline-clip')).toHaveLength(2);
+
+    const scroll = container.querySelector('.timeline-scroll');
+    if (!(scroll instanceof HTMLElement)) throw new Error('se esperaba el contenedor');
+    Object.defineProperty(scroll, 'clientWidth', { configurable: true, value: 800 });
+    // Zoom por defecto 2,4 px/frame: frame 1900 queda al borde izquierdo.
+    scroll.scrollLeft = HEADER + 1_900 * 2.4;
+    fireEvent.scroll(scroll);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.timeline-clip')).toHaveLength(1);
+    });
+  });
+
+  it('no muestra “Pista vacía” cuando los clips quedaron fuera de la ventana', async () => {
+    const base = ensureDelivery(createEmptyProject('Timeline culling hint', NOW));
+    const asset = readyAsset();
+    const withAsset = addAsset(base, asset);
+    const project = addClipFromAsset(withAsset, asset, {
+      atFrame: 2_000,
+      durationFrames: 300,
+    }).project;
+    const service = createFakeService();
+    const view = render(
+      <ProjectProvider
+        service={service}
+        initial={{
+          project,
+          opened: {
+            project,
+            label: 'timeline.editoria.json',
+            path: 'C:\\tester\\timeline.editoria.json',
+            root: 'C:\\tester',
+          },
+        }}
+      >
+        <Timeline />
+      </ProjectProvider>,
+    );
+    const { container } = view;
+    const scroll = container.querySelector('.timeline-scroll');
+    if (!(scroll instanceof HTMLElement)) throw new Error('se esperaba el contenedor');
+    Object.defineProperty(scroll, 'clientWidth', { configurable: true, value: 800 });
+    scroll.scrollLeft = 0;
+    fireEvent.scroll(scroll);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('.timeline-clip')).toHaveLength(0);
+    });
+    expect(screen.queryByText('Pista vacía')).toBeNull();
+  });
+});
+
 describe('Timeline · paneo y zoom con mouse', () => {
   it('la herramienta mano mueve la vista sin cambiar el playhead', async () => {
     const { container } = renderTimeline();
@@ -237,5 +318,105 @@ describe('Timeline · paneo y zoom con mouse', () => {
 
     fireEvent.wheel(scroll, { deltaY: -100, ctrlKey: true, clientX: 300 });
     await waitFor(() => expect(container.textContent).toContain('2.78 px/frame'));
+  });
+});
+
+function transfer(payload: Record<string, string>) {
+  return {
+    effectAllowed: 'copy',
+    dropEffect: 'copy',
+    setData: () => {},
+    getData: (type: string) => payload[type] ?? '',
+  };
+}
+
+function TimelineDropProbe() {
+  const store = useProjectStore();
+  const clip = store.state.project?.timeline.clips[0];
+  return <output data-testid="dropped">{JSON.stringify(clip ?? null)}</output>;
+}
+
+function renderDropTimeline() {
+  const base = ensureDelivery(createEmptyProject('Drop', NOW));
+  const asset = readyAsset();
+  const project = addClipFromAsset(addAsset(base, asset), asset, {
+    atFrame: 0,
+    durationFrames: 300,
+  }).project;
+  const service = createFakeService();
+  const opened = {
+    project,
+    label: 'drop.editoria.json',
+    path: 'C:\tester\drop.editoria.json',
+    root: 'C:\tester',
+  };
+  const view = render(
+    <ProjectProvider service={service} initial={{ project, opened }}>
+      <Timeline />
+      <TimelineDropProbe />
+    </ProjectProvider>,
+  );
+  const clip = view.container.querySelector('.timeline-clip');
+  if (!(clip instanceof HTMLElement)) throw new Error('se esperaba un clip');
+  const dropped = () =>
+    JSON.parse(screen.getByTestId('dropped').textContent ?? 'null');
+  return { clip, dropped };
+}
+
+describe('Timeline · arrastrar efectos y transiciones', () => {
+  it('aplica una transición soltada sobre el clip', () => {
+    const { clip, dropped } = renderDropTimeline();
+    fireEvent.dragOver(clip, {
+      dataTransfer: transfer({ 'application/x-olyvia-transition': 'wipe-left' }),
+    });
+    fireEvent.drop(clip, {
+      dataTransfer: transfer({ 'application/x-olyvia-transition': 'wipe-left' }),
+    });
+    expect(dropped().transitionIn).toEqual({ type: 'wipe-left', frames: 12 });
+  });
+
+  it('mezcla un preset de efectos soltado sin borrar los existentes', () => {
+    const { clip, dropped } = renderDropTimeline();
+    fireEvent.drop(clip, {
+      dataTransfer: transfer({
+        'application/x-olyvia-effect-settings': JSON.stringify({
+          grayscale: true,
+          contrast: 1.2,
+        }),
+      }),
+    });
+    expect(dropped().effects).toEqual({ grayscale: true, contrast: 1.2 });
+  });
+
+  it('ignora una transición desconocida', () => {
+    const { clip, dropped } = renderDropTimeline();
+    fireEvent.drop(clip, {
+      dataTransfer: transfer({ 'application/x-olyvia-transition': 'burn' }),
+    });
+    expect(dropped().transitionIn).toBeUndefined();
+  });
+
+  it('aplica una transición soltada sobre el ruler al clip más cercano', () => {
+    const { dropped } = renderDropTimeline();
+    const lane = document.querySelector('.ruler-lane');
+    if (!(lane instanceof HTMLElement)) throw new Error('se esperaba el ruler');
+    fireEvent.drop(lane, {
+      clientX: 24,
+      dataTransfer: transfer({ 'application/x-olyvia-transition': 'wipe-right' }),
+    });
+    expect(dropped().transitionIn).toEqual({ type: 'wipe-right', frames: 12 });
+  });
+
+  it('aplica un preset de efectos soltado sobre el ruler', () => {
+    const { dropped } = renderDropTimeline();
+    const lane = document.querySelector('.ruler-lane');
+    if (!(lane instanceof HTMLElement)) throw new Error('se esperaba el ruler');
+    fireEvent.drop(lane, {
+      clientX: 24,
+      dataTransfer: transfer({
+        'application/x-olyvia-effect-settings': JSON.stringify({ vignette: 0.4 }),
+      }),
+    });
+    expect(dropped().effects).toEqual({ vignette: 0.4 });
   });
 });

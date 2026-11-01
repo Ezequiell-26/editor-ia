@@ -56,6 +56,23 @@ describe('preferencias del editor', () => {
     expect(preferences.emojiStyle).toBe('android');
   });
 
+  it('acota los paneles del Studio y conserva su estado', () => {
+    const preferences = normalizeEditorPreferences({
+      studioLeftWidth: 20,
+      studioRightWidth: 900,
+      studioTimelineHeight: 3000,
+      studioLeftCollapsed: true,
+      studioRightCollapsed: 'no',
+      studioTimelineCollapsed: true,
+    });
+    expect(preferences.studioLeftWidth).toBe(180);
+    expect(preferences.studioRightWidth).toBe(520);
+    expect(preferences.studioTimelineHeight).toBe(520);
+    expect(preferences.studioLeftCollapsed).toBe(true);
+    expect(preferences.studioRightCollapsed).toBe(false);
+    expect(preferences.studioTimelineCollapsed).toBe(true);
+  });
+
   it('acepta solo los dos estilos de emoji conocidos', () => {
     expect(normalizeEditorPreferences({ emojiStyle: 'open' }).emojiStyle).toBe('open');
     expect(normalizeEditorPreferences({ emojiStyle: 'apple' }).emojiStyle).toBe('android');
@@ -100,6 +117,33 @@ describe('preferencias del editor', () => {
     expect(saveEditorPreferences(DEFAULT_EDITOR_PREFERENCES, null)).toEqual(
       DEFAULT_EDITOR_PREFERENCES,
     );
+  });
+
+  it('migra el layout v1 intacto a las columnas compactas v2', () => {
+    // Un guardado v1 con los defaults de aquel entonces (nunca personalizado)
+    // debe adoptar el layout nuevo pensado para pantallas de 1360 px.
+    const migrated = normalizeEditorPreferences({
+      version: 1,
+      studioLeftWidth: 320,
+      studioRightWidth: 340,
+      studioTimelineHeight: 285,
+    });
+    expect(migrated.version).toBe(2);
+    expect(migrated.studioLeftWidth).toBe(DEFAULT_EDITOR_PREFERENCES.studioLeftWidth);
+    expect(migrated.studioRightWidth).toBe(DEFAULT_EDITOR_PREFERENCES.studioRightWidth);
+    expect(migrated.studioTimelineHeight).toBe(DEFAULT_EDITOR_PREFERENCES.studioTimelineHeight);
+  });
+
+  it('respeta un layout personalizado aunque venga de v1', () => {
+    const kept = normalizeEditorPreferences({
+      version: 1,
+      studioLeftWidth: 400,
+      studioRightWidth: 420,
+      studioTimelineHeight: 340,
+    });
+    expect(kept.studioLeftWidth).toBe(400);
+    expect(kept.studioRightWidth).toBe(420);
+    expect(kept.studioTimelineHeight).toBe(340);
   });
 
   it('avisa a los suscriptores y permite desuscribir', () => {

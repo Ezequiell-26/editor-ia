@@ -3,7 +3,7 @@
 Olyvia se distribuye bajo licencia MIT **sólo para su código propio**. Este
 archivo enumera las dependencias directas y las herramientas externas que el
 producto usa, con la licencia verificada en su ecosistema (npm registry o
-crates.io) el 2026-10-21.
+crates.io) el 2026-10-29.
 
 Las dependencias transitivas están fijadas en `package-lock.json` y `Cargo.lock`;
 sus licencias acompañan a cada paquete en `node_modules/` y en el registro de
@@ -19,6 +19,15 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 | `minisearch` | 7.2.0 | MIT | Índice de búsqueda global (**nuevo en esta ronda**) |
 | `fflate` | 0.8.3 | MIT | ZIP del paquete de entrega (**nuevo en esta ronda**) |
 | `subsrt` | 1.1.1 | MIT | Importación de subtítulos ASS/SSA (**nuevo en esta ronda**) |
+| `lottie-web` | 5.13.0 | MIT | Parseo, preview y rasterizado de animaciones Lottie |
+| `react-useanimations` (assets) | main 2026-10-29 | MIT | 52 iconos Lottie de la biblioteca Motion |
+| `react-colorful` | 5.8.1 | MIT | Selector de color accesible en plantillas Motion |
+| `html2canvas` | 1.4.1 | MIT | Rasterizado local del HTML generado a PNG en el WebView2 |
+| `mp4-muxer` | 5.2.1 | MIT | Muxing MP4 del video VP9 generado con WebCodecs |
+| `three` | 0.180.0 | MIT | Escenas 3D on-demand y horneado a MP4 |
+| MgOpen Helvetiker (fuente, de `three/examples/fonts`) | 0.180.0 | Licencia MgOpen / MAGENTA | Texto 3D extruido; aviso completo en `apps/desktop/src/features/three/fonts/LICENSE-mgopen.txt` |
+| `jspdf` | 2.5.2 | MIT | PDF multipágina de los decks generados |
+| `@tanstack/react-virtual` | 3.14.24 | MIT | Virtualización de la biblioteca de Medios |
 
 ## Dependencias Rust directas
 
@@ -33,7 +42,24 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 | `reqwest` | MIT OR Apache-2.0 | Llamadas HTTP a proveedores |
 | `keyring` | MIT OR Apache-2.0 | Administrador de credenciales de Windows |
 | `uuid` | Apache-2.0 OR MIT | Identificadores |
+| `fontdb` | MIT | Catálogo de fuentes instaladas para subtítulos |
+| `lofty` | MIT OR Apache-2.0 | Metadatos de audio (título, artista, álbum, BPM) |
 | `zip` | MIT | Lectura de paquetes ZIP de modelos con pesos externos |
+
+## Assets Lottie
+
+Los 52 iconos de la biblioteca Motion provienen de
+[`react-useanimations`](https://github.com/useAnimations/react-useanimations),
+licencia MIT (copyright 2018-2026 useAnimations). El texto completo se guarda en
+`apps/desktop/src/features/motion/library/useanimations-LICENSE.txt`. Doce iconos
+se distribuyen dentro de la app; el resto se descarga bajo demanda desde
+`raw.githubusercontent.com`, se verifica con SHA-256 y se guarda en la caché
+local del usuario. La app muestra la fuente y la licencia de cada icono.
+
+Los iconos de marcas (YouTube, Instagram, Facebook, LinkedIn, Twitch, GitHub,
+Figma, Slack, Discord, Telegram y Behance) son marcas de sus titulares. La
+licencia MIT cubre el archivo del icono; no otorga derechos de marca ni implica
+patrocinio. El usuario decide el uso de cada marca en su propio contenido.
 
 ## Herramientas externas (no se distribuyen dentro del binario)
 
@@ -150,3 +176,55 @@ cargo tree --depth 1
   (tag `n9.0`). El `ffmpeg.exe`/`ffprobe.exe` estático que usa el render sigue
   siendo un proceso separado y conserva su propia licencia GPL.
 - **ndarray** 0.17.2 (MIT OR Apache-2.0), dependencia opcional de video-rs.
+
+## Servicios externos opcionales
+
+- **Pollinations** (<https://pollinations.ai>): API gratuita de texto a imagen.
+  No se distribuye código suyo; Olyvia envía el prompt a su servicio sólo cuando
+  el usuario elige esa fuente. Su licencia, términos, cuota (una imagen cada
+  45 segundos en el plan libre) y política de datos se rigen por el servicio.
+  La interfaz muestra el límite tal como lo devuelve la API.
+
+## Agregados 2026-10-29 (biblioteca Open Design)
+
+- **Open Design** (<https://github.com/nexu-io/open-design>), Apache-2.0,
+  © Open Design contributors. Se copia una **selección portable** al frontend:
+  152 paquetes de sistemas de diseño (`manifest.json`, `DESIGN.md`, `tokens.css`,
+  componentes y previews), 11 reglas de craft, 189 plantillas de prompt con
+  licencia declarada (incluidas 45 de imagen y 40 de video de los plugins
+  oficiales), 154 plantillas de diseño como recetas (63 Open Design/Apache-2.0,
+  36 MIT y 55 ejemplos con licencia declarada) y 131 skills (24
+  Open Design/Apache-2.0, 31 MIT, 2 Apache-2.0, 27 scenarios/atoms oficiales MIT,
+  45 referencias de ejemplos y 2 comunitarias MIT: Hallmark © Hallmark
+  contributors y Humanize PPT © LearnPrompt), con su `LICENSE` cuando existe. Los archivos no se modifican;
+  `catalog.json` y `NOTICE.md` son índices generados por
+  `scripts/sync-open-design.mjs`. Se excluyeron 16 plantillas y 120 skills por
+  licencia copyleft, upstream sin licencia verificable o ser andamiaje de
+  pruebas. El runtime de Open
+  Design y su código de plugins **no** se copiaron; de los plugins sólo se
+  portaron prompts y composiciones autocontenidas.
+- **HyperFrames**: 13 composiciones HTML/CSS de los plugins oficiales,
+  Apache-2.0, derivadas de `frontend-slides` (MIT, © Zara Zhang). Incluyen
+  animaciones `@keyframes` y fuentes locales de Google Fonts (OFL-1.1:
+  Shrikhand, Libre Baskerville y Space Grotesk). Las licencias completas están
+  en `public/open-design/hyperframes/licenses/`. Otras 9 composiciones con
+  scripts/GSAP se incluyen únicamente como **preview MP4 oficial** (Apache-2.0
+  o MIT, sin audio), sin ejecutar su runtime; la variante Remotion quedó fuera.
+  El runtime HyperFrames no se copia.
+- **Plantillas de prompt**: 144 con CC-BY-4.0, 44 con Apache-2.0 y 1 con MIT.
+  Cada entrada conserva autor, URL y licencia en `catalog.json`. Se excluyeron
+  2 plantillas cuya fuente no declaraba una licencia reutilizable. La
+  atribución CC-BY-4.0 se muestra en la ficha de cada prompt.
+- **Reglas de craft**: algunas adaptaciones provienen de
+  [`refero_skill`](https://github.com/referodesign/refero_skill) (MIT), según se
+  indica en el encabezado de cada archivo.
+- **Marcas**: los nombres y sistemas de diseño de terceros (Apple, Airbnb,
+  Stripe, Nike, etc.) son referencias visuales; las marcas pertenecen a sus
+  titulares y no implican afiliación ni patrocinio.
+- **Overlays propios**: `warm-leak`, `cool-leak`, `dust-motes`, `bokeh-drift`
+  y `mascot-wave` (WebM con alfa) más sus posters se generaron con
+  `scripts/generate-overlays.mjs` a partir de gradientes, partículas y dibujo
+  procedural. No usan assets de terceros y se distribuyen como **CC0-1.0**; el
+  catálogo conserva la atribución.
+- Texto completo de Apache-2.0 y aviso de atribución en
+  `apps/desktop/public/open-design/LICENSE` y `NOTICE.md`.

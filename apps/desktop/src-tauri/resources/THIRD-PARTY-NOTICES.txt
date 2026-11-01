@@ -6,9 +6,17 @@ cada componente, que se distribuyen con el proyecto o en los enlaces citados.
 
 FFmpeg 9.0 (shared, DLL)
   Licencia: GNU Lesser General Public License v3 (LGPL-3.0).
-  Evidencia: resources/ffmpeg-dll/LICENSE.txt, incluido en el instalador.
-  Se enlaza dinámicamente como DLL; se conserva el aviso y se ofrece el código
-  fuente correspondiente desde el proyecto upstream.
+  Build: BtbN win64-lgpl-shared-9.0, sin --enable-gpl ni --enable-nonfree.
+  Evidencia: resources/ffmpeg-dll/LICENSE.txt y resources/ffmpeg/LICENSE.txt,
+  ambos incluidos en el instalador. Se enlaza dinámicamente como DLL; se
+  conserva el aviso y se ofrece el código fuente correspondiente desde el
+  proyecto upstream (FFmpeg y BtbN/FFmpeg-Builds).
+  Encoders de software empaquetados: libopenh264 (H.264, BSD-2-Clause) y
+  libkvazaar (H.265, LGPL-2.1), integrados por el build dentro de
+  avcodec-*.dll. No se distribuyen libx264, libx265 ni libxvid (GPL); el
+  renderer usa NVENC/QSV/AMF si están disponibles y, si no, libopenh264 o
+  libkvazaar. `npm run audit:ffmpeg` verifica buildconf, encoders y licencia
+  sobre los binarios empaquetados.
 
 yt-dlp
   Licencia: The Unlicense (dominio público).
@@ -43,6 +51,54 @@ Modelos descargados en tiempo de ejecución
   Los modelos de upscale, segmentación y seguimiento se instalan aparte en el
   directorio de datos del usuario. Su licencia debe revisarse antes de
   redistribuirlos; no forman parte de este instalador.
+
+Pollinations (servicio externo opcional)
+  Licencia: se rige por los términos y la licencia de pollinations.ai.
+  No se distribuye código del servicio. Olyvia sólo envía el prompt cuando el
+  usuario elige "Pollinations" en Diseño -> Imagen IA. La cuota gratuita
+  observada es de una imagen cada 45 segundos por IP y se muestra tal cual.
+  El plan libre puede incluir la marca del servicio en la imagen generada.
+
+Open Design (biblioteca de diseño)
+  Licencia: Apache-2.0, © Open Design contributors.
+  Evidencia: https://github.com/nexu-io/open-design
+  Se incluye una selección portable en el frontend: 152 sistemas de diseño,
+  11 reglas de craft, 189 plantillas de prompt con licencia declarada
+  (CC-BY-4.0, Apache-2.0 o MIT, incluidas 45 de imagen y 40 de video), 154
+  plantillas de diseño como recetas (incluidas 55 recetas de ejemplo), 131
+  skills (incluidas 27 scenarios/atoms oficiales MIT, 45 referencias de ejemplos
+  y las comunitarias MIT Hallmark © Hallmark contributors y Humanize PPT ©
+  LearnPrompt) y 13 composiciones HyperFrames
+  autocontenidas (Apache-2.0, derivadas de frontend-slides MIT) con fuentes
+  locales de Google Fonts (OFL-1.1, licencias en hyperframes/licenses/). Otras
+  9 composiciones con scripts se incluyen sólo como preview MP4 oficial
+  (Apache-2.0/MIT, sin audio) sin ejecutar su runtime; la variante Remotion
+  quedó fuera. Se excluyeron 16 plantillas, 120 skills y
+  1 HyperFrames Remotion. El aviso completo, con autores, licencias y fuentes, está en
+  public/open-design/NOTICE.md y LICENSE. No se copiaron el runtime de Open
+  Design ni el código de sus plugins. Las marcas de terceros pertenecen a sus
+  titulares y se usan sólo como referencia visual.
+
+Overlays procedurales propios
+  warm-leak, cool-leak, dust-motes y bokeh-drift (MP4) y mascot-wave (WebM con
+  alfa) más sus posters fueron generados por Editor IA con
+  scripts/generate-overlays.mjs a partir de matemática procedural. No contienen
+  assets, imágenes ni audio de terceros. Licencia: CC0-1.0. El catálogo y la
+  atribución están en overlays/catalog.json.
+
+Three.js 0.180.0 y mp4-muxer 5.2.1
+  Licencia: MIT (ambos).
+  Evidencia: https://github.com/mrdoob/three.js/blob/dev/LICENSE y
+  https://github.com/Vanilagy/mp4-muxer/blob/main/LICENSE
+  Three.js renderiza escenas 3D on-demand en un canvas; mp4-muxer empaqueta
+  los frames VP9 que produce WebCodecs en un MP4 que entra a Medios. Ninguno
+  se usa para el render final del timeline, que sigue en FFmpeg.
+
+MgOpen Helvetiker (fuente de texto 3D)
+  Copyright 2004 by MAGENTA Ltd. Todos los derechos reservados.
+  Se distribuye dentro de Olyvia como parte de un paquete mayor, con el aviso
+  completo en apps/desktop/src/features/three/fonts/LICENSE-mgopen.txt.
+  Se usa para el rótulo 3D extruido de las escenas Three.js.
 
 WebView2
   Componente del sistema provisto por Microsoft; se rige por sus términos.

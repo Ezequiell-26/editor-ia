@@ -14,10 +14,8 @@ pub mod projects;
 pub mod render;
 pub mod state;
 
-static QUIT_REQUESTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static BACKGROUND_START: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static BACKGROUND_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(windows)]
 fn claim_single_instance() -> bool {
@@ -245,6 +243,39 @@ pub fn run() {
             let state = state::AppState::load(app.handle());
             app.manage(state);
 
+            // Bandera de desarrollo/CI: habilita el puente MCP en vivo sin
+            // depender del interruptor de la UI. En uso normal se activa desde
+            // MCP → Puente en vivo.
+            if std::env::args().any(|arg| arg == "--mcp-live")
+                || std::env::var("EDITOR_IA_MCP_LIVE").ok().as_deref() == Some("1")
+            {
+                app.state::<state::AppState>().live_mcp.set_enabled(true);
+            }
+            if std::env::args().any(|arg| arg == "--mcp-export")
+                || std::env::var("EDITOR_IA_MCP_EXPORT").ok().as_deref() == Some("1")
+            {
+                app.state::<state::AppState>()
+                    .live_mcp
+                    .set_export_allowed(true);
+            }
+            let mut cli_args = std::env::args().skip(1);
+            let mut workspace_arg: Option<String> =
+                std::env::var("EDITOR_IA_MCP_WORKSPACE").ok().filter(|value| !value.is_empty());
+            while let Some(arg) = cli_args.next() {
+                if arg == "--mcp-workspace" {
+                    workspace_arg = cli_args.next();
+                }
+            }
+            if let Some(workspace) = workspace_arg {
+                if let Err(error) = app
+                    .state::<state::AppState>()
+                    .live_mcp
+                    .set_workspace_from_cli(workspace)
+                {
+                    eprintln!("editor-ia: workspace MCP inválido: {error}");
+                }
+            }
+
             if std::env::args().any(|arg| arg == "--test-notification") {
                 use tauri_plugin_notification::NotificationExt;
                 let result = app
@@ -254,14 +285,7 @@ pub fn run() {
                     .body("Notificación de prueba desde el descargador.")
                     .show();
                 let marker = std::env::temp_dir().join("olyvia-notification-test.txt");
-                let _ = std::fs::write(
-                    marker,
-                    if result.is_ok() {
-                        "ok"
-                    } else {
-                        "error"
-                    },
-                );
+                let _ = std::fs::write(marker, if result.is_ok() { "ok" } else { "error" });
             }
 
             // Iniciar puente de descarga si está disponible
@@ -327,6 +351,9 @@ pub fn run() {
             commands::media::import_assets,
             commands::media::import_media_paths,
             commands::media::import_lut,
+            commands::media::read_project_text,
+            commands::overlays::list_builtin_overlays,
+            commands::overlays::import_builtin_overlay,
             commands::subtitles::choose_subtitle_file,
             commands::media::extract_freeze_frame,
             commands::media::create_video_proxy,
@@ -336,6 +363,11 @@ pub fn run() {
             commands::media::choose_image_file,
             commands::media::choose_video_file,
             commands::media::choose_audio_file,
+            commands::filesystem::fs_roots,
+            commands::filesystem::fs_list,
+            commands::filesystem::fs_search,
+            commands::filesystem::fs_find_media,
+            commands::filesystem::fs_read_text,
             commands::models::list_models,
             commands::models::download_model,
             commands::models::delete_model,
@@ -345,6 +377,12 @@ pub fn run() {
             commands::lottie::write_alpha_frames,
             commands::lottie::alpha_frames_to_asset,
             commands::lottie::discard_alpha_frames,
+            commands::motion_library::motion_cache_dir,
+            commands::motion_library::motion_list_cached,
+            commands::motion_library::motion_cache_stats,
+            commands::motion_library::motion_download,
+            commands::motion_library::motion_read_cached,
+            commands::motion_library::motion_remove_cached,
             commands::upscale::upscale_image,
             commands::analysis::detect_scenes,
             commands::analysis::analyze_stabilization,
@@ -430,6 +468,7 @@ pub fn run() {
             commands::license::deactivate_license,
             commands::system::system_info,
             commands::system::choose_tool,
+            commands::fonts::list_system_fonts,
             commands::system::reveal_output,
             commands::system::open_external_url,
             commands::providers::get_provider,
@@ -437,16 +476,37 @@ pub fn run() {
             commands::providers::clear_provider_key,
             commands::providers::generate_script,
             commands::assistant::assistant_chat,
+            commands::assistant_agent::assistant_agent,
+            commands::design::design_critique,
+            commands::design::design_directions,
+            commands::design::design_generate,
+            commands::design_extract::design_extract_url,
+            commands::design::design_generate_image,
+            commands::design::save_design_html,
+            commands::design::save_design_image,
+            commands::design::save_design_pdf,
+            commands::design::save_design_png,
+            commands::design::save_design_video,
+            commands::design::stage_design_media,
             commands::providers::translate_subtitles,
             commands::localization::save_localized_subtitle,
             commands::shorts::export_short,
             commands::shorts::analyze_face_track,
+            commands::point_track::track_point_in_video,
+            commands::point_track::track_object_in_video,
+            commands::live_mcp::mcp_live_set_enabled,
+            commands::live_mcp::mcp_live_set_workspace,
+            commands::live_mcp::mcp_live_register_tools,
+            commands::live_mcp::mcp_live_result,
+            commands::live_mcp::mcp_live_status,
+            commands::live_mcp::mcp_live_emit_event,
+            commands::concat::concat_videos,
+            commands::concat::file_info,
             commands::dubbing::synthesize_dub,
             commands::voice_clone::clone_voice,
             commands::visuals::list_visual_catalog,
             commands::visuals::audit_visuals,
             commands::lip_sync::lip_sync,
-            // commands::voice_isolation::isolate_voice, // TODO: Implementar voz isolation
             commands::audio_providers::get_audio_provider,
             commands::audio_providers::save_audio_provider,
             commands::audio_providers::clear_audio_provider_key,

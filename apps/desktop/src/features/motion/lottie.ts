@@ -134,17 +134,26 @@ export function parseLottieDocument(value: unknown): LottieDocument {
 
 /**
  * Ajusta el Lottie al tamaño de salida (máximo 1920×1080, lados pares) y a la
- * tasa del proyecto. `fps` fuera de 1..60 se recorta; los frames se limitan a
+ * tasa del proyecto. `fps` fuera de 1..60 se recorta; `scale` permite agrandar
+ * animaciones vectoriales pequeñas (iconos de 32 px) sin perder nitidez, con
+ * tope 32× y el límite global de 1920×1080. Los frames se limitan a
  * `LOTTIE_MAX_FRAMES` y `trimmed` avisa cuando se pierde el final.
  */
 export function planLottieExport(
   document: LottieDocument,
-  options: { readonly fps?: number; readonly maxFrames?: number } = {},
+  options: { readonly fps?: number; readonly maxFrames?: number; readonly scale?: number } = {},
 ): LottieExportPlan {
   const maxFrames = Math.max(1, Math.min(LOTTIE_MAX_FRAMES, options.maxFrames ?? LOTTIE_MAX_FRAMES));
   const requested = Number.isFinite(options.fps) ? (options.fps as number) : document.fps;
   const fps = Math.max(1, Math.min(60, Math.round(requested)));
-  const scale = Math.min(LOTTIE_MAX_SIDES.width / document.width, LOTTIE_MAX_SIDES.height / document.height, 1);
+  const requestedScale = Number.isFinite(options.scale)
+    ? Math.max(1, Math.min(32, options.scale as number))
+    : 1;
+  const scale = Math.min(
+    LOTTIE_MAX_SIDES.width / document.width,
+    LOTTIE_MAX_SIDES.height / document.height,
+    requestedScale,
+  );
   const width = evenSide(document.width * scale);
   const height = evenSide(document.height * scale);
   const wanted = Math.max(1, Math.round(document.durationSeconds * fps));

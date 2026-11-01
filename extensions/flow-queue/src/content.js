@@ -286,6 +286,16 @@
       const mime = semicolon > 5 ? result.src.slice(5, semicolon) : 'image/png';
       return { dataUrl: result.src, mime };
     }
+    if (/^https?:/i.test(result.src)) {
+      // The CDN URL is signed and downloadable without CORS. Reading it with
+      // fetch from the page is blocked, so hand the URL to chrome.downloads.
+      return {
+        dataUrl: '',
+        url: result.src,
+        mime: 'image/jpeg',
+        note: 'descarga directa por URL firmada',
+      };
+    }
     try {
       const response = await fetch(result.src, { credentials: 'include' });
       if (!response.ok) throw new Error(`la descarga devolvió ${response.status}`);

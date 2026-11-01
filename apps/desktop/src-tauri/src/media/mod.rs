@@ -12,6 +12,9 @@ use std::path::{Component, Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use base64::Engine;
+use lofty::file::TaggedFileExt;
+use lofty::probe::Probe;
+use lofty::tag::{Accessor, ItemKey, Tag};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -537,6 +540,82 @@ fn relative_with_forward_slashes(path: &Path, root: &Path) -> String {
         .join("/")
 }
 
+/// Límites compartidos con `AudioAssetSchema`: 200 caracteres por texto y un
+/// BPM finito entre 0 y 400. El esquema los vuelve a validar al cargar.
+const MAX_AUDIO_TAG_CHARS: usize = 200;
+const MAX_AUDIO_BPM: f64 = 400.0;
+
+/// Metadatos de audio leídos del archivo. La carátula se inspecciona sólo para
+/// validarla y nunca se devuelve ni se persiste.
+#[derive(Debug, Clone, Default, PartialEq)]
+struct AudioTagMetadata {
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    bpm: Option<f64>,
+}
+
+/// Normaliza un tag de texto sin romper UTF-8: reemplaza controles por
+/// espacios, colapsa espacios y recorta a 200 caracteres (code points).
+fn normalize_audio_text(value: &str) -> Option<String> {
+    let cleaned: String = value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .collect();
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let truncated: String = collapsed.chars().take(MAX_AUDIO_TAG_CHARS).collect();
+    let normalized = truncated.trim_end();
+    (!normalized.is_empty()).then(|| normalized.to_owned())
+}
+
+fn parse_bpm(raw: &str) -> Option<f64> {
+    let value = raw.trim().parse::<f64>().ok()?;
+    (value.is_finite() && (0.0..=MAX_AUDIO_BPM).contains(&value)).then_some(value)
+}
+
+fn read_bpm(tag: &Tag) -> Option<f64> {
+    [ItemKey::IntegerBpm, ItemKey::Bpm]
+        .into_iter()
+        .filter_map(|key| tag.get_string(key))
+        .find_map(parse_bpm)
+}
+
+/// Lee tags de audio de forma tolerante: cualquier error de lofty o de
+/// codificación devuelve `None` y la importación sigue con los datos del probe.
+fn read_audio_tags(path: &Path) -> Option<AudioTagMetadata> {
+    let tagged_file = Probe::open(path).ok()?.read().ok()?;
+    let tag = tagged_file
+        .primary_tag()
+        .or_else(|| tagged_file.first_tag())?;
+
+    // Sólo conteo/validación: una carátula vacía no se considera válida y sus
+    // bytes jamás salen de esta función.
+    let _artwork_count = tag
+        .pictures()
+        .iter()
+        .filter(|picture| !picture.data().is_empty())
+        .count();
+
+    Some(AudioTagMetadata {
+        title: tag
+            .title()
+            .and_then(|value| normalize_audio_text(value.as_ref())),
+        artist: tag
+            .artist()
+            .and_then(|value| normalize_audio_text(value.as_ref())),
+        album: tag
+            .album()
+            .and_then(|value| normalize_audio_text(value.as_ref())),
+        bpm: read_bpm(tag),
+    })
+}
+
 pub fn import_file(
     root: &Path,
     source: &Path,
@@ -613,10 +692,23 @@ pub fn import_file(
 
     let (sha256, bytes) = sha256_file(&destination)?;
     let relative = relative_with_forward_slashes(&destination, &root_canonical);
-    let label = destination
+    let stem_label = destination
         .file_stem()
         .map(|value| value.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Material".to_owned());
+    let mut label = stem_label.clone();
+    let audio_tags = if kind == MediaKind::Audio {
+        read_audio_tags(&destination)
+    } else {
+        None
+    };
+    // El título sólo reemplaza al stem saneado del archivo: un renombre
+    // existente (o cualquier label distinto) se conserva.
+    if label == stem_label {
+        if let Some(title) = audio_tags.as_ref().and_then(|tags| tags.title.clone()) {
+            label = title;
+        }
+    }
     let acquired_at = now_rfc3339();
 
     let mut media = serde_json::Map::new();
@@ -659,7 +751,7 @@ pub fn import_file(
         }
     }
 
-    Ok(json!({
+    let mut asset = json!({
         "id": Uuid::new_v4().to_string(),
         "label": label.chars().take(200).collect::<String>(),
         "kind": kind.as_str(),
@@ -671,7 +763,21 @@ pub fn import_file(
             "provenance": { "origin": "user-imported", "acquiredAt": acquired_at }
         },
         "media": Value::Object(media)
-    }))
+    });
+    if let Some(tags) = audio_tags {
+        if let Some(object) = asset.as_object_mut() {
+            if let Some(artist) = tags.artist {
+                object.insert("artist".into(), json!(artist));
+            }
+            if let Some(album) = tags.album {
+                object.insert("album".into(), json!(album));
+            }
+            if let Some(bpm) = tags.bpm {
+                object.insert("bpm".into(), json!(bpm));
+            }
+        }
+    }
+    Ok(asset)
 }
 
 pub fn thumbnail_data_url(
@@ -725,6 +831,28 @@ pub fn thumbnail_data_url(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lofty::config::WriteOptions;
+    use lofty::tag::{TagExt, TagType};
+
+    fn write_silent_wav(path: &Path) {
+        let sample_rate: u32 = 8_000;
+        let data_len: u32 = 800;
+        let mut bytes = Vec::with_capacity(44 + data_len as usize);
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVEfmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes()); // byte rate
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&8u16.to_le_bytes()); // bits per sample
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes.extend(std::iter::repeat(128u8).take(data_len as usize));
+        fs::write(path, bytes).unwrap();
+    }
 
     fn probe_payload() -> Value {
         json!({
@@ -876,5 +1004,60 @@ mod tests {
         // pin that an empty stdout is never turned into a data URL.
         let missing = std::env::temp_dir().join("editor-ia-no-ffmpeg.exe");
         assert!(thumbnail_data_url(&missing, Path::new("C:/x.png"), true).is_err());
+    }
+
+    #[test]
+    fn reads_embedded_tags_from_a_tagged_wav() {
+        let dir = std::env::temp_dir().join(format!("editor-ia-tags-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("voz.wav");
+        write_silent_wav(&path);
+
+        let mut tag = Tag::new(TagType::Id3v2);
+        tag.set_title("  Voz   principal \n".to_owned());
+        tag.set_artist("Artista Ñandú".to_owned());
+        tag.set_album("Álbum de prueba".to_owned());
+        tag.insert_text(ItemKey::IntegerBpm, "128".to_owned());
+        tag.save_to_path(&path, WriteOptions::default()).unwrap();
+
+        let tags = read_audio_tags(&path).expect("el WAV etiquetado debe leerse");
+        assert_eq!(tags.title.as_deref(), Some("Voz principal"));
+        assert_eq!(tags.artist.as_deref(), Some("Artista Ñandú"));
+        assert_eq!(tags.album.as_deref(), Some("Álbum de prueba"));
+        assert_eq!(tags.bpm, Some(128.0));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn accepts_decimal_bpm_and_rejects_out_of_range_values() {
+        let mut vorbis = Tag::new(TagType::VorbisComments);
+        assert!(vorbis.insert_text(ItemKey::Bpm, "90.5".to_owned()));
+        assert_eq!(read_bpm(&vorbis), Some(90.5));
+        vorbis.insert_text(ItemKey::Bpm, "400.1".to_owned());
+        assert_eq!(read_bpm(&vorbis), None);
+
+        let mut id3 = Tag::new(TagType::Id3v2);
+        id3.insert_text(ItemKey::IntegerBpm, "128".to_owned());
+        assert_eq!(read_bpm(&id3), Some(128.0));
+    }
+
+    #[test]
+    fn normalizes_and_truncates_text_without_breaking_utf8() {
+        let raw = format!("  Voz\u{0}  principal  {}", "ñ".repeat(250));
+        let normalized = normalize_audio_text(&raw).expect("texto no vacío");
+        assert!(normalized.starts_with("Voz principal "));
+        assert_eq!(normalized.chars().count(), MAX_AUDIO_TAG_CHARS);
+        assert_eq!(normalize_audio_text(" \n\t "), None);
+    }
+
+    #[test]
+    fn unreadable_audio_tags_do_not_escape_as_errors() {
+        let dir = std::env::temp_dir().join(format!("editor-ia-tags-{}", Uuid::new_v4()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("roto.wav");
+        fs::write(&path, b"not an audio file").unwrap();
+        assert_eq!(read_audio_tags(&path), None);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

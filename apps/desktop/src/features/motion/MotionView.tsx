@@ -6,6 +6,11 @@ import { addMotionGraphic } from '../../state/project-actions';
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LottiePanel } from './LottiePanel';
+import { MotionLibraryPanel } from './library/MotionLibraryPanel';
+import { OverlayLibraryPanel } from './OverlayLibraryPanel';
+import { ParallaxPanel } from './ParallaxPanel';
+import { ThreeScenePanel } from './ThreeScenePanel';
+import { RigPanel } from './RigPanel';
 import { MotionForm } from './MotionForm';
 import { MotionPreview } from './MotionPreview';
 import { buildMotionPlan, MOTION_TEMPLATES } from './plan';
@@ -86,7 +91,7 @@ export function MotionView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
       setProps({ ...template.defaults, ...suggestion.props });
       setPreviewProgress(0.45);
       setAiFeedback(
-        `${suggestion.simulated ? 'Sugerencia simulada' : `Sugerencia de ${suggestion.model}`}. Revisá la preview y pulsá Agregar a la timeline.`,
+        `Sugerencia de ${suggestion.model}. Revisá la preview y pulsá Agregar a la timeline.`,
       );
     } catch (error) {
       setAiError(messageOf(error));
@@ -200,6 +205,16 @@ export function MotionView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
       </div>
 
       <LottiePanel onNavigate={onNavigate} />
+
+      <MotionLibraryPanel onNavigate={onNavigate} />
+
+      <OverlayLibraryPanel />
+
+      <ParallaxPanel onNavigate={onNavigate} />
+
+      <ThreeScenePanel onNavigate={onNavigate} />
+
+      <RigPanel onNavigate={onNavigate} />
 
       <div className="motion-layout">
         <aside className="motion-gallery" aria-label="Plantillas de motion">

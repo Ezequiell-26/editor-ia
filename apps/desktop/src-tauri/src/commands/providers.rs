@@ -3,9 +3,8 @@
 //! The API key lives in the Windows Credential Manager, never in the project,
 //! settings file, logs or a prompt. The model output is treated as untrusted
 //! text: it is parsed into a bounded plan and every scene is validated before
-//! the UI can apply it to the project. `mock` is an explicitly simulated
-//! provider that lets the whole flow run offline without pretending to be a
-//! model.
+//! the UI can apply it to the project. Only a real OpenAI-compatible provider
+//! is accepted; there is no simulated fallback.
 
 use std::time::Duration;
 
@@ -26,6 +25,7 @@ const MAX_SCENES: usize = 30;
 #[serde(rename_all = "camelCase")]
 pub struct ProviderInfo {
     pub kind: String,
+    pub agent_kind: String,
     pub base_url: String,
     pub model: String,
     pub has_key: bool,
@@ -51,7 +51,6 @@ pub struct ScriptPlan {
     pub scenes: Vec<ScriptScene>,
     pub provider_id: String,
     pub model: String,
-    pub simulated: bool,
     pub cost_disclosed: bool,
     pub cost_approved: bool,
 }
@@ -99,6 +98,7 @@ fn keyring_available() -> bool {
 fn provider_info(settings: &ProviderSettings) -> ProviderInfo {
     ProviderInfo {
         kind: settings.kind.clone(),
+        agent_kind: settings.agent_kind.clone(),
         base_url: settings.base_url.clone(),
         model: settings.model.clone(),
         has_key: read_key().is_some(),
@@ -119,23 +119,45 @@ pub async fn save_provider(
     base_url: String,
     model: String,
     api_key: Option<String>,
+    agent_kind: Option<String>,
 ) -> Result<ProviderInfo, ProjectError> {
-    let kind = match kind.as_str() {
-        "mock" => "mock",
-        _ => "openai-compatible",
+    if kind != "openai-compatible" {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "sólo se admite un proveedor OpenAI-compatible; no hay proveedor simulado",
+        ));
+    }
+    let kind = "openai-compatible".to_owned();
+    let requested_agent = agent_kind
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| {
+            state
+                .settings_snapshot()
+                .map(|settings| settings.provider.agent_kind)
+                .unwrap_or_else(|_| "openai-compatible".to_owned())
+        });
+    let agent_kind = match requested_agent.as_str() {
+        "openai-compatible" => "openai-compatible".to_owned(),
+        "anthropic" => "anthropic".to_owned(),
+        "" => "openai-compatible".to_owned(),
+        _ => {
+            return Err(ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "el protocolo del agente debe ser openai-compatible o anthropic",
+            ))
+        }
     };
     let base_url = base_url.trim().to_owned();
     let model = model.trim().to_owned();
-    if kind != "mock" && base_url.is_empty() {
+    if base_url.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            "el proveedor necesita una URL base (por ejemplo http://127.0.0.1:11434/v1)",
+            "el proveedor necesita una URL base (por ejemplo http://127.0.0.1:31415/v1)",
         ));
     }
-    if kind != "mock" {
-        validate_provider_base_url(&base_url)?;
-    }
-    if kind != "mock" && model.is_empty() {
+    validate_provider_base_url(&base_url)?;
+    if model.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
             "el proveedor necesita un nombre de modelo",
@@ -168,6 +190,7 @@ pub async fn save_provider(
             kind: kind.to_owned(),
             base_url,
             model,
+            agent_kind,
         };
         state.save_settings(&settings)?;
         Ok(provider_info(&settings.provider))
@@ -306,7 +329,6 @@ fn plan_from_raw(
     raw: RawPlan,
     provider_id: &str,
     model: &str,
-    simulated: bool,
     approved: bool,
 ) -> ScriptPlan {
     let mut scenes = Vec::new();
@@ -338,77 +360,9 @@ fn plan_from_raw(
         scenes,
         provider_id: provider_id.to_owned(),
         model: model.to_owned(),
-        simulated,
         cost_disclosed: true,
         cost_approved: approved,
     }
-}
-
-fn mock_plan(request: &GenerateRequest, model: &str) -> ScriptPlan {
-    let language = request.language.to_ascii_lowercase();
-    let spanish = !language.starts_with("en");
-    let count = request.scene_count.clamp(1, MAX_SCENES as u32);
-    let brief = request.brief.trim().chars().take(120).collect::<String>();
-    let intents = ["hook", "context", "explainer", "demo", "proof", "cta"];
-    let templates_es = [
-        ("Apertura", "¿Y si pudieras resolver esto en minutos en lugar de horas? Hoy te muestro cómo."),
-        ("Contexto", "El problema no es la falta de ideas: es el tiempo que se va en tareas repetitivas."),
-        ("Cómo funciona", "El flujo es simple: describís el objetivo, revisás el plan y ajustás lo que quieras."),
-        ("Demostración", "Mirá el proceso completo, paso a paso, con el material real sobre la línea de tiempo."),
-        ("Prueba", "El resultado queda como un proyecto editable, con fuentes, escenas y subtítulos verificables."),
-        ("Cierre", "Probá el flujo con tu propio material y contame qué mejorarías."),
-    ];
-    let templates_en = [
-        (
-            "Opening",
-            "What if you could finish this in minutes instead of hours? Here is the workflow.",
-        ),
-        (
-            "Context",
-            "The bottleneck is rarely ideas; it is the repetitive work around them.",
-        ),
-        (
-            "How it works",
-            "Describe the goal, review the plan, and change anything you want.",
-        ),
-        (
-            "Demo",
-            "Watch the whole process with real material on the timeline.",
-        ),
-        (
-            "Proof",
-            "The result is an editable project with sources, scenes and verifiable captions.",
-        ),
-        (
-            "Closing",
-            "Try the workflow with your own material and tell me what to improve.",
-        ),
-    ];
-    let templates = if spanish { templates_es } else { templates_en };
-    let raw = RawPlan {
-        title: Some(if spanish {
-            format!("Guion simulado: {brief}")
-        } else {
-            format!("Simulated script: {brief}")
-        }),
-        scenes: (0..count)
-            .map(|index| {
-                let template = templates[index as usize % templates.len()];
-                RawScene {
-                    title: Some(template.0.to_owned()),
-                    intent: Some(intents[index as usize % intents.len()].to_owned()),
-                    narration: Some(template.1.to_owned()),
-                    visual: Some(if spanish {
-                        "Plano de apoyo con el material del proyecto; reemplazalo por una toma propia.".to_owned()
-                    } else {
-                        "Supporting shot from the project media; replace it with your own footage.".to_owned()
-                    }),
-                    estimated_seconds: Some(8.0),
-                }
-            })
-            .collect(),
-    };
-    plan_from_raw(raw, "mock", model, true, true)
 }
 
 #[tauri::command]
@@ -439,13 +393,10 @@ pub async fn generate_script(
 
     let settings = state.settings_snapshot()?;
     let provider = settings.provider.clone();
-    if provider.kind == "mock" {
-        return Ok(mock_plan(&request, "mock"));
-    }
     if provider.base_url.is_empty() || provider.model.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            "configurá un proveedor en Ajustes o usá el proveedor simulado",
+            "configurá un proveedor real en Ajustes → IA antes de generar",
         ));
     }
     validate_provider_base_url(&provider.base_url)?;
@@ -570,7 +521,6 @@ pub async fn generate_script(
         raw,
         "openai-compatible",
         &provider.model,
-        false,
         request.approved_cost,
     ))
 }
@@ -591,7 +541,6 @@ pub struct EffectRecipe {
     pub effects: Value,
     pub provider_id: String,
     pub model: String,
-    pub simulated: bool,
 }
 
 fn clean_effect(value: &Value) -> Result<Value, String> {
@@ -641,20 +590,10 @@ pub async fn generate_video_effect(
     }
     let settings = state.settings_snapshot()?;
     let provider = settings.provider.clone();
-    if provider.kind == "mock" {
-        return Ok(EffectRecipe {
-            name: "Cine local".to_owned(),
-            description: "Contraste y viñeta calculados sin red.".to_owned(),
-            effects: json!({ "contrast": 1.15, "saturation": 0.92, "vignette": 0.2, "temperature": 0.08 }),
-            provider_id: "mock".to_owned(),
-            model: "mock".to_owned(),
-            simulated: true,
-        });
-    }
     if provider.base_url.is_empty() || provider.model.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            "configurá un proveedor en Ajustes o usá el simulador",
+            "configurá un proveedor real en Ajustes → IA antes de generar el efecto",
         ));
     }
     validate_provider_base_url(&provider.base_url)?;
@@ -754,7 +693,6 @@ pub async fn generate_video_effect(
         effects,
         provider_id: "openai-compatible".to_owned(),
         model: provider.model,
-        simulated: false,
     })
 }
 
@@ -785,7 +723,6 @@ pub struct TranslatedTexts {
     pub texts: Vec<String>,
     pub provider_id: String,
     pub model: String,
-    pub simulated: bool,
 }
 
 fn language_name(code: &str) -> Option<&'static str> {
@@ -912,19 +849,6 @@ fn parse_translations(content: &str, expected: usize) -> Result<Vec<String>, Pro
     Ok(texts)
 }
 
-fn mock_translation(request: &TranslateRequest) -> TranslatedTexts {
-    TranslatedTexts {
-        texts: request
-            .texts
-            .iter()
-            .map(|text| text.trim().to_owned())
-            .collect(),
-        provider_id: "mock".to_owned(),
-        model: "mock".to_owned(),
-        simulated: true,
-    }
-}
-
 #[tauri::command]
 pub async fn translate_subtitles(
     state: State<'_, AppState>,
@@ -933,16 +857,10 @@ pub async fn translate_subtitles(
     let (texts, target) = validate_translation(&request)?;
     let settings = state.settings_snapshot()?;
     let provider = settings.provider.clone();
-    if provider.kind == "mock" {
-        // El proveedor simulado no inventa una traducción: devuelve el texto
-        // original marcado como simulado para que la UI no lo presente como
-        // traducido ni lo exporte como si lo fuera.
-        return Ok(mock_translation(&request));
-    }
     if provider.base_url.is_empty() || provider.model.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            "configurá un proveedor en Ajustes para traducir",
+            "configurá un proveedor real en Ajustes → IA para traducir subtítulos",
         ));
     }
     validate_provider_base_url(&provider.base_url)?;
@@ -1061,7 +979,6 @@ pub async fn translate_subtitles(
         texts: parse_translations(content, texts.len())?,
         provider_id: "openai-compatible".to_owned(),
         model: provider.model.clone(),
-        simulated: false,
     })
 }
 
@@ -1137,7 +1054,7 @@ mod tests {
                 },
             ],
         };
-        let plan = plan_from_raw(raw, "p", "m", false, false);
+        let plan = plan_from_raw(raw, "p", "m", false);
         assert_eq!(plan.title, "Plan");
         assert_eq!(plan.scenes.len(), 2);
         assert_eq!(plan.scenes[0].intent, "explainer");
@@ -1151,15 +1068,6 @@ mod tests {
         assert!(validate_plan(&empty).is_err());
         let no_narration = json!({ "title": "x", "scenes": [{ "title": "a" }] });
         assert!(validate_plan(&no_narration).is_err());
-    }
-
-    #[test]
-    fn mock_plan_is_explicitly_simulated_and_respects_scene_count() {
-        let plan = mock_plan(&request(), "mock");
-        assert!(plan.simulated);
-        assert_eq!(plan.scenes.len(), 3);
-        assert!(plan.title.contains("simulado"));
-        assert!(plan.scenes.iter().all(|scene| !scene.narration.is_empty()));
     }
 
     #[test]
@@ -1220,13 +1128,6 @@ mod tests {
         assert!(parse_translations("sin json", 1).is_err());
     }
 
-    #[test]
-    fn simulated_translation_is_marked_and_does_not_invent_text() {
-        let request = translation(&["Hola", "Mundo"], "en");
-        let result = mock_translation(&request);
-        assert!(result.simulated);
-        assert_eq!(result.texts, vec!["Hola", "Mundo"]);
-    }
 }
 
 #[cfg(test)]

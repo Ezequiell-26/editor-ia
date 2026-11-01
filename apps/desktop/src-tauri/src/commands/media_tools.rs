@@ -242,12 +242,9 @@ pub async fn merge_videos(
     args.push("[outv]".into());
     args.push("-map".into());
     args.push("[outa]".into());
-    args.push("-c:v".into());
-    args.push("libx264".into());
-    args.push("-preset".into());
-    args.push("medium".into());
-    args.push("-crf".into());
-    args.push("20".into());
+    args.extend(crate::render::encoders::software_video_args(
+        "h264", 1920, 1080, 30.0, 20,
+    ));
     args.push("-pix_fmt".into());
     args.push("yuv420p".into());
     args.push("-c:a".into());
@@ -319,11 +316,11 @@ pub async fn trim_video(
         "-i".into(),
         input.to_string_lossy().into_owned(),
         "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "medium".into(),
-        "-crf".into(),
-        "20".into(),
+        "libopenh264".into(),
+        "-rc_mode".into(),
+        "bitrate".into(),
+        "-b:v".into(),
+        "7000000".into(),
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-c:a".into(),
@@ -418,11 +415,11 @@ pub async fn watermark_video(
         "-vf".into(),
         filter,
         "-c:v".into(),
-        "libx264".into(),
-        "-preset".into(),
-        "medium".into(),
-        "-crf".into(),
-        "20".into(),
+        "libopenh264".into(),
+        "-rc_mode".into(),
+        "bitrate".into(),
+        "-b:v".into(),
+        "7000000".into(),
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-c:a".into(),

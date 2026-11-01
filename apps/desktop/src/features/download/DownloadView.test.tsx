@@ -67,7 +67,7 @@ describe('descargador · delogo y Lanczos', () => {
     const look = screen.getByRole('checkbox', { name: /Look cine analógico/i });
     fireEvent.click(look);
 
-    const delogo = screen.getByRole('checkbox', { name: /Quitar logo fijo/i });
+    const delogo = screen.getByRole('checkbox', { name: /Cubrir logo fijo/i });
     const upscale = screen.getByRole('checkbox', { name: /Escalar con Lanczos/i });
     expect(delogo).toBeTruthy();
     expect(upscale).toBeTruthy();
@@ -295,7 +295,6 @@ describe('descargador · delogo y Lanczos', () => {
           texts: request.texts.map((text) => `ES: ${text}`),
           providerId: 'local',
           model: 'test',
-          simulated: false,
         };
       };
       service.creatorBurnSubtitles = async (request) => {
@@ -453,5 +452,50 @@ describe('descargador · plan Free', () => {
       (screen.getByLabelText(/Permitir hasta 512 descargas simultáneas/i) as HTMLInputElement)
         .disabled,
     ).toBe(true);
+  });
+});
+
+describe('descargador · presets guardables', () => {
+  it('guarda la configuración actual y la reaplica en un clic', async () => {
+    renderView();
+    await analyzeSample();
+
+    const compression = screen.getByLabelText(/^Compresión$/i) as HTMLSelectElement;
+    fireEvent.change(compression, { target: { value: 'compact' } });
+    expect(compression.value).toBe('compact');
+
+    fireEvent.change(screen.getByLabelText(/Nombre del preset/i), {
+      target: { value: '  Compacto corto  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar preset/i }));
+
+    const chip = await screen.findByRole('button', { name: /^Compacto corto/ });
+    expect(chip).toBeTruthy();
+    expect(screen.getByText(/Preset “Compacto corto” guardado/i)).toBeTruthy();
+
+    // Cambiar el formulario no toca el preset guardado.
+    fireEvent.change(compression, { target: { value: 'none' } });
+    expect(compression.value).toBe('none');
+
+    fireEvent.click(chip);
+    expect((screen.getByLabelText(/^Compresión$/i) as HTMLSelectElement).value).toBe('compact');
+    expect(screen.getByText(/Preset “Compacto corto” aplicado/i)).toBeTruthy();
+  });
+
+  it('elimina un preset y lo saca de la lista', async () => {
+    renderView();
+    await analyzeSample();
+
+    fireEvent.change(screen.getByLabelText(/Nombre del preset/i), {
+      target: { value: 'Desechable' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar preset/i }));
+    await screen.findByRole('button', { name: /^Desechable/ });
+
+    fireEvent.click(screen.getByRole('button', { name: /Eliminar preset Desechable/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: /^Desechable/ })).toBeNull();
+    });
+    expect(screen.getByText(/Todavía no hay presets guardados/i)).toBeTruthy();
   });
 });

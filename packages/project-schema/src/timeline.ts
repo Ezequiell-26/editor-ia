@@ -63,6 +63,49 @@ export const CubicBezierSchema = z.object({
 
 export type CubicBezier = z.infer<typeof CubicBezierSchema>;
 
+/** Propiedades de efecto que se pueden animar con keyframes. */
+export const EFFECT_KEYFRAME_PROPERTIES = [
+  'brightness',
+  'contrast',
+  'saturation',
+  'temperature',
+  'blur',
+  'hueRotateDeg',
+  'lutIntensity',
+  'glowIntensity',
+  'grain',
+] as const;
+export const EffectKeyframePropertySchema = z.enum(EFFECT_KEYFRAME_PROPERTIES);
+export type EffectKeyframeProperty = z.infer<typeof EffectKeyframePropertySchema>;
+export const MAX_EFFECT_KEYFRAMES = 64;
+
+const EFFECT_VALUE_RANGES: Record<EffectKeyframeProperty, readonly [number, number]> = {
+  brightness: [-1, 1],
+  contrast: [0, 3],
+  saturation: [0, 3],
+  temperature: [-1, 1],
+  blur: [0, 50],
+  hueRotateDeg: [-180, 180],
+  lutIntensity: [0, 1],
+  glowIntensity: [0, 1],
+  grain: [0, 1],
+};
+
+export function effectValueRange(property: EffectKeyframeProperty): readonly [number, number] {
+  return EFFECT_VALUE_RANGES[property];
+}
+
+export const ClipEffectKeyframeSchema = z
+  .object({
+    frame: FrameSchema,
+    property: EffectKeyframePropertySchema,
+    value: z.number().finite(),
+    easing: KeyframeEasingSchema.optional(),
+    bezier: CubicBezierSchema.optional(),
+  })
+  .strict();
+export type ClipEffectKeyframe = z.infer<typeof ClipEffectKeyframeSchema>;
+
 /**
  * Corrección de perspectiva a cuatro puntos. Cada esquina es una coordenada
  * normalizada 0..1 del cuadro de origen, en orden TL, TR, BR, BL; el render
@@ -514,6 +557,8 @@ export const ClipEffectsSchema = z
      */
     denoise: z.number().gte(0).lte(1).optional(),
     blur: z.number().gte(0).lte(50).optional(),
+    /** Grano de película procedural; preview SVG y `noise` en el export. */
+    grain: UnitIntervalSchema.optional(),
     /** Halo alrededor de las zonas claras (estilo MrBeast / glow). */
     glow: z
       .object({
@@ -710,10 +755,30 @@ export const ClipTransitionSchema = z
       'slide-right',
       'slide-up',
       'slide-down',
+      'wipe-left',
+      'wipe-right',
+      'wipe-up',
+      'wipe-down',
+      'iris',
     ]),
     frames: z.number().int().min(1).max(MAX_TRANSITION_FRAMES),
+    /** Curva de velocidad del solape; los fundidos opacos la usan alfa/curvas. */
+    easing: KeyframeEasingSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((transition, ctx) => {
+    if (
+      transition.easing !== undefined &&
+      transition.easing !== 'linear' &&
+      (transition.type === 'fade-black' || transition.type === 'fade-white')
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['easing'],
+        message: 'los fundidos a negro/blanco usan una curva lineal',
+      });
+    }
+  });
 
 /**
  * Entrance or exit animation owned by the clip itself. Unlike a transition,
@@ -841,6 +906,7 @@ const VideoClipSchema = z
     slowMotionSmoothing: z.boolean().optional(),
     reverse: z.boolean().optional(),
     effects: ClipEffectsSchema.optional(),
+    effectKeyframes: z.array(ClipEffectKeyframeSchema).max(MAX_EFFECT_KEYFRAMES).optional(),
     motion: ClipMotionSchema.optional(),
     chromaKey: ChromaKeySchema.optional(),
     mask: ClipMaskSchema.optional(),
@@ -868,6 +934,7 @@ const ImageIconSchema = z
     kind: z.literal('image'),
     source: StillAssetSourceSchema,
     effects: ClipEffectsSchema.optional(),
+    effectKeyframes: z.array(ClipEffectKeyframeSchema).max(MAX_EFFECT_KEYFRAMES).optional(),
     motion: ClipMotionSchema.optional(),
     chromaKey: ChromaKeySchema.optional(),
     mask: ClipMaskSchema.optional(),
@@ -893,6 +960,7 @@ const FreezeClipSchema = z
     kind: z.literal('freeze'),
     source: StillAssetSourceSchema,
     effects: ClipEffectsSchema.optional(),
+    effectKeyframes: z.array(ClipEffectKeyframeSchema).max(MAX_EFFECT_KEYFRAMES).optional(),
     motion: ClipMotionSchema.optional(),
     chromaKey: ChromaKeySchema.optional(),
     mask: ClipMaskSchema.optional(),
@@ -1022,6 +1090,56 @@ export const ClipSchema = z
   ])
   .superRefine((clip, ctx) => {
     checkSpeedConflict(clip, ctx);
+    if (clip.kind === 'video' && clip.speedCurve !== undefined) {
+      // El remap por frame sólo puede garantizar la paridad cuando el clip no
+      // depende de otro reloj (reverse, estabilización, Ken Burns, keyframes de
+      // geometría o el lead de una transición).
+      if (clip.reverse === true) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['reverse'],
+          message: 'speedCurve cannot be combined with reverse',
+        });
+      }
+      if (clip.stabilization !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['stabilization'],
+          message: 'speedCurve cannot be combined with stabilization',
+        });
+      }
+      if (clip.motion !== undefined && Object.keys(clip.motion).length > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['motion'],
+          message: 'speedCurve cannot be combined with Ken Burns motion',
+        });
+      }
+      if ((clip.transform?.keyframes?.length ?? 0) > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['transform', 'keyframes'],
+          message: 'speedCurve cannot be combined with transform keyframes',
+        });
+      }
+      if ((clip.mask?.keyframes?.length ?? 0) > 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['mask', 'keyframes'],
+          message: 'speedCurve cannot be combined with mask keyframes',
+        });
+      }
+      if (
+        clip.transitionIn !== undefined &&
+        Object.keys(clip.transitionIn).length > 0
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['transitionIn'],
+          message: 'speedCurve cannot be combined with an entrance transition',
+        });
+      }
+    }
     if (clip.kind === 'video' || clip.kind === 'audio') {
       const sourceFrames = clip.source.outFrame - clip.source.inFrame;
       if (sourceFrames <= 0) {
@@ -1032,7 +1150,14 @@ export const ClipSchema = z
         });
       } else {
         const speed = clip.speed ?? { num: 1, den: 1 };
-        if (clip.durationFrames * speed.num !== sourceFrames * speed.den) {
+        // Una curva continua no tiene una velocidad constante que divida la
+        // ventana; el renderer normaliza la integral a `sourceFrames`. Los
+        // clips sin curva conservan la igualdad exacta de siempre.
+        const hasCurve = clip.kind === 'video' && clip.speedCurve !== undefined;
+        if (
+          !hasCurve &&
+          clip.durationFrames * speed.num !== sourceFrames * speed.den
+        ) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ['durationFrames'],
@@ -1124,6 +1249,26 @@ export const ClipSchema = z
         }
         previous = keyframe.frame;
       }
+    }
+
+    if ('effectKeyframes' in clip && clip.effectKeyframes !== undefined) {
+      clip.effectKeyframes.forEach((keyframe, index) => {
+        if (keyframe.frame > clip.durationFrames) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['effectKeyframes', index, 'frame'],
+            message: 'an effect keyframe must fall inside the clip',
+          });
+        }
+        const [min, max] = effectValueRange(keyframe.property);
+        if (keyframe.value < min || keyframe.value > max) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['effectKeyframes', index, 'value'],
+            message: `${keyframe.property} must stay between ${min} and ${max}`,
+          });
+        }
+      });
     }
 
     if ('transitionIn' in clip && clip.transitionIn !== undefined) {

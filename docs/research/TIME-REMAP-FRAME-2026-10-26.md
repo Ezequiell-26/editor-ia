@@ -1,5 +1,7 @@
 # Diseño: time-remap por frame (P2)
 
+> **Implementado el 2026-10-29 con correcciones:** la inversa lineal por tramo de este documento no es exacta (σ es cuadrática cuando la velocidad cambia). La implementación usa `g(m) = σ⁻¹(m)` por bisección, un `setpts` por frame de origen y `fps=…:round=near`; la tabla canónica vive en `apps/desktop/src/state/time-remap.ts` y `apps/desktop/src-tauri/src/render/time_remap.rs`, con el fixture `packages/project-schema/fixtures/time-remap.fixture.json`. Medición real: 89/100 frames exactos y 11 con ±1 frame en los bordes. El resto del documento se conserva como investigación original.
+
 **Estado**: propuesta (2026-10-26). Documento de investigación, cero código.
 **Base real**: todo lo que sigue fue verificado leyendo `packages/project-schema/src/timeline.ts`,
 `apps/desktop/src/state/` (`project-actions.ts`, `speed-ramp-presets.ts`),

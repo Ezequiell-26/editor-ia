@@ -1012,7 +1012,8 @@ de este pase en [`REA-APP-ANALYSIS-2026-10-20.md`](REA-APP-ANALYSIS-2026-10-20.m
   `blend=all_mode=normal:all_opacity=1-intensity`. La máscara y la opacidad del
   clip quedan fuera de la mezcla. Se aplica por clip, en capas de ajuste con
   `enable='between(t,…)'` y en el look global. La UI agrega **Intensidad LUT
-  (%)** al cargar el `.cube`; la preview no simula el LUT.
+  (%)** al cargar el `.cube`; la preview lo aplica con WebGL2 desde 2026-10-30
+  (el alfa VP9 se conserva; los gráficos del look global quedan sin LUT en vivo).
 - `scopes.ts`: cálculo puro de histogramas RGB/luma, waveform de 96×64 y
   vectorscopio de 64×64 a partir de RGBA, con submuestreo hasta 40 000 muestras.
   `ScopesPanel.tsx` muestrea el `.preview-media` superior cada ~180 ms, aplica

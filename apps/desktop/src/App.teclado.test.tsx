@@ -13,6 +13,10 @@ import {
 
 const NOW = '2026-10-20T00:00:00.000Z';
 
+// La suite completa corre en paralelo y este archivo monta la app entera con
+// el chunk lazy de la timeline. Se le da margen sin relajar ninguna aserción.
+vi.setConfig({ testTimeout: 20_000 });
+
 /**
  * Fase 2 de accesibilidad, extremo a extremo sobre la app real:
  *  - Space sobre un control enfocado activa el control y no la reproducción;
@@ -59,7 +63,11 @@ async function abrirEditor(): Promise<void> {
       // Los clips viven en el chunk lazy de la timeline.
       expect(document.querySelector('.timeline-surface')).toBeTruthy();
     },
-    { timeout: 5000 },
+    { timeout: 10_000 },
+  );
+  await waitFor(
+    () => expect(screen.getByRole('button', { name: /Reproducir|Pausar/ })).toBeTruthy(),
+    { timeout: 10_000 },
   );
 }
 
@@ -118,6 +126,10 @@ describe('teclado de la timeline sobre la app', () => {
   it('Space con el foco fuera de los controles reproduce y pausa', async () => {
     renderEditorConClip();
     await abrirEditor();
+    // El foco debe estar fuera de un control para que el atajo global actúe;
+    // se fija en body para no depender de qué botón quedó enfocado al navegar.
+    (document.activeElement as HTMLElement | null)?.blur();
+    document.body.focus();
     fireEvent.keyDown(window, { key: ' ' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Pausar' })).toBeTruthy());
     fireEvent.keyDown(window, { key: ' ' });

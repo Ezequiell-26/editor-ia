@@ -120,6 +120,11 @@ const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'slide-right', label: 'Deslizar Der.', description: 'Empuje lateral hacia la derecha', iconSymbol: '▶' },
   { id: 'slide-up', label: 'Deslizar Arriba', description: 'El clip sube desde abajo', iconSymbol: '▲' },
   { id: 'slide-down', label: 'Deslizar Abajo', description: 'El clip baja desde arriba', iconSymbol: '▼' },
+  { id: 'wipe-left', label: 'Barrido Izq.', description: 'La imagen se revela desde la izquierda', iconSymbol: '▤' },
+  { id: 'wipe-right', label: 'Barrido Der.', description: 'La imagen se revela desde la derecha', iconSymbol: '▥' },
+  { id: 'wipe-up', label: 'Barrido Arriba', description: 'La imagen sube y se revela', iconSymbol: '▨' },
+  { id: 'wipe-down', label: 'Barrido Abajo', description: 'La imagen baja y se revela', iconSymbol: '▧' },
+  { id: 'iris', label: 'Iris', description: 'Círculo creciente desde el centro', iconSymbol: '◉' },
 ];
 
 function kindLabel(kind: Asset['kind']): string {
@@ -534,8 +539,32 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             type="button"
             role="tab"
             aria-selected={view === item.id}
+            tabIndex={view === item.id ? 0 : -1}
             className={view === item.id ? 'active' : ''}
             onClick={() => setView(item.id)}
+            onKeyDown={(event) => {
+              const keys = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
+              if (!keys.includes(event.key)) return;
+              event.preventDefault();
+              const tabs = Array.from(
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                  '[role="tab"]',
+                ) ?? [],
+              );
+              const index = tabs.indexOf(event.currentTarget);
+              if (index < 0) return;
+              const next =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? tabs.length - 1
+                    : event.key === 'ArrowLeft'
+                      ? (index - 1 + tabs.length) % tabs.length
+                      : (index + 1) % tabs.length;
+              tabs[next]?.focus();
+              const target = RAIL_VIEWS[next];
+              if (target) setView(target.id);
+            }}
             title={item.label}
           >
             <Icon name={item.icon} size={15} />
@@ -673,10 +702,13 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     type="button"
                     className="small ghost"
                     onClick={() => {
-                      store.setNotice(`Efecto ${sfx.label}: agregalo o grabalo en tu carpeta de audios.`);
+                      store.setNotice(
+                        `Importá un SFX para “${sfx.label}” desde Medios; esta lista es una referencia.`,
+                      );
+                      onNavigate('assets');
                     }}
                   >
-                    + Agregar
+                    Buscar en Medios
                   </button>
                 </div>
               ))}
@@ -830,7 +862,15 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 key={preset.id}
                 type="button"
                 className="preset-card"
-                disabled={!selectedClip}
+                aria-disabled={!selectedClip}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(
+                    'application/x-olyvia-effect-settings',
+                    JSON.stringify(preset.settings),
+                  );
+                  event.dataTransfer.effectAllowed = 'copy';
+                }}
                 onClick={() => applyEffect(preset)}
               >
                 <span className="preset-icon">
@@ -863,7 +903,15 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
           </div>
           <div className="transition-grid">
             {TRANSITION_PRESETS.map((transition) => (
-              <div key={transition.id} className="transition-card">
+              <div
+                key={transition.id}
+                className="transition-card"
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData('application/x-olyvia-transition', transition.id);
+                  event.dataTransfer.effectAllowed = 'copy';
+                }}
+              >
                 <div className="transition-icon-wrap" aria-hidden="true">
                   <span className="transition-symbol">{transition.iconSymbol}</span>
                 </div>

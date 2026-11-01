@@ -15,6 +15,7 @@ import {
   newId,
 } from '../../state/project-actions';
 import { createFakeService } from '../../test/fake-service';
+import { RenderQueueProvider } from '../render/RenderQueueProvider';
 
 const NOW = '2026-10-19T00:00:00.000Z';
 
@@ -73,7 +74,37 @@ function renderView(project = projectWithScenes()) {
   return { service, onNavigate };
 }
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
+
+function renderWithQueue(project = projectWithScenes()) {
+  const service = createFakeService();
+  window.localStorage.setItem(
+    'olyvia.render.queue.v1',
+    JSON.stringify({ version: 1, paused: true, items: [] }),
+  );
+  render(
+    <ProjectProvider
+      service={service}
+      initial={{
+        project,
+        opened: {
+          project,
+          label: 'produccion.editoria.json',
+          path: 'C:\\tester\\produccion.editoria.json',
+          root: 'C:\\tester',
+        },
+      }}
+    >
+      <RenderQueueProvider>
+        <ProductionView onNavigate={vi.fn()} />
+      </RenderQueueProvider>
+    </ProjectProvider>,
+  );
+  return service;
+}
 
 describe('ProductionView · video automático', () => {
   it('muestra los pasos y exige confirmar la voz antes de generar', async () => {
@@ -87,7 +118,8 @@ describe('ProductionView · video automático', () => {
     await waitFor(() => expect((generate as HTMLButtonElement).disabled).toBe(true));
     expect(screen.getByText(/Confirmá los derechos de la voz/i)).toBeTruthy();
     expect(screen.getByLabelText(/Movimiento de las fotos/i)).toBeTruthy();
-    expect(screen.getByLabelText(/Transición entre fotos/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Duración base de transición/i)).toBeTruthy();
+    expect(screen.getByLabelText(/Ritmo del montaje/i)).toBeTruthy();
   });
 
   it('sintetiza la voz por escena y arma la timeline con subtítulos', async () => {
@@ -117,5 +149,29 @@ describe('ProductionView · video automático', () => {
     await waitFor(() => expect(screen.getAllByText(/Timeline generada/i).length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole('button', { name: /Abrir editor y revisar/i }));
     expect(onNavigate).toHaveBeenCalledWith('editor');
+  });
+
+  it('fija el motor del router desde la lista de escenas', async () => {
+    renderView();
+    const select = screen.getByLabelText('Motor de El faro') as HTMLSelectElement;
+    expect(select.value).toBe('');
+    fireEvent.change(select, { target: { value: 'ken-burns' } });
+    await waitFor(() =>
+      expect((screen.getByLabelText('Motor de El faro') as HTMLSelectElement).value).toBe(
+        'ken-burns',
+      ),
+    );
+  });
+
+  it('encola y cancela escenas desde la cola de render', async () => {
+    renderWithQueue();
+    expect(screen.getByText(/Escenas en segundo plano/i)).toBeTruthy();
+    expect(screen.getByText(/Pausada/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Encolar todas las escenas/i }));
+    await waitFor(() => expect(screen.getAllByText('El faro').length).toBeGreaterThan(0));
+    expect(screen.getAllByText('La calma').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/queued/i).length).toBe(2);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Cancelar$/i })[0]!);
+    await waitFor(() => expect(screen.getAllByText(/cancelled/i).length).toBeGreaterThan(0));
   });
 });

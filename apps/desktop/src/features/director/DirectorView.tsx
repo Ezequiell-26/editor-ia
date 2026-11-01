@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
+import { openSettingsAt } from '../../app/settings-target';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import type {
@@ -88,7 +89,10 @@ export function DirectorView({ onNavigate }: { readonly onNavigate: (id: ViewId)
       <ProLock
         feature="Director IA"
         description="El análisis automático de cortes, silencios, encuadre y variantes para redes forma parte de Pro."
-        onOpenSettings={() => onNavigate('settings')}
+        onOpenSettings={() => {
+          openSettingsAt('licencia');
+          onNavigate('settings');
+        }}
       />
     );
   }
@@ -936,7 +940,11 @@ function DirectorWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =
                   <button
                     type="button"
                     className="small primary"
-                    onClick={() => void store.service.revealOutput(shortResult.path)}
+                    onClick={() =>
+                      void store.service
+                        .revealOutput(shortResult.path)
+                        .catch(() => store.setNotice('No se pudo abrir la carpeta de salida.'))
+                    }
                   >
                     Mostrar en carpeta
                   </button>

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Asset } from '@editor-ia/project-schema';
 import {
   MAX_ASSET_BIN_LENGTH,
@@ -8,6 +9,7 @@ import {
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
+import { buildAssetLicenseReport } from './license-report';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { useFileDrop } from '../../hooks/useFileDrop';
 import { assetBins, filterAssets, type AssetKindFilter } from '../../state/asset-organization';
@@ -36,6 +38,8 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { buildStoryboard } from '../../state/storyboard';
+import { formatBytes } from '../../lib/format';
+import { assetGridColumns, chunkIntoRows } from './asset-grid';
 
 interface AssetsPanelProps {
   readonly onNavigate: (id: ViewId) => void;
@@ -202,7 +206,7 @@ function AssetCard({
         </p>
         <p className="asset-meta">
           Licencia: {asset.rights.license.id} · {asset.rights.license.commercialUse} ·{' '}
-          {asset.integrity ? `${Math.round(asset.integrity.bytes / 1024)} KB` : 'sin hash'}
+          {asset.integrity ? formatBytes(asset.integrity.bytes) : 'sin hash'}
         </p>
         <p className="asset-meta">
           Bin: {asset.bin ?? 'Sin bin'}{' '}
@@ -360,6 +364,16 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [smartBins, setSmartBins] = useState<SmartBin[]>([]);
   const [activeBinId, setActiveBinId] = useState<string | null>(null);
+  const viewRef = useRef<HTMLElement | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const [gridWidth, setGridWidth] = useState(0);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  const [scrollElement, setScrollElement] = useState<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.localStorage) return;
+    setSmartBins(loadCustomSmartBins(window.localStorage));
+  }, []);
 
   const pendingProxies = (project?.assets ?? []).filter(
     (asset) =>
@@ -367,6 +381,16 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
       asset.status === 'ready' &&
       !(('proxy' in asset) && (asset as { proxy?: unknown }).proxy),
   );
+
+  async function copyLicenseReport(): Promise<void> {
+    if (!project) return;
+    try {
+      await navigator.clipboard.writeText(buildAssetLicenseReport(project));
+      store.setNotice(`Inventario de ${project.assets.length} medio(s) copiado.`);
+    } catch {
+      store.setNotice('No se pudo copiar el inventario de licencias.');
+    }
+  }
 
   async function createProxies(): Promise<void> {
     if (!project || pendingProxies.length === 0) return;
@@ -456,6 +480,94 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
 
   const fileDrop = useFileDrop((paths) => importDropped(paths));
 
+  const projectAssets = project?.assets ?? [];
+  // Un smart bin activo reemplaza los filtros manuales: la regla ya trae el
+  // tipo, el estado y los favoritos. La búsqueda de texto sigue aplicando.
+  const activeBin =
+    [...BUILTIN_SMART_BINS, ...smartBins].find((bin) => bin.id === activeBinId) ?? null;
+  const visibleAssets = filterAssets(filterBySmartBin(projectAssets, activeBin), {
+    query: assetQuery,
+    kind: activeBin ? 'all' : assetFilter,
+    bin: activeBin ? null : assetBin === 'all' ? null : assetBin,
+    favoritesOnly: activeBin ? false : favoritesOnly,
+  });
+  const columns = assetGridColumns(gridWidth || 1200);
+  const rows = useMemo(() => chunkIntoRows(visibleAssets, columns), [visibleAssets, columns]);
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scrollElement,
+    estimateSize: () => 200,
+    // Con una columna cada fila monta una sola tarjeta; un overscan algo mayor
+    // amortigua el recambio de miniaturas en ventanas angostas.
+    overscan: 3,
+    initialRect: { width: 1200, height: 800 },
+    scrollMargin,
+    // El scroll escribe posiciones en el DOM sin re-renderizar React en cada
+    // frame; las filas ya son absolutas y el contenedor recibe containerRef.
+    directDomUpdates: true,
+    useFlushSync: false,
+  });
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    const grid = gridRef.current;
+    if (!view || !grid) return;
+    // Sin layout (tests/jsdom o pestaña oculta) el virtualizador usa
+    // `initialRect`; al tener altura real se engancha al scroll de la vista.
+    setScrollElement((previous) => {
+      const next = view.clientHeight > 0 ? view : null;
+      return previous === next ? previous : next;
+    });
+    const width = grid.clientWidth || 1200;
+    const margin = Math.max(
+      0,
+      Math.round(grid.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop),
+    );
+    setGridWidth((previous) => (Math.abs(previous - width) > 1 ? width : previous));
+    setScrollMargin((previous) => (Math.abs(previous - margin) > 1 ? margin : previous));
+  });
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || typeof ResizeObserver === 'undefined') return;
+    const measure = (): void => {
+      const grid = gridRef.current;
+      if (!grid) return;
+      setScrollElement((previous) => {
+        const next = view.clientHeight > 0 ? view : null;
+        return previous === next ? previous : next;
+      });
+      const width = grid.clientWidth || 1200;
+      const margin = Math.max(
+        0,
+        Math.round(
+          grid.getBoundingClientRect().top - view.getBoundingClientRect().top + view.scrollTop,
+        ),
+      );
+      setGridWidth((previous) => (Math.abs(previous - width) > 1 ? width : previous));
+      setScrollMargin((previous) => (Math.abs(previous - margin) > 1 ? margin : previous));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(view);
+    if (gridRef.current) observer.observe(gridRef.current);
+    return () => observer.disconnect();
+  }, [visibleAssets.length > 0]);
+
+  useEffect(() => {
+    virtualizer.measure();
+  }, [virtualizer, columns, visibleAssets.length]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    if (typeof view.scrollTo === 'function') {
+      view.scrollTo({ top: 0 });
+    } else {
+      view.scrollTop = 0;
+    }
+  }, [assetQuery, assetFilter, assetBin, favoritesOnly, activeBinId]);
+
   if (!project) {
     return (
       <section className="view">
@@ -472,20 +584,6 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const root = store.state.opened?.root ?? '';
   const fps = fpsOf(project);
   const bins = assetBins(project.assets);
-  // Un smart bin activo reemplaza los filtros manuales: la regla ya trae el
-  // tipo, el estado y los favoritos. La búsqueda de texto sigue aplicando.
-  const activeBin = [...BUILTIN_SMART_BINS, ...smartBins].find((bin) => bin.id === activeBinId) ?? null;
-  const visibleAssets = filterAssets(filterBySmartBin(project.assets, activeBin), {
-    query: assetQuery,
-    kind: activeBin ? 'all' : assetFilter,
-    bin: activeBin ? null : assetBin === 'all' ? null : assetBin,
-    favoritesOnly: activeBin ? false : favoritesOnly,
-  });
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    setSmartBins(loadCustomSmartBins(window.localStorage));
-  }, []);
 
   function saveCurrentAsSmartBin(): void {
     const name =
@@ -668,7 +766,7 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   }
 
   return (
-    <section className="view assets-view" data-dropping={fileDrop.hovering ? 'true' : undefined}>
+    <section ref={viewRef} className="view assets-view" data-dropping={fileDrop.hovering ? 'true' : undefined}>
       {fileDrop.hovering ? (
         <div className="drop-overlay" role="status">
           <Icon name="plus" size={22} />
@@ -685,6 +783,15 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
         label="Medios"
         actions={
           <>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => void copyLicenseReport()}
+              title="Copia un inventario Markdown con origen, licencia, uso comercial y atribución de cada medio"
+            >
+              <Icon name="shield" size={14} />
+              <span>Inventario</span>
+            </button>
             <button
               type="button"
               className="ghost icon-text"
@@ -903,10 +1010,31 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
             : 'Ningún medio coincide con la búsqueda o el filtro.'}
         </p>
       ) : (
-        <div className="asset-grid">
-          {visibleAssets.map((asset) => (
-            <AssetCard key={asset.id} asset={asset} root={root} onUse={useAsset} />
-          ))}
+        <div
+          ref={(node) => {
+            gridRef.current = node;
+            virtualizer.containerRef(node);
+          }}
+          className="asset-grid asset-grid-virtual"
+        >
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const rowAssets = rows[virtualRow.index] ?? [];
+            return (
+              <div
+                key={virtualRow.key}
+                ref={virtualizer.measureElement}
+                data-index={virtualRow.index}
+                className="asset-grid-row"
+                style={{
+                  gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                }}
+              >
+                {rowAssets.map((asset) => (
+                  <AssetCard key={asset.id} asset={asset} root={root} onUse={useAsset} />
+                ))}
+              </div>
+            );
+          })}
         </div>
       )}
 

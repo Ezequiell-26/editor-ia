@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Motion blur harness</title>
+    <style>
+      body { background: #111; color: #ddd; font: 13px monospace; margin: 16px; }
+      .stage { position: relative; width: 320px; height: 180px; overflow: hidden; border: 1px solid #444; }
+      .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      #motion-status, #motion-probe { margin: 10px 0; padding: 8px; background: #1c1c1c; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="motion-status">waiting</div>
+    <div id="motion-probe"></div>
+    <div class="stage" id="app"></div>
+    <script type="module" src="/e2e/lut-harness/motion.tsx"></script>
+  </body>
+</html>

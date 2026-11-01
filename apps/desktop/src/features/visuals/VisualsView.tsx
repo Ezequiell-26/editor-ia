@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { Clip, ClipEffects, ClipTransition } from '@editor-ia/project-schema';
+import type { Clip, ClipEffectKeyframe, ClipEffects, ClipTransition } from '@editor-ia/project-schema';
+import { ClipEffectsSchema } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
@@ -8,7 +9,15 @@ import type {
   VisualCatalog,
   VisualPresetSpec,
 } from '../../services/project-service';
-import { updateClip } from '../../state/project-actions';
+import { addAdjustmentLayer, updateClip } from '../../state/project-actions';
+import { EffectBrowser } from '../effects/EffectBrowser';
+import { applyEffectValues, defaultValues, type EffectValues } from '../effects/apply';
+import {
+  buildEffectRegistry,
+  buildTransitionRegistry,
+  effectLabelForKey,
+  type RegisteredEffect,
+} from '../effects/registry';
 import { useProjectStore } from '../../state/project-store';
 import {
   FALLBACK_VISUAL_CATALOG,
@@ -70,10 +79,14 @@ export function VisualsView({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [transitionType, setTransitionType] = useState('dissolve');
   const [transitionFrames, setTransitionFrames] = useState(12);
+  const [transitionEasing, setTransitionEasing] = useState<ClipTransition['easing']>('linear');
   const [quick, setQuick] = useState<QuickValues>(QUICK_DEFAULTS);
   const [audit, setAudit] = useState<VisualAudit | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copiedEffects, setCopiedEffects] = useState<ClipEffects | null>(null);
+  const registry = useMemo(() => buildEffectRegistry(catalog), [catalog]);
+  const transitionRegistry = useMemo(() => buildTransitionRegistry(catalog), [catalog]);
 
   useEffect(() => {
     let active = true;
@@ -115,7 +128,7 @@ export function VisualsView({
 
   const selectedClips = clips.filter((clip) => selectedIds.includes(clip.id));
   const primary = selectedClips[0] ?? null;
-  const transitionSpec = catalog.transitions.find((item) => item.id === transitionType);
+  const transitionSpec = transitionRegistry.find((item) => item.id === transitionType);
   const availableEffects = catalog.effects.filter((effect) => effect.available);
 
   function toggleClip(id: string): void {
@@ -141,6 +154,179 @@ export function VisualsView({
           });
         }, current),
       { notice: `Preset ${preset.label} aplicado a ${selectedClips.length} clip(s).` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function dropEffect(clipId: string, event: React.DragEvent<HTMLElement>): void {
+    event.preventDefault();
+    const effect = registry.find(
+      (item) => item.id === event.dataTransfer.getData('application/x-olyvia-effect'),
+    );
+    const target = project?.timeline.clips.find((clip) => clip.id === clipId);
+    if (!effect || !target) return;
+    if (!(effect.clipKinds as readonly string[]).includes(target.kind)) {
+      setError('Ese efecto no se aplica a este tipo de clip.');
+      return;
+    }
+    setError(null);
+    const ok = store.update(
+      (current) =>
+        updateClip(current, clipId, {
+          effects: applyEffectValues(effectsOf(target), effect, defaultValues(effect)),
+        }),
+      { notice: `${effect.label} aplicado por arrastre a ${clipLabel(target)}.` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function selectTrack(trackId: string): void {
+    setSelectedIds(clips.filter((clip) => clip.trackId === trackId).map((clip) => clip.id));
+    setAudit(null);
+  }
+
+  function applyRegisteredEffect(effect: RegisteredEffect, values: EffectValues): void {
+    if (!project || selectedClips.length === 0) {
+      setError('Elegí al menos un clip visual.');
+      return;
+    }
+    setError(null);
+    const ok = store.update(
+      (current) =>
+        selectedIds.reduce((next, id) => {
+          const clip = next.timeline.clips.find((item) => item.id === id);
+          if (!clip) return next;
+          if (!(effect.clipKinds as readonly string[]).includes(clip.kind)) return next;
+          return updateClip(next, id, {
+            effects: applyEffectValues(effectsOf(clip), effect, values),
+          });
+        }, current),
+      { notice: `${effect.label} aplicado a ${selectedClips.length} clip(s).` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function removeEffect(key: string): void {
+    if (!project || selectedClips.length === 0) return;
+    const label = effectLabelForKey(registry, key);
+    const ok = store.update(
+      (current) =>
+        selectedIds.reduce((next, id) => {
+          const clip = next.timeline.clips.find((item) => item.id === id);
+          if (!clip || !('effects' in clip) || !clip.effects) return next;
+          const remaining = { ...clip.effects } as Record<string, unknown>;
+          delete remaining[key];
+          const parsed = ClipEffectsSchema.safeParse(remaining);
+          return updateClip(next, id, {
+            effects: parsed.success ? parsed.data : (remaining as ClipEffects),
+          });
+        }, current),
+      { notice: `${label} quitado de ${selectedClips.length} clip(s).` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function applyEffectToTrack(effect: RegisteredEffect, values: EffectValues): void {
+    if (!project || selectedClips.length === 0) {
+      setError('Elegí al menos un clip visual para aplicar a la pista.');
+      return;
+    }
+    setError(null);
+    const start = Math.min(...selectedClips.map((clip) => clip.startFrame));
+    const end = Math.max(
+      ...selectedClips.map((clip) => clip.startFrame + clip.durationFrames),
+    );
+    const ok = store.update(
+      (current) => {
+        const added = addAdjustmentLayer(current, start, {
+          durationFrames: Math.max(1, end - start),
+        });
+        return updateClip(added.project, added.clipId, {
+          effects: applyEffectValues(undefined, effect, values),
+        });
+      },
+      { notice: `${effect.label} aplicado a la pista con una capa de ajuste.` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function applyUserPreset(name: string, effects: ClipEffects): void {
+    if (!project || selectedClips.length === 0) {
+      setError('Elegí al menos un clip visual para aplicar el preset.');
+      return;
+    }
+    setError(null);
+    const ok = store.update(
+      (current) =>
+        selectedIds.reduce((next, id) => {
+          const clip = next.timeline.clips.find((item) => item.id === id);
+          if (!clip) return next;
+          if (!['video', 'image', 'freeze'].includes(clip.kind)) return next;
+          const merged = { ...(effectsOf(clip) ?? {}), ...effects } as ClipEffects;
+          const parsed = ClipEffectsSchema.safeParse(merged);
+          return updateClip(next, id, { effects: parsed.success ? parsed.data : merged });
+        }, current),
+      { notice: `Preset ${name} aplicado a ${selectedClips.length} clip(s).` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function updateEffectKeyframes(keyframes: ClipEffectKeyframe[]): void {
+    if (!primary) return;
+    const ok = store.update(
+      (current) => updateClip(current, primary.id, { effectKeyframes: keyframes }),
+      { notice: 'Keyframes de efecto actualizados.' },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function copyEffects(): void {
+    const effects = primary ? effectsOf(primary) : undefined;
+    if (!effects || Object.keys(effects).length === 0) {
+      setError('El clip principal no tiene efectos para copiar.');
+      return;
+    }
+    setError(null);
+    setCopiedEffects(JSON.parse(JSON.stringify(effects)) as ClipEffects);
+    store.setNotice(`Efectos de ${clipLabel(primary!)} copiados.`);
+  }
+
+  function pasteEffects(): void {
+    if (!copiedEffects || selectedClips.length === 0) {
+      setError('Copiá efectos y elegí al menos un clip visual.');
+      return;
+    }
+    setError(null);
+    const copied = JSON.parse(JSON.stringify(copiedEffects)) as ClipEffects;
+    const ok = store.update(
+      (current) =>
+        selectedIds.reduce((next, id) => {
+          const clip = next.timeline.clips.find((item) => item.id === id);
+          if (!clip) return next;
+          if (!['video', 'image', 'freeze'].includes(clip.kind)) return next;
+          const merged = { ...(effectsOf(clip) ?? {}), ...copied } as ClipEffects;
+          const parsed = ClipEffectsSchema.safeParse(merged);
+          return updateClip(next, id, { effects: parsed.success ? parsed.data : merged });
+        }, current),
+      { notice: `Efectos pegados en ${selectedClips.length} clip(s).` },
+    );
+    if (ok) setAudit(null);
+  }
+
+  function clearEffects(): void {
+    if (selectedClips.length === 0) {
+      setError('Elegí al menos un clip visual.');
+      return;
+    }
+    setError(null);
+    const ok = store.update(
+      (current) =>
+        selectedIds.reduce((next, id) => {
+          const clip = next.timeline.clips.find((item) => item.id === id);
+          if (!clip || !('effects' in clip)) return next;
+          return updateClip(next, id, { effects: {} });
+        }, current),
+      { notice: `Efectos quitados de ${selectedClips.length} clip(s).` },
     );
     if (ok) setAudit(null);
   }
@@ -181,7 +367,13 @@ export function VisualsView({
           const frames = safeTransitionFrames(transitionFrames, clip);
           if (frames !== transitionFrames) clamped += 1;
           return updateClip(next, id, {
-            transitionIn: { type, frames },
+            transitionIn: {
+              type,
+              frames,
+              ...(transitionEasing && transitionEasing !== 'linear'
+                ? { easing: transitionEasing }
+                : {}),
+            },
           });
         }, current),
       {
@@ -321,6 +513,24 @@ export function VisualsView({
             {measured ? ' · catálogo medido' : ' · catálogo local'}
           </span>
         </div>
+        <div className="visuals-tracks" role="group" aria-label="Seleccionar por pista">
+          {[...new Set(clips.map((clip) => clip.trackId))].map((trackId) => {
+            const sample = clips.find((clip) => clip.trackId === trackId);
+            if (!sample) return null;
+            const label = trackLabel(project, sample);
+            return (
+              <button
+                key={trackId}
+                type="button"
+                className="chip"
+                aria-label={`Seleccionar pista ${label}`}
+                onClick={() => selectTrack(trackId)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
         {clips.length === 0 ? (
           <p className="fine-print">
             La timeline no tiene clips visuales. Importá video o imágenes en Medios.
@@ -332,7 +542,10 @@ export function VisualsView({
               return (
                 <label
                   key={clip.id}
+                  data-clip-id={clip.id}
                   className={`visuals-clip${selectedIds.includes(clip.id) ? ' active' : ''}`}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => dropEffect(clip.id, event)}
                 >
                   <input
                     type="checkbox"
@@ -360,6 +573,83 @@ export function VisualsView({
 
       <div className="visuals-layout">
         <div className="visuals-main">
+          <EffectBrowser
+            catalog={catalog}
+            disabled={selectedClips.length === 0}
+            currentEffects={primary ? effectsOf(primary) : undefined}
+            currentClip={primary ?? undefined}
+            playheadFrame={store.state.playheadFrame}
+            onApply={applyRegisteredEffect}
+            onKeyframes={updateEffectKeyframes}
+            onApplyPreset={applyUserPreset}
+            onApplyToTrack={applyEffectToTrack}
+          />
+
+          <section className="card visuals-card effect-clipboard">
+            <div className="visuals-card-head">
+              <div>
+                <p className="eyebrow">Portapapeles</p>
+                <h3>Copiar y pegar efectos</h3>
+              </div>
+              <span className="fine-print">
+                {primary
+                  ? `${Object.keys(effectsOf(primary) ?? {}).length} efecto(s) en ${clipLabel(primary)}`
+                  : 'Sin clip principal'}
+              </span>
+            </div>
+            <div className="actions compact">
+              <button
+                type="button"
+                className="ghost"
+                onClick={copyEffects}
+                disabled={!primary || Object.keys(effectsOf(primary) ?? {}).length === 0}
+              >
+                Copiar efectos
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={pasteEffects}
+                disabled={!copiedEffects || selectedClips.length === 0}
+              >
+                Pegar efectos
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                onClick={clearEffects}
+                disabled={selectedClips.length === 0}
+              >
+                Quitar efectos
+              </button>
+            </div>
+            {primary && Object.keys(effectsOf(primary) ?? {}).length > 0 ? (
+              <div className="effect-active-list">
+                {Object.keys(effectsOf(primary) ?? {}).map((key) => {
+                  const label = effectLabelForKey(registry, key);
+                  return (
+                    <div className="effect-active-row" key={key}>
+                      <span>{label}</span>
+                      <button
+                        type="button"
+                        className="ghost"
+                        aria-label={`Quitar ${label}`}
+                        onClick={() => removeEffect(key)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+            {copiedEffects ? (
+              <p className="fine-print">
+                {Object.keys(copiedEffects).length} efecto(s) en el portapapeles.
+              </p>
+            ) : null}
+          </section>
+
           <section className="card visuals-card">
             <div className="visuals-card-head">
               <div>
@@ -480,15 +770,19 @@ export function VisualsView({
               <label className="field">
                 <span>Tipo</span>
                 <select
+                  aria-label="Tipo de transición"
                   value={transitionType}
                   onChange={(event) => {
                     const id = event.target.value;
                     setTransitionType(id);
-                    const spec = catalog.transitions.find((item) => item.id === id);
+                    if (id === 'fade-black' || id === 'fade-white') {
+                      setTransitionEasing('linear');
+                    }
+                    const spec = transitionRegistry.find((item) => item.id === id);
                     if (spec) setTransitionFrames(spec.defaultFrames);
                   }}
                 >
-                  {catalog.transitions.map((item) => (
+                  {transitionRegistry.map((item) => (
                     <option key={item.id} value={item.id} disabled={!item.available}>
                       {item.label}
                     </option>
@@ -508,6 +802,25 @@ export function VisualsView({
                     )
                   }
                 />
+              </label>
+              <label className="field">
+                <span>Curva</span>
+                <select
+                  aria-label="Curva de transición"
+                  value={transitionEasing ?? 'linear'}
+                  disabled={
+                    transitionType === 'fade-black' || transitionType === 'fade-white'
+                  }
+                  onChange={(event) =>
+                    setTransitionEasing(event.target.value as ClipTransition['easing'])
+                  }
+                >
+                  <option value="linear">Lineal</option>
+                  <option value="ease-in">Ease in</option>
+                  <option value="ease-out">Ease out</option>
+                  <option value="ease-in-out">Ease in out</option>
+                  <option value="hold">Hold</option>
+                </select>
               </label>
               <button
                 type="button"

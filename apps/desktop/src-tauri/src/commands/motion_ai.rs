@@ -32,7 +32,6 @@ pub struct MotionSuggestion {
     pub props: Value,
     pub provider_id: String,
     pub model: String,
-    pub simulated: bool,
 }
 
 fn motion_template(template_id: &str) -> Option<&'static str> {
@@ -150,47 +149,6 @@ fn clean_motion_props(template_id: &str, value: &Value) -> Result<Value, String>
     }
 }
 
-fn mock_motion(template_id: &str, brief: &str) -> MotionSuggestion {
-    let text: String = brief.trim().chars().take(60).collect();
-    let props = match template_id {
-        "lower-third" => json!({
-            "name": text,
-            "role": "Editor IA",
-            "accent": "#7dd3c0",
-            "side": "left",
-            "animation": "slide-left"
-        }),
-        "end-card" => json!({
-            "title": text,
-            "cta": "Suscribite para más",
-            "background": "#0f172a",
-            "accent": "#7dd3c0",
-            "animation": "fade"
-        }),
-        "stat-callout" => json!({
-            "value": "+120%",
-            "label": text,
-            "accent": "#7dd3c0",
-            "animation": "pop"
-        }),
-        _ => json!({
-            "title": text,
-            "subtitle": "Generado localmente",
-            "background": "#0f172a",
-            "accent": "#7dd3c0",
-            "align": "left",
-            "animation": "slide-up"
-        }),
-    };
-    MotionSuggestion {
-        template_id: template_id.to_owned(),
-        props,
-        provider_id: "mock".to_owned(),
-        model: "mock".to_owned(),
-        simulated: true,
-    }
-}
-
 #[tauri::command]
 pub async fn generate_motion(
     state: State<'_, AppState>,
@@ -211,13 +169,10 @@ pub async fn generate_motion(
     })?;
     let settings = state.settings_snapshot()?;
     let provider = settings.provider.clone();
-    if provider.kind == "mock" {
-        return Ok(mock_motion(template, &brief));
-    }
     if provider.base_url.is_empty() || provider.model.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            "configurá un proveedor en Ajustes o usá el simulador",
+            "configurá un proveedor real en Ajustes → IA antes de generar motion",
         ));
     }
     validate_provider_base_url(&provider.base_url)?;
@@ -322,7 +277,6 @@ pub async fn generate_motion(
         props,
         provider_id: "openai-compatible".to_owned(),
         model: provider.model,
-        simulated: false,
     })
 }
 
@@ -361,10 +315,4 @@ mod tests {
         assert_eq!(props["animation"], "slide-up");
     }
 
-    #[test]
-    fn mock_motion_uses_the_brief() {
-        let suggestion = mock_motion("title-card", "Una prueba de motion");
-        assert!(suggestion.simulated);
-        assert_eq!(suggestion.props["title"], "Una prueba de motion");
-    }
 }

@@ -114,12 +114,24 @@ export function layerVisual(
   progress: number,
   durationFrames: number,
 ): LayerVisual {
-  const animation = layer.animation;
-  if (animation.kind === 'none') {
-    return { opacity: 1, transform: 'none' };
-  }
   const total = Math.max(1, durationFrames);
   const position = Math.min(1, Math.max(0, progress));
+  // Las partículas se desplazan linealmente durante todo el clip; el ASS usa
+  // el mismo trayecto con `\move`. El porcentaje de `translate` es relativo al
+  // tamaño del propio nodo, así que se divide por su ancho/alto para mover la
+  // misma fracción del cuadro que el export.
+  const drift =
+    'drift' in layer && layer.drift
+      ? `translate(${(layer.drift.x / Math.max(0.0001, layer.width)) * position * 100}%, ${(layer.drift.y / Math.max(0.0001, layer.height)) * position * 100}%)`
+      : '';
+  const combine = (animation: string): string => {
+    const base = animation === 'none' ? '' : animation;
+    return [base, drift].filter(Boolean).join(' ') || 'none';
+  };
+  const animation = layer.animation;
+  if (animation.kind === 'none') {
+    return { opacity: 1, transform: combine('none') };
+  }
   const introFrames = Math.max(1, animation.inFrames ?? Math.round(total * 0.12));
   const intro = Math.min(1, Math.max(0, (position * total) / introFrames));
   const outroFrames = Math.max(0, animation.outFrames ?? 0);
@@ -132,18 +144,18 @@ export function layerVisual(
   if (animation.kind === 'slide-up') {
     return {
       opacity,
-      transform: `translateY(${(1 - easeOut(intro)) * distance * 100}%)`,
+      transform: combine(`translateY(${(1 - easeOut(intro)) * distance * 100}%)`),
     };
   }
   if (animation.kind === 'slide-left') {
     return {
       opacity,
-      transform: `translateX(${(1 - easeOut(intro)) * distance * 100}%)`,
+      transform: combine(`translateX(${(1 - easeOut(intro)) * distance * 100}%)`),
     };
   }
   if (animation.kind === 'pop') {
     const scale = 0.7 + 0.3 * easeOut(intro);
-    return { opacity, transform: `scale(${scale})` };
+    return { opacity, transform: combine(`scale(${scale})`) };
   }
-  return { opacity, transform: 'none' };
+  return { opacity, transform: combine('none') };
 }

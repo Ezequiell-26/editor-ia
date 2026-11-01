@@ -14,8 +14,9 @@ import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
 import { LicenseCard } from './LicenseCard';
+import { PROVIDER_PRESETS, type ProviderPreset } from './provider-presets';
 
-type SettingsSectionId =
+export type SettingsSectionId =
   | 'licencia'
   | 'apariencia'
   | 'editor'
@@ -68,7 +69,7 @@ const SETTINGS_SECTIONS: readonly SettingsSectionInfo[] = [
     label: 'Inteligencia artificial',
     hint: 'Guiones, escenas y proveedor',
     icon: 'sparkles',
-    blurb: 'Elegí el modelo que escribe guiones y escenas. Podés usar un endpoint local o el simulador sin red.',
+    blurb: 'Elegí el modelo que escribe guiones y escenas. Sólo endpoints reales compatibles con OpenAI.',
   },
   {
     id: 'voz',
@@ -155,19 +156,25 @@ function VersionLine({ label, info }: { readonly label: string; readonly info: S
 
 export function SettingsHome({
   onNavigate,
+  initialSection = 'apariencia',
 }: {
   readonly onNavigate?: (id: ViewId) => void;
+  readonly initialSection?: SettingsSectionId;
 } = {}) {
   const store = useProjectStore();
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
-  const [kind, setKind] = useState('openai-compatible');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
+  const [agentKind, setAgentKind] = useState('openai-compatible');
   const [apiKey, setApiKey] = useState('');
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [toolBusy, setToolBusy] = useState<string | null>(null);
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>('apariencia');
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>(initialSection);
+
+  useEffect(() => {
+    setActiveSection(initialSection);
+  }, [initialSection]);
 
   // Antes las secciones se apilaban y un IntersectionObserver marcaba la activa.
   // Ahora se muestra una sola por vez dentro de un panel compacto: sin scroll
@@ -183,9 +190,9 @@ export function SettingsHome({
       .then((info) => {
         if (!active) return;
         setProvider(info);
-        setKind(info.kind === 'mock' ? 'mock' : 'openai-compatible');
         setBaseUrl(info.baseUrl);
         setModel(info.model);
+        setAgentKind(info.agentKind || 'openai-compatible');
       })
       .catch(() => {
         if (active) setProvider(null);
@@ -203,18 +210,24 @@ export function SettingsHome({
     };
   }, [store.service]);
 
+  function applyPreset(preset: ProviderPreset): void {
+    setAgentKind('openai-compatible');
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.model);
+    setApiKey('');
+  }
+
   async function saveProvider(): Promise<void> {
-    if (kind !== 'mock') {
-      const problem = providerUrlProblem(baseUrl);
-      if (problem) {
-        store.setNotice(problem);
-        return;
-      }
+    const problem = providerUrlProblem(baseUrl);
+    if (problem) {
+      store.setNotice(problem);
+      return;
     }
     setBusy(true);
     try {
       const info = await store.service.saveProvider({
-        kind,
+        kind: 'openai-compatible',
+        agentKind,
         baseUrl,
         model,
         ...(apiKey.trim() ? { apiKey: apiKey.trim() } : {}),
@@ -336,15 +349,33 @@ export function SettingsHome({
               <p className="eyebrow">Modelo de texto</p>
           <h3>Texto para guiones y escenas</h3>
           <p className="muted">
-            Compatible con la API de chat de OpenAI: OpenAI, un endpoint local (Ollama, LM Studio,
-            vLLM) o cualquier servicio con el mismo contrato. El proveedor simulado no hace red.
+            Compatible con la API de chat de OpenAI: OpenAI, un gateway local como FreeLLMAPI,
+            LM Studio, vLLM o cualquier servicio con el mismo contrato. El agente de herramientas
+            puede usar además Anthropic Messages (tool use); guiones y demás flujos siguen el
+            contrato OpenAI. Sin proveedor configurado las funciones de IA quedan bloqueadas.
           </p>
+          <div className="provider-presets" role="group" aria-label="Proveedores listos">
+            {PROVIDER_PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="small ghost"
+                title={preset.hint}
+                onClick={() => applyPreset(preset)}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
           <div className="form-grid">
             <label className="field">
-              <span>Tipo</span>
-              <select value={kind} onChange={(event) => setKind(event.target.value)}>
-                <option value="openai-compatible">OpenAI-compatible</option>
-                <option value="mock">Simulado (sin red)</option>
+              <span>Protocolo del agente</span>
+              <select
+                value={agentKind}
+                onChange={(event) => setAgentKind(event.target.value)}
+              >
+                <option value="openai-compatible">OpenAI-compatible (tools)</option>
+                <option value="anthropic">Anthropic Messages (tool use)</option>
               </select>
             </label>
             <label className="field">
@@ -352,8 +383,7 @@ export function SettingsHome({
               <input
                 value={baseUrl}
                 onChange={(event) => setBaseUrl(event.target.value)}
-                placeholder="http://127.0.0.1:11434/v1"
-                disabled={kind === 'mock'}
+                placeholder="http://127.0.0.1:31415/v1"
                 autoComplete="off"
               />
             </label>
@@ -362,39 +392,36 @@ export function SettingsHome({
               <input
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
-                placeholder="llama3.1"
-                disabled={kind === 'mock'}
+                placeholder="auto"
                 autoComplete="off"
               />
             </label>
             <label className="field">
-              <span>Clave API {provider?.hasKey ? '(ya guardada)' : '(opcional en local)'}</span>
+              <span>
+                Clave API {provider?.hasKey ? '(ya guardada)' : '(opcional en local)'}
+              </span>
               <input
                 type="password"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 placeholder={provider?.hasKey ? '••••••••  dejala vacía para conservarla' : 'sk-…'}
-                disabled={kind === 'mock'}
                 autoComplete="new-password"
               />
             </label>
           </div>
+          {baseUrl.includes('integrate.api.nvidia.com') ? (
+            <p className="fine-print">
+              Clave de NVIDIA: entrá a build.nvidia.com/deepseek-ai/deepseek-v4.1-flash, pulsá
+              «Get API Key» y pegala arriba. Empieza con <code>nvapi-</code> y se guarda en el
+              almacén de Windows.
+            </p>
+          ) : null}
           <div className="actions">
             <button type="button" className="primary" onClick={() => void saveProvider()} disabled={busy}>
               {busy ? 'Guardando…' : 'Guardar proveedor'}
             </button>
             <button type="button" onClick={() => void clearKey()} disabled={busy || !provider?.hasKey}>
               Borrar clave
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setKind('mock');
-                setBaseUrl('');
-                setModel('mock');
-              }}
-            >
-              Usar simulado
             </button>
           </div>
           <p className="fine-print">
@@ -558,7 +585,7 @@ export function SettingsHome({
               <ul className="scope-list">
             <li>Render MP4 H.264/AAC con libx264 y verificación FFprobe.</li>
             <li>Timeline multipista en frames, trims, splits y subtítulos ASS.</li>
-            <li>Guiones por proveedor compatible o simulador; TTS local con SAPI.</li>
+            <li>Guiones por proveedor OpenAI-compatible real; TTS local con SAPI.</li>
             <li>Voz por ElevenLabs (API oficial, consume créditos) o web externa manual.</li>
             <li>Servidores MCP locales por stdio: listar y ejecutar herramientas.</li>
             <li>Preferencias del editor y respaldo local de la configuración en JSON.</li>

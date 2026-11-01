@@ -65,6 +65,7 @@ export {
   SceneSchema,
   SceneListSchema,
   SceneIntentSchema,
+  SceneEngineSchema,
   LoudnessPlatformSchema,
 } from './production.ts';
 export type { Scene, MotionItem, AudioMix } from './production.ts';
@@ -96,6 +97,11 @@ export {
   CURVE_CHANNELS,
   MAX_CURVE_POINTS,
   ClipMotionSchema,
+  ClipEffectKeyframeSchema,
+  EffectKeyframePropertySchema,
+  EFFECT_KEYFRAME_PROPERTIES,
+  MAX_EFFECT_KEYFRAMES,
+  effectValueRange,
   ClipTransformKeyframeSchema,
   ClipGainKeyframeSchema,
   CubicBezierSchema,
@@ -147,6 +153,8 @@ export type {
   ClipMaskKeyframe,
   Compound,
   CompoundInnerClip,
+  SpeedCurve,
+  SpeedCurvePoint,
 } from './timeline.ts';
 
 export {
@@ -161,6 +169,9 @@ export {
   getBezierFromEasing,
 } from './keyframes.ts';
 export type { SampledMask } from './keyframes.ts';
+export type { ClipEffectKeyframe, EffectKeyframeProperty } from './timeline.ts';
+export { sampleEffectKeyframes } from './effect-keyframes.ts';
+export type { SampledEffectValues } from './effect-keyframes.ts';
 export type { SampledTransform } from './keyframes.ts';
 
 export {

@@ -31,6 +31,7 @@ import { parseSubtitles } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
 import { useLicense } from '../../state/LicenseProvider';
 import { takePendingDownloadUrl } from './pending';
+import { IngestSteps } from './IngestSteps';
 import {
   clampParallel,
   historyFromJob,
@@ -67,6 +68,16 @@ import {
   type FeedConfig,
 } from './queue';
 import { normalizeDownloadUrl } from './url';
+import {
+  capturePreset,
+  loadPresets,
+  presetSummary,
+  removePreset,
+  savePresets,
+  upsertPreset,
+  type DownloadPreset,
+  type DownloadPresetSettings,
+} from './presets';
 
 type Stage = 'idle' | 'installing' | 'probing' | 'downloading' | 'importing';
 
@@ -387,6 +398,101 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const startingJobsRef = useRef<Set<string>>(new Set());
   const cancelledJobsRef = useRef<Set<string>>(new Set());
   const importChainRef = useRef<Promise<void>>(Promise.resolve());
+
+  const [presets, setPresets] = useState<DownloadPreset[]>(loadPresets);
+  const [presetName, setPresetName] = useState('');
+  const [presetNotice, setPresetNotice] = useState<string | null>(null);
+
+  function currentPresetSettings(): DownloadPresetSettings {
+    return {
+      compression,
+      targetSizeMb,
+      keepOriginal,
+      denoiseDownloads,
+      cinematic,
+      cinematicFocus,
+      autoPipeline,
+      audioSpeedNoise,
+      watermark,
+      delogo,
+      delogoCorner,
+      upscale,
+      upscaleTarget,
+      limitRate,
+      proxy,
+      downloadSubtitles,
+      subtitleLangs,
+      translateDownloadSubtitles,
+      translateTo,
+      burnDownloadSubtitles,
+      downloadThumbnail,
+      downloadChapters,
+      sponsorblock,
+      sponsorCategories,
+      hashFiles,
+      filenameTemplate,
+      audioLanguage,
+    };
+  }
+
+  function storePreset(): void {
+    const captured = capturePreset(
+      currentPresetSettings(),
+      presetName,
+      new Date().toISOString(),
+      newJobId(),
+    );
+    if (!captured) {
+      setPresetNotice('Ponele un nombre al preset antes de guardarlo.');
+      return;
+    }
+    const next = upsertPreset(presets, captured);
+    setPresets(next);
+    savePresets(next);
+    setPresetName('');
+    setPresetNotice(`Preset “${captured.name}” guardado.`);
+  }
+
+  function applyPreset(preset: DownloadPreset): void {
+    const settings = preset.settings;
+    setCompression(settings.compression as (typeof COMPRESSION_OPTIONS)[number]['value']);
+    setTargetSizeMb(settings.targetSizeMb);
+    setKeepOriginal(settings.keepOriginal);
+    setDenoiseDownloads(settings.denoiseDownloads);
+    setCinematic(settings.cinematic);
+    setCinematicFocus(settings.cinematicFocus as 'center' | 'left' | 'right' | 'top' | 'bottom');
+    setAutoPipeline(settings.autoPipeline);
+    setAudioSpeedNoise(settings.audioSpeedNoise);
+    setWatermark(settings.watermark);
+    setDelogo(settings.delogo);
+    setDelogoCorner(
+      settings.delogoCorner as 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left',
+    );
+    setUpscale(settings.upscale);
+    setUpscaleTarget(settings.upscaleTarget as 'auto' | '1080' | '2160');
+    setLimitRate(settings.limitRate);
+    setProxy(settings.proxy);
+    setDownloadSubtitles(settings.downloadSubtitles);
+    setSubtitleLangs(settings.subtitleLangs);
+    setTranslateDownloadSubtitles(settings.translateDownloadSubtitles);
+    setTranslateTo(settings.translateTo);
+    setBurnDownloadSubtitles(settings.burnDownloadSubtitles);
+    setDownloadThumbnail(settings.downloadThumbnail);
+    setDownloadChapters(settings.downloadChapters);
+    setSponsorblock(settings.sponsorblock);
+    setSponsorCategories([...settings.sponsorCategories]);
+    setHashFiles(settings.hashFiles);
+    setFilenameTemplate(settings.filenameTemplate);
+    setAudioLanguage(settings.audioLanguage);
+    setPresetNotice(`Preset “${preset.name}” aplicado.`);
+  }
+
+  function deletePreset(id: string): void {
+    const next = removePreset(presets, id);
+    setPresets(next);
+    savePresets(next);
+    setPresetNotice('Preset eliminado.');
+  }
   const refreshWatchRef = useRef<() => Promise<void>>(async () => {});
   const refreshFeedsRef = useRef<() => Promise<void>>(async () => {});
   const proxyCursorRef = useRef(0);
@@ -1056,7 +1162,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               const cues = parseSubtitles(subtitle.text).cues;
               if (cues.length === 0) continue;
               const translatedTexts: string[] = [];
-              let simulated = false;
               for (let start = 0; start < cues.length; start += 80) {
                 const chunk = cues.slice(start, start + 80);
                 const translated = await service.translateSubtitles({
@@ -1065,17 +1170,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   targetLanguage: language,
                   approvedCost: job.translateApproveCost ?? false,
                 });
-                if (translated.simulated) {
-                  simulated = true;
-                  break;
-                }
                 translatedTexts.push(...translated.texts);
-              }
-              if (simulated) {
-                postWarnings.push(
-                  'La traducción quedó simulada porque no hay un proveedor configurado; se conservó el SRT original.',
-                );
-                break;
               }
               if (translatedTexts.length !== cues.length) continue;
               const content = buildSrt(
@@ -2123,6 +2218,16 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     formatReady &&
     (probe?.kind !== 'gallery' || probe.entryCount > 0);
 
+  const ingestStep = outcome
+    ? 5
+    : busy || queue.length > 0
+      ? 4
+      : probe
+        ? 3
+        : busy
+          ? 2
+          : 1;
+
   return (
     <section className="view download-view">
       <ViewToolbar
@@ -2153,6 +2258,14 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
           <button type="button" className="link" onClick={() => onNavigate('settings')}>
             Ver Pro
           </button>
+        </div>
+      ) : null}
+
+      <IngestSteps current={ingestStep} hasResult={Boolean(outcome)} />
+
+      {error ? (
+        <div className="notice notice-warning ingest-error" role="alert">
+          {error}
         </div>
       ) : null}
 
@@ -2199,6 +2312,75 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 Hook vertical
               </button>
             </div>
+          </div>
+
+          <div className="card quick-presets" id="download-presets">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Mis presets</p>
+                <h3>Guardá esta combinación</h3>
+              </div>
+              <InfoTip
+                label="Mis presets de descarga"
+                text="Guarda compresión, peso final, cine, watermark, subtítulos, SponsorBlock, hashes, plantilla de nombre, proxy y límite de bajada. Aplicarlo restaura todos esos controles de una vez y queda guardado para la próxima sesión."
+              />
+            </div>
+            <div className="actions compact">
+              <label className="field">
+                <span>Nombre del preset</span>
+                <input
+                  type="text"
+                  value={presetName}
+                  maxLength={40}
+                  placeholder="Shorts verticales sin watermark"
+                  onChange={(event) => setPresetName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      event.preventDefault();
+                      storePreset();
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                className="small primary"
+                disabled={!presetName.trim()}
+                onClick={storePreset}
+              >
+                Guardar preset
+              </button>
+            </div>
+            {presets.length === 0 ? (
+              <p className="fine-print">
+                Todavía no hay presets guardados. Configurá la descarga y guardala con un nombre.
+              </p>
+            ) : (
+              <ul className="preset-list" aria-label="Presets de descarga guardados">
+                {presets.map((preset) => (
+                  <li key={preset.id} className="preset-list-item">
+                    <button
+                      type="button"
+                      className="preset-chip"
+                      title={presetSummary(preset)}
+                      onClick={() => applyPreset(preset)}
+                    >
+                      {preset.name}
+                      <small>{presetSummary(preset)}</small>
+                    </button>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      aria-label={`Eliminar preset ${preset.name}`}
+                      onClick={() => deletePreset(preset.id)}
+                    >
+                      Eliminar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {presetNotice ? <p className="fine-print">{presetNotice}</p> : null}
           </div>
 
           <div className="card download-engine">
@@ -2265,7 +2447,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </div>
           </div>
 
-          <div className="card download-source">
+          <div className="card download-source" id="ingest-source">
             <div className="production-card-head">
               <div>
                 <p className="eyebrow">Enlace</p>
@@ -2373,7 +2555,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
           </div>
 
           {probe ? (
-            <div className="card download-options">
+            <div className="card download-options" id="ingest-options">
               <div className="production-card-head">
                 <div>
                   <p className="eyebrow">Salida</p>
@@ -2625,9 +2807,10 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                           onChange={(event) => setDelogo(event.target.checked)}
                         />
                         <span>
-                          Quitar logo fijo con <code>delogo</code>: parche rectangular
-                          proporcional al canvas que interpola los bordes y neutraliza marcas
-                          de agua estáticas antes del zoom 4 %.
+                          Cubrir logo fijo: recuadro oscuro semitransparente, proporcional
+                          al canvas, que tapa marcas de agua estáticas antes del zoom 4 %.
+                          El build LGPL no incluye el filtro GPL <code>delogo</code>, así que
+                          no reconstruye el fondo: redacta la zona.
                         </span>
                       </label>
                       {delogo ? (
@@ -3746,7 +3929,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
           ) : null}
         </div>
 
-        <aside className="download-side">
+        <aside className="download-side" id="ingest-queue">
           <div className="card download-run">
             <div className="production-card-head">
               <div>
@@ -4262,11 +4445,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     : 'Descargar a la biblioteca'}
               </span>
             </button>
-            {error ? (
-              <div className="notice notice-warning" role="alert">
-                {error}
-              </div>
-            ) : null}
             {warnings.length > 0 ? (
               <ul className="download-warnings">
                 {warnings.map((warning, index) => (
@@ -4275,7 +4453,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               </ul>
             ) : null}
             {outcome ? (
-              <div className="download-outcome">
+              <div className="download-outcome" id="ingest-result">
                 <p className="eyebrow">Archivos</p>
                 <ul>
                   {outcome.files.map((file) => (

@@ -1,9 +1,43 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import type { Asset, BlendMode, CaptionCue, Clip, ClipEffects, ClipMask, ProjectDocument, Track } from '@editor-ia/project-schema';
-import { sampleMaskKeyframes } from '@editor-ia/project-schema';
+import { sampleMaskKeyframes, hasCustomCurves } from '@editor-ia/project-schema';
+import { hasColorWheels } from './color-wheels-preview';
+import { motionPreview } from './motion-preview';
 import { captionMotionAt } from '../../state/caption-motion';
 import { PreviewTransformBox, isTransformable } from './PreviewTransformBox';
 import { cueWordsAt } from '../../state/subtitles';
+import { clipTimeRemap } from '../../state/time-remap';
+import { transitionLeadFrames, transitionSample } from '../../state/transition';
+import { effectsAtFrame } from '../../state/effect-animation';
+import {
+  adaptEffectsForPreview,
+  getPreviewProfile,
+  temporalDenoiseForProfile,
+  usePreviewProfile,
+} from '../effects/preview-profile';
+import { effectsToCss } from './effects-to-css';
+import {
+  appendSharpenFilter,
+  clampSharpen,
+  sharpenFilterId,
+  sharpenKernel,
+} from './sharpen-preview';
+import {
+  appendGlowFilter,
+  glowFilterId,
+  glowStdDeviation,
+  glowThresholdCurve,
+  normalizeGlow,
+  type GlowPreview,
+} from './glow-preview';
+import {
+  appendGrainFilter,
+  clampGrain,
+  grainFilterId,
+  grainMatrix,
+} from './grain-preview';
+import { EffectOverlay } from './EffectOverlay';
+import { canUseWebGL2 } from './lut-renderer';
 import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
 import { FORMAT_PRESETS } from '../../state/video-format';
 import {
@@ -13,7 +47,7 @@ import {
   resumePreviewAudio,
   setPreviewClipPan,
   syncPreviewAudioFromProject,
-  syncPreviewAudioPanAtFrame,
+  syncPreviewAudioAutomationAtFrame,
   trackGainDb,
 } from '../mixer/usePreviewAudio';
 import { useProjectStore } from '../../state/project-store';
@@ -21,8 +55,10 @@ import { loadEditorPreferences } from '../../state/editor-preferences';
 import { Icon } from '../../components/Icon';
 import { buildMotionPlan } from '../motion/plan';
 import { MotionPreview } from '../motion/MotionPreview';
+import { buildProjectMotionPlans } from '../motion/plan';
 import { templateById } from '../motion/templates';
 import { ScopesPanel } from './ScopesPanel';
+import { usePreviewPerf } from '../perf/use-preview-perf';
 import { perspectiveMatrix3d, type PerspectiveViewport } from './perspective';
 import type { PreviewFrameResult } from '../../services/project-service';
 
@@ -260,34 +296,16 @@ function transformStyle(
       ? (clip as Clip & { blendMode?: BlendMode }).blendMode
       : undefined;
   const motion = 'motion' in clip ? clip.motion : undefined;
-  let motionScale = 1;
-  let motionX = 0;
-  let motionY = 0;
-  if (motion) {
-    const progress =
-      playheadFrame === undefined
-        ? 0
-        : Math.max(0, Math.min(1, (playheadFrame - clip.startFrame) / Math.max(1, clip.durationFrames)));
-    const intensity = motion.intensity ?? 0.12;
-    if (motion.type === 'zoom-in') motionScale = 1 + intensity * progress;
-    if (motion.type === 'zoom-out') motionScale = 1 + intensity * (1 - progress);
-    if (motion.type === 'pan-left') {
-      motionScale = 1 + intensity;
-      motionX = (0.5 - progress) * intensity * 50;
-    }
-    if (motion.type === 'pan-right') {
-      motionScale = 1 + intensity;
-      motionX = (progress - 0.5) * intensity * 50;
-    }
-    if (motion.type === 'pan-up') {
-      motionScale = 1 + intensity;
-      motionY = (0.5 - progress) * intensity * 50;
-    }
-    if (motion.type === 'pan-down') {
-      motionScale = 1 + intensity;
-      motionY = (progress - 0.5) * intensity * 50;
-    }
-  }
+  const progress =
+    playheadFrame === undefined
+      ? 0
+      : Math.max(0, Math.min(1, (playheadFrame - clip.startFrame) / Math.max(1, clip.durationFrames)));
+  const sampledMotion = motion
+    ? motionPreview(motion, progress)
+    : { scale: 1, x: 0, y: 0 };
+  const motionScale = sampledMotion.scale;
+  const motionX = sampledMotion.x;
+  const motionY = sampledMotion.y;
   const animation = animationState(clip, playheadFrame);
   const mask = 'mask' in clip ? (clip as Clip & { mask?: ClipMask }).mask : undefined;
   const sampledMask =
@@ -303,9 +321,13 @@ function transformStyle(
     transform?.perspective && viewport
       ? perspectiveMatrix3d(transform.perspective.corners, viewport)
       : undefined;
+  // Transición entrante: la preview en vivo compone el solape con el clip
+  // anterior igual que el export (alfa, desplazamiento, fundido o barrido).
+  const transition =
+    playheadFrame === undefined ? null : transitionSample(clip, playheadFrame, fpsOf(project));
   return {
-    transform: `translate(${offsetX * 100}%, ${offsetY * 100}%) translate(${motionX + animation.x}%, ${motionY + animation.y}%) scale(${scaleX * motionScale * animation.scale}, ${scaleY * motionScale * animation.scale}) rotate(${rotation + animation.rotation}deg)${perspective ? ` ${perspective}` : ''}`,
-    opacity: (sampled?.opacity ?? transform?.opacity ?? 1) * animation.opacity,
+    transform: `translate(${offsetX * 100}%, ${offsetY * 100}%) translate(${motionX + animation.x + (transition?.translateXPercent ?? 0)}%, ${motionY + animation.y + (transition?.translateYPercent ?? 0)}%) scale(${scaleX * motionScale * animation.scale}, ${scaleY * motionScale * animation.scale}) rotate(${rotation + animation.rotation}deg)${perspective ? ` ${perspective}` : ''}`,
+    opacity: (sampled?.opacity ?? transform?.opacity ?? 1) * animation.opacity * (transition?.opacity ?? 1),
     ...(blendMode ? { mixBlendMode: blendMode } : {}),
     ...(effectiveMask
       ? image
@@ -319,87 +341,360 @@ function transformStyle(
           }
         : { clipPath: maskClipPath(effectiveMask) }
       : {}),
+    ...(transition?.clipPath ? { clipPath: transition.clipPath } : {}),
   };
 }
 
-function effectsToCss(effects: ClipEffects | undefined): CSSProperties {
-  if (!effects) return {};
-  const filters: string[] = [];
-  if (effects.brightness !== undefined) filters.push(`brightness(${Math.max(0, 1 + effects.brightness)})`);
-  if (effects.contrast !== undefined) filters.push(`contrast(${effects.contrast})`);
-  if (effects.saturation !== undefined) filters.push(`saturate(${effects.saturation})`);
-  if (effects.blur !== undefined && effects.blur > 0) filters.push(`blur(${effects.blur}px)`);
-  if (effects.grayscale) filters.push('grayscale(1)');
-  if (effects.sepia) filters.push('sepia(1)');
-  if (effects.temperature !== undefined && effects.temperature > 0) {
-    filters.push(`sepia(${Math.min(0.35, effects.temperature * 0.35)})`);
-  }
-  if (effects.shadows !== undefined && Math.abs(effects.shadows) > 0.001) {
-    filters.push(
-      `brightness(${Math.max(0.5, Math.min(1.5, 1 + effects.shadows * 0.06))})`,
-    );
-  }
-  if (effects.highlights !== undefined && Math.abs(effects.highlights) > 0.001) {
-    filters.push(
-      `contrast(${Math.max(0.5, Math.min(1.5, 1 + effects.highlights * 0.12))})`,
-    );
-  }
-  if (effects.fade !== undefined && effects.fade > 0.001) {
-    filters.push(`contrast(${Math.max(0.5, 1 - effects.fade * 0.12)})`);
-    filters.push(`brightness(${1 + effects.fade * 0.04})`);
-  }
-  const lift = effects.lift ?? { r: 0, g: 0, b: 0 };
-  const gamma = effects.gamma ?? { r: 0, g: 0, b: 0 };
-  const gain = effects.gain ?? { r: 0, g: 0, b: 0 };
-  const red = lift.r + gain.r;
-  const green = lift.g + gain.g;
-  const blue = lift.b + gain.b;
-  const exposure = (red + green + blue) / 3;
-  if (Math.abs(exposure) > 0.01) {
-    filters.push(`brightness(${Math.max(0.2, Math.min(3, 1 + exposure))})`);
-  }
-  const warmth = red - blue;
-  if (Math.abs(warmth) > 0.01) {
-    filters.push(`sepia(${Math.min(0.4, Math.abs(warmth))})`);
-    filters.push(`hue-rotate(${warmth > 0 ? -15 : 160}deg)`);
-  }
-  const midtone = (gamma.r + gamma.g + gamma.b) / 3;
-  if (Math.abs(midtone) > 0.01) {
-    filters.push(`contrast(${Math.max(0.2, Math.min(3, 1 + midtone))})`);
-  }
-  const hsl = effects.hsl;
-  if (hsl) {
-    if (Math.abs(hsl.hue) > 0.1) filters.push(`hue-rotate(${hsl.hue}deg)`);
-    if (Math.abs(hsl.saturation) > 0.001) {
-      filters.push(`saturate(${Math.max(0, 1 + hsl.saturation)})`);
-    }
-    if (Math.abs(hsl.intensity) > 0.001) {
-      filters.push(`brightness(${Math.max(0.2, 1 + hsl.intensity * 0.5)})`);
-    }
-  }
-  const match = effects.colorMatch;
-  if (match && match.strength > 0.001) {
-    const matched = [match.r, match.g, match.b].map(
-      (gain) => 1 + (gain - 1) * match.strength,
-    );
-    const matchExposure = (matched[0]! + matched[1]! + matched[2]!) / 3;
-    if (Math.abs(matchExposure - 1) > 0.01) {
-      filters.push(
-        `brightness(${Math.max(0.2, Math.min(3, matchExposure))})`,
-      );
-    }
-    const matchWarmth = matched[0]! - matched[2]!;
-    if (Math.abs(matchWarmth) > 0.01) {
-      filters.push(`sepia(${Math.min(0.4, Math.abs(matchWarmth))})`);
-      filters.push(`hue-rotate(${matchWarmth > 0 ? -15 : 160}deg)`);
-    }
-  }
-  return filters.length > 0 ? { filter: filters.join(' ') } : {};
+interface EffectFilterParts {
+  /** Grade del clip que el export aplica antes del LUT. */
+  readonly grade: string;
+  /** Glow, grano, nitidez y transición, que van después del LUT. */
+  readonly extras: string;
 }
 
-function effectsStyle(clip: Clip): CSSProperties {
-  if (!('effects' in clip) || !clip.effects) return {};
-  return effectsToCss(clip.effects);
+/** Efectos que el shader aplica y por lo tanto se omiten del CSS. */
+interface EffectFilterOmit {
+  readonly wheels?: boolean;
+  readonly temperature?: boolean;
+  readonly contrast?: boolean;
+  readonly saturation?: boolean;
+  readonly hue?: boolean;
+  readonly grayscale?: boolean;
+  readonly sepia?: boolean;
+  readonly tone?: boolean;
+  readonly colorMatch?: boolean;
+  readonly hsl?: boolean;
+}
+
+function effectFilterParts(
+  clip: Clip,
+  playheadFrame?: number,
+  project?: ProjectDocument,
+  omit: EffectFilterOmit = {},
+): EffectFilterParts {
+  const effects =
+    playheadFrame !== undefined
+      ? effectsAtFrame(clip, playheadFrame)
+      : 'effects' in clip
+        ? clip.effects
+        : undefined;
+  const adapted = adaptEffectsForPreview(effects, getPreviewProfile());
+  const base = adapted
+    ? effectsToCss(adapted, {
+        colorWheels: !omit.wheels,
+        brightness: !omit.wheels,
+        temperature: !omit.temperature,
+        contrast: !omit.contrast,
+        saturation: !omit.saturation,
+        hue: !omit.hue,
+        grayscale: !omit.grayscale,
+        sepia: !omit.sepia,
+        tone: !omit.tone,
+        colorMatch: !omit.colorMatch,
+        hsl: !omit.hsl,
+      })
+    : {};
+  const transition =
+    project && playheadFrame !== undefined
+      ? transitionSample(clip, playheadFrame, fpsOf(project))
+      : null;
+  const grade = typeof base.filter === 'string' ? base.filter : '';
+  let extras = '';
+  extras = appendSharpenFilter(extras, clip.id, clampSharpen(adapted?.sharpen));
+  extras = appendGlowFilter(
+    extras,
+    clip.id,
+    adapted?.glow ? normalizeGlow(adapted.glow) : undefined,
+  );
+  extras = appendGrainFilter(extras, clip.id, adapted?.grain);
+  if (transition?.filter) {
+    extras = extras ? `${extras} ${transition.filter}` : transition.filter;
+  }
+  return { grade, extras };
+}
+
+function effectsStyle(clip: Clip, playheadFrame?: number, project?: ProjectDocument): CSSProperties {
+  const { grade, extras } = effectFilterParts(clip, playheadFrame, project);
+  const filter = [grade, extras].filter(Boolean).join(' ');
+  return filter ? { filter } : {};
+}
+
+/** Grade del look global. El export lo aplica entre ambos LUT. */
+function lookGradeFilterOf(
+  project: ProjectDocument,
+  omitWheels = false,
+  omitShaderStages = false,
+  omitTone = false,
+  omitColorMatch = false,
+  omitHsl = false,
+): string {
+  const style = effectsToCss(project.look, {
+    ...(omitWheels ? { colorWheels: false, brightness: false } : {}),
+    ...(omitShaderStages
+      ? {
+          temperature: false,
+          contrast: false,
+          saturation: false,
+          hue: false,
+          grayscale: false,
+          sepia: false,
+        }
+      : {}),
+    ...(omitTone ? { tone: false } : {}),
+    ...(omitColorMatch ? { colorMatch: false } : {}),
+    ...(omitHsl ? { hsl: false } : {}),
+  });
+  return typeof style.filter === 'string' ? style.filter : '';
+}
+
+/** Etapas del look que el shader puede aplicar con la fórmula del export. */
+interface LookShaderGrade {
+  readonly contrast?: number | undefined;
+  readonly saturation?: number | undefined;
+  readonly hueRotateDeg?: number | undefined;
+  readonly temperature?: number | undefined;
+  readonly grayscale?: boolean | undefined;
+  readonly sepia?: boolean | undefined;
+}
+
+/** Ganancia por canal del colorMatch, igual a `colorchannelmixer` del export. */
+function colorMatchGain(
+  match: ClipEffects['colorMatch'] | undefined,
+): [number, number, number] | null {
+  if (!match) return null;
+  const strength = Math.min(1, Math.max(0, match.strength));
+  if (strength <= 0.001) return null;
+  const gain = (value: number): number =>
+    1 + (Math.min(4, Math.max(0.25, value)) - 1) * strength;
+  const gains: [number, number, number] = [gain(match.r), gain(match.g), gain(match.b)];
+  return gains.some((value) => Math.abs(value - 1) > 0.0005) ? gains : null;
+}
+
+/**
+ * HSL portado al shader: matriz completa y máscara de colores del filtro
+ * (`huesaturation` con strength=100). El CSS sólo queda para sin WebGL2/eficiente.
+ */
+function hslShaderInput(
+  hsl: ClipEffects['hsl'] | undefined,
+): {
+  hue: number;
+  saturation: number;
+  intensity: number;
+  colors?: readonly string[] | undefined;
+} | null {
+  if (!hsl) return null;
+  const active =
+    Math.abs(hsl.hue) > 0.01 ||
+    Math.abs(hsl.saturation) > 0.001 ||
+    Math.abs(hsl.intensity) > 0.001;
+  if (!active) return null;
+  return {
+    hue: hsl.hue,
+    saturation: hsl.saturation,
+    intensity: hsl.intensity,
+    colors: hsl.colors,
+  };
+}
+
+function lookShaderGradeOf(
+  project: ProjectDocument,
+  enabled: boolean,
+): LookShaderGrade | null {
+  if (!enabled || !project.look) return null;
+  const look = project.look;
+  const active =
+    (look.contrast !== undefined && Math.abs(look.contrast - 1) > 0.001) ||
+    (look.saturation !== undefined && Math.abs(look.saturation - 1) > 0.001) ||
+    (look.hueRotateDeg !== undefined && Math.abs(look.hueRotateDeg) > 0.01) ||
+    (look.temperature !== undefined && Math.abs(look.temperature) > 0.001) ||
+    look.grayscale === true ||
+    look.sepia === true;
+  if (!active) return null;
+  return {
+    contrast: look.contrast,
+    saturation: look.saturation,
+    hueRotateDeg: look.hueRotateDeg,
+    temperature: look.temperature,
+    grayscale: look.grayscale,
+    sepia: look.sepia,
+  };
+}
+
+/**
+ * Aplica el grade del look sobre una capa de video/imagen cuando no hay
+ * `EffectOverlay` que lo inserte entre el LUT del clip y el del look.
+ */
+function withLookGrade(style: CSSProperties, lookGrade: string): CSSProperties {
+  if (!lookGrade) return style;
+  const base = typeof style.filter === 'string' ? style.filter : '';
+  return { ...style, filter: [base, lookGrade].filter(Boolean).join(' ') };
+}
+
+function svgFilterSpecAt(
+  clip: Clip,
+  playheadFrame: number,
+): {
+  readonly sharpen: number;
+  readonly glow: GlowPreview | undefined;
+  readonly grain: number;
+} {
+  if (!('effects' in clip) || !clip.effects) {
+    return { sharpen: 0, glow: undefined, grain: 0 };
+  }
+  const adapted = adaptEffectsForPreview(
+    effectsAtFrame(clip, playheadFrame),
+    getPreviewProfile(),
+  );
+  return {
+    sharpen: clampSharpen(adapted?.sharpen),
+    glow: adapted?.glow ? normalizeGlow(adapted.glow) : undefined,
+    grain: clampGrain(adapted?.grain),
+  };
+}
+
+/** Definiciones SVG que respaldan `filter: url(#…)` de nitidez y glow. */
+function PreviewSvgFilters({
+  clips,
+  playheadFrame,
+}: {
+  readonly clips: readonly Clip[];
+  readonly playheadFrame: number;
+}) {
+  const filters = clips
+    .map((clip) => ({ id: clip.id, ...svgFilterSpecAt(clip, playheadFrame) }))
+    .filter(
+      (item) =>
+        item.sharpen > 0.01 ||
+        (item.glow?.intensity ?? 0) > 0.01 ||
+        item.grain > 0.01,
+    );
+  if (filters.length === 0) return null;
+  return (
+    <svg className="preview-filter-defs" aria-hidden="true" focusable="false">
+      <defs>
+        {filters.map(({ id, sharpen, glow, grain }) => (
+          <g key={id}>
+            {sharpen > 0.01 ? (
+              <filter
+                id={sharpenFilterId(id)}
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                colorInterpolationFilters="sRGB"
+              >
+                <feConvolveMatrix
+                  order="3"
+                  kernelMatrix={sharpenKernel(sharpen)}
+                  divisor="1"
+                  preserveAlpha="true"
+                />
+              </filter>
+            ) : null}
+            {glow && glow.intensity > 0.01 ? (
+              <filter
+                id={glowFilterId(id)}
+                x="-20%"
+                y="-20%"
+                width="140%"
+                height="140%"
+                colorInterpolationFilters="sRGB"
+              >
+                <feGaussianBlur
+                  in="SourceGraphic"
+                  stdDeviation={glowStdDeviation(glow.radius)}
+                  result="glowBlur"
+                />
+                <feComponentTransfer in="glowBlur" result="glowHighlights">
+                  <feFuncR
+                    type="linear"
+                    slope={glowThresholdCurve(glow.threshold).slope}
+                    intercept={glowThresholdCurve(glow.threshold).intercept}
+                  />
+                  <feFuncG
+                    type="linear"
+                    slope={glowThresholdCurve(glow.threshold).slope}
+                    intercept={glowThresholdCurve(glow.threshold).intercept}
+                  />
+                  <feFuncB
+                    type="linear"
+                    slope={glowThresholdCurve(glow.threshold).slope}
+                    intercept={glowThresholdCurve(glow.threshold).intercept}
+                  />
+                </feComponentTransfer>
+                <feColorMatrix
+                  in="glowHighlights"
+                  type="matrix"
+                  values={`1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 ${glow.intensity} 0`}
+                  result="glowWeighted"
+                />
+                <feMerge>
+                  <feMergeNode in="SourceGraphic" />
+                  <feMergeNode in="glowWeighted" />
+                </feMerge>
+              </filter>
+            ) : null}
+            {grain > 0.01 ? (
+              <filter
+                id={grainFilterId(id)}
+                x="0"
+                y="0"
+                width="100%"
+                height="100%"
+                colorInterpolationFilters="sRGB"
+              >
+                <feTurbulence
+                  type="fractalNoise"
+                  baseFrequency="0.9"
+                  numOctaves="2"
+                  seed="7"
+                  result="grainNoise"
+                />
+                <feColorMatrix
+                  in="grainNoise"
+                  type="matrix"
+                  values={grainMatrix(grain)}
+                  result="grainLayer"
+                />
+                <feBlend in="SourceGraphic" in2="grainLayer" mode="overlay" />
+              </filter>
+            ) : null}
+          </g>
+        ))}
+      </defs>
+    </svg>
+  );
+}
+
+/** Estilo de una capa visual: transformación, transición entrante y efectos. */
+function layerStyle(
+  clip: Clip,
+  project: ProjectDocument,
+  playheadFrame: number,
+  viewport: PerspectiveViewport,
+): CSSProperties {
+  return {
+    ...transformStyle(clip, project, playheadFrame, viewport),
+    ...effectsStyle(clip, playheadFrame, project),
+  };
+}
+
+/**
+ * Estilo del canvas LUT: el grade ya se aplicó antes del LUT dentro del
+ * pipeline (canvas intermedio + shader), así que sólo quedan los efectos que
+ * el export aplica después: glow, grano, nitidez y transición.
+ */
+function lutLayerStyle(
+  clip: Clip,
+  project: ProjectDocument,
+  playheadFrame: number,
+  viewport: PerspectiveViewport,
+): CSSProperties {
+  const { extras } = effectFilterParts(clip, playheadFrame, project);
+  return {
+    ...transformStyle(clip, project, playheadFrame, viewport),
+    ...(extras ? { filter: extras } : {}),
+  };
 }
 
 function assetById(project: ProjectDocument, id: string): Asset | undefined {
@@ -408,6 +703,40 @@ function assetById(project: ProjectDocument, id: string): Asset | undefined {
 
 function trackById(project: ProjectDocument, id: string): Track | undefined {
   return project.timeline.tracks.find((track) => track.id === id);
+}
+
+function MediaUnavailable({
+  clip,
+  asset,
+  failed,
+  kind,
+  onRetry,
+  style,
+}: {
+  readonly clip: Clip;
+  readonly asset: Asset | undefined;
+  readonly failed: boolean;
+  readonly kind: 'video' | 'image';
+  readonly onRetry: () => void;
+  readonly style: CSSProperties;
+}) {
+  const label = asset?.label ?? clip.label ?? (kind === 'video' ? 'Clip de video' : 'Imagen');
+  return (
+    <div className="media-missing" style={style} role="status" aria-live="polite">
+      <strong>{failed ? `No se pudo cargar ${label}` : `Medio sin vínculo: ${label}`}</strong>
+      <span>
+        {failed
+          ? 'El archivo no está disponible en esta ruta o el decodificador falló.'
+          : 'El asset no tiene una ruta válida para este equipo.'}
+      </span>
+      <span className="media-missing-hint">Reconectá el archivo desde Medios → “Reconectar archivo…”.</span>
+      {failed ? (
+        <button type="button" className="small" onClick={onRetry} aria-label={`Reintentar ${label}`}>
+          Reintentar
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
 function VideoLayer({
@@ -420,6 +749,7 @@ function VideoLayer({
   trackId = '',
   trackGain = 0,
   viewport,
+  applyLook = true,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
@@ -430,9 +760,11 @@ function VideoLayer({
   readonly trackId?: string;
   readonly trackGain?: number;
   readonly viewport: PerspectiveViewport;
+  readonly applyLook?: boolean;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
+  const previewProfile = usePreviewProfile();
   const ref = useRef<HTMLVideoElement | null>(null);
   // Enrutado por Web Audio: true sólo si el elemento quedó conectado al grafo
   // de su pista; en caso contrario la preview usa `element.volume` como siempre.
@@ -454,8 +786,163 @@ function VideoLayer({
   const windowed = clip.kind === 'video' || clip.kind === 'audio';
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'video' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
+  const remap = useMemo(() => clipTimeRemap(clip), [clip]);
+  const localFrame = Math.max(0, playheadFrame - clip.startFrame);
+  // LUT en vivo: el clip y el look global comparten el mismo archivo `.cube`
+  // que consume FFmpeg. El motion blur se acumula en el mismo canvas.
+  const clipLutFile = 'effects' in clip ? clip.effects?.lutFile : undefined;
+  const lookLutFile = applyLook ? project.look?.lutFile : undefined;
+  const lookHasWheels = applyLook && hasColorWheels(project.look);
+  const lookBrightness = applyLook ? project.look?.brightness : undefined;
+  const lookBrightnessActive =
+    lookBrightness !== undefined &&
+    Number.isFinite(lookBrightness) &&
+    Math.abs(lookBrightness) > 0.001;
+  const lookWheelsActive = lookHasWheels || lookBrightnessActive;
+  const lookBrightnessInShader = lookWheelsActive && !lookHasWheels;
+  const lookShaderGrade = applyLook
+    ? lookShaderGradeOf(project, canUseWebGL2() && getPreviewProfile() !== 'efficient')
+    : null;
+  const lookShaderActive = lookShaderGrade !== null;
+  const lookToneActive =
+    applyLook &&
+    canUseWebGL2() &&
+    getPreviewProfile() !== 'efficient' &&
+    ((project.look?.shadows !== undefined &&
+      Math.abs(project.look.shadows) > 0.001) ||
+      (project.look?.highlights !== undefined &&
+        Math.abs(project.look.highlights) > 0.001) ||
+      (project.look?.fade !== undefined && project.look.fade > 0.001));
+  const lookMatchGain = applyLook ? colorMatchGain(project.look?.colorMatch) : null;
+  const lookMatchActive = lookMatchGain !== null;
+  const lookHslInput = applyLook ? hslShaderInput(project.look?.hsl) : null;
+  const lookHslActive =
+    lookHslInput !== null &&
+    canUseWebGL2() &&
+    getPreviewProfile() !== 'efficient';
+  const lookGrade = applyLook
+    ? lookGradeFilterOf(
+        project,
+        lookWheelsActive,
+        lookShaderActive,
+        lookToneActive,
+        lookMatchActive,
+        lookHslActive,
+      )
+    : '';
+  const lookGradeApprox = applyLook ? lookGradeFilterOf(project) : '';
+  const effectsAtPlayhead = effectsAtFrame(clip, playheadFrame);
+  const motionBlur = effectsAtPlayhead?.motionBlur;
+  const blurActive =
+    clip.kind === 'video' &&
+    motionBlur !== undefined &&
+    Number.isFinite(motionBlur.intensity) &&
+    motionBlur.intensity > 0.001;
+  const denoise = effectsAtPlayhead?.denoise;
+  const denoiseActive =
+    denoise !== undefined && Number.isFinite(denoise) && denoise > 0.001;
+  const vignette = effectsAtPlayhead?.vignette;
+  const vignetteActive =
+    vignette !== undefined && Number.isFinite(vignette) && vignette > 0.001;
+  const clipCurves = effectsAtPlayhead?.curves;
+  const curvesActive = hasCustomCurves(clipCurves);
+  const chromaKey = 'chromaKey' in clip ? clip.chromaKey : undefined;
+  const wheelsActive = hasColorWheels(effectsAtPlayhead);
+  const lutActive = Boolean(clipLutFile || lookLutFile);
+  const brightness = effectsAtPlayhead?.brightness;
+  const brightnessActive =
+    brightness !== undefined && Number.isFinite(brightness) && Math.abs(brightness) > 0.001;
+  const overlayActive =
+    lutActive ||
+    blurActive ||
+    denoiseActive ||
+    vignetteActive ||
+    curvesActive ||
+    Boolean(chromaKey) ||
+    wheelsActive ||
+    lookWheelsActive;
+  const temperature = effectsAtPlayhead?.temperature;
+  const temperatureActive =
+    temperature !== undefined && Number.isFinite(temperature) && Math.abs(temperature) > 0.001;
+  const shaderAvailable = canUseWebGL2() && getPreviewProfile() !== 'efficient';
+  // La temperatura usa colorbalance del export fuera del perfil eficiente; con
+  // el overlay ya activo no cuesta un pase extra.
+  const temperatureInShader =
+    temperatureActive && canUseWebGL2() && (overlayActive || getPreviewProfile() !== 'efficient');
+  // El brillo va al shader cuando el overlay ya está activo (costo cero) o,
+  // fuera del perfil eficiente, aunque sea el único efecto. Un video sin
+  // WebGL2 conserva la aproximación CSS porque el overlay no dibuja frames.
+  const brightnessInShader =
+    brightnessActive && (overlayActive || temperatureInShader || shaderAvailable);
+  const shaderGradeActive = overlayActive || brightnessInShader || temperatureInShader;
+  // Fuera del perfil eficiente el grade exacto usa el pase aunque sea el único
+  // efecto; en eficiente o sin WebGL2 se conserva la aproximación CSS.
+  const exactGrade =
+    canUseWebGL2() && (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const contrast = effectsAtPlayhead?.contrast;
+  const contrastActive =
+    contrast !== undefined && Number.isFinite(contrast) && Math.abs(contrast - 1) > 0.001;
+  const contrastInShader = contrastActive && exactGrade;
+  const saturation = effectsAtPlayhead?.saturation;
+  const saturationActive =
+    saturation !== undefined && Number.isFinite(saturation) && Math.abs(saturation - 1) > 0.001;
+  const saturationInShader = saturationActive && exactGrade;
+  const hueRotate = effectsAtPlayhead?.hueRotateDeg;
+  const hueActive =
+    hueRotate !== undefined && Number.isFinite(hueRotate) && Math.abs(hueRotate) > 0.01;
+  const hueInShader = hueActive && exactGrade;
+  const grayscaleActive = effectsAtPlayhead?.grayscale === true;
+  const sepiaActive = effectsAtPlayhead?.sepia === true;
+  const grayscaleInShader = grayscaleActive && exactGrade;
+  const sepiaInShader = sepiaActive && exactGrade;
+  const shadows = effectsAtPlayhead?.shadows;
+  const highlights = effectsAtPlayhead?.highlights;
+  const fade = effectsAtPlayhead?.fade;
+  const toneActive =
+    (shadows !== undefined && Number.isFinite(shadows) && Math.abs(shadows) > 0.001) ||
+    (highlights !== undefined && Number.isFinite(highlights) && Math.abs(highlights) > 0.001) ||
+    (fade !== undefined && Number.isFinite(fade) && fade > 0.001);
+  const toneInShader =
+    toneActive &&
+    canUseWebGL2() &&
+    (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const matchGain = colorMatchGain(effectsAtPlayhead?.colorMatch);
+  const matchInShader =
+    matchGain !== null &&
+    canUseWebGL2() &&
+    (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const hslInput = hslShaderInput(effectsAtPlayhead?.hsl);
+  const hslInShader =
+    hslInput !== null &&
+    canUseWebGL2() &&
+    (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const effectActive =
+    shaderGradeActive ||
+    contrastInShader ||
+    saturationInShader ||
+    hueInShader ||
+    grayscaleInShader ||
+    sepiaInShader ||
+    toneInShader ||
+    matchInShader ||
+    hslInShader ||
+    lookShaderActive ||
+    lookToneActive ||
+    lookMatchActive ||
+    lookHslActive;
+  const clipLutIntensity = effectsAtPlayhead?.lutIntensity ?? 1;
+  const lookLutIntensity = project.look?.lutIntensity ?? 1;
+  const [lutReady, setLutReady] = useState(false);
+  useEffect(() => {
+    setLutReady(false);
+  }, [url, reload, effectActive]);
+  // Durante el lead de la transición el clip entrante muestra el material
+  // anterior a su inicio, igual que el recorte de origen del export.
+  const relativeFrame = playheadFrame - clip.startFrame;
   const sourceSeconds = source
-    ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
+    ? remap
+      ? remap.sourceSecondsAt(localFrame, source.inFrame, fps)
+      : Math.max(0, (source.inFrame + relativeFrame * speed) / fps)
     : 0;
   const clipGainDb = clipGainAtFrame(
     clip,
@@ -513,44 +1000,132 @@ function VideoLayer({
     if (ref.current) ref.current.volume = volume;
   }, [volume]);
 
+  // El audio de un clip con curva no puede seguir la velocidad instantánea
+  // frame a frame; se usa la media (como el atempo del export) para que no se
+  // desincronice de punta a punta.
+  useEffect(() => {
+    const media = ref.current;
+    if (!media) return;
+    const rate = remap
+      ? Math.min(4, Math.max(0.25, remap.averageSpeed))
+      : 1;
+    try {
+      media.playbackRate = rate;
+    } catch {
+      // WebView sin playbackRate: queda a 1×.
+    }
+  }, [remap]);
+
   if (!url || failed) {
     return (
-      <div
-        className="media-missing"
-        style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
-        role="status"
-      >
-        <span>{failed ? 'Video no disponible en la vista previa' : 'Medio no disponible en la vista previa'}</span>
-        {failed ? (
-          <button
-            type="button"
-            className="small"
-            onClick={() => {
-              setFailed(false);
-              setReload((value) => value + 1);
-            }}
-          >
-            Reintentar
-          </button>
-        ) : null}
-      </div>
+      <MediaUnavailable
+        clip={clip}
+        asset={asset}
+        failed={failed}
+        kind="video"
+        style={layerStyle(clip, project, playheadFrame, viewport)}
+        onRetry={() => {
+          setFailed(false);
+          setReload((value) => value + 1);
+        }}
+      />
     );
   }
 
+  const mediaStyle = withLookGrade(
+    layerStyle(clip, project, playheadFrame, viewport),
+    lookGradeApprox,
+  );
   return (
-    <video
-      key={`${url}-${reload}`}
-      ref={ref}
-      className="preview-media"
-      src={url}
-      crossOrigin="anonymous"
-      data-clip-id={clip.id}
-      style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
-      muted={muted}
-      playsInline
-      preload="auto"
-      onError={() => setFailed(true)}
-    />
+    <>
+      <video
+        key={`${url}-${reload}`}
+        ref={ref}
+        className="preview-media"
+        src={url}
+        crossOrigin="anonymous"
+        data-clip-id={clip.id}
+        style={
+          effectActive && lutReady
+            ? { ...mediaStyle, opacity: 0, filter: 'none' }
+            : mediaStyle
+        }
+        muted={muted}
+        playsInline
+        preload="auto"
+        onError={() => setFailed(true)}
+      />
+      {effectActive ? (
+        <EffectOverlay
+          sourceRef={ref}
+          sourceKind="video"
+          sourceKey={`${url}-${reload}`}
+          style={lutLayerStyle(clip, project, playheadFrame, viewport)}
+          dataClipId={clip.id}
+          gradeFilter={effectFilterParts(clip, playheadFrame, project, {
+            wheels: wheelsActive || brightnessInShader,
+            temperature: temperatureInShader,
+            contrast: contrastInShader,
+            saturation: saturationInShader,
+            hue: hueInShader,
+            grayscale: grayscaleInShader,
+            sepia: sepiaInShader,
+            tone: toneInShader,
+            colorMatch: matchInShader,
+            hsl: hslInShader,
+          }).grade}
+          lookGradeFilter={lookGrade}
+          clipLutFile={clipLutFile}
+          clipIntensity={clipLutIntensity}
+          lookLutFile={lookLutFile}
+          lookIntensity={lookLutIntensity}
+          motionBlur={blurActive ? motionBlur : undefined}
+          denoise={denoiseActive ? denoise : undefined}
+          temporalDenoise={temporalDenoiseForProfile(previewProfile)}
+          vignette={vignetteActive ? vignette : undefined}
+          curves={curvesActive ? clipCurves : undefined}
+          chromaKey={chromaKey}
+          colorWheels={wheelsActive || brightnessInShader ? effectsAtPlayhead : undefined}
+          brightnessInShader={brightnessInShader}
+          temperature={temperatureInShader ? temperature : undefined}
+          contrast={contrastInShader ? contrast : undefined}
+          saturation={saturationInShader ? saturation : undefined}
+          hueRotateDeg={hueInShader ? hueRotate : undefined}
+          grayscale={grayscaleInShader ? true : undefined}
+          sepia={sepiaInShader ? true : undefined}
+          lookColorWheels={lookWheelsActive ? project.look : undefined}
+          lookBrightnessInShader={lookBrightnessInShader}
+          lookContrast={lookShaderGrade?.contrast}
+          lookSaturation={lookShaderGrade?.saturation}
+          lookHueDeg={lookShaderGrade?.hueRotateDeg}
+          lookTemperature={lookShaderGrade?.temperature}
+          lookGrayscale={lookShaderGrade?.grayscale}
+          lookSepia={lookShaderGrade?.sepia}
+          shadows={toneInShader ? shadows : undefined}
+          highlights={toneInShader ? highlights : undefined}
+          fade={toneInShader ? fade : undefined}
+          lookShadows={lookToneActive ? project.look?.shadows : undefined}
+          lookHighlights={lookToneActive ? project.look?.highlights : undefined}
+          lookFade={lookToneActive ? project.look?.fade : undefined}
+          matchR={matchInShader ? matchGain?.[0] : undefined}
+          matchG={matchInShader ? matchGain?.[1] : undefined}
+          matchB={matchInShader ? matchGain?.[2] : undefined}
+          lookMatchR={lookMatchActive ? lookMatchGain?.[0] : undefined}
+          lookMatchG={lookMatchActive ? lookMatchGain?.[1] : undefined}
+          lookMatchB={lookMatchActive ? lookMatchGain?.[2] : undefined}
+          hslHue={hslInShader ? hslInput?.hue : undefined}
+          hslSat={hslInShader ? hslInput?.saturation : undefined}
+          hslIntensity={hslInShader ? hslInput?.intensity : undefined}
+          hslColors={hslInShader ? hslInput?.colors : undefined}
+          lookHslHue={lookHslActive ? lookHslInput?.hue : undefined}
+          lookHslSat={lookHslActive ? lookHslInput?.saturation : undefined}
+          lookHslIntensity={lookHslActive ? lookHslInput?.intensity : undefined}
+          lookHslColors={lookHslActive ? lookHslInput?.colors : undefined}
+          playing={playing}
+          onReadyChange={setLutReady}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -560,56 +1135,267 @@ function ImageLayer({
   project,
   playheadFrame,
   viewport,
+  applyLook = true,
 }: {
   readonly clip: Clip;
   readonly asset: Asset | undefined;
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
   readonly viewport: PerspectiveViewport;
+  readonly applyLook?: boolean;
 }) {
   const store = useProjectStore();
   const root = store.state.opened?.root ?? '';
   const [failed, setFailed] = useState(false);
   const [reload, setReload] = useState(0);
   const url = asset ? store.service.mediaUrl(root, asset.source.path) : '';
+  const clipLutFile = 'effects' in clip ? clip.effects?.lutFile : undefined;
+  const lookLutFile = applyLook ? project.look?.lutFile : undefined;
+  const lookHasWheels = applyLook && hasColorWheels(project.look);
+  const lookBrightness = applyLook ? project.look?.brightness : undefined;
+  const lookBrightnessActive =
+    lookBrightness !== undefined &&
+    Number.isFinite(lookBrightness) &&
+    Math.abs(lookBrightness) > 0.001;
+  const lookWheelsActive = lookHasWheels || lookBrightnessActive;
+  const lookBrightnessInShader = lookWheelsActive && !lookHasWheels;
+  const lookShaderGrade = applyLook
+    ? lookShaderGradeOf(project, canUseWebGL2() && getPreviewProfile() !== 'efficient')
+    : null;
+  const lookShaderActive = lookShaderGrade !== null;
+  const lookToneActive =
+    applyLook &&
+    canUseWebGL2() &&
+    getPreviewProfile() !== 'efficient' &&
+    ((project.look?.shadows !== undefined &&
+      Math.abs(project.look.shadows) > 0.001) ||
+      (project.look?.highlights !== undefined &&
+        Math.abs(project.look.highlights) > 0.001) ||
+      (project.look?.fade !== undefined && project.look.fade > 0.001));
+  const lookMatchGain = applyLook ? colorMatchGain(project.look?.colorMatch) : null;
+  const lookMatchActive = lookMatchGain !== null;
+  const lookHslInput = applyLook ? hslShaderInput(project.look?.hsl) : null;
+  const lookHslActive =
+    lookHslInput !== null &&
+    canUseWebGL2() &&
+    getPreviewProfile() !== 'efficient';
+  const lookGrade = applyLook
+    ? lookGradeFilterOf(
+        project,
+        lookWheelsActive,
+        lookShaderActive,
+        lookToneActive,
+        lookMatchActive,
+        lookHslActive,
+      )
+    : '';
+  const lookGradeApprox = applyLook ? lookGradeFilterOf(project) : '';
+  const effectsAtPlayhead = effectsAtFrame(clip, playheadFrame);
+  const denoise = effectsAtPlayhead?.denoise;
+  const denoiseActive =
+    denoise !== undefined && Number.isFinite(denoise) && denoise > 0.001;
+  const vignette = effectsAtPlayhead?.vignette;
+  const vignetteActive =
+    vignette !== undefined && Number.isFinite(vignette) && vignette > 0.001;
+  const clipCurves = effectsAtPlayhead?.curves;
+  const curvesActive = hasCustomCurves(clipCurves);
+  const chromaKey = 'chromaKey' in clip ? clip.chromaKey : undefined;
+  const wheelsActive = hasColorWheels(effectsAtPlayhead);
+  const lutActive = Boolean(clipLutFile || lookLutFile);
+  const brightness = effectsAtPlayhead?.brightness;
+  const brightnessActive =
+    brightness !== undefined && Number.isFinite(brightness) && Math.abs(brightness) > 0.001;
+  const overlayActive =
+    lutActive ||
+    denoiseActive ||
+    vignetteActive ||
+    curvesActive ||
+    Boolean(chromaKey) ||
+    wheelsActive ||
+    lookWheelsActive;
+  const temperature = effectsAtPlayhead?.temperature;
+  const temperatureActive =
+    temperature !== undefined && Number.isFinite(temperature) && Math.abs(temperature) > 0.001;
+  const shaderAvailable = canUseWebGL2() && getPreviewProfile() !== 'efficient';
+  // La temperatura usa colorbalance del export; el fallback 2D no la aplica,
+  // así que se exige WebGL2 fuera del perfil eficiente.
+  const temperatureInShader =
+    temperatureActive && canUseWebGL2() && (overlayActive || getPreviewProfile() !== 'efficient');
+  // Las imágenes tienen fallback 2D exacto: fuera del perfil eficiente el
+  // brillo también usa el pase aunque sea el único efecto.
+  const brightnessInShader =
+    brightnessActive && (overlayActive || temperatureInShader || shaderAvailable);
+  const contrast = effectsAtPlayhead?.contrast;
+  const contrastActive =
+    contrast !== undefined && Number.isFinite(contrast) && Math.abs(contrast - 1) > 0.001;
+  const shaderGradeActive = overlayActive || brightnessInShader || temperatureInShader;
+  // Fuera del perfil eficiente el grade exacto usa el pase aunque sea el único
+  // efecto; en eficiente o sin WebGL2 se conserva la aproximación CSS.
+  const exactGrade =
+    canUseWebGL2() && (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const contrastInShader = contrastActive && exactGrade;
+  const saturation = effectsAtPlayhead?.saturation;
+  const saturationActive =
+    saturation !== undefined && Number.isFinite(saturation) && Math.abs(saturation - 1) > 0.001;
+  const saturationInShader = saturationActive && exactGrade;
+  const hueRotate = effectsAtPlayhead?.hueRotateDeg;
+  const hueActive =
+    hueRotate !== undefined && Number.isFinite(hueRotate) && Math.abs(hueRotate) > 0.01;
+  const hueInShader = hueActive && exactGrade;
+  const grayscaleActive = effectsAtPlayhead?.grayscale === true;
+  const sepiaActive = effectsAtPlayhead?.sepia === true;
+  const grayscaleInShader = grayscaleActive && exactGrade;
+  const sepiaInShader = sepiaActive && exactGrade;
+  const shadows = effectsAtPlayhead?.shadows;
+  const highlights = effectsAtPlayhead?.highlights;
+  const fade = effectsAtPlayhead?.fade;
+  const toneActive =
+    (shadows !== undefined && Number.isFinite(shadows) && Math.abs(shadows) > 0.001) ||
+    (highlights !== undefined && Number.isFinite(highlights) && Math.abs(highlights) > 0.001) ||
+    (fade !== undefined && Number.isFinite(fade) && fade > 0.001);
+  const toneInShader =
+    toneActive &&
+    canUseWebGL2() &&
+    (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const matchGain = colorMatchGain(effectsAtPlayhead?.colorMatch);
+  const matchInShader =
+    matchGain !== null &&
+    canUseWebGL2() &&
+    (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const hslInput = hslShaderInput(effectsAtPlayhead?.hsl);
+  const hslInShader =
+    hslInput !== null &&
+    canUseWebGL2() &&
+    (shaderGradeActive || getPreviewProfile() !== 'efficient');
+  const effectActive =
+    shaderGradeActive ||
+    contrastInShader ||
+    saturationInShader ||
+    hueInShader ||
+    grayscaleInShader ||
+    sepiaInShader ||
+    toneInShader ||
+    matchInShader ||
+    hslInShader ||
+    lookShaderActive ||
+    lookToneActive ||
+    lookMatchActive ||
+    lookHslActive;
+  const clipLutIntensity = effectsAtPlayhead?.lutIntensity ?? 1;
+  const lookLutIntensity = project.look?.lutIntensity ?? 1;
+  const [lutReady, setLutReady] = useState(false);
+  const ref = useRef<HTMLImageElement | null>(null);
   useEffect(() => {
     setFailed(false);
     setReload(0);
-  }, [url]);
+    setLutReady(false);
+  }, [url, effectActive]);
   if (!url || failed) {
     return (
-      <div
-        className="media-missing"
-        style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
-        role="status"
-      >
-        <span>Imagen no disponible</span>
-        {failed ? (
-          <button
-            type="button"
-            className="small"
-            onClick={() => {
-              setFailed(false);
-              setReload((value) => value + 1);
-            }}
-          >
-            Reintentar
-          </button>
-        ) : null}
-      </div>
+      <MediaUnavailable
+        clip={clip}
+        asset={asset}
+        failed={failed}
+        kind="image"
+        style={layerStyle(clip, project, playheadFrame, viewport)}
+        onRetry={() => {
+          setFailed(false);
+          setReload((value) => value + 1);
+        }}
+      />
     );
   }
+  const mediaStyle = withLookGrade(
+    layerStyle(clip, project, playheadFrame, viewport),
+    lookGradeApprox,
+  );
   return (
-    <img
-      key={`${url}-${reload}`}
-      className="preview-media"
-      src={url}
-      crossOrigin="anonymous"
-      data-clip-id={clip.id}
-      alt={clip.label ?? 'Imagen de la timeline'}
-      style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
-      onError={() => setFailed(true)}
-    />
+    <>
+      <img
+        key={`${url}-${reload}`}
+        ref={ref}
+        className="preview-media"
+        src={url}
+        crossOrigin="anonymous"
+        data-clip-id={clip.id}
+        alt={clip.label ?? 'Imagen de la timeline'}
+        style={
+          effectActive && lutReady
+            ? { ...mediaStyle, opacity: 0, filter: 'none' }
+            : mediaStyle
+        }
+        onError={() => setFailed(true)}
+      />
+      {effectActive ? (
+        <EffectOverlay
+          sourceRef={ref}
+          sourceKind="image"
+          sourceKey={`${url}-${reload}`}
+          style={lutLayerStyle(clip, project, playheadFrame, viewport)}
+          dataClipId={clip.id}
+          gradeFilter={effectFilterParts(clip, playheadFrame, project, {
+            wheels: wheelsActive || brightnessInShader,
+            temperature: temperatureInShader,
+            contrast: contrastInShader,
+            saturation: saturationInShader,
+            hue: hueInShader,
+            grayscale: grayscaleInShader,
+            sepia: sepiaInShader,
+            tone: toneInShader,
+            colorMatch: matchInShader,
+            hsl: hslInShader,
+          }).grade}
+          lookGradeFilter={lookGrade}
+          clipLutFile={clipLutFile}
+          clipIntensity={clipLutIntensity}
+          lookLutFile={lookLutFile}
+          lookIntensity={lookLutIntensity}
+          motionBlur={undefined}
+          denoise={denoiseActive ? denoise : undefined}
+          vignette={vignetteActive ? vignette : undefined}
+          curves={curvesActive ? clipCurves : undefined}
+          chromaKey={chromaKey}
+          colorWheels={wheelsActive || brightnessInShader ? effectsAtPlayhead : undefined}
+          brightnessInShader={brightnessInShader}
+          temperature={temperatureInShader ? temperature : undefined}
+          contrast={contrastInShader ? contrast : undefined}
+          saturation={saturationInShader ? saturation : undefined}
+          hueRotateDeg={hueInShader ? hueRotate : undefined}
+          grayscale={grayscaleInShader ? true : undefined}
+          sepia={sepiaInShader ? true : undefined}
+          lookColorWheels={lookWheelsActive ? project.look : undefined}
+          lookBrightnessInShader={lookBrightnessInShader}
+          lookContrast={lookShaderGrade?.contrast}
+          lookSaturation={lookShaderGrade?.saturation}
+          lookHueDeg={lookShaderGrade?.hueRotateDeg}
+          lookTemperature={lookShaderGrade?.temperature}
+          lookGrayscale={lookShaderGrade?.grayscale}
+          lookSepia={lookShaderGrade?.sepia}
+          shadows={toneInShader ? shadows : undefined}
+          highlights={toneInShader ? highlights : undefined}
+          fade={toneInShader ? fade : undefined}
+          lookShadows={lookToneActive ? project.look?.shadows : undefined}
+          lookHighlights={lookToneActive ? project.look?.highlights : undefined}
+          lookFade={lookToneActive ? project.look?.fade : undefined}
+          matchR={matchInShader ? matchGain?.[0] : undefined}
+          matchG={matchInShader ? matchGain?.[1] : undefined}
+          matchB={matchInShader ? matchGain?.[2] : undefined}
+          lookMatchR={lookMatchActive ? lookMatchGain?.[0] : undefined}
+          lookMatchG={lookMatchActive ? lookMatchGain?.[1] : undefined}
+          lookMatchB={lookMatchActive ? lookMatchGain?.[2] : undefined}
+          hslHue={hslInShader ? hslInput?.hue : undefined}
+          hslSat={hslInShader ? hslInput?.saturation : undefined}
+          hslIntensity={hslInShader ? hslInput?.intensity : undefined}
+          hslColors={hslInShader ? hslInput?.colors : undefined}
+          lookHslHue={lookHslActive ? lookHslInput?.hue : undefined}
+          lookHslSat={lookHslActive ? lookHslInput?.saturation : undefined}
+          lookHslIntensity={lookHslActive ? lookHslInput?.intensity : undefined}
+          lookHslColors={lookHslActive ? lookHslInput?.colors : undefined}
+          playing={false}
+          onReadyChange={setLutReady}
+        />
+      ) : null}
+    </>
   );
 }
 
@@ -699,6 +1485,7 @@ function AudioLayer({
   const windowed = clip.kind === 'audio';
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'audio' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
+  const remap = useMemo(() => clipTimeRemap(clip), [clip]);
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
@@ -752,6 +1539,22 @@ function AudioLayer({
   useEffect(() => {
     if (ref.current) ref.current.volume = volume;
   }, [volume]);
+
+  // El audio de un clip con curva no puede seguir la velocidad instantánea
+  // frame a frame; se usa la media (como el atempo del export) para que no se
+  // desincronice de punta a punta.
+  useEffect(() => {
+    const media = ref.current;
+    if (!media) return;
+    const rate = remap
+      ? Math.min(4, Math.max(0.25, remap.averageSpeed))
+      : 1;
+    try {
+      media.playbackRate = rate;
+    } catch {
+      // WebView sin playbackRate: queda a 1×.
+    }
+  }, [remap]);
 
   if (!url) return null;
   // crossOrigin como en los <video>: sin CORS limpio, Web Audio enmudecería
@@ -897,11 +1700,12 @@ export function Preview() {
   const fps = project ? fpsOf(project) : 30;
   const playhead = store.state.playheadFrame;
   const playing = store.state.playing;
+  const perf = usePreviewPerf(playing, fps);
 
   useEffect(() => {
     setRealFrame(null);
     setPixelPerfect(false);
-  }, [playhead, project?.id]);
+  }, [playhead, project]);
 
   useEffect(() => {
     setMonitorZoom(1);
@@ -914,10 +1718,10 @@ export function Preview() {
     if (project) syncPreviewAudioFromProject(project);
   }, [project]);
 
-  // Paneo de pista animado: el grafo se muestrea en el frame visible, también
-  // al arrastrar el playhead, no sólo cuando cambia el proyecto.
+  // Fader y paneo de pista animados: el grafo se muestrea en el frame visible,
+  // también al arrastrar el playhead, no sólo cuando cambia el proyecto.
   useEffect(() => {
-    if (project) syncPreviewAudioPanAtFrame(project, playhead);
+    if (project) syncPreviewAudioAutomationAtFrame(project, playhead);
   }, [project, playhead]);
 
   const visualClips = useMemo(() => {
@@ -928,14 +1732,17 @@ export function Preview() {
         if (!track || track.hidden) return false;
         if (!['video', 'image', 'graphic'].includes(track.kind)) return false;
         if (clip.enabled === false) return false;
-        return playhead >= clip.startFrame && playhead < clip.startFrame + clip.durationFrames;
+        // El clip entrante aparece durante el lead de su transición para
+        // componer el mismo solape que el export y el frame nativo.
+        const from = clip.startFrame - transitionLeadFrames(clip, fps);
+        return playhead >= from && playhead < clip.startFrame + clip.durationFrames;
       })
       .sort((a, b) => {
         const orderA = trackById(project, a.trackId)?.order ?? 0;
         const orderB = trackById(project, b.trackId)?.order ?? 0;
         return orderA - orderB;
       });
-  }, [playhead, project]);
+  }, [fps, playhead, project]);
 
   const audioClips = useMemo(() => {
     if (!project) return [];
@@ -1001,15 +1808,8 @@ export function Preview() {
   // tamaño ajustado a la etapa: la homografía debe usar ese mismo cuadro.
   const canvasWidth = pixelPerfect ? (realFrame?.width ?? project.video.width) : frameWidth;
   const canvasHeight = pixelPerfect ? (realFrame?.height ?? project.video.height) : frameHeight;
-  const lookStyle = compare ? {} : effectsToCss(project.look);
-  const lookFilter = typeof lookStyle.filter === 'string' ? lookStyle.filter : '';
   const previewStyle: CSSProperties =
-    compare || !adjustmentFilter
-      ? lookStyle
-      : {
-          ...lookStyle,
-          filter: [adjustmentFilter, lookFilter].filter(Boolean).join(' '),
-        };
+    compare || !adjustmentFilter ? {} : { filter: adjustmentFilter };
 
   const currentRatioPreset = FORMAT_PRESETS.find(
     (p) => p.width === project.video.width && p.height === project.video.height,
@@ -1050,11 +1850,14 @@ export function Preview() {
     if (!project || !target || realFrameBusy) return null;
     setRealFrameBusy(true);
     try {
+      const hasGraphics = project.timeline.clips.some((clip) => clip.kind === 'graphic');
+      const motionPlans = hasGraphics ? buildProjectMotionPlans(project).plans : null;
       const result = await store.service.renderPreviewFrame({
         project,
         clipId: target.id,
         frame: playhead,
         native,
+        ...(motionPlans ? { motionPlans } : {}),
       });
       setRealFrame(result);
       return result;
@@ -1097,6 +1900,14 @@ export function Preview() {
           {project.video.width}×{project.video.height}
         </span>
         <span className="preview-hud-chip">{fps} fps</span>
+        {perf.frames > 1 ? (
+          <span
+            className="preview-hud-chip"
+            title="FPS reales medidos con requestAnimationFrame en WebView2"
+          >
+            {perf.fps.toFixed(0)} fps reales · {perf.dropped} caídos
+          </span>
+        ) : null}
         <span className="preview-hud-chip preview-hud-render" title="El render final usa FFmpeg">
           Vista previa aproximada
         </span>
@@ -1124,7 +1935,7 @@ export function Preview() {
         >
           {FORMAT_PRESETS.map((preset) => (
             <option key={preset.id} value={preset.id}>
-              {preset.label.split(' ')[0]} ({preset.width > preset.height ? '16:9' : preset.width < preset.height ? '9:16' : '1:1'})
+              {preset.label}
             </option>
           ))}
           {!currentRatioPreset && (
@@ -1285,12 +2096,22 @@ export function Preview() {
         <div
           className="preview-look"
           style={previewStyle}
+          tabIndex={0}
+          role="group"
+          aria-label="Lienzo de la vista previa. Enter selecciona el clip superior."
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            const top = visualClips[visualClips.length - 1];
+            if (top) store.setSelection({ kind: 'clip', id: top.id });
+          }}
           onPointerDown={(event) => {
             const target = (event.target as HTMLElement).closest('[data-clip-id]');
             const id = target?.getAttribute('data-clip-id');
             if (id) store.setSelection({ kind: 'clip', id });
           }}
         >
+          <PreviewSvgFilters clips={visualClips} playheadFrame={playhead} />
           {visualClips.map((clip) => {
             const asset = clip.source.type === 'asset' ? assetById(project, clip.source.assetId) : undefined;
             const track = trackById(project, clip.trackId);
@@ -1307,6 +2128,7 @@ export function Preview() {
                   trackId={track ? track.id : ''}
                   trackGain={track ? trackGainDb(track) : 0}
                   viewport={previewViewport(asset, canvasWidth, canvasHeight)}
+                  applyLook={!compare}
                 />
               );
             }
@@ -1319,6 +2141,7 @@ export function Preview() {
                   project={project}
                   playheadFrame={playhead}
                   viewport={previewViewport(asset, canvasWidth, canvasHeight)}
+                  applyLook={!compare}
                 />
               );
             }

@@ -790,7 +790,7 @@ mod tests {
                 "-i",
                 "sine=frequency=440:duration=5",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",

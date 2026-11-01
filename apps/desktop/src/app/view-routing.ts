@@ -24,6 +24,7 @@ const HUB_ALIASES: Readonly<
   factory: { view: 'creator', tab: 'factory' },
   thumbnails: { view: 'creator', tab: 'thumbnails' },
   localization: { view: 'creator', tab: 'localization' },
+  design: { view: 'creator', tab: 'design' },
   convert: { view: 'lab', tab: 'convert' },
   compress: { view: 'lab', tab: 'compress' },
   denoise: { view: 'lab', tab: 'denoise' },

@@ -20,6 +20,7 @@ import {
 import { useProjectStore } from '../../state/project-store';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
+import { ENGINES } from '../engine/router';
 import {
   DEFAULT_FLOW_STYLE,
   buildFlowPrompts,
@@ -47,9 +48,7 @@ function intentLabel(intent: Scene['intent']): string {
 }
 
 function isLocalProvider(provider: ProviderInfo | null): boolean {
-  if (!provider) return false;
-  if (provider.kind === 'mock') return true;
-  return isLocalProviderUrl(provider.baseUrl);
+  return provider ? isLocalProviderUrl(provider.baseUrl) : false;
 }
 
 function SceneCard({
@@ -71,12 +70,41 @@ function SceneCard({
   const [status, setStatus] = useState<Scene['status']>(scene.status);
   const [narration, setNarration] = useState(scene.narration.text ?? '');
   const [notes, setNotes] = useState(scene.notes ?? '');
+  const [engine, setEngine] = useState(scene.engine ?? '');
+  const [clipIds, setClipIds] = useState<string[]>(scene.clipIds);
+  const project = store.state.project;
+  const visualClips = useMemo(() => {
+    if (!project) return [];
+    const visualTracks = new Set(
+      project.timeline.tracks
+        .filter(
+          (track) =>
+            track.kind === 'video' || track.kind === 'image' || track.kind === 'graphic',
+        )
+        .map((track) => track.id),
+    );
+    return project.timeline.clips
+      .filter((clip) => visualTracks.has(clip.trackId))
+      .map((clip) => {
+        const assetId =
+          clip.source.type === 'asset' ? clip.source.assetId : undefined;
+        return {
+          id: clip.id,
+          label:
+            clip.label ??
+            project.assets.find((asset) => asset.id === assetId)?.label ??
+            `${clip.kind} ${clip.id.slice(0, 6)}`,
+        };
+      });
+  }, [project]);
   const dirty =
     title !== scene.title ||
     intent !== scene.intent ||
     status !== scene.status ||
     narration !== (scene.narration.text ?? '') ||
-    notes !== (scene.notes ?? '');
+    notes !== (scene.notes ?? '') ||
+    engine !== (scene.engine ?? '') ||
+    clipIds.join('|') !== scene.clipIds.join('|');
 
   useEffect(() => {
     setTitle(scene.title);
@@ -84,13 +112,29 @@ function SceneCard({
     setStatus(scene.status);
     setNarration(scene.narration.text ?? '');
     setNotes(scene.notes ?? '');
+    setEngine(scene.engine ?? '');
+    setClipIds(scene.clipIds);
     // Reset only when the identity changes; edits stay local until saved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id]);
 
+  function toggleClip(id: string): void {
+    setClipIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  }
+
   function save(): void {
     store.update((project) =>
-      updateScene(project, scene.id, { title, intent, status, narration, notes }),
+      updateScene(project, scene.id, {
+        title,
+        intent,
+        status,
+        narration,
+        notes,
+        clipIds,
+        engine: engine ? (engine as Scene['engine']) : null,
+      }),
     );
   }
 
@@ -195,6 +239,21 @@ function SceneCard({
               ))}
             </select>
           </label>
+          <label className="field">
+            <span>Motor</span>
+            <select
+              value={engine}
+              aria-label={`Motor de ${scene.title}`}
+              onChange={(event) => setEngine(event.target.value)}
+            >
+              <option value="">Auto</option>
+              {ENGINES.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.id}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
       <label className="field">
@@ -206,6 +265,31 @@ function SceneCard({
           placeholder="Qué debería verse en esta escena…"
         />
       </label>
+      <fieldset className="scene-clips">
+        <legend>
+          Clips visuales <span className="muted">({clipIds.length})</span>
+        </legend>
+        {visualClips.length === 0 ? (
+          <p className="muted">Todavía no hay clips visuales en la timeline.</p>
+        ) : (
+          <div className="scene-clip-grid">
+            {visualClips.map((clip) => (
+              <label key={clip.id} className="scene-clip-option">
+                <input
+                  type="checkbox"
+                  checked={clipIds.includes(clip.id)}
+                  aria-label={`Clip ${clip.label} en ${scene.title}`}
+                  onChange={() => toggleClip(clip.id)}
+                />
+                <span>{clip.label}</span>
+              </label>
+            ))}
+          </div>
+        )}
+        {clipIds.length === 0 ? (
+          <p className="fine-print">Sin clips, la escena no se puede renderizar.</p>
+        ) : null}
+      </fieldset>
       <div className="actions compact">
         <button type="button" className="primary small" disabled={!dirty} onClick={save}>
           Guardar escena
@@ -230,7 +314,6 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [voice, setVoice] = useState<string>('');
-  const [providerBusy, setProviderBusy] = useState(false);
   const [brief, setBrief] = useState('');
   const [sceneCount, setSceneCount] = useState(5);
   const [language, setLanguage] = useState('es');
@@ -325,25 +408,8 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   const fpsNum = project.video.frameRate.num;
   const fpsDen = project.video.frameRate.den;
   const local = isLocalProvider(provider);
-  const configured = provider?.kind === 'mock' || Boolean(provider?.baseUrl && provider?.model);
+  const configured = Boolean(provider?.baseUrl && provider?.model);
   const claimsCiteScenes = project.provenance.claims.some((claim) => claim.sceneId);
-
-  async function useMockProvider(): Promise<void> {
-    setProviderBusy(true);
-    try {
-      const info = await store.service.saveProvider({
-        kind: 'mock',
-        baseUrl: '',
-        model: 'mock',
-      });
-      setProvider(info);
-      store.setNotice('Proveedor simulado activo: no hace llamadas de red ni consume cuota.');
-    } catch (error) {
-      store.setNotice(error instanceof Error ? error.message : 'no se pudo activar el proveedor simulado');
-    } finally {
-      setProviderBusy(false);
-    }
-  }
 
   async function generate(): Promise<void> {
     if (!brief.trim()) {
@@ -361,11 +427,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
       };
       const result = await store.service.generateScript(request);
       setPlan(result);
-      store.setNotice(
-        result.simulated
-          ? 'Plan simulado generado. Aplicalo si te sirve como esqueleto.'
-          : `Plan generado con ${result.model}. Revisalo antes de aplicarlo.`,
-      );
+      store.setNotice(`Plan generado con ${result.model}. Revisalo antes de aplicarlo.`);
     } catch (error) {
       store.setNotice(error instanceof Error ? error.message : 'la generación falló');
     } finally {
@@ -381,9 +443,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
           project: applyScenePlan(current, plan, { replace: replaceScenes }),
         }),
       {
-        notice: plan.simulated
-          ? 'Guion simulado aplicado. Editalo antes de producir.'
-          : 'Guion aplicado al proyecto; quedó registrado en provenance.',
+        notice: 'Guion aplicado al proyecto; quedó registrado en provenance.',
       },
     );
     if (result) {
@@ -532,25 +592,18 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
           <span className="eyebrow">Proveedor</span>
           <p>
             {provider
-              ? provider.kind === 'mock'
-                ? 'Simulado · sin red y sin cuota'
-                : `${provider.model || 'sin modelo'} · ${provider.baseUrl || 'sin URL'}`
+              ? `${provider.model || 'sin modelo'} · ${provider.baseUrl || 'sin URL'}`
               : 'Sin configurar'}
           </p>
           <p className="fine-print">
             {provider?.hasKey
               ? 'La clave está guardada en el Administrador de credenciales de Windows.'
-              : provider?.kind === 'mock'
-                ? 'El proveedor simulado genera un esqueleto honesto, no texto de un modelo.'
-                : 'Sin clave guardada. Los endpoints locales pueden no necesitarla.'}
+              : 'Sin clave guardada. Los endpoints locales pueden no necesitarla.'}
           </p>
         </div>
         <div className="actions compact">
           <button type="button" className="small" onClick={() => onNavigate('settings')}>
             Ajustes del proveedor
-          </button>
-          <button type="button" className="small" onClick={() => void useMockProvider()} disabled={providerBusy}>
-            {providerBusy ? 'Activando…' : 'Usar proveedor simulado'}
           </button>
         </div>
       </div>
@@ -608,7 +661,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
           >
             {generating ? 'Generando plan…' : 'Generar guion'}
           </button>
-          {!configured ? <span className="fine-print">Configurá un proveedor o usá el simulado.</span> : null}
+          {!configured ? <span className="fine-print">Configurá un proveedor real en Ajustes → IA.</span> : null}
         </div>
       </article>
 
@@ -616,7 +669,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
         <article className="card plan-card">
           <div className="plan-head">
             <div>
-              <p className="eyebrow">{plan.simulated ? 'Simulado' : 'Borrador del modelo'}</p>
+              <p className="eyebrow">Borrador del modelo</p>
               <h3>{plan.title}</h3>
               <p className="muted">
                 {plan.scenes.length} escenas · {plan.model}

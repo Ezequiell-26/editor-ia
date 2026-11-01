@@ -37,6 +37,11 @@ import { evaluateProjectQuality } from '../../state/quality';
 import { buildProjectMotionPlans } from '../motion/plan';
 import { hasEmoji } from '../emoji/emoji';
 import { gpuRecommendation } from './gpu-policy';
+import {
+  formatPlanEstimate,
+  planRender,
+  type RenderDestination,
+} from '../../state/render-plan';
 
 interface ExportDialogProps {
   readonly open: boolean;
@@ -94,6 +99,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const [batchProfiles, setBatchProfiles] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  const [planDestination, setPlanDestination] = useState<RenderDestination>('social');
   // La cola sobrevive al cierre del diálogo: se hidrata en el primer render
   // (no en un efecto) y se persiste en cada cambio. Hidratar en un efecto
   // dejaría un render con la cola vacía que pisaría lo guardado.
@@ -406,6 +412,26 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       })
     : null;
   const canUseGpu = Boolean(selectedHardware && gpuDecision?.recommended);
+  const planRangeSeconds = Math.max(0, (rangeEnd - rangeStart) / fps);
+  const needsAlpha = currentProject.timeline.clips.some(
+    (clip) =>
+      ('chromaKey' in clip && clip.chromaKey !== undefined) ||
+      ('mask' in clip && clip.mask !== undefined),
+  );
+  const plan = selected
+    ? planRender({
+        width: selected.resolution.width,
+        height: selected.resolution.height,
+        fps,
+        durationSeconds: planRangeSeconds,
+        destination: planDestination,
+        hasAlpha: needsAlpha,
+        hardware: {
+          h264: Boolean(hardware?.h264),
+          hevc: Boolean(hardware?.hevc),
+        },
+      })
+    : null;
 
   async function learnBeforeExport(): Promise<void> {
     const opened = store.state.opened;
@@ -603,6 +629,61 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   ))}
                 </select>
               </label>
+              {plan ? (
+                <div className="export-plan" role="group" aria-label="Plan de render sugerido">
+                  <div className="export-compression-head">
+                    <p className="eyebrow">Plan sugerido</p>
+                    <span>{formatPlanEstimate(plan)}</span>
+                  </div>
+                  <label className="field">
+                    <span>Destino</span>
+                    <select
+                      value={planDestination}
+                      disabled={running}
+                      onChange={(event) =>
+                        setPlanDestination(event.target.value as RenderDestination)
+                      }
+                    >
+                      <option value="social">Redes (compatibilidad)</option>
+                      <option value="web">Web (peso medio)</option>
+                      <option value="archive">Archivo maestro (calidad)</option>
+                      <option value="draft">Borrador (rápido)</option>
+                    </select>
+                  </label>
+                  <p className="fine-print">
+                    {plan.codec === 'hevc' ? 'H.265/HEVC' : 'H.264'} · {plan.compression} · CRF{' '}
+                    {plan.crf} · {plan.encoder === 'hardware' ? 'GPU' : 'software'}
+                  </p>
+                  <ul className="export-plan-reasons">
+                    {plan.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                    {plan.warnings.map((warning) => (
+                      <li key={warning} className="export-plan-warning">
+                        {warning}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    disabled={running}
+                    onClick={() => {
+                      const codec = plan.codec === 'hevc' ? 'h265' : 'h264';
+                      store.update((current) =>
+                        applyCompression(current, plan.compression, codec),
+                      );
+                      if (plan.encoder === 'hardware' && canUseGpu) setUseGpu(true);
+                      if (plan.encoder === 'software') setUseGpu(false);
+                      store.setNotice(
+                        `Plan aplicado: ${codec === 'h265' ? 'H.265' : 'H.264'} · ${plan.compression}.`,
+                      );
+                    }}
+                  >
+                    Aplicar plan
+                  </button>
+                </div>
+              ) : null}
               {hardware?.checked ? (
                 <div className="export-gpu">
                   <label className="check">

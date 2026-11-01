@@ -183,6 +183,7 @@ export function CommandPalette({ commands, onClose, search, onPickHit }: Command
           <input
             type="text"
             placeholder="Escribí un comando o buscá en el proyecto…"
+            aria-label="Buscar comandos y contenido del proyecto"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             aria-autocomplete="list"

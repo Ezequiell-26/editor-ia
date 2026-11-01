@@ -22,6 +22,20 @@ export const SceneIntentSchema = z.enum([
 
 export const SceneStatusSchema = z.enum(['draft', 'reviewed', 'approved']);
 
+/** Motores del router que una escena puede fijar como decisión persistente. */
+export const SceneEngineSchema = z.enum([
+  'ken-burns',
+  'parallax',
+  'motion-graphics',
+  'lottie',
+  'rig',
+  'three',
+  'face-tracking',
+  'object-tracking',
+  'effects',
+  'transition',
+]);
+
 export const NarrationSchema = z
   .object({
     text: z.string().min(1).max(4_000).optional(),
@@ -40,15 +54,42 @@ export const NarrationSchema = z
     }
   });
 
+/** Capítulo de producción larga: agrupa escenas en un orden estable. */
+export const SequenceSchema = z
+  .object({
+    id: EntityIdSchema,
+    order: z.number().int().min(0).max(999),
+    title: z.string().min(1).max(200),
+  })
+  .strict();
+
+export const SequenceListSchema = z.array(SequenceSchema).max(200).superRefine((items, ctx) => {
+  const ids = new Set<string>();
+  const orders = new Set<number>();
+  for (const [index, item] of items.entries()) {
+    if (ids.has(item.id)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'id'], message: 'sequence ids must be unique' });
+    }
+    ids.add(item.id);
+    if (orders.has(item.order)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [index, 'order'], message: `sequence order ${item.order} is already taken` });
+    }
+    orders.add(item.order);
+  }
+});
+
 export const SceneSchema = z
   .object({
     id: EntityIdSchema,
     order: z.number().int().min(0).max(999),
     title: z.string().min(1).max(200),
+    sequenceId: EntityIdSchema.optional(),
     intent: SceneIntentSchema,
     status: SceneStatusSchema,
     narration: NarrationSchema,
     clipIds: z.array(EntityIdSchema).max(2_000),
+    /** Motor elegido/fijado por el agente o la UI. */
+    engine: SceneEngineSchema.optional(),
     sourceSceneId: EntityIdSchema.optional(),
     notes: z.string().max(2_000).optional(),
   })

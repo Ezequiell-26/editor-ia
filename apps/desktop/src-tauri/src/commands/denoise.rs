@@ -5,7 +5,8 @@
 //! original, escribe a un temporal, verifica y recién entonces publica.
 //!
 //! Filtros allowlisted (FFmpeg 9.0.1 de esta máquina):
-//! `hqdn3d` rápido, `atadenoise` temporal y `nlmeans` de alta calidad.
+//! `removegrain` rápido, `atadenoise` temporal y `nlmeans` de alta calidad
+//! (los tres presentes en el FFmpeg LGPL; `hqdn3d` es GPL y no se empaqueta).
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -117,6 +118,20 @@ pub struct DenoiseResult {
     pub duration_seconds: Option<f64>,
 }
 
+/// Denoise espacial rápido con `removegrain` (LGPL) y, si se pide, una pasada
+/// temporal de `atadenoise` con umbrales acotados para no dejar ghosting.
+fn spatial_temporal(mode: u8, amount: f32, temporal: bool) -> String {
+    let mut chain = format!("removegrain=m0={mode}:m1={mode}:m2={mode}");
+    if temporal {
+        let a = 0.01 + amount * 0.04;
+        let b = 0.02 + amount * 0.08;
+        chain.push_str(&format!(
+            ",atadenoise=0a={a:.3}:0b={b:.3}:1a={a:.3}:1b={b:.3}:2a={a:.3}:2b={b:.3}"
+        ));
+    }
+    chain
+}
+
 /// Construye la cadena de filtros. Es pura para poder testearla sin FFmpeg.
 pub(crate) fn denoise_filter(
     preset: DenoisePreset,
@@ -129,18 +144,12 @@ pub(crate) fn denoise_filter(
     let amount = if preserve_detail { base * 0.72 } else { base };
     match preset {
         DenoisePreset::Fast => {
-            let luma = 0.6 + amount * 2.8;
-            let chroma = 0.4 + amount * 2.2;
-            let luma_tmp = if temporal { 1.0 + amount * 4.0 } else { 0.0 };
-            let chroma_tmp = if temporal { 0.8 + amount * 3.0 } else { 0.0 };
-            format!("hqdn3d={luma:.2}:{chroma:.2}:{luma_tmp:.2}:{chroma_tmp:.2}")
+            let mode = (1.0 + amount * 2.0).round().clamp(1.0, 3.0) as u8;
+            spatial_temporal(mode, amount, temporal)
         }
         DenoisePreset::Balanced => {
-            let luma = 1.0 + amount * 4.5;
-            let chroma = 0.8 + amount * 3.5;
-            let luma_tmp = if temporal { 3.0 + amount * 9.0 } else { 0.0 };
-            let chroma_tmp = if temporal { 2.0 + amount * 7.0 } else { 0.0 };
-            format!("hqdn3d={luma:.2}:{chroma:.2}:{luma_tmp:.2}:{chroma_tmp:.2}")
+            let mode = (2.0 + amount * 2.0).round().clamp(2.0, 4.0) as u8;
+            spatial_temporal(mode, amount, temporal)
         }
         DenoisePreset::Quality => {
             // nlmeans: s = fuerza, p = tamaño de parche, r = ventana de búsqueda.
@@ -278,17 +287,15 @@ pub async fn denoise_media(
     command.arg("-vf").arg(&filter);
     match mode {
         DenoiseMode::Video => {
+            // libopenh264 no acepta `-preset` ni `-crf`; se estima 1080p30.
+            command.args(crate::render::encoders::software_video_args(
+                "h264", 1920, 1080, 30.0, 18,
+            ));
             command.args([
                 "-map",
                 "0:v:0",
                 "-map",
                 "0:a?",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "18",
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -410,11 +417,12 @@ mod tests {
         let soft = denoise_filter(DenoisePreset::Fast, 10, false, false);
         let strong = denoise_filter(DenoisePreset::Fast, 90, false, false);
         let temporal = denoise_filter(DenoisePreset::Fast, 90, true, false);
-        assert!(soft.starts_with("hqdn3d="));
-        assert!(strong.starts_with("hqdn3d="));
+        assert!(soft.starts_with("removegrain="));
+        assert!(strong.starts_with("removegrain="));
         assert_ne!(soft, strong);
-        assert!(soft.ends_with(":0.00"));
-        assert!(!temporal.ends_with(":0.00"));
+        assert!(!soft.contains("atadenoise"));
+        assert!(temporal.contains("atadenoise="));
+        assert!(temporal.contains("removegrain="));
     }
 
     #[test]

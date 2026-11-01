@@ -398,17 +398,12 @@ pub async fn hardware_encoders(
     Ok(detected)
 }
 
-/// Encoder de video a usar para proxies: GPU si existe, libx264 si no.
+/// Encoder de video a usar para proxies: GPU si existe, libopenh264 si no.
+/// El proxy se limita a 854 px de lado, así que el bitrate se calcula para
+/// 854x480 a 30 fps con CRF equivalente 26.
 pub(crate) fn proxy_video_args(hardware: Option<&str>) -> Vec<String> {
     let Some(encoder) = hardware else {
-        return vec![
-            "-c:v".into(),
-            "libx264".into(),
-            "-preset".into(),
-            "veryfast".into(),
-            "-crf".into(),
-            "26".into(),
-        ];
+        return crate::render::encoders::software_video_args("h264", 854, 480, 30.0, 26);
     };
     let mut args = vec!["-c:v".into(), encoder.to_owned()];
     if encoder.ends_with("_nvenc") {
@@ -501,7 +496,8 @@ h264_amf";
         let gpu = proxy_video_args(Some("h264_nvenc"));
         assert_eq!(gpu[1], "h264_nvenc");
         let cpu = proxy_video_args(None);
-        assert_eq!(cpu[1], "libx264");
+        assert_eq!(cpu[1], "libopenh264");
+        assert!(!cpu.iter().any(|arg| arg == "-crf"));
     }
 
     #[test]

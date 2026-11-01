@@ -955,7 +955,7 @@ mod tests {
                 "-map",
                 "1:a:0",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",

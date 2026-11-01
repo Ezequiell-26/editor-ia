@@ -481,7 +481,11 @@ export function DenoiseView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
             <button
               type="button"
               className="ghost icon-text"
-              onClick={() => void store.service.revealOutput(result.path)}
+              onClick={() =>
+                void store.service
+                  .revealOutput(result.path)
+                  .catch(() => store.setNotice('No se pudo abrir la carpeta de salida.'))
+              }
             >
               <Icon name="folder" size={15} />
               <span>Mostrar en carpeta</span>

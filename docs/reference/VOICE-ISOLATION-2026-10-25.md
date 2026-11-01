@@ -1,5 +1,8 @@
 # Voice Isolation con Demucs v4
 
+> **Corrección 2026-10-29:** el comando `voice-isolation.rs` y el wrapper Demucs se retiraron del árbol: no estaban declarados en `commands/mod.rs`, no había runtime/pesos instalados y el generador de filtros devolvía un placeholder (`silence`). Los porcentajes de “completo” de este documento describen un prototipo descartado, no una función disponible. La cadena real de diálogo es el DSP de FilmCraft (denoise, de-hum, de-esser, de-reverb, EQ, compresor, realce y limitador) y no separa voces superpuestas. `speedCurve` sigue declarado en el esquema pero preview y export lo ignoran; ver `docs/IMPROVEMENT-QUEUE.md`.
+
+
 **Fecha:** 2026-10-25  
 **Estado:** ✅ Backend completo + Schema TypeScript  
 **Próximos pasos:** UI en Inspector de audio  

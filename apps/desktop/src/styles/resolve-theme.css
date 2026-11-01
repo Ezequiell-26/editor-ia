@@ -518,8 +518,8 @@ body {
 /* Grid: CapCut 3-column layout (Izquierda: Herramientas/Assets · Centro: Video Preview · Derecha: Config/Inspector) */
 .editor-grid {
   display: grid !important;
-  grid-template-columns: 320px minmax(360px, 1fr) 340px !important;
-  grid-template-rows: minmax(0, 1fr) 285px !important;
+  grid-template-columns: 270px minmax(360px, 1fr) 290px !important;
+  grid-template-rows: minmax(0, 1fr) 268px !important;
   gap: 1px !important;
   padding: 0 !important;
   background: var(--color-border) !important;
@@ -750,12 +750,16 @@ body {
 .rail-tabs {
   background: #202124 !important;
   border-bottom: 1px solid var(--color-border) !important;
-  padding: 0 4px !important;
-  gap: 2px !important;
+  padding: 0 2px !important;
+  gap: 1px !important;
   display: flex !important;
   flex-wrap: nowrap !important;
   overflow-x: auto !important;
   scrollbar-width: none !important;
+  /* Con 270 px de rail los tabs exceden el ancho: el degradado derecho
+     indica que hay más y se pueden desplazar. */
+  mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 14px), transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 calc(100% - 14px), transparent 100%);
 }
 
 .rail-tabs::-webkit-scrollbar {
@@ -767,14 +771,14 @@ body {
   border-radius: 0 !important;
   border-bottom: 2px solid transparent !important;
   color: var(--color-text-muted) !important;
-  font-size: 10px !important;
+  font-size: 9.5px !important;
   font-weight: 600 !important;
-  letter-spacing: 0.04em !important;
-  padding: 6px 8px !important;
+  letter-spacing: 0.02em !important;
+  padding: 6px 6px !important;
   transition: color 0.1s ease, border-color 0.1s ease !important;
   display: flex !important;
   align-items: center !important;
-  gap: 4px !important;
+  gap: 3px !important;
 }
 
 .rail-tabs button:hover {

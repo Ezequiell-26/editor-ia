@@ -25,6 +25,7 @@ import {
 } from '../../state/speed-ramp-presets';
 import { CLIP_COLORS } from '../../state/clip-colors';
 import { MotionClipInspector } from '../motion/MotionClipInspector';
+import { CaptionFontField } from './CaptionFontField';
 import { polygonAroundCenter } from '../vfx/face-mask';
 import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
@@ -99,6 +100,7 @@ import {
   updateTrack,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { clipTimeRemap } from '../../state/time-remap';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
@@ -496,14 +498,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const audio = clip.audio ?? {};
   const transitionIn =
     'transitionIn' in clip
-      ? (
-          clip as Clip & {
-            transitionIn?: {
-              type: ClipTransition['type'];
-              frames: number;
-            };
-          }
-        ).transitionIn
+      ? (clip as Clip & { transitionIn?: ClipTransition }).transitionIn
       : undefined;
   const reverse =
     'reverse' in clip ? Boolean((clip as Clip & { reverse?: boolean }).reverse) : false;
@@ -816,7 +811,10 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         0,
         Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
       );
-      sourceSeconds = (windowedSource.inFrame + localFrame * speedFactor) / fps;
+      const remap = clipTimeRemap(clip);
+      sourceSeconds = remap
+        ? remap.sourceSecondsAt(localFrame, windowedSource.inFrame, fps)
+        : (windowedSource.inFrame + localFrame * speedFactor) / fps;
     }
     setMatchBusy(true);
     try {
@@ -1083,7 +1081,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         }),
       );
       store.setNotice(
-        `Efecto IA aplicado: ${recipe.name}${recipe.simulated ? ' (simulado)' : ''}. ${recipe.description}`,
+        `Efecto IA aplicado: ${recipe.name}. ${recipe.description}`,
       );
       setEffectPrompt('');
     } catch (failure) {
@@ -1946,6 +1944,12 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                             typeof transitionIn
                           >['type'],
                           frames: transitionIn?.frames ?? Math.min(12, clip.durationFrames),
+                          ...(transitionIn?.easing &&
+                          transitionIn.easing !== 'linear' &&
+                          event.target.value !== 'fade-black' &&
+                          event.target.value !== 'fade-white'
+                            ? { easing: transitionIn.easing }
+                            : {}),
                         },
                       }),
                     );
@@ -1960,6 +1964,46 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 <option value="slide-right">Deslizar desde la izquierda</option>
                 <option value="slide-up">Deslizar desde abajo</option>
                 <option value="slide-down">Deslizar desde arriba</option>
+                <option value="wipe-left">Barrido desde la izquierda</option>
+                <option value="wipe-right">Barrido desde la derecha</option>
+                <option value="wipe-up">Barrido desde abajo</option>
+                <option value="wipe-down">Barrido desde arriba</option>
+                <option value="iris">Iris circular</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Curva</span>
+              <select
+                aria-label="Curva de transición"
+                value={transitionIn?.easing ?? 'linear'}
+                disabled={
+                  !transitionIn ||
+                  transitionIn.type === 'fade-black' ||
+                  transitionIn.type === 'fade-white'
+                }
+                onChange={(event) =>
+                  store.update((current) =>
+                    updateClip(current, clip.id, {
+                      transitionIn: {
+                        type: transitionIn?.type ?? 'dissolve',
+                        frames: transitionIn?.frames ?? 12,
+                        ...(event.target.value === 'linear'
+                          ? {}
+                          : {
+                              easing: event.target.value as NonNullable<
+                                typeof transitionIn
+                              >['easing'],
+                            }),
+                      },
+                    }),
+                  )
+                }
+              >
+                <option value="linear">Lineal</option>
+                <option value="ease-in">Ease in</option>
+                <option value="ease-out">Ease out</option>
+                <option value="ease-in-out">Ease in out</option>
+                <option value="hold">Hold</option>
               </select>
             </label>
             <NumberField
@@ -1977,6 +2021,9 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                         1,
                         Math.min(Math.min(120, clip.durationFrames), Math.round(value)),
                       ),
+                      ...(transitionIn?.easing && transitionIn.easing !== 'linear'
+                        ? { easing: transitionIn.easing }
+                        : {}),
                     },
                   }),
                 )
@@ -3555,8 +3602,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               })}
             </div>
             <p className="fine-print">
-              Usa `huesaturation` con lightness preservada. La selección de rangos se aplica en
-              el MP4; la preview aproxima el efecto sobre toda la imagen.
+              Usa `huesaturation` con lightness preservada y la misma matriz del MP4. La
+              selección de rangos también se aplica en la preview cuando la capa usa WebGL2.
             </p>
           </div>
           {!isAdjustment ? (
@@ -3703,7 +3750,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             ) : null}
             <p className="fine-print">
               El archivo se copia a `media/luts` del proyecto y FFmpeg lo mezcla con el original
-              después del color. La preview no simula el LUT; revisá el MP4.
+              después del color. La preview lo aplica con WebGL2; los videos con alfa conservan el
+              canal y las capas gráficas del look global quedan sin LUT en vivo.
             </p>
           </div>
           <div className="keyframe-panel">
@@ -4620,6 +4668,15 @@ function AssetInspector({ asset }: { asset: Asset }) {
         <p className="inspector-meta">
           {assetKindLabel(asset.kind)} · {mediaInfo(asset)}
         </p>
+        {asset.kind === 'audio' ? (
+          <>
+            {asset.artist ? <p className="fine-print">Artista: {asset.artist}</p> : null}
+            {asset.album ? <p className="fine-print">Álbum: {asset.album}</p> : null}
+            {asset.bpm !== undefined ? (
+              <p className="fine-print">{asset.bpm} BPM</p>
+            ) : null}
+          </>
+        ) : null}
         <p className="inspector-meta">
           {asset.source.type === 'local' ? `local · ${asset.source.path}` : asset.source.type}
         </p>
@@ -4781,6 +4838,7 @@ function ProjectInspector() {
   const [subtitleIo, setSubtitleIo] = useState<'closed' | 'import' | 'export'>('closed');
   const [subtitleDraft, setSubtitleDraft] = useState('');
   const [subtitleWarnings, setSubtitleWarnings] = useState<string[]>([]);
+  const [systemFonts, setSystemFonts] = useState<readonly string[]>([]);
   const currentFpsNum = project?.video.frameRate.num ?? 30;
   const currentFpsDen = project?.video.frameRate.den ?? 1;
   const currentFpsPreset = FPS_PRESETS.find(
@@ -4792,6 +4850,18 @@ function ProjectInspector() {
     setFpsDraft({ num: currentFpsNum, den: currentFpsDen });
     setCustomFps(!FPS_PRESETS.some((preset) => preset.num === currentFpsNum && preset.den === currentFpsDen));
   }, [currentFpsNum, currentFpsDen]);
+  useEffect(() => {
+    let active = true;
+    store.service
+      .listSystemFonts()
+      .then((fonts) => {
+        if (active) setSystemFonts(fonts);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [store.service]);
   if (!project) return null;
   const activeProject = project;
   const fps = project.video.frameRate.num / project.video.frameRate.den;
@@ -5065,6 +5135,10 @@ function ProjectInspector() {
 
   return (
     <>
+      <p className="inspector-context-hint">
+        Nada seleccionado. Estás viendo las propiedades del proyecto; elegí un clip, una pista o
+        un subtítulo para editar su contexto.
+      </p>
       <Section title="Proyecto">
         <TextField
           label="Nombre"
@@ -5588,7 +5662,7 @@ function ProjectInspector() {
           ) : null}
           <p className="fine-print">
             Se copia a `media/luts` del proyecto y FFmpeg lo mezcla al final del grade global.
-            La preview no simula el LUT; revisá el MP4.
+            La preview lo aplica por capa de video/imagen; no alcanza gráficos ni captions.
           </p>
         </div>
         <div className="actions compact">
@@ -6045,6 +6119,15 @@ function ProjectInspector() {
                 store.update((current) => updateCaptionStyle(current, style.id, { fontSizePx: value }))
               }
             />
+            <CaptionFontField
+              value={style.fontFamily}
+              fonts={systemFonts}
+              onChange={(fontFamily) =>
+                store.update((current) =>
+                  updateCaptionStyle(current, style.id, { fontFamily }),
+                )
+              }
+            />
             <label className="field">
               <span>Color</span>
               <input
@@ -6267,21 +6350,36 @@ function ProjectInspector() {
       </Section>
 
       <Section title="Procedencia">
-        <p className="inspector-meta">
-          {project.provenance.sources.length} fuentes · {project.provenance.claims.length} citas ·{' '}
-          {project.provenance.operations.length} operaciones
-        </p>
-        <ul className="operation-list">
-          {project.provenance.operations.slice(-3).reverse().map((operation) => (
-            <li key={operation.id}>
-              <strong>{operation.role}</strong> {operation.summary}
-              <span>{new Date(operation.createdAt).toLocaleString('es-AR')}</span>
-            </li>
-          ))}
-        </ul>
+        <details className="inspector-disclosure">
+          <summary>
+            {project.provenance.sources.length} fuentes · {project.provenance.claims.length}{' '}
+            citas · {project.provenance.operations.length} operaciones
+          </summary>
+          <ul className="operation-list">
+            {project.provenance.operations.slice(-3).reverse().map((operation) => (
+              <li key={operation.id}>
+                <strong>{operation.role}</strong> {operation.summary}
+                <span>{new Date(operation.createdAt).toLocaleString('es-AR')}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       </Section>
     </>
   );
+}
+
+function selectionLabel(kind: string): string {
+  return (
+    {
+      none: 'proyecto',
+      clip: 'clip',
+      track: 'pista',
+      cue: 'subtítulo',
+      asset: 'medio',
+      scene: 'escena',
+    } as Record<string, string>
+  )[kind] ?? kind;
 }
 
 export function Inspector() {
@@ -6314,7 +6412,7 @@ export function Inspector() {
     <aside className="inspector" aria-label="Detalles">
       <div className="inspector-head">
         <h3>Detalles</h3>
-        <span>{selection.kind === 'none' ? 'proyecto' : selection.kind}</span>
+        <span>{selectionLabel(selection.kind)}</span>
       </div>
       <div className="inspector-body">{body}</div>
     </aside>

@@ -16,7 +16,7 @@ describe('selector de emojis', () => {
     expect(findEmoji('grinning face').some((entry) => entry.emoji === '😀')).toBe(true);
   });
 
-  it('inserta un emoji y lo guarda en recientes', () => {
+  it('inserta un emoji y lo guarda en recientes', async () => {
     const onPick = vi.fn();
     render(<EmojiPickerButton onPick={onPick} />);
     fireEvent.click(screen.getByRole('button', { name: /Insertar emoji/i }));
@@ -24,7 +24,8 @@ describe('selector de emojis', () => {
     fireEvent.change(within(dialog).getByRole('textbox', { name: /Buscar emoji/i }), {
       target: { value: 'rocket' },
     });
-    const rocket = within(dialog).getByRole('button', { name: /^(rocket|cohete)$/i });
+    // El catálogo se carga al abrir el selector (chunk aparte).
+    const rocket = await within(dialog).findByRole('button', { name: /^(rocket|cohete)$/i });
     fireEvent.click(rocket);
     expect(onPick).toHaveBeenCalledWith('🚀');
     expect(screen.queryByRole('dialog')).toBeNull();

@@ -11,6 +11,11 @@ import {
   updateClip,
 } from '../../state/project-actions';
 import type { AutoEditVariant } from './auto-edit';
+import {
+  planSmartTransitions,
+  type AssemblyShot,
+  type TransitionRhythm,
+} from '../../state/smart-transitions';
 
 export interface ApplyAutoEditOptions {
   /** Reemplaza los clips actuales en vez de agregar la variante al final. */
@@ -20,6 +25,20 @@ export interface ApplyAutoEditOptions {
   /** Agrega los subtítulos disponibles (si la variante los tiene). */
   readonly addCaptions: boolean;
 }
+
+/** Energía del montaje por estilo: el pulso va rápido, la historia respira. */
+const RHYTHM_BY_STYLE: Record<AutoEditVariant['style'], TransitionRhythm> = {
+  pulse: 'punchy',
+  story: 'calm',
+  impact: 'steady',
+};
+
+/** Duración base de la transición por estilo, en frames a 30 fps. */
+const BASE_FRAMES_BY_STYLE: Record<AutoEditVariant['style'], number> = {
+  pulse: 8,
+  story: 8,
+  impact: 5,
+};
 
 export interface ApplyAutoEditResult {
   readonly project: ProjectDocument;
@@ -62,6 +81,23 @@ export function applyAutoEditVariant(
     : 0;
   let cursor = offset;
   let clipCount = 0;
+  // Los cortes salen del mismo video y llevan su audio, así que el plan
+  // inteligente elige disolvencia (no compite con la voz) y ajusta el largo al
+  // ritmo del estilo y a la duración real de cada corte. Antes eran 5 u 8
+  // frames fijos, que el esquema rechaza si el corte dura menos.
+  const shots: AssemblyShot[] = variant.cuts.map((cut) => ({
+    kind: 'video',
+    durationFrames: Math.max(
+      1,
+      Math.round((cut.endSeconds - cut.startSeconds) * fps),
+    ),
+    hasNarration: true,
+  }));
+  const transitions = planSmartTransitions(shots, {
+    fps,
+    baseFrames: BASE_FRAMES_BY_STYLE[variant.style],
+    rhythm: RHYTHM_BY_STYLE[variant.style],
+  });
   for (const [index, cut] of variant.cuts.entries()) {
     const inFrame = Math.max(0, Math.min(mediaFrames - 1, Math.round(cut.startSeconds * fps)));
     const outFrame = Math.max(inFrame + 1, Math.min(mediaFrames, Math.round(cut.endSeconds * fps)));
@@ -73,10 +109,17 @@ export function applyAutoEditVariant(
     });
     next = added.project;
     clipCount += 1;
+    const transition = transitions[index];
     next = updateClip(next, added.clipId, {
       label: `${variant.name} · ${String(index + 1).padStart(2, '0')}`,
-      ...(index > 0
-        ? { transitionIn: { type: 'dissolve' as const, frames: variant.style === 'impact' ? 5 : 8 } }
+      ...(transition
+        ? {
+            transitionIn: {
+              type: transition.type,
+              frames: transition.frames,
+              easing: transition.easing,
+            },
+          }
         : {}),
     });
     if (cut.zoom) {

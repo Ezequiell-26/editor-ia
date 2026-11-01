@@ -16,7 +16,7 @@ import {
   trackGainDb,
   trackPan,
 } from '../../state/audio-mix';
-import { sampleTrackPan } from '../../state/track-automation';
+import { sampleTrackGain, sampleTrackPan } from '../../state/track-automation';
 
 /**
  * Utilidades de mezcla de la preview y la vista Mezcla.
@@ -417,9 +417,10 @@ export function resumePreviewAudio(): void {
 }
 
 /**
- * Parámetros de mezcla de una pista. Con `frame`, el paneo sale de sus
- * `panKeyframes` (el mismo muestreo del export); sin `frame` se usa el knob
- * estático. En ambos casos el paneo por clip gana y la pista queda al centro.
+ * Parámetros de mezcla de una pista. Con `frame`, el fader y el paneo salen de
+ * sus `gainKeyframes`/`panKeyframes` (el mismo muestreo del export); sin
+ * `frame` se usan los knobs estáticos. El paneo por clip gana y deja la pista
+ * al centro, como en el render.
  */
 function trackAudioParams(
   project: ProjectDocument,
@@ -429,10 +430,12 @@ function trackAudioParams(
   const hasClipPan = project.timeline.clips.some(
     (clip) => clip.trackId === track.id && Math.abs(clip.audio?.pan ?? 0) > 0.001,
   );
+  const sampledGain =
+    frame === undefined ? undefined : sampleTrackGain(track.gainKeyframes, frame);
   const sampledPan =
     frame === undefined ? undefined : sampleTrackPan(track.panKeyframes, frame);
   return {
-    gainDb: trackGainDb(track),
+    gainDb: sampledGain ?? trackGainDb(track),
     pan: hasClipPan ? 0 : (sampledPan ?? trackPan(track)),
     eqLowDb: trackEqDb(track, 'eqLowDb'),
     eqMidDb: trackEqDb(track, 'eqMidDb'),
@@ -447,19 +450,27 @@ function applyParams(trackId: string, params: TrackAudioParams): void {
 }
 
 /**
- * Aplica el paneo animado de cada pista en `frame` sobre el grafo vivo. Las
- * claves son frames absolutos de la timeline, con clamp en los extremos y la
- * misma curva easing/Bézier por segmento que `sampleTrackPan` y el export
- * Rust; el paneo por clip conserva su prioridad. Barato e idempotente: la
- * preview lo llama en cada cambio de playhead.
+ * Aplica el fader y el paneo animados de cada pista en `frame` sobre el grafo
+ * vivo. Las claves son frames absolutos de la timeline, con clamp en los
+ * extremos y la misma curva easing/Bézier por segmento que `sampleTrackGain`,
+ * `sampleTrackPan` y el export Rust; el paneo por clip conserva su prioridad.
+ * Barato e idempotente: la preview lo llama en cada cambio de playhead.
  */
-export function syncPreviewAudioPanAtFrame(project: ProjectDocument, frame: number): void {
+export function syncPreviewAudioAutomationAtFrame(
+  project: ProjectDocument,
+  frame: number,
+): void {
   for (const track of project.timeline.tracks) {
     if (!AUDIO_KINDS.has(track.kind)) continue;
-    if ((track.panKeyframes?.length ?? 0) === 0) continue;
+    const hasGain = (track.gainKeyframes?.length ?? 0) > 0;
+    const hasPan = (track.panKeyframes?.length ?? 0) > 0;
+    if (!hasGain && !hasPan) continue;
     applyParams(track.id, trackAudioParams(project, track, frame));
   }
 }
+
+/** Nombre anterior, conservado para los consumidores y pruebas existentes. */
+export const syncPreviewAudioPanAtFrame = syncPreviewAudioAutomationAtFrame;
 
 /**
  * Sincroniza fader, paneo y EQ de cada pista con audio y la ganancia master
@@ -536,7 +547,7 @@ export function isPreviewAudioGraphActive(): boolean {
 
 /**
  * Cierra el grafo y olvida el estado del módulo. Pensado para los tests,
- * donde cada caso arma su propio AudioContext simulado.
+ * donde cada caso arma su propio AudioContext falso.
  */
 export function resetPreviewAudio(): void {
   if (context) {

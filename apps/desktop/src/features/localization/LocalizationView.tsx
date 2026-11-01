@@ -40,7 +40,6 @@ interface SubtitleSource {
 interface LocalizedCues {
   readonly language: LocalizationLanguageCode;
   readonly cues: SubtitleCueSeconds[];
-  readonly simulated: boolean;
   readonly providerId: string;
   readonly model: string;
 }
@@ -244,8 +243,7 @@ export function LocalizationView({
     }
   }, [dubLanguage, voices]);
 
-  const simulator = provider?.kind === 'mock';
-  const remote = Boolean(provider && !simulator && !isLocalProviderBaseUrl(provider.baseUrl));
+  const remote = Boolean(provider && !isLocalProviderBaseUrl(provider.baseUrl));
   const cues = source?.parsed.cues ?? [];
   const characters = totalCharacters(cues);
   const chunks = chunkCues(cues);
@@ -253,7 +251,6 @@ export function LocalizationView({
   const selectedTranslations = targets
     .map((code) => translations[code])
     .filter((value): value is LocalizedCues => Boolean(value));
-  const hasSimulated = selectedTranslations.some((value) => value.simulated);
 
   async function pickFile(): Promise<void> {
     setBusy(true);
@@ -349,7 +346,6 @@ export function LocalizationView({
             ...cue,
             text: translated[index] ?? cue.text,
           })),
-          simulated: merged?.simulated ?? true,
           providerId: merged?.providerId ?? 'desconocido',
           model: merged?.model ?? '',
         };
@@ -380,12 +376,6 @@ export function LocalizationView({
   async function exportAll(): Promise<void> {
     if (!source) {
       setError('Elegí un archivo de subtítulos antes de exportar.');
-      return;
-    }
-    if (hasSimulated) {
-      setError(
-        'El proveedor simulado no produce una traducción real; configurá un proveedor en Ajustes para exportar.',
-      );
       return;
     }
     if (selectedTranslations.length === 0) {
@@ -606,19 +596,15 @@ export function LocalizationView({
         <div>
           <strong>
             {provider
-              ? simulator
-                ? 'Proveedor simulado'
-                : `${provider.model || 'Proveedor'} · ${remote ? 'remoto' : 'local'}`
+              ? `${provider.model || 'Proveedor'} · ${remote ? 'remoto' : 'local'}`
               : 'Proveedor no consultado'}
           </strong>
           <span>
-            {simulator
-              ? 'No inventa traducciones: devuelve el texto original marcado como simulado y bloquea la exportación. Configurá Ollama, LM Studio u otro endpoint compatible.'
-              : provider
-                ? remote
-                  ? 'La llamada envía sólo el texto de los subtítulos al endpoint configurado.'
-                  : 'El proveedor está en loopback: el texto no sale de tu equipo.'
-                : 'Entrá a Ajustes → Inteligencia artificial para configurar un proveedor.'}
+            {provider
+              ? remote
+                ? 'La llamada envía sólo el texto de los subtítulos al endpoint configurado.'
+                : 'El proveedor está en loopback: el texto no sale de tu equipo.'
+              : 'Entrá a Ajustes → Inteligencia artificial para configurar un proveedor real.'}
           </span>
         </div>
         <button type="button" className="ghost" onClick={() => onNavigate('settings')}>
@@ -768,7 +754,7 @@ export function LocalizationView({
               type="button"
               className="ghost icon-text"
               onClick={() => void exportAll()}
-              disabled={busy || selectedTranslations.length === 0 || hasSimulated}
+              disabled={busy || selectedTranslations.length === 0}
             >
               <Icon name="save" size={15} />
               <span>Exportar {format.toUpperCase()}</span>
@@ -797,7 +783,7 @@ export function LocalizationView({
                   onClick={() => setActiveTarget(code)}
                 >
                   {language?.label ?? code}
-                  <span>{translated ? (translated.simulated ? 'simulado' : 'listo') : 'pendiente'}</span>
+                  <span>{translated ? 'listo' : 'pendiente'}</span>
                 </button>
               );
             })}
@@ -982,7 +968,11 @@ export function LocalizationView({
             <button
               type="button"
               className="ghost"
-              onClick={() => void store.service.revealOutput(dubResult.path)}
+              onClick={() =>
+                void store.service
+                  .revealOutput(dubResult.path)
+                  .catch(() => store.setNotice('No se pudo abrir la carpeta de salida.'))
+              }
             >
               Mostrar en carpeta
             </button>
@@ -1277,7 +1267,11 @@ export function LocalizationView({
             <button
               type="button"
               className="ghost"
-              onClick={() => void store.service.revealOutput(lipResult.path)}
+              onClick={() =>
+                void store.service
+                  .revealOutput(lipResult.path)
+                  .catch(() => store.setNotice('No se pudo abrir la carpeta de salida.'))
+              }
             >
               Mostrar en carpeta
             </button>
@@ -1322,14 +1316,6 @@ function formatClock(seconds: number): string {
 
 function translatedBanner(active: LocalizedCues | null) {
   if (!active) return null;
-  if (active.simulated) {
-    return (
-      <p className="notice notice-warning" role="status">
-        Simulación: el texto no se tradujo. La exportación está bloqueada hasta que
-        configures un proveedor real.
-      </p>
-    );
-  }
   return (
     <p className="fine-print" role="status">
       Traducido con {active.model || active.providerId}. Revisá nombres y modismos antes

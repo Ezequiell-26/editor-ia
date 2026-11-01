@@ -8,6 +8,11 @@ import type {
 } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
 import {
+  DESIGN_APPLIED_EVENT,
+  loadDesignSelection,
+  type DesignSelection,
+} from '../design/design-selection';
+import {
   THUMBNAIL_ASPECTS,
   THUMBNAIL_TEMPLATES,
   coverRect,
@@ -308,7 +313,8 @@ export function ThumbnailView({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [badge, setBadge] = useState('Nuevo');
   const [template, setTemplate] = useState<ThumbnailTemplateId>('bold-bottom');
   const [aspect, setAspect] = useState<ThumbnailAspect>('16:9');
-  const [accent, setAccent] = useState('#4b8fd6');
+  const [design, setDesign] = useState<DesignSelection | null>(() => loadDesignSelection());
+  const [accent, setAccent] = useState(() => loadDesignSelection()?.accent ?? '#4b8fd6');
   const [overlay, setOverlay] = useState(25);
   const [outputDir, setOutputDir] = useState<string | null>(null);
   const [result, setResult] = useState<ThumbnailExportResult | null>(null);
@@ -319,6 +325,20 @@ export function ThumbnailView({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [variantPaths, setVariantPaths] = useState<readonly string[]>([]);
 
   const inputUrl = inputPath ? store.service.absoluteFileUrl(inputPath) : '';
+  const paletteDetached = Boolean(design && design.accent.toLowerCase() !== accent.toLowerCase());
+
+  useEffect(() => {
+    function onApplied(event: Event): void {
+      const detail = (event as CustomEvent<DesignSelection | undefined>).detail;
+      const selection = detail ?? loadDesignSelection();
+      if (!selection) return;
+      setDesign(selection);
+      setAccent(selection.accent);
+      store.setNotice(`Paleta ${selection.name} aplicada a la miniatura.`);
+    }
+    window.addEventListener(DESIGN_APPLIED_EVENT, onApplied);
+    return () => window.removeEventListener(DESIGN_APPLIED_EVENT, onApplied);
+  }, [store]);
 
   useEffect(() => {
     if (!inputUrl) {
@@ -665,6 +685,27 @@ export function ThumbnailView({ onNavigate }: { readonly onNavigate: (id: ViewId
                 disabled={busy}
               />
             </label>
+          </div>
+
+          <div className="thumbnail-palette" role="status">
+            <span
+              className="thumbnail-palette-swatch"
+              style={{ background: accent }}
+              aria-hidden="true"
+            />
+            <div>
+              <strong>{design ? design.name : 'Paleta libre'}</strong>
+              <small>
+                {design
+                  ? paletteDetached
+                    ? `Acento editado · ${accent}`
+                    : `Sistema de diseño · acento ${accent}`
+                  : 'Elegí una paleta de la biblioteca Diseño'}
+              </small>
+            </div>
+            <button type="button" className="small ghost" onClick={() => onNavigate('design')}>
+              {design ? 'Cambiar en Diseño' : 'Elegir en Diseño'}
+            </button>
           </div>
 
           <div className="compress-actions">

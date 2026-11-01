@@ -7,6 +7,7 @@ import type {
   CaptionMotion,
   Clip,
   ChromaKey,
+  ClipEffectKeyframe,
   ClipEffects,
   ClipGainKeyframe,
   ClipMotion,
@@ -2285,6 +2286,78 @@ export function rippleDeleteClip(
   return next;
 }
 
+/**
+ * Recorta la salida de un clip al frame pedido y corre todo lo que sigue en su
+ * pista el mismo delta, para no dejar hueco ni solape. Es el "ripple trim" de
+ * Premiere/Resolve aplicado al borde de salida.
+ *
+ * El cálculo del recorte se delega en `trimClip` sobre una copia sin los clips
+ * posteriores de la pista: así se reutiliza la aritmética de velocidad y de
+ * ventana de origen en vez de duplicarla. Después se reubican los posteriores
+ * y se valida que ninguno choque.
+ */
+export function rippleTrimClip(
+  project: ProjectDocument,
+  clipId: string,
+  targetFrame: number,
+): ProjectDocument | null {
+  const clip = project.timeline.clips.find((item) => item.id === clipId);
+  if (!clip) return null;
+  const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (!track || track.locked) return null;
+  const oldEnd = clip.startFrame + clip.durationFrames;
+
+  const probe = cloneProject(project);
+  probe.timeline.clips = probe.timeline.clips.filter(
+    (item) => item.id === clipId || item.trackId !== clip.trackId || item.startFrame < oldEnd,
+  );
+  const trimmed = trimClip(probe, clipId, 'end', targetFrame);
+  if (!trimmed) return null;
+  const probeClip = trimmed.timeline.clips.find((item) => item.id === clipId);
+  if (!probeClip) return null;
+
+  const delta = probeClip.startFrame + probeClip.durationFrames - oldEnd;
+  if (delta === 0) return project;
+
+  const next = cloneProject(project);
+  const target = next.timeline.clips.find((item) => item.id === clipId);
+  if (!target) return null;
+  const source = probeClip as typeof target;
+  target.startFrame = source.startFrame;
+  target.durationFrames = source.durationFrames;
+  if (source.source.type === 'asset' && 'inFrame' in source.source && 'outFrame' in source.source) {
+    target.source = { ...source.source };
+  }
+  if ('transform' in source) {
+    (target as { transform?: unknown }).transform = source.transform
+      ? structuredClone(source.transform)
+      : undefined;
+  }
+  if ('audio' in source) {
+    (target as { audio?: unknown }).audio = source.audio ? structuredClone(source.audio) : undefined;
+  }
+
+  const followers = next.timeline.clips
+    .filter((item) => item.trackId === clip.trackId && item.id !== clipId && item.startFrame >= oldEnd)
+    .sort((a, b) => a.startFrame - b.startFrame);
+  for (const item of followers) {
+    item.startFrame = Math.max(0, item.startFrame + delta);
+  }
+  // Todos los posteriores se mueven el mismo delta, así que los huecos entre
+  // ellos se conservan; se valida igual para no devolver una pista solapada.
+  const onTrack = next.timeline.clips
+    .filter((item) => item.trackId === clip.trackId)
+    .sort((a, b) => a.startFrame - b.startFrame);
+  for (let index = 1; index < onTrack.length; index += 1) {
+    const previous = onTrack[index - 1];
+    const current = onTrack[index];
+    if (!previous || !current) continue;
+    if (current.startFrame < previous.startFrame + previous.durationFrames) return null;
+  }
+  touch(next);
+  return next;
+}
+
 export function updateClip(
   project: ProjectDocument,
   clipId: string,
@@ -2293,6 +2366,7 @@ export function updateClip(
     transform: Clip extends { transform?: infer T } ? T : never;
     audio: Clip extends { audio?: infer T } ? T : never;
     effects: ClipEffects;
+    effectKeyframes: ClipEffectKeyframe[];
     motion: ClipMotion | undefined;
     chromaKey: ChromaKey | undefined;
     transitionIn: ClipTransition | Record<string, never>;
@@ -2357,6 +2431,14 @@ export function updateClip(
     } else {
       clip.effects = patch.effects;
     }
+  }
+  if (patch.effectKeyframes !== undefined) {
+    if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
+      throw new ProjectActionError('este tipo de clip no acepta keyframes de efecto');
+    }
+    const target = clip as Clip & { effectKeyframes?: ClipEffectKeyframe[] };
+    if (patch.effectKeyframes.length === 0) delete target.effectKeyframes;
+    else target.effectKeyframes = patch.effectKeyframes;
   }
   if ('motion' in patch) {
     if (clip.kind !== 'video' && clip.kind !== 'image' && clip.kind !== 'freeze') {
@@ -3949,7 +4031,6 @@ export interface AppliedScenePlan {
   }[];
   readonly providerId: string;
   readonly model: string;
-  readonly simulated: boolean;
   readonly costApproved: boolean;
 }
 
@@ -3991,7 +4072,7 @@ export function applyScenePlan(
   next.provenance.operations.push({
     id: newId(),
     role: 'scriptwriter',
-    summary: `${plan.simulated ? 'Guion simulado' : 'Guion generado'}: ${plan.title}`.slice(0, 300),
+    summary: `Guion generado: ${plan.title}`.slice(0, 300),
     createdAt: new Date().toISOString(),
     provider: { id: plan.providerId, model: plan.model },
     cost: { items: [], disclosed: true, approved: plan.costApproved },
@@ -4009,7 +4090,13 @@ export function applyScenePlan(
 
 export function addScene(
   project: ProjectDocument,
-  input: { title: string; intent: Scene['intent']; narration: string; notes?: string },
+  input: {
+    title: string;
+    intent: Scene['intent'];
+    narration: string;
+    notes?: string;
+    engine?: Scene['engine'];
+  },
 ): { project: ProjectDocument; sceneId: string } {
   const title = input.title.trim();
   const narration = input.narration.trim();
@@ -4028,6 +4115,7 @@ export function addScene(
       estimatedDurationFrames: secondsToFrames(Math.max(2, narration.length / 15), fps),
     },
     clipIds: [],
+    ...(input.engine ? { engine: input.engine } : {}),
     ...(input.notes?.trim() ? { notes: input.notes.trim().slice(0, 2_000) } : {}),
   };
   next.scenes.push(scene);
@@ -4060,12 +4148,29 @@ export function moveScene(
 export function updateScene(
   project: ProjectDocument,
   sceneId: string,
-  patch: Partial<Pick<Scene, 'title' | 'intent' | 'status' | 'notes'>> & { narration?: string },
+  patch: Partial<Pick<Scene, 'title' | 'intent' | 'status' | 'notes'>> & {
+    narration?: string;
+    engine?: Scene['engine'] | null;
+    clipIds?: readonly string[];
+  },
 ): ProjectDocument {
   const next = cloneProject(project);
   const scene = next.scenes.find((item) => item.id === sceneId);
   if (!scene) {
     throw new ProjectActionError('la escena no existe');
+  }
+  if (patch.clipIds !== undefined) {
+    const clipIds = [...new Set(patch.clipIds.map((id) => id.trim()))].filter(Boolean);
+    if (clipIds.length > 50) {
+      throw new ProjectActionError('la escena admite como máximo 50 clips');
+    }
+    const missing = clipIds.filter(
+      (id) => !next.timeline.clips.some((clip) => clip.id === id),
+    );
+    if (missing.length > 0) {
+      throw new ProjectActionError(`clips inexistentes: ${missing.join(', ')}`);
+    }
+    scene.clipIds = clipIds;
   }
   if (patch.title !== undefined) {
     const title = patch.title.trim();
@@ -4074,6 +4179,10 @@ export function updateScene(
   }
   if (patch.intent !== undefined) scene.intent = patch.intent;
   if (patch.status !== undefined) scene.status = patch.status;
+  if (patch.engine !== undefined) {
+    if (patch.engine === null) delete scene.engine;
+    else scene.engine = patch.engine;
+  }
   if (patch.notes !== undefined) scene.notes = patch.notes.slice(0, 2_000);
   if (patch.narration !== undefined) {
     const text = patch.narration.trim();

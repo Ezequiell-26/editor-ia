@@ -244,7 +244,7 @@ mod best_frame_tests {
                 "-i",
                 "testsrc2=s=320x180:d=3",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])

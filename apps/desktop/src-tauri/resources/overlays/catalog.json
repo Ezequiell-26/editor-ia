@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "generatedAt": "2026-10-30T00:00:00Z",
+  "generator": "scripts/generate-overlays.mjs",
+  "license": {
+    "id": "cc0-1.0",
+    "commercialUse": "allowed",
+    "attributionText": "Overlay generado por Editor IA",
+    "notes": "Contenido procedural propio; no usa assets de terceros."
+  },
+  "overlays": [
+    {
+      "id": "warm-leak",
+      "label": "Fuga cálida",
+      "description": "Barrido anaranjado con pulso lento; pensado para mezcla Screen.",
+      "file": "warm-leak.mp4",
+      "poster": "warm-leak.jpg",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 4,
+      "blendMode": "screen"
+    },
+    {
+      "id": "cool-leak",
+      "label": "Fuga fría",
+      "description": "Azules y violetas en movimiento; mezcla Screen.",
+      "file": "cool-leak.mp4",
+      "poster": "cool-leak.jpg",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 4,
+      "blendMode": "screen"
+    },
+    {
+      "id": "dust-motes",
+      "label": "Polvo dorado",
+      "description": "Partículas finas que flotan y titilan; mezcla Screen.",
+      "file": "dust-motes.mp4",
+      "poster": "dust-motes.jpg",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 4,
+      "blendMode": "screen"
+    },
+    {
+      "id": "bokeh-drift",
+      "label": "Bokeh suave",
+      "description": "Círculos desenfocados en deriva lenta; mezcla Screen.",
+      "file": "bokeh-drift.mp4",
+      "poster": "bokeh-drift.jpg",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 4,
+      "blendMode": "screen"
+    },
+    {
+      "id": "mascot-wave",
+      "label": "Mascota que saluda",
+      "description": "Personaje vectorial propio con alfa; mezcla Normal.",
+      "file": "mascot-wave.webm",
+      "poster": "mascot-wave.png",
+      "width": 1280,
+      "height": 720,
+      "fps": 30,
+      "durationSeconds": 4,
+      "blendMode": "normal",
+      "hasAlpha": true
+    }
+  ]
+}

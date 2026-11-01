@@ -4,6 +4,7 @@ import {
   AssetSchema,
   parseProject,
   type Asset,
+  type BlendMode,
   type Clip,
   type ProjectDocument,
   type Track,
@@ -33,6 +34,30 @@ export interface CreateProjectRequest {
   readonly fpsDen: number;
 }
 
+/** Overlays admiten `normal` además de los modos de mezcla del timeline. */
+export type OverlayBlendMode = BlendMode | 'normal';
+
+/** Overlay propio empaquetado; el thumbnail viaja como data URL. */
+export interface BuiltinOverlay {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly width: number;
+  readonly height: number;
+  readonly fps: number;
+  readonly durationSeconds: number;
+  readonly blendMode: OverlayBlendMode;
+  readonly hasAlpha: boolean;
+  readonly thumbnail: string;
+}
+
+export interface ImportedBuiltinOverlay {
+  readonly asset: Asset;
+  readonly label: string;
+  readonly blendMode: OverlayBlendMode;
+  readonly durationSeconds: number;
+}
+
 export interface ImportOutcome {
   readonly assets: Asset[];
   readonly warnings: string[];
@@ -58,7 +83,8 @@ export interface SystemInfo {
 }
 
 export interface ProviderInfo {
-  readonly kind: 'openai-compatible' | 'mock' | string;
+  readonly kind: 'openai-compatible' | string;
+  readonly agentKind: string;
   readonly baseUrl: string;
   readonly model: string;
   readonly hasKey: boolean;
@@ -80,7 +106,6 @@ export interface ScriptPlan {
   readonly scenes: ScriptScenePlan[];
   readonly providerId: string;
   readonly model: string;
-  readonly simulated: boolean;
   readonly costDisclosed: boolean;
   readonly costApproved: boolean;
 }
@@ -96,7 +121,6 @@ export interface EffectRecipe {
   readonly effects: Record<string, unknown>;
   readonly providerId: string;
   readonly model: string;
-  readonly simulated: boolean;
 }
 
 export interface GenerateScriptRequest {
@@ -117,7 +141,6 @@ export interface MotionSuggestion {
   readonly props: Record<string, unknown>;
   readonly providerId: string;
   readonly model: string;
-  readonly simulated: boolean;
 }
 
 export interface AssistantMessage {
@@ -146,7 +169,115 @@ export interface AssistantChatReply {
   readonly action: AssistantAction | null;
   readonly providerId: string;
   readonly model: string;
-  readonly simulated: boolean;
+}
+
+/** Llamada de herramienta pedida por el proveedor (formato OpenAI). */
+export interface AssistantToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: Record<string, unknown>;
+}
+
+export interface AssistantAgentMessage {
+  readonly role: 'system' | 'user' | 'assistant' | 'tool';
+  readonly content: string;
+  readonly toolCallId?: string;
+  readonly toolCalls?: readonly AssistantToolCall[];
+}
+
+export interface AssistantAgentRequest {
+  readonly messages: readonly AssistantAgentMessage[];
+  readonly context?: Record<string, unknown>;
+  readonly tools: readonly unknown[];
+  readonly approvedCost: boolean;
+}
+
+export interface AssistantAgentReply {
+  readonly reply: string;
+  readonly toolCalls: readonly AssistantToolCall[];
+  readonly finishReason: string | null;
+  readonly providerId: string;
+  readonly model: string;
+}
+
+export type DesignFormat = 'page' | 'dashboard' | 'deck' | 'card' | 'thumbnail';
+
+export interface DesignRequest {
+  readonly brief: string;
+  readonly format: DesignFormat;
+  readonly systemName: string;
+  readonly tokensCss: string;
+  readonly craft: readonly string[];
+  readonly recipe?: string;
+  readonly approvedCost: boolean;
+}
+
+export interface DesignReply {
+  readonly html: string;
+  readonly providerId: string;
+  readonly model: string;
+  readonly format: DesignFormat;
+}
+
+export interface DesignDirection {
+  readonly name: string;
+  readonly concept: string;
+  readonly bg: string;
+  readonly surface: string;
+  readonly fg: string;
+  readonly accent: string;
+  readonly accentOn: string;
+  readonly displayFont: string;
+  readonly bodyFont: string;
+  readonly layout: string;
+  readonly why: string;
+}
+
+export interface DesignDirectionsReply {
+  readonly directions: readonly DesignDirection[];
+  readonly providerId: string;
+  readonly model: string;
+}
+
+export interface DesignExtractReply {
+  readonly url: string;
+  readonly title: string;
+  readonly colors: readonly string[];
+  readonly fonts: readonly string[];
+}
+
+export interface DesignCritiqueRequest {
+  readonly html: string;
+  readonly brief: string;
+  readonly approvedCost: boolean;
+}
+
+export interface DesignCritiqueReply {
+  readonly critique: string;
+  readonly providerId: string;
+  readonly model: string;
+}
+
+export type DesignImageSource = 'pollinations' | 'gateway';
+
+export interface DesignImageRequest {
+  readonly prompt: string;
+  readonly source: DesignImageSource;
+  readonly model: string;
+  readonly width: number;
+  readonly height: number;
+  readonly seed?: number | null;
+  readonly approvedCost: boolean;
+}
+
+export interface DesignImageReply {
+  readonly bytesBase64: string;
+  readonly mime: string;
+  readonly extension: 'png' | 'jpg' | 'webp';
+  readonly width: number;
+  readonly height: number;
+  readonly source: DesignImageSource;
+  readonly model: string;
 }
 
 export interface VoiceInfo {
@@ -181,6 +312,49 @@ export interface RenderStarted {
 export interface RenderRange {
   readonly startFrame: number;
   readonly endFrame: number;
+}
+
+export interface FileInfo {
+  readonly exists: boolean;
+  readonly bytes: number;
+}
+
+export interface ConcatResult {
+  readonly outputPath: string;
+  readonly bytes: number;
+  readonly durationSeconds: number;
+  readonly segments: number;
+}
+
+/** Entrada de una carpeta del equipo, tal como la ve el agente. */
+export interface FsEntry {
+  readonly name: string;
+  readonly path: string;
+  readonly kind: 'folder' | 'file';
+  readonly bytes: number;
+  readonly modifiedMs: number;
+  readonly extension: string;
+}
+
+export interface FsListing {
+  readonly path: string;
+  readonly parent: string | null;
+  readonly entries: readonly FsEntry[];
+  readonly truncated: boolean;
+  readonly total: number;
+}
+
+export interface FsRoot {
+  readonly id: string;
+  readonly label: string;
+  readonly path: string;
+}
+
+export interface FsTextFile {
+  readonly path: string;
+  readonly bytes: number;
+  readonly text: string;
+  readonly truncated: boolean;
 }
 
 export interface RenderProgressEvent {
@@ -730,6 +904,8 @@ export interface PreviewFrameRequest {
   readonly native?: boolean;
   /** Compone todas las pistas; `false` fuerza el clip aislado. */
   readonly composite?: boolean;
+  /** Planes de motion por clip gráfico; sin ellos el compuesto cae al clip. */
+  readonly motionPlans?: Record<string, unknown>;
 }
 
 export interface PreviewFrameResult {
@@ -773,7 +949,6 @@ export interface TranslatedTexts {
   readonly texts: string[];
   readonly providerId: string;
   readonly model: string;
-  readonly simulated: boolean;
 }
 
 export interface SaveLocalizedSubtitleRequest {
@@ -911,6 +1086,50 @@ export interface FaceTrackPoint {
   readonly time: number;
   readonly x: number;
   readonly y: number;
+}
+
+export interface PointTrackRequest {
+  readonly path: string;
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+export interface PointTrackSample {
+  readonly time: number;
+  readonly x: number;
+  readonly y: number;
+  readonly confidence: number;
+}
+
+export interface PointTrackResult {
+  readonly durationSeconds: number;
+  readonly fps: number;
+  readonly scaledWidth: number;
+  readonly scaledHeight: number;
+  readonly points: readonly PointTrackSample[];
+}
+
+export interface ObjectTrackRequest {
+  readonly path: string;
+  readonly startSeconds: number;
+  readonly endSeconds: number;
+  /** Centro inicial y tamaño de la caja normalizados (0..1). */
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface ObjectTrackResult {
+  readonly durationSeconds: number;
+  readonly fps: number;
+  readonly scaledWidth: number;
+  readonly scaledHeight: number;
+  readonly regionWidth: number;
+  readonly regionHeight: number;
+  readonly points: readonly PointTrackSample[];
 }
 
 export interface FaceTrackResult {
@@ -1489,6 +1708,12 @@ export interface DesktopService {
     provider?: string;
   }): Promise<ImportOutcome>;
   importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
+  listBuiltinOverlays(): Promise<BuiltinOverlay[]>;
+  importBuiltinOverlay(input: {
+    readonly id: string;
+    readonly fpsNum: number;
+    readonly fpsDen: number;
+  }): Promise<ImportedBuiltinOverlay>;
   chooseSubtitleFile(): Promise<PickedSubtitleFile | null>;
   chooseTimelineFile(): Promise<string | null>;
   extractFreezeFrame(input: {
@@ -1634,6 +1859,7 @@ export interface DesktopService {
     model?: string,
   ): Promise<TranscriptionResult>;
   systemInfo(): Promise<SystemInfo>;
+  listSystemFonts(): Promise<string[]>;
   licenseStatus(): Promise<LicenseStatus>;
   chooseLicenseFile(): Promise<string | null>;
   activateLicense(path: string): Promise<LicenseStatus>;
@@ -1644,6 +1870,7 @@ export interface DesktopService {
   getProvider(): Promise<ProviderInfo>;
   saveProvider(input: {
     kind: string;
+    agentKind?: string;
     baseUrl: string;
     model: string;
     apiKey?: string;
@@ -1665,6 +1892,24 @@ export interface DesktopService {
   generateVideoEffect(request: EffectRequest): Promise<EffectRecipe>;
   generateMotion(request: GenerateMotionRequest): Promise<MotionSuggestion>;
   assistantChat(request: AssistantChatRequest): Promise<AssistantChatReply>;
+  assistantAgent(request: AssistantAgentRequest): Promise<AssistantAgentReply>;
+  generateDesign(request: DesignRequest): Promise<DesignReply>;
+  critiqueDesign(request: DesignCritiqueRequest): Promise<DesignCritiqueReply>;
+  generateDesignDirections(request: {
+    brief: string;
+    approvedCost: boolean;
+  }): Promise<DesignDirectionsReply>;
+  extractDesignUrl(request: { url: string }): Promise<DesignExtractReply>;
+  generateDesignImage(request: DesignImageRequest): Promise<DesignImageReply>;
+  saveDesignHtml(html: string, fileName: string): Promise<string | null>;
+  saveDesignImage(imageBase64: string, fileName: string): Promise<string | null>;
+  saveDesignPng(pngBase64: string, fileName: string): Promise<string | null>;
+  saveDesignPdf(pdfBase64: string, fileName: string): Promise<string | null>;
+  saveDesignVideo(videoBase64: string, fileName: string): Promise<string | null>;
+  stageDesignMedia(
+    bytesBase64: string,
+    extension: 'png' | 'jpg' | 'webp' | 'mp4',
+  ): Promise<string>;
   listVoices(): Promise<VoiceInfo[]>;
   synthesizeNarration(input: {
     text: string;
@@ -1694,7 +1939,28 @@ export interface DesktopService {
   pruneRenderCache(): Promise<number>;
   onRenderProgress(handler: (event: RenderProgressEvent) => void): Promise<UnlistenFn>;
   onRenderFinished(handler: (event: RenderFinishedEvent) => void): Promise<UnlistenFn>;
+  /** Metadatos de un archivo del proyecto (para reanudar segmentos). */
+  fileInfo(path: string): Promise<FileInfo>;
+  /** Raíces conocidas del equipo para explorar archivos con el agente. */
+  fsRoots(): Promise<readonly FsRoot[]>;
+  /** Lista una carpeta (solo metadatos). Sin ruta devuelve las raíces. */
+  fsList(path?: string, limit?: number, includeHidden?: boolean): Promise<FsListing>;
+  /** Busca archivos por nombre o extensión; sin raíz usa Descargas/Escritorio/Videos/Documentos. */
+  fsSearch(root: string | undefined, query: string, maxDepth?: number, limit?: number): Promise<FsListing>;
+  /** Encuentra material multimedia por tipo en una sola pasada. */
+  fsFindMedia(
+    kind: 'video' | 'audio' | 'image' | 'all',
+    root?: string,
+    query?: string,
+    limit?: number,
+  ): Promise<FsListing>;
+  /** Lee un archivo de texto pequeño de la lista blanca. */
+  fsReadText(path: string, maxBytes?: number): Promise<FsTextFile>;
+  /** Une segmentos MP4 idénticos sin recodificar (render por escenas). */
+  concatVideos(paths: readonly string[], outputPath: string): Promise<ConcatResult>;
   mediaUrl(root: string, relativePath: string): string;
+  /** Lee un archivo de texto del proyecto (LUT .cube) para la preview. */
+  readProjectText(relativePath: string): Promise<string>;
   /** Selector nativo de imágenes sueltas (comparador antes/después). */
   chooseImageFile(title?: string): Promise<string | null>;
   /** Selector nativo de videos sueltos (compresión, inspección). */
@@ -1752,6 +2018,8 @@ export interface DesktopService {
   exportShort(request: ExportShortRequest): Promise<ExportShortResult>;
   onShortProgress(handler: (event: ShortProgress) => void): Promise<UnlistenFn>;
   analyzeFaceTrack(request: FaceTrackRequest): Promise<FaceTrackResult>;
+  trackPoint(request: PointTrackRequest): Promise<PointTrackResult>;
+  trackObject(request: ObjectTrackRequest): Promise<ObjectTrackResult>;
   /**
    * Mide VMAF entre el original y el comprimido (0–100). `null` si el build de
    * FFmpeg no trae libvmaf: la UI lo muestra como no disponible.
@@ -1774,6 +2042,9 @@ export const PROJECT_COMMANDS = {
   importAssets: 'import_assets',
   importMediaPaths: 'import_media_paths',
   importLut: 'import_lut',
+  listBuiltinOverlays: 'list_builtin_overlays',
+  importBuiltinOverlay: 'import_builtin_overlay',
+  readProjectText: 'read_project_text',
   chooseSubtitleFile: 'choose_subtitle_file',
   chooseTimelineFile: 'choose_timeline_file',
   extractFreezeFrame: 'extract_freeze_frame',
@@ -1863,6 +2134,8 @@ export const PROJECT_COMMANDS = {
   lipSync: 'lip_sync',
   exportShort: 'export_short',
   analyzeFaceTrack: 'analyze_face_track',
+  trackPoint: 'track_point_in_video',
+  trackObject: 'track_object_in_video',
   downloadMedia: 'download_media',
   cleanupDownload: 'cleanup_download',
   fetchPlatformRules: 'fetch_platform_rules',
@@ -1879,6 +2152,7 @@ export const PROJECT_COMMANDS = {
   saveDirectorMemory: 'save_director_memory',
   transcribeAsset: 'transcribe_asset',
   systemInfo: 'system_info',
+  listSystemFonts: 'list_system_fonts',
   licenseStatus: 'license_status',
   chooseLicenseFile: 'choose_license_file',
   activateLicense: 'activate_license',
@@ -1898,10 +2172,29 @@ export const PROJECT_COMMANDS = {
   generateVideoEffect: 'generate_video_effect',
   generateMotion: 'generate_motion',
   assistantChat: 'assistant_chat',
+  assistantAgent: 'assistant_agent',
+  generateDesign: 'design_generate',
+  critiqueDesign: 'design_critique',
+  generateDesignDirections: 'design_directions',
+  extractDesignUrl: 'design_extract_url',
+  generateDesignImage: 'design_generate_image',
+  saveDesignHtml: 'save_design_html',
+  saveDesignImage: 'save_design_image',
+  saveDesignPng: 'save_design_png',
+  saveDesignPdf: 'save_design_pdf',
+  saveDesignVideo: 'save_design_video',
+  stageDesignMedia: 'stage_design_media',
   listVoices: 'list_voices',
   synthesizeNarration: 'synthesize_narration',
   startRender: 'start_render',
   startRenderTo: 'start_render_to',
+  concatVideos: 'concat_videos',
+  fileInfo: 'file_info',
+  fsRoots: 'fs_roots',
+  fsList: 'fs_list',
+  fsSearch: 'fs_search',
+  fsFindMedia: 'fs_find_media',
+  fsReadText: 'fs_read_text',
   chooseExportDirectory: 'choose_export_directory',
   cancelRender: 'cancel_render',
   activeRender: 'active_render',
@@ -2160,6 +2453,76 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         name: typeof record.name === 'string' ? record.name : 'LUT',
       };
     },
+    async listBuiltinOverlays() {
+      const raw = await call(PROJECT_COMMANDS.listBuiltinOverlays);
+      if (!Array.isArray(raw)) return [];
+      const overlays: BuiltinOverlay[] = [];
+      for (const item of raw) {
+        if (!item || typeof item !== 'object') continue;
+        const record = item as Record<string, unknown>;
+        if (typeof record.id !== 'string' || typeof record.label !== 'string') continue;
+        const blendMode =
+          record.blendMode === 'screen' ||
+          record.blendMode === 'overlay' ||
+          record.blendMode === 'lighten' ||
+          record.blendMode === 'normal'
+            ? (record.blendMode as OverlayBlendMode)
+            : 'screen';
+        overlays.push({
+          id: record.id,
+          label: record.label,
+          description: typeof record.description === 'string' ? record.description : '',
+          width: typeof record.width === 'number' ? record.width : 0,
+          height: typeof record.height === 'number' ? record.height : 0,
+          fps: typeof record.fps === 'number' ? record.fps : 30,
+          durationSeconds:
+            typeof record.durationSeconds === 'number' ? record.durationSeconds : 4,
+          blendMode,
+          hasAlpha: record.hasAlpha === true,
+          thumbnail: typeof record.thumbnail === 'string' ? record.thumbnail : '',
+        });
+      }
+      return overlays;
+    },
+    async importBuiltinOverlay(input) {
+      const raw = await call(PROJECT_COMMANDS.importBuiltinOverlay, {
+        id: input.id,
+        fpsNum: input.fpsNum,
+        fpsDen: input.fpsDen,
+      });
+      const record = (raw ?? {}) as {
+        asset?: unknown;
+        label?: unknown;
+        blendMode?: unknown;
+        durationSeconds?: unknown;
+      };
+      const asset = parseAssets([record.asset])[0];
+      if (!asset) {
+        throw new Error('el overlay importado no cumple el formato de assets');
+      }
+      const blendMode =
+        record.blendMode === 'screen' ||
+        record.blendMode === 'overlay' ||
+        record.blendMode === 'lighten' ||
+        record.blendMode === 'normal'
+          ? (record.blendMode as OverlayBlendMode)
+          : 'screen';
+      return {
+        asset,
+        label: typeof record.label === 'string' ? record.label : asset.label,
+        blendMode,
+        durationSeconds:
+          typeof record.durationSeconds === 'number' && record.durationSeconds > 0
+            ? record.durationSeconds
+            : 4,
+      };
+    },
+    async readProjectText(relativePath) {
+      const raw = await call(PROJECT_COMMANDS.readProjectText, {
+        relative: relativePath,
+      });
+      return typeof raw === 'string' ? raw : '';
+    },
     async chooseImageFile(title) {
       const raw = await call(PROJECT_COMMANDS.chooseImageFile, {
         title: title ?? null,
@@ -2376,6 +2739,12 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async onShortProgress(handler) {
       return listen<ShortProgress>('short-progress', (event) => handler(event.payload));
+    },
+    async trackPoint(request) {
+      return (await call(PROJECT_COMMANDS.trackPoint, { request })) as PointTrackResult;
+    },
+    async trackObject(request) {
+      return (await call(PROJECT_COMMANDS.trackObject, { request })) as ObjectTrackResult;
     },
     async analyzeFaceTrack(request) {
       return (await call(PROJECT_COMMANDS.analyzeFaceTrack, {
@@ -2787,6 +3156,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
     },
+    async listSystemFonts() {
+      return (await call(PROJECT_COMMANDS.listSystemFonts)) as string[];
+    },
     async licenseStatus() {
       return (await call(PROJECT_COMMANDS.licenseStatus)) as LicenseStatus;
     },
@@ -2857,6 +3229,64 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async assistantChat(request) {
       return (await call(PROJECT_COMMANDS.assistantChat, { request })) as AssistantChatReply;
     },
+    async assistantAgent(request) {
+      return (await call(PROJECT_COMMANDS.assistantAgent, { request })) as AssistantAgentReply;
+    },
+    async generateDesign(request) {
+      return (await call(PROJECT_COMMANDS.generateDesign, { request })) as DesignReply;
+    },
+    async critiqueDesign(request) {
+      return (await call(PROJECT_COMMANDS.critiqueDesign, { request })) as DesignCritiqueReply;
+    },
+    async generateDesignDirections(request) {
+      return (await call(PROJECT_COMMANDS.generateDesignDirections, {
+        request,
+      })) as DesignDirectionsReply;
+    },
+    async extractDesignUrl(request) {
+      return (await call(PROJECT_COMMANDS.extractDesignUrl, {
+        request,
+      })) as DesignExtractReply;
+    },
+    async generateDesignImage(request) {
+      return (await call(PROJECT_COMMANDS.generateDesignImage, { request })) as DesignImageReply;
+    },
+    async saveDesignHtml(html, fileName) {
+      return (await call(PROJECT_COMMANDS.saveDesignHtml, {
+        html,
+        fileName,
+      })) as string | null;
+    },
+    async saveDesignImage(imageBase64, fileName) {
+      return (await call(PROJECT_COMMANDS.saveDesignImage, {
+        imageBase64,
+        fileName,
+      })) as string | null;
+    },
+    async saveDesignPng(pngBase64, fileName) {
+      return (await call(PROJECT_COMMANDS.saveDesignPng, {
+        pngBase64,
+        fileName,
+      })) as string | null;
+    },
+    async saveDesignPdf(pdfBase64, fileName) {
+      return (await call(PROJECT_COMMANDS.saveDesignPdf, {
+        pdfBase64,
+        fileName,
+      })) as string | null;
+    },
+    async saveDesignVideo(videoBase64, fileName) {
+      return (await call(PROJECT_COMMANDS.saveDesignVideo, {
+        videoBase64,
+        fileName,
+      })) as string | null;
+    },
+    async stageDesignMedia(bytesBase64, extension) {
+      return (await call(PROJECT_COMMANDS.stageDesignMedia, {
+        bytesBase64,
+        extension,
+      })) as string;
+    },
     async listVoices() {
       const raw = await call(PROJECT_COMMANDS.listVoices);
       return Array.isArray(raw) ? (raw as VoiceInfo[]) : [];
@@ -2899,6 +3329,47 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
           ? { startFrame: range.startFrame, endFrame: range.endFrame }
           : {}),
       })) as RenderStarted | null;
+    },
+    async fileInfo(path) {
+      return (await call(PROJECT_COMMANDS.fileInfo, { path })) as FileInfo;
+    },
+    async fsRoots() {
+      return (await call(PROJECT_COMMANDS.fsRoots)) as readonly FsRoot[];
+    },
+    async fsList(path, limit, includeHidden) {
+      return (await call(PROJECT_COMMANDS.fsList, {
+        ...(path ? { path } : {}),
+        ...(limit ? { limit } : {}),
+        ...(includeHidden ? { includeHidden } : {}),
+      })) as FsListing;
+    },
+    async fsSearch(root, query, maxDepth, limit) {
+      return (await call(PROJECT_COMMANDS.fsSearch, {
+        ...(root ? { root } : {}),
+        query,
+        ...(maxDepth ? { maxDepth } : {}),
+        ...(limit ? { limit } : {}),
+      })) as FsListing;
+    },
+    async fsReadText(path, maxBytes) {
+      return (await call(PROJECT_COMMANDS.fsReadText, {
+        path,
+        ...(maxBytes ? { maxBytes } : {}),
+      })) as FsTextFile;
+    },
+    async fsFindMedia(kind, root, query, limit) {
+      return (await call(PROJECT_COMMANDS.fsFindMedia, {
+        kind,
+        ...(root ? { root } : {}),
+        ...(query ? { query } : {}),
+        ...(limit ? { limit } : {}),
+      })) as FsListing;
+    },
+    async concatVideos(paths, outputPath) {
+      return (await call(PROJECT_COMMANDS.concatVideos, {
+        paths: [...paths],
+        outputPath,
+      })) as ConcatResult;
     },
     async chooseExportDirectory() {
       const raw = await call(PROJECT_COMMANDS.chooseExportDirectory);
@@ -2968,6 +3439,9 @@ function createUnavailableService(): DesktopService {
     importAssets: async () => unavailable(),
     importMediaPaths: async () => unavailable(),
     importLut: async () => unavailable(),
+    listBuiltinOverlays: async () => [],
+    importBuiltinOverlay: async () => unavailable(),
+    readProjectText: async () => '',
     chooseSubtitleFile: async () => unavailable(),
     chooseTimelineFile: async () => unavailable(),
     extractFreezeFrame: async () => unavailable(),
@@ -3072,6 +3546,8 @@ function createUnavailableService(): DesktopService {
     onLipSyncProgress: async () => () => {},
     exportShort: async () => unavailable(),
     analyzeFaceTrack: async () => unavailable(),
+    trackPoint: async () => unavailable(),
+    trackObject: async () => unavailable(),
     onShortProgress: async () => () => {},
     absoluteFileUrl: () => '',
     downloadMedia: async () => unavailable(),
@@ -3093,6 +3569,7 @@ function createUnavailableService(): DesktopService {
     saveDirectorMemory: async () => unavailable(),
     transcribeAsset: async () => unavailable(),
     systemInfo: async () => unavailable(),
+    listSystemFonts: async () => [],
     licenseStatus: async () => FREE_LICENSE_STATUS,
     chooseLicenseFile: async () => null,
     activateLicense: async () => {
@@ -3116,10 +3593,29 @@ function createUnavailableService(): DesktopService {
     generateVideoEffect: async () => unavailable(),
     generateMotion: async () => unavailable(),
     assistantChat: async () => unavailable(),
+    assistantAgent: async () => unavailable(),
+    generateDesign: async () => unavailable(),
+    critiqueDesign: async () => unavailable(),
+    generateDesignDirections: async () => unavailable(),
+    extractDesignUrl: async () => unavailable(),
+    generateDesignImage: async () => unavailable(),
+    saveDesignHtml: async () => unavailable(),
+    saveDesignImage: async () => unavailable(),
+    saveDesignPng: async () => unavailable(),
+    saveDesignPdf: async () => unavailable(),
+    saveDesignVideo: async () => unavailable(),
+    stageDesignMedia: async () => unavailable(),
     listVoices: async () => unavailable(),
     synthesizeNarration: async () => unavailable(),
     startRender: async () => unavailable(),
     startRenderTo: async () => unavailable(),
+    fileInfo: async () => ({ exists: false, bytes: 0 }),
+    fsRoots: async () => [],
+    fsList: async () => ({ path: '', parent: null, entries: [], truncated: false, total: 0 }),
+    fsSearch: async () => ({ path: '', parent: null, entries: [], truncated: false, total: 0 }),
+    fsFindMedia: async () => ({ path: '', parent: null, entries: [], truncated: false, total: 0 }),
+    fsReadText: async () => unavailable(),
+    concatVideos: async () => unavailable(),
     chooseExportDirectory: async () => unavailable(),
     cancelRender: async () => unavailable(),
     activeRender: async () => unavailable(),

@@ -10,7 +10,8 @@
     "storage",
     "unlimitedStorage",
     "downloads",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
     "https://flow.google.com/*",
@@ -22,6 +23,7 @@
   },
   "action": {
     "default_title": "Abrir Flow Queue",
+    "default_popup": "src/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",

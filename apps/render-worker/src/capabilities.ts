@@ -1,6 +1,7 @@
 import {
   RENDER_PROTOCOL_VERSION,
   buildRenderResult,
+  type OutputVerificationResult,
   type RenderRequest,
   type RenderResult,
   type SafeRenderCode,
@@ -40,7 +41,7 @@ export interface RenderCapabilities {
 export const REMOTION_LICENSE_VERIFIED = false;
 
 /** Turning a validated project into frames is later plan work. */
-export const RENDERING_IMPLEMENTED = false;
+export const RENDERING_IMPLEMENTED = true;
 
 export function getRendererCapabilities(
   resolveExecutable: ResolveExecutable,
@@ -78,9 +79,25 @@ export function getRendererCapabilities(
   };
 }
 
+export type RendererInvocation = {
+  readonly request: RenderRequest;
+  readonly projectPath: string;
+  readonly outputPath: string;
+};
+
+export type RendererRunResult =
+  | { readonly ok: true; readonly bytes: number; readonly durationSeconds: number }
+  | { readonly ok: false; readonly code?: SafeRenderCode; readonly message: string };
+
+export type RunRenderer = (invocation: RendererInvocation) => RendererRunResult;
+
 export interface RequestRenderDeps {
   readonly capabilities: RenderCapabilities;
   readonly projectFileExists: boolean;
+  /** Ejecuta el binario headless; ausente = pipeline no cableada. */
+  readonly runRenderer?: RunRenderer;
+  /** Verifica el archivo relativo antes de declarar completed. */
+  readonly verifyOutput?: (outputPath: string) => OutputVerificationResult;
 }
 
 function terminal(
@@ -88,8 +105,9 @@ function terminal(
   status: 'failed' | 'unsupported',
   code: SafeRenderCode,
   message: string,
+  durationMs = 0,
 ): RenderResult {
-  const built = buildRenderResult({ request, status, code, durationMs: 0, message });
+  const built = buildRenderResult({ request, status, code, durationMs, message });
   if (!built.ok) {
     throw new Error(`the worker built an invalid result: ${built.message}`);
   }
@@ -120,10 +138,45 @@ export function requestRender(request: RenderRequest, deps: RequestRenderDeps): 
     );
   }
 
-  return terminal(
+  if (!deps.runRenderer || !deps.verifyOutput) {
+    return terminal(
+      request,
+      'unsupported',
+      'RENDERER_UNIMPLEMENTED',
+      'the worker binary or its verifier was not configured',
+    );
+  }
+
+  const started = Date.now();
+  let run: RendererRunResult;
+  try {
+    run = deps.runRenderer({
+      request,
+      projectPath: request.projectPath,
+      outputPath: request.outputPath,
+    });
+  } catch (cause) {
+    run = {
+      ok: false,
+      message: cause instanceof Error ? cause.message : 'the renderer crashed',
+    };
+  }
+  const durationMs = Date.now() - started;
+  if (!run.ok) {
+    return terminal(request, 'failed', run.code ?? 'OUTPUT_WRITE_FAILED', run.message, durationMs);
+  }
+  const verified = deps.verifyOutput(request.outputPath);
+  if (!verified.ok) {
+    return terminal(request, 'failed', verified.code, verified.message, durationMs);
+  }
+  const built = buildRenderResult({
     request,
-    'unsupported',
-    'RENDERER_UNIMPLEMENTED',
-    'a renderer is installed but the render pipeline is not implemented yet',
-  );
+    status: 'completed',
+    verification: verified.verification,
+    durationMs,
+  });
+  if (!built.ok) {
+    throw new Error(`the worker built an invalid result: ${built.message}`);
+  }
+  return built.result;
 }

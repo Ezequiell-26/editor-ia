@@ -81,6 +81,36 @@ describe('atributos de clip', () => {
     expect(attributes?.audio?.gainKeyframes).toBeUndefined();
   });
 
+  it('copia keyframes de efecto y descarta los que caen fuera del clip destino', () => {
+    const video = videoAsset();
+    const sourceAdded = addClipFromAsset(addAsset(base(), video), video, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const targetAdded = addClipFromAsset(sourceAdded.project, video, {
+      atFrame: 120,
+      durationFrames: 30,
+    });
+    const styled = updateClip(targetAdded.project, sourceAdded.clipId, {
+      effectKeyframes: [
+        { frame: 10, property: 'brightness', value: 0.2 },
+        { frame: 20, property: 'blur', value: 4, easing: 'ease-in' },
+        { frame: 80, property: 'brightness', value: 0.8 },
+      ],
+    });
+    const source = styled.timeline.clips.find((clip) => clip.id === sourceAdded.clipId);
+    if (!source) throw new Error('falta el clip origen');
+    const attributes = copyClipAttributes(source);
+    expect(attributes?.effectKeyframes).toHaveLength(3);
+    const pasted = applyClipAttributes(styled, targetAdded.clipId, attributes!);
+    const target = pasted.timeline.clips.find((clip) => clip.id === targetAdded.clipId);
+    if (!target || target.kind !== 'video') throw new Error('falta el clip destino');
+    expect(target.effectKeyframes).toEqual([
+      { frame: 10, property: 'brightness', value: 0.2 },
+      { frame: 20, property: 'blur', value: 4, easing: 'ease-in' },
+    ]);
+  });
+
   it('pega sobre un clip corto quitando fades, keyframes fuera de rango y acotando animación', () => {
     const video = videoAsset();
     const sourceAdded = addClipFromAsset(addAsset(base(), video), video, {

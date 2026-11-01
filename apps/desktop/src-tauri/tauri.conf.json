@@ -50,7 +50,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost http://localhost:5173 ws://localhost:5173",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' asset: http://asset.localhost data: ipc: http://ipc.localhost http://localhost:5173 ws://localhost:5173",
       "assetProtocol": {
         "enable": true,
         "scope": []
@@ -82,6 +82,7 @@
       "resources/tools/*": "tools/",
       "resources/onnxruntime/onnxruntime.dll": "onnxruntime.dll",
       "resources/piper": "piper",
+      "resources/overlays/*": "overlays/",
       "resources/watermark.png": "watermark.png",
       "resources/THIRD-PARTY-NOTICES.txt": "THIRD-PARTY-NOTICES.txt"
     },

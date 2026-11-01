@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { ExportDialog } from './ExportDialog';
@@ -191,5 +191,24 @@ describe('ExportDialog · lote de variantes', () => {
 
     await waitFor(() => expect(screen.getByText(/El lote se detuvo/i)).toBeTruthy());
     expect(screen.getAllByText(/Falló · ffmpeg falló/i)).toHaveLength(1);
+  });
+});
+
+describe('ExportDialog · plan de render sugerido', () => {
+  it('propone un plan explicable y lo aplica con un clic', async () => {
+    renderDialog();
+    const plan = await screen.findByRole('group', { name: /Plan de render sugerido/i });
+    const destino = within(plan).getByLabelText(/Destino/i) as HTMLSelectElement;
+    expect(destino.value).toBe('social');
+    expect(within(plan).getAllByText(/H\.264/).length).toBeGreaterThan(0);
+    expect(within(plan).getAllByText(/software/).length).toBeGreaterThan(0);
+
+    fireEvent.change(destino, { target: { value: 'draft' } });
+    expect(within(plan).getAllByText(/compacto/).length).toBeGreaterThan(0);
+
+    fireEvent.click(within(plan).getByRole('button', { name: /Aplicar plan/i }));
+    await waitFor(() => {
+      expect(screen.getAllByText(/CRF 27/i).length).toBeGreaterThan(0);
+    });
   });
 });

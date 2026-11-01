@@ -314,6 +314,41 @@ describe('montaje automático', () => {
     expect(result.plan.totalFrames).toBe(45);
     expect(totalFrames(validated(result.project))).toBe(45);
   });
+
+  it('un motor ken-burns fijado fuerza el movimiento aunque photoMotion sea none', () => {
+    const imageAsset = image('001-faro');
+    let project = addAsset(base(), imageAsset);
+    const scene = withScene(project, 'Faro', 'Narración.', 'Nota.');
+    project = updateScene(scene.project, scene.sceneId, { engine: 'ken-burns' });
+    const result = buildAutoEdit(project, {
+      assignment: 'order',
+      includeCaptions: false,
+      replaceTimeline: true,
+      photoMotion: 'none',
+    });
+    const clip = result.project.timeline.clips.find((item) => item.kind === 'image');
+    expect(clip?.motion?.type).toBeTruthy();
+    expect(result.plan.scenes[0]?.engine).toBe('ken-burns');
+    expect(result.plan.scenes[0]?.engineApplied).toBe(true);
+    expect(result.plan.warnings.join(' ')).not.toMatch(/ken-burns/);
+  });
+
+  it('un motor que el montaje no ejecuta avisa y no inventa movimiento', () => {
+    const imageAsset = image('001-faro');
+    let project = addAsset(base(), imageAsset);
+    const scene = withScene(project, 'Faro', 'Narración.', 'Nota.');
+    project = updateScene(scene.project, scene.sceneId, { engine: 'motion-graphics' });
+    const result = buildAutoEdit(project, {
+      assignment: 'order',
+      includeCaptions: false,
+      replaceTimeline: true,
+      photoMotion: 'none',
+    });
+    const clip = result.project.timeline.clips.find((item) => item.kind === 'image');
+    expect(clip?.motion).toBeUndefined();
+    expect(result.plan.scenes[0]?.engineApplied).toBe(false);
+    expect(result.plan.warnings.join(' ')).toMatch(/motion-graphics/);
+  });
 });
 
 describe('preparar montaje con narraciones nuevas', () => {
@@ -500,14 +535,61 @@ describe('movimiento y transiciones automáticas', () => {
       .filter((clip) => clip.kind === 'image')
       .sort((a, b) => a.startFrame - b.startFrame);
 
+    // Fotos cuadradas en un encuadre 16:9: sobra alto, así que el movimiento
+    // automático recorre en vertical en vez de hacer zoom.
     expect(imageClips.map((clip) => clip.motion)).toEqual([
-      { type: 'zoom-in', intensity: 0.12 },
-      { type: 'zoom-out', intensity: 0.12 },
+      { type: 'pan-down', intensity: 0.12 },
+      { type: 'pan-up', intensity: 0.12 },
     ]);
     expect(imageClips[0]?.effects).toEqual({ fadeInFrames: 12 });
     expect(imageClips[1]?.effects).toEqual({ fadeOutFrames: 12 });
     expect(imageClips[0]?.transitionIn).toBeUndefined();
+    // El plan inteligente elige disolvencia foto→foto y le da salida suave.
+    expect(imageClips[1]?.transitionIn).toEqual({
+      type: 'dissolve',
+      frames: 12,
+      easing: 'ease-out',
+    });
+    expect(result.plan.transitionSummary).toMatch(/1 corte\(s\) con transición/);
+  });
+
+  it('mantiene la disolvencia plana cuando se pide el estilo histórico', () => {
+    const result = buildAutoEdit(twoScenes(), {
+      assignment: 'order',
+      includeCaptions: false,
+      replaceTimeline: true,
+      transitionFrames: 12,
+      transitionStyle: 'dissolve',
+    });
+    const next = validated(result.project);
+    const imageClips = next.timeline.clips
+      .filter((clip) => clip.kind === 'image')
+      .sort((a, b) => a.startFrame - b.startFrame);
+
     expect(imageClips[1]?.transitionIn).toEqual({ type: 'dissolve', frames: 12 });
+    expect(result.plan.transitionSummary).toBeUndefined();
+  });
+
+  it('funde a negro al cambiar de foto a video y no pasa del plano más corto', () => {
+    let project = addAsset(base(), image('001-foto'));
+    const first = withScene(project, 'Foto', 'Una foto.', 'nota');
+    project = first.project;
+    const second = withScene(project, 'Clip', 'Un clip.', 'nota');
+    project = second.project;
+    project = addAsset(project, video());
+    const result = buildAutoEdit(project, {
+      assignment: 'order',
+      includeCaptions: false,
+      replaceTimeline: true,
+      transitionFrames: 20,
+    });
+    const next = validated(result.project);
+    const clips = next.timeline.clips
+      .filter((clip) => clip.kind === 'image' || clip.kind === 'video')
+      .sort((a, b) => a.startFrame - b.startFrame);
+
+    expect(clips[1]?.transitionIn).toMatchObject({ type: 'fade-black', easing: 'linear' });
+    expect(clips[1]?.transitionIn?.frames).toBeLessThanOrEqual(20);
   });
 
   it('deja las fotos quietas cuando se pide none y transición cero', () => {

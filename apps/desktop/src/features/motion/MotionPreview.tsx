@@ -38,6 +38,15 @@ export function MotionPreview({
             />
           );
         }
+        if (layer.kind === 'circle') {
+          return (
+            <div
+              key={`${layer.kind}-${index}`}
+              data-layer-kind="circle"
+              style={{ ...common, background: layer.color, borderRadius: '50%' }}
+            />
+          );
+        }
         return (
           <div
             key={`${layer.kind}-${index}`}

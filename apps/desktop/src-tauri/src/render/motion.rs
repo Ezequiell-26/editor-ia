@@ -184,6 +184,55 @@ fn validate_plan(plan: &Value, clip_id: &str) -> Result<(), ProjectError> {
                 }
                 validate_animation(layer, &label)?;
             }
+            Some("circle") => {
+                let Some(color) = text_field(layer, "color") else {
+                    return Err(fail(format!("{label}: falta color")));
+                };
+                if !valid_color(color) {
+                    return Err(fail(format!("{label}: color inválido")));
+                }
+                let Some(opacity) = number(layer, "opacity") else {
+                    return Err(fail(format!("{label}: falta opacity")));
+                };
+                if !(0.0..=1.0).contains(&opacity) {
+                    return Err(fail(format!("{label}: opacity fuera de rango")));
+                }
+                for key in ["x", "y", "width", "height"] {
+                    unit(layer, key, &label)?;
+                }
+                for key in ["width", "height"] {
+                    if number(layer, key).unwrap_or(0.0) <= 0.0005 {
+                        return Err(fail(format!("{label}: {key} debe ser mayor que 0")));
+                    }
+                }
+                if let Some(drift) = layer.get("drift") {
+                    let Some(drift) = drift.as_object() else {
+                        return Err(fail(format!("{label}: drift debe ser un objeto")));
+                    };
+                    for key in ["x", "y"] {
+                        let Some(value) = drift.get(key).and_then(Value::as_f64) else {
+                            return Err(fail(format!("{label}: drift.{key} inválido")));
+                        };
+                        if !value.is_finite() || !(-1.0..=1.0).contains(&value) {
+                            return Err(fail(format!("{label}: drift.{key} fuera de rango")));
+                        }
+                    }
+                }
+                // El ASS dibuja el círculo alrededor de un ancla central y usa
+                // `\move`; una animación slide/pop movería el ancla y rompería
+                // la paridad con la preview.
+                let kind = layer
+                    .get("animation")
+                    .and_then(|value| value.get("kind"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("none");
+                if !matches!(kind, "none" | "fade") {
+                    return Err(fail(format!(
+                        "{label}: los círculos sólo aceptan animación none o fade"
+                    )));
+                }
+                validate_animation(layer, &label)?;
+            }
             _ => return Err(fail(format!("{label}: tipo de capa desconocido"))),
         }
     }
@@ -407,6 +456,53 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                 format!(
                     "{{\\an{anchor}\\pos({pos_x:.1},{y:.1})\\fn{font}\\fs{size:.1}\\c{color}\\b{bold}{tags}}}{text}"
                 )
+            } else if kind == "circle" {
+                let color = override_color(text_field(&layer, "color").unwrap_or("#ffffff"));
+                let opacity = number(&layer, "opacity").unwrap_or(1.0).clamp(0.0, 1.0);
+                let alpha = ((1.0 - opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
+                let center_x = x + width / 2.0;
+                let center_y = y + height / 2.0;
+                let radius_x = width / 2.0;
+                let radius_y = height / 2.0;
+                let duration_ms = ((end - start) * 1000.0).round().max(1.0);
+                let drift_tag = layer
+                    .get("drift")
+                    .and_then(Value::as_object)
+                    .map(|drift| {
+                        let dx = drift
+                            .get("x")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0)
+                            * render_width;
+                        let dy = drift
+                            .get("y")
+                            .and_then(Value::as_f64)
+                            .unwrap_or(0.0)
+                            * render_height;
+                        format!(
+                            "\\move({center_x:.1},{center_y:.1},{:.1},{:.1},0,{duration_ms:.0})",
+                            center_x + dx,
+                            center_y + dy
+                        )
+                    })
+                    .unwrap_or_else(|| format!("\\pos({center_x:.1},{center_y:.1})"));
+                let mut path = String::new();
+                const SEGMENTS: usize = 28;
+                for index in 0..SEGMENTS {
+                    let angle =
+                        index as f64 / SEGMENTS as f64 * std::f64::consts::TAU;
+                    let px = radius_x * angle.cos();
+                    let py = radius_y * angle.sin();
+                    if index == 0 {
+                        path.push_str(&format!("m {px:.2} {py:.2}"));
+                    } else {
+                        path.push_str(&format!(" l {px:.2} {py:.2}"));
+                    }
+                }
+                path.push_str(&format!(" l {radius_x:.2} 0"));
+                format!(
+                    "{{\\an5\\p1\\c{color}\\alpha&H{alpha:02X}&{tags}{drift_tag}}}{path}{{\\p0}}"
+                )
             } else {
                 let color = override_color(text_field(&layer, "color").unwrap_or("#000000"));
                 let opacity = number(&layer, "opacity").unwrap_or(1.0).clamp(0.0, 1.0);
@@ -482,6 +578,53 @@ mod tests {
         assert!(ass.contains("\\fad("));
         assert!(ass.contains("\\move("));
         assert!(ass.contains("Dialogue: 0,"));
+    }
+
+    #[test]
+    fn draws_particle_circles_with_drift() {
+        let project = project_with_graphic();
+        let plans = json!({
+            "clip-g": {
+                "version": 1,
+                "width": 1920,
+                "height": 1080,
+                "fps": {"num": 30, "den": 1},
+                "durationFrames": 60,
+                "layers": [
+                    {"kind": "circle", "x": 0.4, "y": 0.4, "width": 0.02, "height": 0.01125, "color": "#7dd3c0", "opacity": 0.8, "animation": {"kind": "fade", "inFrames": 4, "outFrames": 8}, "drift": {"x": 0.2, "y": -0.1}}
+                ]
+            }
+        });
+        let ass = build_motion_ass(input(&project, &plans)).expect("ass");
+        assert!(ass.contains("\\an5\\p1"), "{ass}");
+        assert!(ass.contains("\\move("), "{ass}");
+        assert!(ass.contains("m "), "{ass}");
+        assert!(ass.contains("\\fad("), "{ass}");
+        // Centro (787.2, 438.1) + drift (384, -108) en 2000 ms.
+        assert!(
+            ass.contains("\\move(787.2,438.1,1171.2,330.1,0,2000)"),
+            "{ass}"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_circle_layers() {
+        let project = project_with_graphic();
+        let slide = json!({
+            "clip-g": {"version": 1, "layers": [
+                {"kind": "circle", "x": 0.4, "y": 0.4, "width": 0.02, "height": 0.01, "color": "#ffffff", "opacity": 1, "animation": {"kind": "slide-up"}, "drift": {"x": 0.1, "y": 0.1}}
+            ]}
+        });
+        let error = build_motion_ass(input(&project, &slide)).expect_err("error");
+        assert!(error.message.contains("none o fade"), "{}", error.message);
+
+        let zero = json!({
+            "clip-g": {"version": 1, "layers": [
+                {"kind": "circle", "x": 0.4, "y": 0.4, "width": 0, "height": 0.01, "color": "#ffffff", "opacity": 1, "animation": {"kind": "fade"}}
+            ]}
+        });
+        let error = build_motion_ass(input(&project, &zero)).expect_err("error");
+        assert!(error.message.contains("mayor que 0"), "{}", error.message);
     }
 
     #[test]

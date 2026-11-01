@@ -4,6 +4,7 @@ import type {
   Clip,
   ClipAnimation,
   ClipColorTag,
+  ClipEffectKeyframe,
   ClipEffects,
   ClipMask,
   ClipMotion,
@@ -14,6 +15,7 @@ import { updateClip } from './project-actions';
 
 export interface ClipAttributes {
   effects?: ClipEffects;
+  effectKeyframes?: ClipEffectKeyframe[];
   motion?: ClipMotion;
   chromaKey?: ChromaKey;
   mask?: ClipMask;
@@ -47,6 +49,9 @@ export function copyClipAttributes(clip: Clip): ClipAttributes | null {
   const source = clip as Clip & Partial<ClipAttributes>;
   const attributes: ClipAttributes = {};
   if (source.effects) attributes.effects = clone(source.effects);
+  if (source.effectKeyframes?.length) {
+    attributes.effectKeyframes = clone(source.effectKeyframes);
+  }
   if (source.motion) attributes.motion = clone(source.motion);
   if (source.chromaKey) attributes.chromaKey = clone(source.chromaKey);
   if (source.mask) attributes.mask = clone(source.mask);
@@ -84,6 +89,12 @@ export function applyClipAttributes(
     if (Object.keys(effects).length > 0) patch.effects = effects;
   }
   if (visual) {
+    if (attributes.effectKeyframes?.length) {
+      const keyframes = clone(attributes.effectKeyframes).filter(
+        (keyframe) => keyframe.frame < clip.durationFrames,
+      );
+      if (keyframes.length > 0) patch.effectKeyframes = keyframes;
+    }
     if (attributes.motion) patch.motion = clone(attributes.motion);
     if (attributes.chromaKey) patch.chromaKey = clone(attributes.chromaKey);
     if (attributes.mask) {

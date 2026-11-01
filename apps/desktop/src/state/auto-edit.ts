@@ -1,4 +1,4 @@
-import type { Asset, JsonValue, ProjectDocument, Scene } from '@editor-ia/project-schema';
+import type { Asset, ClipMotion, JsonValue, ProjectDocument, Scene } from '@editor-ia/project-schema';
 import {
   ProjectActionError,
   addClipFromAsset,
@@ -17,6 +17,13 @@ import {
   automaticPhotoMotion,
   type AutoPhotoMotion,
 } from './photo-motion';
+import { planCaptionTiming } from './caption-timing';
+import {
+  describeTransitionPlan,
+  planSmartTransitions,
+  type AssemblyShot,
+  type TransitionRhythm,
+} from './smart-transitions';
 
 /**
  * Automatic assembly from the script.
@@ -35,6 +42,22 @@ export interface AutoEditOptions {
   readonly maxCaptionChars?: number;
   readonly photoMotion?: AutoPhotoMotion;
   readonly transitionFrames?: number;
+  /**
+   * `smart` (por defecto) elige tipo y largo por corte según el material y la
+   * voz; `dissolve` mantiene el comportamiento histórico de una disolvencia
+   * igual en todos los cortes.
+   */
+  readonly transitionStyle?: 'smart' | 'dissolve';
+  /** Energía del montaje para el plan de transiciones. */
+  readonly transitionRhythm?: TransitionRhythm;
+  /**
+   * `speech` (por defecto) reparte los subtítulos por peso de habla, pausas de
+   * puntuación y velocidad de lectura; `proportional` conserva el reparto
+   * histórico por cantidad de caracteres.
+   */
+  readonly captionTiming?: 'speech' | 'proportional';
+  /** Velocidad de lectura máxima antes de avisar (caracteres por segundo). */
+  readonly maxCaptionCps?: number;
   readonly includeVideos?: boolean;
   /** Explicit media per scene, e.g. one generated image or video per script scene. */
   readonly mediaByScene?: Readonly<Record<string, string>>;
@@ -49,6 +72,8 @@ export interface AutoEditScenePlan {
   readonly startFrame: number;
   readonly durationFrames: number;
   readonly mediaRepeated: boolean;
+  readonly engine?: Scene['engine'];
+  readonly engineApplied?: boolean;
 }
 
 export interface AutoEditPlan {
@@ -57,6 +82,8 @@ export interface AutoEditPlan {
   readonly captionCount: number;
   readonly mediaUsed: number;
   readonly warnings: string[];
+  /** Resumen legible del plan de transiciones cuando el estilo es `smart`. */
+  readonly transitionSummary?: string;
 }
 
 export interface AutoEditResult {
@@ -236,6 +263,66 @@ export function splitCaptionText(text: string, maxChars = 90): string[] {
   );
 }
 
+interface PlannedCue {
+  readonly text: string;
+  readonly startFrame: number;
+  readonly endFrame: number;
+}
+
+/**
+ * Reparto histórico: cada bloque recibe frames proporcionales a su cantidad de
+ * caracteres. Se conserva para poder volver al comportamiento anterior.
+ */
+function proportionalCues(
+  chunks: readonly string[],
+  startFrame: number,
+  durationFrames: number,
+): PlannedCue[] {
+  const totalChars = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const cues: PlannedCue[] = [];
+  let captionCursor = startFrame;
+  let consumed = 0;
+  chunks.forEach((chunk, index) => {
+    const isLast = index === chunks.length - 1;
+    const chunkFrames = isLast
+      ? Math.max(1, durationFrames - consumed)
+      : Math.max(1, Math.round((durationFrames * chunk.length) / Math.max(1, totalChars)));
+    const start = captionCursor;
+    const end = Math.min(startFrame + durationFrames, start + chunkFrames);
+    if (end > start) {
+      cues.push({ text: chunk, startFrame: start, endFrame: end });
+      captionCursor = end;
+      consumed += end - start;
+    }
+  });
+  return cues;
+}
+
+/**
+ * Reparto por habla: pondera pausas de puntuación, respeta una duración mínima
+ * legible y avisa cuando el texto no entra a la velocidad de lectura pedida.
+ * Los avisos llevan el título de la escena para que se puedan ubicar.
+ */
+function speechCues(
+  chunks: readonly string[],
+  startFrame: number,
+  durationFrames: number,
+  fps: number,
+  maxCps: number | undefined,
+  sceneTitle: string,
+  warnings: string[],
+): PlannedCue[] {
+  const plan = planCaptionTiming(chunks, startFrame, durationFrames, {
+    fps,
+    ...(maxCps !== undefined ? { maxCps } : {}),
+  });
+  for (const warning of plan.warnings) {
+    const message = `"${sceneTitle}": ${warning}`;
+    if (!warnings.includes(message)) warnings.push(message);
+  }
+  return plan.cues;
+}
+
 /** Add freshly synthesized narrations and build the timeline in one mutation.
  * `confirmVoiceRights` is the user's explicit declaration for those voices. */
 export function prepareAutoEdit(
@@ -333,6 +420,11 @@ export function buildAutoEdit(
   let repeatedCount = 0;
   let missingAudioCount = 0;
   let shortVideoCount = 0;
+  // Con `transitionStyle: 'smart'` el tipo y el largo se deciden al final, con
+  // la duración real de cada plano; el bucle sólo junta los datos del corte.
+  const smartTransitions = (options.transitionStyle ?? 'smart') === 'smart';
+  const assemblyShots: AssemblyShot[] = [];
+  const transitionClipIds: string[] = [];
 
   scenes.forEach((scene, index) => {
     const assignment = assignments[index];
@@ -412,9 +504,30 @@ export function buildAutoEdit(
       }
     }
 
-    const motion =
-      options.photoMotion === 'auto' && chosen.kind === 'image'
-        ? automaticPhotoMotion(index)
+    // Una escena con motor fijado manda sobre el ajuste global. El único
+    // motor que el montaje automático ejecuta es Ken Burns; los demás quedan
+    // como decisión persistida y se avisan para no fingir que actuaron.
+    const engine = scene.engine;
+    const engineApplied = engine === 'ken-burns';
+    if (engine && !engineApplied) {
+      warnings.push(
+        `"${scene.title}": motor "${engine}" fijado; el montaje automático no lo ejecuta y se usó el flujo normal.`,
+      );
+    }
+    // El movimiento se elige con las medidas reales: una foto apaisada en un
+    // encuadre vertical se recorre en horizontal en vez de hacerle zoom.
+    const motionFor = (): ClipMotion =>
+      automaticPhotoMotion({
+        index,
+        ...(chosen.media && 'width' in chosen.media ? { imageWidth: chosen.media.width } : {}),
+        ...(chosen.media && 'height' in chosen.media ? { imageHeight: chosen.media.height } : {}),
+        frameWidth: next.video.width,
+        frameHeight: next.video.height,
+      });
+    const motion = engineApplied
+      ? motionFor()
+      : options.photoMotion === 'auto' && chosen.kind === 'image'
+        ? motionFor()
         : undefined;
     const transitionFrames = Math.min(
       120,
@@ -430,22 +543,29 @@ export function buildAutoEdit(
             ...(isLastScene ? { fadeOutFrames: transitionFrames } : {}),
           }
         : undefined;
+    const dissolveInLoop = !smartTransitions && !isFirstScene && transitionFrames > 0;
     if (
       motion ||
       (edgeEffects && Object.keys(edgeEffects).length > 0) ||
-      (!isFirstScene && transitionFrames > 0)
+      dissolveInLoop
     ) {
       next = updateClip(next, mediaClip.clipId, {
         ...(motion ? { motion } : {}),
         ...(edgeEffects && Object.keys(edgeEffects).length > 0
           ? { effects: edgeEffects }
           : {}),
-        ...(!isFirstScene && transitionFrames > 0
+        ...(dissolveInLoop
           ? { transitionIn: { type: 'dissolve' as const, frames: transitionFrames } }
           : {}),
       });
     }
     addedClipIds.push(mediaClip.clipId);
+    assemblyShots.push({
+      kind: chosen.kind,
+      durationFrames,
+      hasNarration: Boolean(audio),
+    });
+    transitionClipIds.push(mediaClip.clipId);
 
     let audioClipId: string | null = null;
     if (audio) {
@@ -475,31 +595,22 @@ export function buildAutoEdit(
     const text = scene.narration.text?.trim();
     if (options.includeCaptions && text) {
       const chunks = splitCaptionText(text, options.maxCaptionChars ?? 90);
-      const totalChars = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-      let captionCursor = cursor;
-      let consumed = 0;
-      chunks.forEach((chunk, chunkIndex) => {
-        const isLast = chunkIndex === chunks.length - 1;
-        const chunkFrames = isLast
-          ? Math.max(1, durationFrames - consumed)
-          : Math.max(1, Math.round((durationFrames * chunk.length) / Math.max(1, totalChars)));
-        const startFrame = captionCursor;
-        const endFrame = Math.min(cursor + durationFrames, startFrame + chunkFrames);
-        if (endFrame > startFrame) {
-          next.captions.cues.push({
-            id: newId(),
-            trackId: captionSetup.trackId,
-            styleId: captionSetup.styleId,
-            text: chunk.slice(0, 500),
-            language: next.language,
-            startFrame,
-            endFrame,
-          });
-          captionCount += 1;
-          captionCursor = endFrame;
-          consumed += endFrame - startFrame;
-        }
-      });
+      const cues =
+        (options.captionTiming ?? 'speech') === 'proportional'
+          ? proportionalCues(chunks, cursor, durationFrames)
+          : speechCues(chunks, cursor, durationFrames, fps, options.maxCaptionCps, scene.title, warnings);
+      for (const cue of cues) {
+        next.captions.cues.push({
+          id: newId(),
+          trackId: captionSetup.trackId,
+          styleId: captionSetup.styleId,
+          text: cue.text.slice(0, 500),
+          language: next.language,
+          startFrame: cue.startFrame,
+          endFrame: cue.endFrame,
+        });
+        captionCount += 1;
+      }
     }
 
     planScenes.push({
@@ -511,9 +622,33 @@ export function buildAutoEdit(
       startFrame: cursor,
       durationFrames,
       mediaRepeated: repeated,
+      ...(engine ? { engine, engineApplied } : {}),
     });
     cursor += durationFrames;
   });
+
+  // Plan de transiciones con las duraciones reales de los planos ya armados.
+  let transitionSummary: string | undefined;
+  if (smartTransitions) {
+    const requested = Math.max(0, Math.floor(options.transitionFrames ?? 0));
+    if (requested > 0) {
+      const plan = planSmartTransitions(assemblyShots, {
+        fps,
+        baseFrames: requested,
+        ...(options.transitionRhythm ? { rhythm: options.transitionRhythm } : {}),
+      });
+      plan.forEach((entry, index) => {
+        const clipId = transitionClipIds[index];
+        if (!entry || !clipId) return;
+        next = updateClip(next, clipId, {
+          transitionIn: { type: entry.type, frames: entry.frames, easing: entry.easing },
+        });
+      });
+      if (plan.some((entry) => entry !== null)) {
+        transitionSummary = describeTransitionPlan(plan);
+      }
+    }
+  }
 
   if (repeatedCount > 0) {
     warnings.push(
@@ -581,6 +716,7 @@ export function buildAutoEdit(
       captionCount,
       mediaUsed: new Set(planScenes.map((scene) => scene.mediaId)).size,
       warnings,
+      ...(transitionSummary ? { transitionSummary } : {}),
     },
   };
 }

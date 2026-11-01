@@ -3,7 +3,12 @@ import { AssetSchema } from './assets.ts';
 import { CaptionsSchema } from './captions.ts';
 import { ExportVariantListSchema, RenderProfileListSchema } from './delivery.ts';
 import { EntityIdSchema, IsoDateTimeSchema, JsonValueSchema, LanguageTagSchema } from './primitives.ts';
-import { AudioMixSchema, MotionListSchema, SceneListSchema } from './production.ts';
+import {
+  AudioMixSchema,
+  MotionListSchema,
+  SceneListSchema,
+  SequenceListSchema,
+} from './production.ts';
 import { ProvenanceRecordSchema } from './provenance.ts';
 import { FrameRateSchema, TOTAL_DURATION_MAX_FRAMES } from './time.ts';
 import { MarkerListSchema } from './markers.ts';
@@ -45,6 +50,7 @@ const KNOWN_ROOT_KEYS: readonly string[] = [
   'compounds',
   'captions',
   'scenes',
+  'sequences',
   'motion',
   'markers',
   'audio',
@@ -127,6 +133,7 @@ const ProjectSchemaBase = z.object({
   compounds: z.array(CompoundSchema).max(100).optional(),
   captions: CaptionsSchema,
   scenes: SceneListSchema,
+  sequences: SequenceListSchema.default([]),
   motion: MotionListSchema,
   markers: MarkerListSchema,
   audio: AudioMixSchema,
@@ -466,6 +473,7 @@ export function createEmptyProject(
     timeline: { tracks: [], clips: [] },
     captions: { styles: [], cues: [] },
     scenes: [],
+    sequences: [],
     motion: [],
     markers: [],
     audio: {},

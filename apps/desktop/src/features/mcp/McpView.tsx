@@ -17,6 +17,12 @@ import {
 import { artifactPaths } from '../../state/flow';
 import { FlowQueueCard } from './FlowQueueCard';
 import { useProjectStore } from '../../state/project-store';
+import {
+  isMcpLiveEnabled,
+  isMcpLiveExportEnabled,
+  setMcpLiveEnabled,
+  setMcpLiveExportEnabled,
+} from '../../state/mcp-live';
 import type { Asset } from '@editor-ia/project-schema';
 
 interface Draft {
@@ -172,6 +178,8 @@ export { artifactPaths } from '../../state/flow';
 
 export function McpView() {
   const store = useProjectStore();
+  const [liveEnabled, setLiveEnabled] = useState(() => isMcpLiveEnabled());
+  const [liveExport, setLiveExport] = useState(() => isMcpLiveExportEnabled());
   const [servers, setServers] = useState<McpServerConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -554,6 +562,50 @@ export function McpView() {
       >
         <span className="view-count">{servers.length} servidores</span>
       </ViewToolbar>
+
+      <div className="card mcp-live" aria-label="Control MCP en vivo">
+        <div className="production-card-head">
+          <div>
+            <p className="eyebrow">Puente en vivo</p>
+            <h3>Control desde un cliente MCP</h3>
+          </div>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={liveEnabled}
+              onChange={(event) => {
+                const enabled = event.target.checked;
+                setLiveEnabled(enabled);
+                setMcpLiveEnabled(enabled);
+              }}
+            />
+            <span>Permitir control en vivo</span>
+          </label>
+        </div>
+        <p className="fine-print">
+          Con el puente autenticado y esta opción activa, un cliente MCP local puede ejecutar las
+          mismas 39 herramientas del agente sobre el proyecto abierto (inspeccionar, editar,
+          rig, 3D, tracking, render y cola de escenas). Apagado por defecto; el token del puente sigue siendo
+          obligatorio.
+        </p>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={liveExport}
+            disabled={!liveEnabled}
+            onChange={(event) => {
+              const enabled = event.target.checked;
+              setLiveExport(enabled);
+              setMcpLiveExportEnabled(enabled);
+            }}
+          />
+          <span>Permitir exportación por MCP</span>
+        </label>
+        <p className="fine-print">
+          Sin esta casilla, las herramientas de exportación y render no se publican y cualquier
+          pedido directo a ellas se rechaza. Editar, inspeccionar y tracking siguen disponibles.
+        </p>
+      </div>
 
       {!store.service.available ? (
         <p className="notice notice-warning">{store.service.unavailableReason}</p>

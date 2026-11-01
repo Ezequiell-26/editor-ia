@@ -72,7 +72,6 @@ pub struct AssistantReply {
     pub action: Option<Value>,
     pub provider_id: String,
     pub model: String,
-    pub simulated: bool,
 }
 
 fn clean_messages(messages: &[AssistantMessage]) -> Result<Vec<AssistantMessage>, ProjectError> {
@@ -168,64 +167,6 @@ fn clean_reply(value: &str) -> String {
     }
 }
 
-fn mock_reply(messages: &[AssistantMessage], model: &str) -> AssistantReply {
-    let text = messages
-        .iter()
-        .rev()
-        .find(|message| message.role == "user")
-        .map(|message| message.content.to_ascii_lowercase())
-        .unwrap_or_default();
-    let (reply, action) = if text.contains("editor") {
-        (
-            "Abriendo el editor.",
-            Some(json!({ "kind": "navigate", "view": "editor" })),
-        )
-    } else if text.contains("guardar") {
-        ("Guardando el proyecto.", Some(json!({ "kind": "save" })))
-    } else if text.contains("exportar") || text.contains("render") {
-        (
-            "Abriendo la exportación.",
-            Some(json!({ "kind": "export" })),
-        )
-    } else if text.contains("reproducir") || text.contains("play") {
-        ("Reproduciendo.", Some(json!({ "kind": "play" })))
-    } else if text.contains("pausar") || text.contains("pausa") {
-        ("Pausado.", Some(json!({ "kind": "pause" })))
-    } else if text.contains("estado") {
-        (
-            "Te muestro el estado del proyecto.",
-            Some(json!({ "kind": "status" })),
-        )
-    } else if text.contains("motion") {
-        (
-            "Abriendo Motion.",
-            Some(json!({ "kind": "navigate", "view": "motion" })),
-        )
-    } else if text.contains("inicio") || text.contains("home") {
-        (
-            "Volviendo al inicio.",
-            Some(json!({ "kind": "navigate", "view": "home" })),
-        )
-    } else if text.contains("hola") {
-        (
-            "Hola. Soy Olyvia. Estoy en modo simulado; puedo abrir vistas, guardar, exportar o darte el estado. Configurá un proveedor en Ajustes para conversar con un modelo real.",
-            None,
-        )
-    } else {
-        (
-            "Modo simulado: no hay un modelo conectado. Puedo navegar por la app, guardar, exportar o consultar el estado. Para respuestas libres, configurá Ollama o una API en Ajustes.",
-            None,
-        )
-    };
-    AssistantReply {
-        reply: reply.to_owned(),
-        action,
-        provider_id: "mock".to_owned(),
-        model: model.to_owned(),
-        simulated: true,
-    }
-}
-
 /// Llamada real al proveedor OpenAI-compatible: arma el prompt del sistema,
 /// envía el chat y devuelve `(reply, action)` ya saneados. Separada del
 /// comando para poder medirla en una prueba live sin estado de Tauri.
@@ -256,6 +197,7 @@ async fn call_provider(
     let body = json!({
         "model": model,
         "temperature": 0.3,
+        "max_tokens": 500,
         "messages": body_messages
     });
     let client = reqwest::Client::builder()
@@ -330,13 +272,10 @@ pub async fn assistant_chat(
     let messages = clean_messages(&request.messages)?;
     let settings = state.settings_snapshot()?;
     let provider = settings.provider.clone();
-    if provider.kind == "mock" {
-        return Ok(mock_reply(&messages, &provider.model));
-    }
     if provider.base_url.is_empty() || provider.model.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            "configurá un proveedor en Ajustes o usá el simulador",
+            "configurá un proveedor real en Ajustes → IA antes de chatear",
         ));
     }
     validate_provider_base_url(&provider.base_url)?;
@@ -373,7 +312,6 @@ pub async fn assistant_chat(
         action,
         provider_id: "openai-compatible".to_owned(),
         model: provider.model,
-        simulated: false,
     })
 }
 
@@ -401,26 +339,13 @@ mod tests {
     }
 
     #[test]
-    fn mock_mode_returns_a_navigation_action() {
-        let reply = mock_reply(
-            &[AssistantMessage {
-                role: "user".to_owned(),
-                content: "abrí el editor".to_owned(),
-            }],
-            "mock",
-        );
-        assert!(reply.simulated);
-        assert_eq!(reply.action.unwrap()["view"], "editor");
-    }
-
-    #[test]
     fn rejects_empty_conversations() {
         let error = clean_messages(&[]).expect_err("debe rechazar");
         assert_eq!(error.code, ProjectErrorCode::InvalidProject);
     }
 
-    /// Ronda real contra el proveedor local configurado (por defecto Ollama
-    /// qwen2.5:3b en 127.0.0.1:11435). Requiere `EDITOR_IA_RUN_RENDER_TESTS=1`
+    /// Ronda real contra el proveedor local configurado (por defecto
+    /// FreeLLMAPI en 127.0.0.1:31415). Requiere `EDITOR_IA_RUN_RENDER_TESTS=1`
     /// y el servicio encendido; mide latencia y verifica que la respuesta
     /// llegue por el mismo camino que usa el comando.
     #[test]
@@ -431,9 +356,9 @@ mod tests {
             return;
         }
         let base_url = std::env::var("EDITOR_IA_ASSISTANT_BASE_URL")
-            .unwrap_or_else(|_| "http://127.0.0.1:11435/v1".to_owned());
+            .unwrap_or_else(|_| "http://127.0.0.1:31415/v1".to_owned());
         let model =
-            std::env::var("EDITOR_IA_ASSISTANT_MODEL").unwrap_or_else(|_| "qwen2.5:3b".to_owned());
+            std::env::var("EDITOR_IA_ASSISTANT_MODEL").unwrap_or_else(|_| "auto".to_owned());
         let messages = vec![AssistantMessage {
             role: "user".to_owned(),
             content: "En una frase: ¿qué podés hacer por mí en la app?".to_owned(),
@@ -445,7 +370,7 @@ mod tests {
             .build()
             .expect("runtime de tokio");
         let (reply, action) = runtime
-            .block_on(call_provider(&base_url, &model, "{}", &messages, None))
+            .block_on(call_provider(&base_url, &model, "{}", &messages, read_key()))
             .expect("el proveedor local debe responder");
         let elapsed = started.elapsed();
 

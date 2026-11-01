@@ -3,14 +3,16 @@ import { createPortal } from 'react-dom';
 import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { EMOJI_GROUPS, EMOJI_TOTAL, findEmoji, type EmojiEntry } from './emoji-data';
-import { spanishName } from './emoji-es';
+/**
+ * El catálogo de emojis pesa ~720 kB y sólo hace falta cuando alguien abre el
+ * selector. Se importa al abrir, no al montar el editor: el chunk del picker
+ * queda chico y el catálogo se descarga una sola vez, la primera vez que se usa.
+ */
+type EmojiData = typeof import('./emoji-data');
+type EmojiEntry = EmojiData['EMOJI_GROUPS'][number]['emojis'][number];
 
 const RECENT_KEY = 'editoria.emoji-recent.v1';
 const MAX_RECENT = 24;
-
-const ALL_ENTRIES: readonly EmojiEntry[] = EMOJI_GROUPS.flatMap((group) => group.emojis);
-const ENTRY_BY_EMOJI = new Map(ALL_ENTRIES.map((entry) => [entry.emoji, entry]));
 
 function loadRecent(): readonly string[] {
   try {
@@ -46,6 +48,25 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
   const [groupId, setGroupId] = useState('smileys-emotion');
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const [data, setData] = useState<EmojiData | null>(null);
+  const [spanish, setSpanish] = useState<((emoji: string) => string | undefined) | null>(null);
+
+  // El catálogo (215 kB) y los nombres en español (490 kB, `emojibase-data`)
+  // viajan juntos y sólo al abrir el selector.
+  useEffect(() => {
+    if (!open || (data && spanish)) return;
+    let alive = true;
+    void Promise.all([import('./emoji-data'), import('./emoji-es')]).then(
+      ([catalog, names]) => {
+        if (!alive) return;
+        setData(catalog);
+        setSpanish(() => names.spanishName);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, [open, data, spanish]);
 
   // Trampa de foco (auditoría de accesibilidad, H1/H2): guarda el disparador
   // (el botón que abre el selector), enfoca el primer control (la búsqueda),
@@ -58,22 +79,26 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
     onClose: () => setOpen(false),
   });
 
+  const entryByEmoji = useMemo(() => {
+    const entries = data?.EMOJI_GROUPS.flatMap((group) => group.emojis) ?? [];
+    return new Map(entries.map((entry) => [entry.emoji, entry]));
+  }, [data]);
   const groups = useMemo(() => {
-    const base = EMOJI_GROUPS.filter((group) => group.emojis.length > 0);
+    const base = (data?.EMOJI_GROUPS ?? []).filter((group) => group.emojis.length > 0);
     if (recent.length === 0) return base;
     return [
       {
         id: 'recent',
         label: 'Recientes',
         emojis: recent
-          .map((emoji) => ENTRY_BY_EMOJI.get(emoji))
+          .map((emoji) => entryByEmoji.get(emoji))
           .filter((entry): entry is EmojiEntry => Boolean(entry)),
       },
       ...base,
     ];
-  }, [recent]);
+  }, [data, recent, entryByEmoji]);
   const active = groups.find((group) => group.id === groupId) ?? groups[0];
-  const results = query.trim() ? findEmoji(query) : (active?.emojis ?? []);
+  const results = query.trim() ? (data?.findEmoji(query) ?? []) : (active?.emojis ?? []);
 
   useEffect(() => {
     if (!open) return;
@@ -176,7 +201,9 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
             style={{ fontFamily: 'var(--emoji-font)' }}
             aria-label={query.trim() ? 'Resultados' : (active?.label ?? 'Emojis')}
           >
-            {results.length === 0 ? (
+            {!data ? (
+              <p className="emoji-empty">Cargando emojis…</p>
+            ) : results.length === 0 ? (
               <p className="emoji-empty">Sin resultados.</p>
             ) : (
               results.map((entry) => (
@@ -184,8 +211,8 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
                   key={`${entry.emoji}-${entry.name}`}
                   type="button"
                   className="emoji-cell"
-                  aria-label={spanishName(entry.emoji) ?? entry.name}
-                  title={spanishName(entry.emoji) ?? entry.name}
+                  aria-label={spanish?.(entry.emoji) ?? entry.name}
+                  title={spanish?.(entry.emoji) ?? entry.name}
                   onClick={() => pick(entry)}
                 >
                   {entry.emoji}
@@ -195,7 +222,8 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
           </div>
           <footer className="emoji-foot">
             <span>
-              {EMOJI_TOTAL} emojis Unicode {preferences.emojiStyle === 'android' ? 'Android' : 'abierto'}
+              {data ? `${data.EMOJI_TOTAL} emojis Unicode` : 'Catálogo'} ·{' '}
+              {preferences.emojiStyle === 'android' ? 'Android' : 'abierto'}
             </span>
             <span>La preview los muestra en color; el MP4 los quema en monocromo.</span>
           </footer>

@@ -99,6 +99,88 @@ describe('AssetSchema', () => {
     ).toBe(true);
   });
 
+  it('accepts optional embedded tags on an audio asset and keeps old assets valid', () => {
+    const tagged = AssetSchema.safeParse(
+      videoAsset({
+        kind: 'audio',
+        media: { sampleRate: 48000, channels: 2, durationFrames: 900 },
+        artist: '  Artista Ñandú  ',
+        album: 'Álbum de prueba',
+        bpm: 128.5,
+      }),
+    );
+    expect(tagged.success).toBe(true);
+    if (tagged.success && tagged.data.kind === 'audio') {
+      expect(tagged.data.artist).toBe('Artista Ñandú');
+      expect(tagged.data.bpm).toBe(128.5);
+    }
+
+    const legacy = AssetSchema.safeParse(
+      videoAsset({ kind: 'audio', media: { sampleRate: 48000, channels: 2, durationFrames: 900 } }),
+    );
+    expect(legacy.success).toBe(true);
+    if (legacy.success && legacy.data.kind === 'audio') {
+      expect(legacy.data.artist).toBeUndefined();
+      expect(legacy.data.album).toBeUndefined();
+      expect(legacy.data.bpm).toBeUndefined();
+    }
+  });
+
+  it('accepts BPM at the inclusive bounds', () => {
+    for (const bpm of [0, 400]) {
+      expect(
+        AssetSchema.safeParse(
+          videoAsset({
+            kind: 'audio',
+            media: { sampleRate: 48000, channels: 2, durationFrames: 900 },
+            bpm,
+          }),
+        ).success,
+      ).toBe(true);
+    }
+  });
+
+  it('rejects out-of-range or non-finite BPM and overlong tag text', () => {
+    for (const bpm of [-0.1, 400.1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(
+        AssetSchema.safeParse(
+          videoAsset({
+            kind: 'audio',
+            media: { sampleRate: 48000, channels: 2, durationFrames: 900 },
+            bpm,
+          }),
+        ).success,
+      ).toBe(false);
+    }
+    for (const field of ['artist', 'album'] as const) {
+      expect(
+        AssetSchema.safeParse(
+          videoAsset({
+            kind: 'audio',
+            media: { sampleRate: 48000, channels: 2, durationFrames: 900 },
+            [field]: 'x'.repeat(201),
+          }),
+        ).success,
+      ).toBe(false);
+      expect(
+        AssetSchema.safeParse(
+          videoAsset({
+            kind: 'audio',
+            media: { sampleRate: 48000, channels: 2, durationFrames: 900 },
+            [field]: '   ',
+          }),
+        ).success,
+      ).toBe(false);
+    }
+  });
+
+  it('does not accept audio tags on non-audio assets', () => {
+    expect(AssetSchema.safeParse(videoAsset({ artist: 'Artista' })).success).toBe(false);
+    expect(AssetSchema.safeParse(videoAsset({ kind: 'text', artist: 'Artista' })).success).toBe(
+      false,
+    );
+  });
+
   it('accepts a text asset that needs no media probe at all', () => {
     const asset = videoAsset({ kind: 'text' });
     delete (asset as { media?: unknown }).media;

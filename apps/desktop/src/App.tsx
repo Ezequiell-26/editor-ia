@@ -8,6 +8,9 @@ import { SettingsWindow } from './components/SettingsWindow';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { WelcomeDialog } from './components/WelcomeDialog';
 import { buildCommands } from './app/commands';
+import { hasOpenModal } from './app/modal-guard';
+import { takeSettingsSection } from './app/settings-target';
+import type { SettingsSectionId } from './features/settings/SettingsHome';
 import {
   MAIN_NAV_VIEWS,
   NAV_VIEWS,
@@ -20,7 +23,7 @@ import {
 } from './app/view-routing';
 import { ProjectHome } from './features/projects/ProjectHome';
 import { AppearanceProvider } from './state/AppearanceProvider';
-import { duplicateClip, rippleDeleteClip, totalFrames } from './state/project-actions';
+import { duplicateClip, rippleDeleteClip, rippleTrimClip, totalFrames } from './state/project-actions';
 import {
   createDesktopService,
   detectNativeRuntime,
@@ -29,7 +32,10 @@ import {
 import { ProjectProvider, useProjectStore } from './state/project-store';
 import { LicenseProvider } from './state/LicenseProvider';
 import { useEditorPreferences } from './state/useEditorPreferences';
+import { useLiveMcpBridge } from './features/mcp/useLiveMcpBridge';
+import { setLiveBridgeContext } from './features/mcp/live-bridge-context';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
+import { RenderQueueProvider } from './features/render/RenderQueueProvider';
 import { ExperienceProvider, filterViewsForMode, useExperienceMode } from './state/experience';
 import {
   collectSearchDocuments,
@@ -102,6 +108,10 @@ const loadThumbnails = () =>
 const loadLocalization = () =>
   import('./features/localization/LocalizationView').then((module) => ({
     default: module.LocalizationView,
+  }));
+const loadDesign = () =>
+  import('./features/design/DesignLibraryView').then((module) => ({
+    default: module.DesignLibraryView,
   }));
 const loadAiHub = () =>
   import('./features/ai-hub/AiHubView').then((module) => ({ default: module.AiHubView }));
@@ -181,6 +191,7 @@ const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown
   compress: loadCompress,
   denoise: loadDenoise,
   thumbnails: loadThumbnails,
+  design: loadDesign,
   localization: loadLocalization,
   'ai-hub': loadAiHub,
   motion: loadMotion,
@@ -282,6 +293,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const [hubRequest, setHubRequest] = useState(0);
   const [editorRequest, setEditorRequest] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
+  const [settingsSection, setSettingsSection] = useState<SettingsSectionId>('apariencia');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const store = useProjectStore();
   const { mode: experienceMode } = useExperienceMode();
@@ -354,6 +366,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const navigate = useCallback((id: ViewId) => {
     const route = resolveViewRoute(id);
     if (route.view === 'settings') {
+      setSettingsSection(takeSettingsSection() ?? 'apariencia');
       setSettingsOpen(true);
       return;
     }
@@ -365,6 +378,10 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       setEditorRequest((request) => request + 1);
     }
   }, []);
+
+  useEffect(() => {
+    setLiveBridgeContext({ view: activeId, navigate });
+  }, [activeId, navigate]);
 
   // Precalienta el motor de búsqueda en un momento ocioso: el chunk ya está
   // listo cuando el usuario abre la paleta, sin retrasar el arranque.
@@ -512,6 +529,8 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         setPaletteOpen((open) => !open);
         return;
       }
+      // Ningún atajo de edición debe atravesar un diálogo modal.
+      if (hasOpenModal()) return;
       if (isTypingTarget(event.target)) {
         return;
       }
@@ -568,6 +587,29 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
             store.setSelection({ kind: 'clip', id: copy.clipId });
             store.setPlayhead(Math.min(store.state.playheadFrame, totalFrames(copy.project)));
           }
+          return;
+        }
+        case 'edit.rippleTrimOut': {
+          const selection = store.state.selection;
+          const current = store.state.project;
+          if (selection.kind !== 'clip' || !current) return;
+          const clip = current.timeline.clips.find((item) => item.id === selection.id);
+          if (!clip) return;
+          const target = Math.round(store.state.playheadFrame);
+          if (target <= clip.startFrame) {
+            event.preventDefault();
+            store.setNotice('Poné el playhead después del inicio del clip para recortar la salida.');
+            return;
+          }
+          event.preventDefault();
+          const preview = rippleTrimClip(current, selection.id, target);
+          if (!preview) {
+            store.setNotice('No se pudo recortar: el clip no admite ese frame de salida.');
+            return;
+          }
+          store.update((doc) => rippleTrimClip(doc, selection.id, target) ?? doc);
+          store.setPlayhead(Math.min(store.state.playheadFrame, totalFrames(preview)));
+          store.setNotice('Salida recortada al playhead; el resto de la pista se corrió.');
           return;
         }
         case 'edit.rippleDelete': {
@@ -712,6 +754,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       {settingsOpen && (
         <SettingsWindow onClose={() => setSettingsOpen(false)}>
           <SettingsHome
+            initialSection={settingsSection}
             onNavigate={(id) => {
               setSettingsOpen(false);
               navigate(id);
@@ -729,6 +772,11 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       )}
     </>
   );
+}
+
+function LiveMcpBridgeHost() {
+  useLiveMcpBridge();
+  return null;
 }
 
 export function App({ service = createDesktopService(), initialShowStart }: AppProps) {
@@ -765,8 +813,7 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
 
   const handleEnterApp = useCallback((view: ViewId) => {
     setInitialView(view);
-    setShowStart(false);
-    if (detectNativeRuntime()) {
+    setShowStart(false);    if (detectNativeRuntime()) {
       const appWindow = getCurrentWindow();
       void appWindow
         .setResizable(true)
@@ -778,6 +825,10 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
         });
     }
   }, []);
+
+  useEffect(() => {
+    setLiveBridgeContext({ enterEditor: () => handleEnterApp('editor') });
+  }, [handleEnterApp]);
 
   const handleReturnToStart = useCallback(() => {
     setShowStart(true);
@@ -796,19 +847,24 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
   return (
     <AppearanceProvider>
       <ProjectProvider service={service}>
-        <LicenseProvider service={service}>
-          {/* La cola de Flow vive por encima de las vistas: una corrida larga no
-              debe cortarse al cambiar de pantalla. */}
-          <FlowQueueProvider>
-          <ExperienceProvider>
-            {showStart ? (
-              <StartScreen onEnterApp={handleEnterApp} />
-            ) : (
-              <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
-            )}
-          </ExperienceProvider>
-          </FlowQueueProvider>
-        </LicenseProvider>
+        {/* La cola de render vive por encima de las vistas y del puente MCP: un
+            lote de escenas no se corta al cambiar de pantalla. */}
+        <RenderQueueProvider>
+          <LiveMcpBridgeHost />
+          <LicenseProvider service={service}>
+            {/* La cola de Flow vive por encima de las vistas: una corrida larga no
+                debe cortarse al cambiar de pantalla. */}
+            <FlowQueueProvider>
+            <ExperienceProvider>
+              {showStart ? (
+                <StartScreen onEnterApp={handleEnterApp} />
+              ) : (
+                <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
+              )}
+            </ExperienceProvider>
+            </FlowQueueProvider>
+          </LicenseProvider>
+        </RenderQueueProvider>
       </ProjectProvider>
     </AppearanceProvider>
   );

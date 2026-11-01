@@ -14,7 +14,7 @@ import {
   updateClip,
   updateTrack,
 } from '../../state/project-actions';
-import { setTrackPanKeyframe } from '../../state/track-automation';
+import { setTrackGainKeyframe, setTrackPanKeyframe } from '../../state/track-automation';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { LiveMeters } from './LiveMeters';
 import {
@@ -23,6 +23,7 @@ import {
   readPreviewAudioLevels,
   resetPreviewAudio,
   syncPreviewAudioFromProject,
+  syncPreviewAudioAutomationAtFrame,
   syncPreviewAudioPanAtFrame,
 } from './usePreviewAudio';
 
@@ -30,7 +31,7 @@ import {
  * Los medidores en vivo dependen de Web Audio, que jsdom no implementa. Estos
  * pruebas cubren los dos caminos: la degradación silenciosa (sin
  * AudioContext, todo queda en reposo y la preview no se rompe) y el grafo
- * simulado, con un AudioContext falso que registra los nodos creados para
+ * falso, con un AudioContext falso que registra los nodos creados para
  * afirmar la topología (EQ de 3 bandas, fader, paneo de balance lineal,
  * master) y los niveles leídos por `getByteTimeDomainData`.
  */
@@ -131,7 +132,7 @@ function installFakeAudioContext(): void {
 
 function lastFakeContext(): FakeAudioContext {
   const instance = FakeAudioContext.instances.at(-1);
-  if (!instance) throw new Error('no se creó un AudioContext simulado');
+  if (!instance) throw new Error('no se creó un AudioContext falso');
   return instance;
 }
 
@@ -241,7 +242,7 @@ describe('medidores en vivo sin Web Audio (degradación silenciosa)', () => {
   });
 });
 
-describe('medidores en vivo con AudioContext simulado', () => {
+describe('medidores en vivo con AudioContext falso', () => {
   beforeEach(() => {
     resetPreviewAudio();
     installFakeAudioContext();
@@ -420,6 +421,17 @@ function panNodesOf(ctx: FakeAudioContext): { left: FakeGain; right: FakeGain } 
   return { left, right };
 }
 
+/** Fader de la pista: input → EQ de 3 bandas → fader. */
+function faderOf(ctx: FakeAudioContext): FakeGain {
+  const input = trackInputOf(ctx);
+  const eqLow = input.connections[0];
+  const eqMid = eqLow?.connections[0];
+  const eqHigh = eqMid?.connections[0];
+  const fader = eqHigh?.connections[0];
+  if (!(fader instanceof FakeGain)) throw new Error('sin fader de pista');
+  return fader;
+}
+
 describe('paneo de pista animado en la preview', () => {
   beforeEach(() => {
     resetPreviewAudio();
@@ -539,5 +551,53 @@ describe('paneo de pista animado en la preview', () => {
     const { left, right } = panNodesOf(lastFakeContext());
     expect(left.gain.value).toBe(1);
     expect(right.gain.value).toBe(1);
+  });
+});
+
+describe('fader de pista animado en la preview', () => {
+  beforeEach(() => {
+    resetPreviewAudio();
+    installFakeAudioContext();
+  });
+
+  it('muestrea gainKeyframes con el mismo clamp y easing que el export', () => {
+    const { project, musicTrackId } = buildProject();
+    const withKeys = setTrackGainKeyframe(
+      setTrackGainKeyframe(project, musicTrackId, 0, 0),
+      musicTrackId,
+      30,
+      -12,
+    );
+    syncPreviewAudioFromProject(withKeys);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const fader = faderOf(lastFakeContext());
+
+    // Frame 0: 0 dB → 1.0 (reemplaza el -6 dB estático de la pista).
+    syncPreviewAudioAutomationAtFrame(withKeys, 0);
+    expect(fader.gain.value).toBeCloseTo(1, 9);
+
+    // Frame 15: mitad lineal entre 0 y -12 dB → -6 dB.
+    syncPreviewAudioAutomationAtFrame(withKeys, 15);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-6 / 20), 9);
+
+    syncPreviewAudioAutomationAtFrame(withKeys, 30);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-12 / 20), 9);
+
+    // Después de la última clave queda clampeado, como sampleTrackGain.
+    syncPreviewAudioAutomationAtFrame(withKeys, 500);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-12 / 20), 9);
+  });
+
+  it('vuelve al knob estático cuando se quitan las claves', () => {
+    const { project, musicTrackId } = buildProject();
+    const withKeys = setTrackGainKeyframe(project, musicTrackId, 0, 12);
+    syncPreviewAudioFromProject(withKeys);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const fader = faderOf(lastFakeContext());
+    syncPreviewAudioAutomationAtFrame(withKeys, 0);
+    expect(fader.gain.value).toBeCloseTo(10 ** (12 / 20), 9);
+
+    syncPreviewAudioFromProject(project);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-6 / 20), 9);
   });
 });

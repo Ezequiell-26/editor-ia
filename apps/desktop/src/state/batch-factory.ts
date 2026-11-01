@@ -9,6 +9,7 @@ import {
   newId,
 } from './project-actions';
 import { prepareAutoEdit, type AutoEditOptions, type NarrationCandidate } from './auto-edit';
+import type { TransitionRhythm } from './smart-transitions';
 
 /**
  * Batch factory: generate N project variants from one brief.
@@ -86,6 +87,8 @@ export async function generateVariant(
     readonly voiceId?: string;
     readonly photoMotion: 'auto' | 'none';
     readonly transitionFrames: number;
+    /** Energía del montaje; cada variante del lote puede usar una distinta. */
+    readonly transitionRhythm?: TransitionRhythm;
     readonly confirmRights: boolean;
     /** Autorización explícita para proveedores que consumen créditos. */
     readonly approveCost: boolean;
@@ -162,6 +165,7 @@ export function assembleVariant(
   options: {
     readonly photoMotion: 'auto' | 'none';
     readonly transitionFrames: number;
+    readonly transitionRhythm?: TransitionRhythm;
     readonly confirmRights: boolean;
   },
 ): ProjectDocument {
@@ -171,6 +175,7 @@ export function assembleVariant(
     replaceTimeline: true,
     photoMotion: options.photoMotion,
     transitionFrames: options.transitionFrames,
+    ...(options.transitionRhythm ? { transitionRhythm: options.transitionRhythm } : {}),
   };
   const result = prepareAutoEdit(
     project,

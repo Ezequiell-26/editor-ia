@@ -38,7 +38,7 @@ describe('selector de emojis · trampa de foco', () => {
     expect(document.activeElement).toBe(disparador);
   });
 
-  it('al elegir un emoji cierra el diálogo y devuelve el foco al disparador', () => {
+  it('al elegir un emoji cierra el diálogo y devuelve el foco al disparador', async () => {
     const onPick = vi.fn();
     const { getByRole } = render(<EmojiPickerButton onPick={onPick} />);
     const disparador = getByRole('button', { name: /Insertar emoji/i });
@@ -49,7 +49,8 @@ describe('selector de emojis · trampa de foco', () => {
     fireEvent.change(within(dialogo).getByRole('textbox', { name: /Buscar emoji/i }), {
       target: { value: 'rocket' },
     });
-    const rocket = within(dialogo).getByRole('button', { name: /^(rocket|cohete)$/i });
+    // El catálogo de emojis se importa al abrir: hay que esperar el chunk.
+    const rocket = await within(dialogo).findByRole('button', { name: /^(rocket|cohete)$/i });
     fireEvent.click(rocket);
 
     expect(onPick).toHaveBeenCalledWith('🚀');

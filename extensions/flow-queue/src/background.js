@@ -19,9 +19,15 @@ chrome.action.onClicked.addListener(async (tab) => {
     await chrome.sidePanel.setPanelBehavior(PANEL_BEHAVIOR);
     if (tab?.id !== undefined) {
       await chrome.sidePanel.open({ tabId: tab.id });
+      return;
     }
   } catch {
-    // The panel can also be opened from Chrome's side-panel menu.
+    // If the side panel is unavailable, fall back to a normal tab.
+  }
+  try {
+    await chrome.tabs.create({ url: chrome.runtime.getURL('src/sidepanel.html') });
+  } catch {
+    // Nothing else to do.
   }
 });
 

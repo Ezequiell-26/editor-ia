@@ -216,13 +216,55 @@ describe('descubrimiento honesto de capacidades', () => {
     expect(result.outputPath).toBeUndefined();
   });
 
-  it('con ffmpeg disponible sigue sin claimar un render que no esta implementado', () => {
+  it('con ffmpeg disponible el pipeline queda listo pero sin runner responde unimplemented', () => {
     const capabilities = getRendererCapabilities(usableRenderer(true));
     expect(capabilities.usableRenderer).toBe('ffmpeg');
-    expect(capabilities.canRender).toBe(false);
+    expect(capabilities.canRender).toBe(true);
     const result = requestRender(VALID_REQUEST, { capabilities, projectFileExists: true });
     expect(result.status).toBe('unsupported');
     expect(result.code).toBe('RENDERER_UNIMPLEMENTED');
+    expect(result.outputPath).toBeUndefined();
+  });
+
+  it('con runner y verificacion reales devuelve completed verificado', () => {
+    const capabilities = getRendererCapabilities(usableRenderer(true));
+    const result = requestRender(VALID_REQUEST, {
+      capabilities,
+      projectFileExists: true,
+      runRenderer: () => ({ ok: true, bytes: 1_234_567, durationSeconds: 5 }),
+      verifyOutput: (outputPath) =>
+        verifyRenderedOutput({
+          outputPath,
+          minOutputBytes: 500_000,
+          verifiedAt: '2026-10-31T20:00:00.000Z',
+          exists: () => true,
+          size: () => 1_234_567,
+        }),
+    });
+    expect(result.status).toBe('completed');
+    expect(result.outputPath).toBe(VALID_REQUEST.outputPath);
+    if (result.status === 'completed') {
+      expect(result.verification?.outputBytes).toBe(1_234_567);
+    }
+  });
+
+  it('si el runner falla no hay completed ni ruta', () => {
+    const capabilities = getRendererCapabilities(usableRenderer(true));
+    const result = requestRender(VALID_REQUEST, {
+      capabilities,
+      projectFileExists: true,
+      runRenderer: () => ({ ok: false, code: 'OUTPUT_WRITE_FAILED', message: 'ffmpeg falló' }),
+      verifyOutput: (outputPath) =>
+        verifyRenderedOutput({
+          outputPath,
+          minOutputBytes: 500_000,
+          verifiedAt: '2026-10-31T20:00:00.000Z',
+          exists: () => true,
+          size: () => 1_234_567,
+        }),
+    });
+    expect(result.status).toBe('failed');
+    expect(result.code).toBe('OUTPUT_WRITE_FAILED');
     expect(result.outputPath).toBeUndefined();
   });
 

@@ -137,6 +137,42 @@ body {
   color: var(--commercial-muted);
 }
 
+/* Ventanas angostas: el topbar cede espacio en vez de superponer texto.
+   El nombre y el estado del proyecto ya viven en la barra de estado. */
+@media (max-width: 1150px) {
+  .topbar-project {
+    display: none !important;
+  }
+  .topbar-search span,
+  .topbar-search kbd {
+    display: none;
+  }
+  .topbar-search {
+    width: 30px;
+    justify-content: center;
+    padding: 0 !important;
+  }
+  .topbar {
+    gap: 6px !important;
+  }
+  .menubar-title {
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+  }
+}
+
+@media (max-width: 980px) {
+  /* La barra superior prioriza navegación y acciones globales; los atajos
+     de Vista quedan en el menú correspondiente. */
+  .topbar-actions .icon-button[aria-label='Tutorial'],
+  .topbar-actions .icon-button[aria-label='Ajustes'] {
+    display: none;
+  }
+  .topbar-export-btn span {
+    display: none;
+  }
+}
+
 /* ── Sidebar: rail técnico, estado activo cobalto ─────────── */
 .app-shell .sidebar {
   background: #12151a !important;

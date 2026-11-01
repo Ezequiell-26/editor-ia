@@ -520,6 +520,35 @@ pub async fn import_lut(
     }))
 }
 
+/// Lee un archivo de texto del proyecto (LUT `.cube`, presets) con límite de
+/// tamaño. La preview de LUT lo usa para rasterizar el look en WebGL sin
+/// exponer rutas absolutas al frontend.
+#[tauri::command]
+pub async fn read_project_text(
+    state: State<'_, AppState>,
+    relative: String,
+) -> Result<String, ProjectError> {
+    let session = state.require_session()?;
+    let path = resolve_inside_root(&session.root, &relative)?;
+    let metadata = std::fs::metadata(&path).map_err(|_| {
+        ProjectError::message(ProjectErrorCode::NotFound, "el archivo ya no está en el proyecto")
+    })?;
+    if !metadata.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la ruta pedida no es un archivo",
+        ));
+    }
+    if metadata.len() > 32 * 1024 * 1024 {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el archivo de texto supera los 32 MB",
+        ));
+    }
+    std::fs::read_to_string(&path)
+        .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo leer el archivo"))
+}
+
 #[tauri::command]
 pub async fn media_thumbnail(
     state: State<'_, AppState>,

@@ -1,0 +1,17 @@
+{
+  "name": "@editor-ia/project-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor MCP local para inspeccionar y editar proyectos de Editor IA/Olyvia con las acciones reales del editor",
+  "bin": {
+    "editor-ia-project-mcp": "./dist/server.mjs"
+  },
+  "scripts": {
+    "build": "node ../../scripts/build-project-mcp.mjs",
+    "start": "node dist/server.mjs",
+    "verify": "node ./scripts/verify.mjs",
+    "verify:live": "node ./scripts/verify-live.mjs"
+  },
+  "license": "MIT"
+}

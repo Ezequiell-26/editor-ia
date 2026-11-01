@@ -377,6 +377,76 @@ export function createFakeService(): FakeService {
     async importLut() {
       return { path: 'media/luts/fake.cube', name: 'fake.cube' };
     },
+    async listBuiltinOverlays() {
+      return [
+        {
+          id: 'dust-motes',
+          label: 'Polvo dorado',
+          description: 'Partículas finas que flotan; mezcla Screen.',
+          width: 1280,
+          height: 720,
+          fps: 30,
+          durationSeconds: 4,
+          blendMode: 'screen' as const,
+          hasAlpha: false,
+          thumbnail: THUMB,
+        },
+        {
+          id: 'warm-leak',
+          label: 'Fuga cálida',
+          description: 'Barrido anaranjado; mezcla Screen.',
+          width: 1280,
+          height: 720,
+          fps: 30,
+          durationSeconds: 4,
+          blendMode: 'screen' as const,
+          hasAlpha: false,
+          thumbnail: THUMB,
+        },
+        {
+          id: 'mascot-wave',
+          label: 'Mascota que saluda',
+          description: 'Personaje con alfa; mezcla Normal.',
+          width: 1280,
+          height: 720,
+          fps: 30,
+          durationSeconds: 4,
+          blendMode: 'normal' as const,
+          hasAlpha: true,
+          thumbnail: THUMB,
+        },
+      ];
+    },
+    async importBuiltinOverlay(input) {
+      const asset = readyAsset({
+        label: input.id === 'warm-leak' ? 'Fuga cálida' : 'Polvo dorado',
+        source: { type: 'generated' as const, provider: { id: 'editor-ia', model: 'procedural-overlay-v1' }, path: `media/${input.id}.mp4`, generatedAt: NOW },
+        rights: {
+          license: {
+            id: 'cc0-1.0',
+            commercialUse: 'allowed' as const,
+            attributionText: 'Overlay generado por Editor IA',
+          },
+          provenance: {
+            origin: 'generated-locally' as const,
+            acquiredAt: NOW,
+            provider: 'Editor IA',
+          },
+        },
+        media: {
+          width: 1280,
+          height: 720,
+          durationFrames: 120,
+          frameRate: { num: 30, den: 1 },
+        },
+      });
+      return {
+        asset,
+        label: asset.label,
+        blendMode: 'screen' as const,
+        durationSeconds: 4,
+      };
+    },
     async chooseSubtitleFile() {
       return {
         name: 'demo.srt',
@@ -1270,12 +1340,11 @@ export function createFakeService(): FakeService {
       void request;
       return {
         name: 'Cine IA',
-        description: 'Contraste y viñeta generados sin red.',
+        description: 'Contraste y viñeta generados.',
         effects: { contrast: 1.15, vignette: 0.2 },
-        providerId: 'mock',
-        model: 'mock',
-        simulated: true,
-      };
+        providerId: 'openai-compatible',
+        model: 'auto',
+          };
     },
     async generateMotion(request) {
       const text = request.brief.slice(0, 60);
@@ -1297,10 +1366,9 @@ export function createFakeService(): FakeService {
       return {
         templateId: request.templateId,
         props,
-        providerId: 'mock',
-        model: 'mock',
-        simulated: true,
-      };
+        providerId: 'openai-compatible',
+        model: 'auto',
+          };
     },
     async assistantChat(request) {
       const last = [...request.messages].reverse().find((message) => message.role === 'user');
@@ -1309,37 +1377,147 @@ export function createFakeService(): FakeService {
         return {
           reply: 'Abriendo el editor.',
           action: { kind: 'navigate', view: 'editor' },
-          providerId: 'mock',
-          model: 'mock',
-          simulated: true,
-        };
+          providerId: 'openai-compatible',
+          model: 'auto',
+              };
       }
       if (text.includes('estado')) {
         return {
           reply: 'Te muestro el estado del proyecto.',
           action: { kind: 'status' },
-          providerId: 'mock',
-          model: 'mock',
-          simulated: true,
-        };
+          providerId: 'openai-compatible',
+          model: 'auto',
+              };
       }
       return {
-        reply: 'Hola. Soy Olyvia en modo simulado. Puedo ayudarte a navegar por la app.',
+        reply: 'Respuesta del proveedor de prueba.',
         action: null,
-        providerId: 'mock',
-        model: 'mock',
-        simulated: true,
+        providerId: 'openai-compatible',
+        model: 'auto',
+          };
+    },
+    async assistantAgent(request) {
+      const last = [...request.messages].reverse().find((message) => message.role === 'user');
+      const text = last?.content.toLowerCase() ?? '';
+      return {
+        reply: text.includes('editor')
+          ? 'Abriendo el editor.'
+          : 'Respuesta del proveedor de prueba con herramientas.',
+        toolCalls: [],
+        finishReason: 'stop',
+        providerId: 'openai-compatible',
+        model: 'auto',
       };
+    },
+    async generateDesign(request) {
+      return {
+        html: '<!doctype html><html><head><style>body{font-family:system-ui}</style></head><body><main><h1>Diseño de prueba</h1><p>Generado por el servicio falso para tests.</p></main></body></html>',
+        providerId: 'openai-compatible',
+        model: 'auto',
+        format: request.format,
+      };
+    },
+    async extractDesignUrl(request) {
+      return {
+        url: request.url,
+        title: 'Estudio de prueba',
+        colors: ['#0b0f14', '#f5f2ef', '#d8000f', '#5b8cff'],
+        fonts: ['Fraunces', 'Inter'],
+      };
+    },
+    async generateDesignDirections(_request) {
+      return {
+        directions: [
+          {
+            name: 'Cobalto editorial',
+            concept: 'Papel y tinta con acento rojo.',
+            bg: '#f5f2ef',
+            surface: '#ffffff',
+            fg: '#1c1410',
+            accent: '#d8000f',
+            accentOn: '#ffffff',
+            displayFont: 'Fraunces',
+            bodyFont: 'Inter',
+            layout: 'Columna editorial',
+            why: 'Contraste cálido y legible.',
+          },
+          {
+            name: 'Señal nocturna',
+            concept: 'Interfaz de datos sobre fondo profundo.',
+            bg: '#0b0f14',
+            surface: '#111820',
+            fg: '#e6edf7',
+            accent: '#5b8cff',
+            accentOn: '#0b0f14',
+            displayFont: 'Space Grotesk',
+            bodyFont: 'Inter',
+            layout: 'Panel lateral',
+            why: 'Lectura rápida en pantalla.',
+          },
+          {
+            name: 'Campo abierto',
+            concept: 'Aire, fotografía y tipografía serif.',
+            bg: '#f4f7f2',
+            surface: '#e8efe5',
+            fg: '#1a2a1e',
+            accent: '#3e7c4a',
+            accentOn: '#ffffff',
+            displayFont: 'DM Serif Display',
+            bodyFont: 'Source Sans 3',
+            layout: 'Hero asimétrico',
+            why: 'Calma y confianza.',
+          },
+        ],
+        providerId: 'openai-compatible',
+        model: 'auto',
+      };
+    },
+    async critiqueDesign(request) {
+      return {
+        critique:
+          'Revisión de prueba: el contraste del texto principal es correcto; la jerarquía del H1 es clara; falta una etiqueta en el control de ejemplo y el copy repite una frase. Se sugiere corregir la etiqueta y acortar el párrafo.',
+        providerId: 'openai-compatible',
+        model: 'auto',
+      };
+    },
+    async generateDesignImage(request) {
+      return {
+        bytesBase64:
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nXQAAAAASUVORK5CYII=',
+        mime: 'image/png',
+        extension: 'png',
+        width: request.width,
+        height: request.height,
+        source: request.source,
+        model: request.model || 'auto',
+      };
+    },
+    async saveDesignHtml(_html, fileName) {
+      return `C:\\tester\\${fileName}`;
+    },
+    async saveDesignImage(_imageBase64, fileName) {
+      return `C:\\tester\\${fileName}`;
+    },
+    async saveDesignPng(_pngBase64, fileName) {
+      return `C:\\tester\\${fileName}.png`;
+    },
+    async saveDesignPdf(_pdfBase64, fileName) {
+      return `C:\\tester\\${fileName}.pdf`;
+    },
+    async saveDesignVideo(_videoBase64, fileName) {
+      return `C:\\tester\\${fileName}.mp4`;
+    },
+    async stageDesignMedia(_bytesBase64, extension) {
+      return `media/diseno.${extension}`;
     },
     async translateSubtitles(request) {
       return {
         texts: request.texts.map(
           (text) => `${request.targetLanguage.toUpperCase()}: ${text}`,
         ),
-        providerId: 'mock',
-        model: 'simulado',
-        simulated: false,
-      };
+        providerId: 'openai-compatible',
+        model: 'auto',
+          };
     },
     async saveLocalizedSubtitle(request) {
       return {
@@ -1406,6 +1584,32 @@ export function createFakeService(): FakeService {
     },
     async onShortProgress() {
       return () => {};
+    },
+    async trackPoint(request) {
+      return {
+        durationSeconds: request.endSeconds - request.startSeconds,
+        fps: 6,
+        scaledWidth: 480,
+        scaledHeight: 270,
+        points: [
+          { time: 0, x: request.x, y: request.y, confidence: 1 },
+          { time: 0.5, x: Math.min(1, request.x + 0.1), y: request.y, confidence: 0.9 },
+        ],
+      };
+    },
+    async trackObject(request) {
+      return {
+        durationSeconds: request.endSeconds - request.startSeconds,
+        fps: 6,
+        scaledWidth: 480,
+        scaledHeight: 270,
+        regionWidth: request.width,
+        regionHeight: request.height,
+        points: [
+          { time: 0, x: request.x, y: request.y, confidence: 1 },
+          { time: 0.5, x: Math.min(1, request.x + 0.1), y: request.y, confidence: 0.9 },
+        ],
+      };
     },
     async analyzeFaceTrack(request) {
       const duration = Math.max(0.1, request.endSeconds - request.startSeconds);
@@ -1530,14 +1734,18 @@ export function createFakeService(): FakeService {
     async chooseTool() {
       return service.systemInfo();
     },
+    async listSystemFonts() {
+      return ['Arial', 'Inter', 'Segoe UI'];
+    },
     async revealOutput() {
       return;
     },
     async getProvider(): Promise<ProviderInfo> {
       return {
-        kind: 'mock',
-        baseUrl: '',
-        model: 'mock',
+        kind: 'openai-compatible',
+        agentKind: 'openai-compatible',
+        baseUrl: 'http://127.0.0.1:31415/v1',
+        model: 'auto',
         hasKey: false,
         keyringAvailable: true,
       };
@@ -1545,6 +1753,7 @@ export function createFakeService(): FakeService {
     async saveProvider(input) {
       return {
         kind: input.kind,
+        agentKind: input.agentKind ?? 'openai-compatible',
         baseUrl: input.baseUrl,
         model: input.model,
         hasKey: Boolean(input.apiKey),
@@ -1588,10 +1797,9 @@ export function createFakeService(): FakeService {
     async generateScript(request: GenerateScriptRequest): Promise<ScriptPlan> {
       return {
         title: `Guion de ${request.sceneCount} escenas`,
-        providerId: 'mock',
-        model: 'mock',
-        simulated: true,
-        costDisclosed: true,
+        providerId: 'openai-compatible',
+        model: 'auto',
+            costDisclosed: true,
         costApproved: true,
         scenes: Array.from({ length: request.sceneCount }, (_, index) => ({
           id: newId(),
@@ -1622,6 +1830,37 @@ export function createFakeService(): FakeService {
       calls.render += 1;
       return { jobId: `job-${calls.render}`, profileName: outputPath.split(/[\\/]/).pop() ?? 'lote' };
     },
+    async fileInfo() {
+      return { exists: false, bytes: 0 };
+    },
+    async fsRoots() {
+      return [{ id: 'downloads', label: 'Descargas', path: 'C:\\Users\\tester\\Downloads' }];
+    },
+    async fsList(path?: string) {
+      return {
+        path: path ?? '',
+        parent: null,
+        entries: [],
+        truncated: false,
+        total: 0,
+      };
+    },
+    async fsSearch() {
+      return { path: '', parent: null, entries: [], truncated: false, total: 0 };
+    },
+    async fsFindMedia() {
+      return { path: '', parent: null, entries: [], truncated: false, total: 0 };
+    },    async fsReadText(path: string) {
+      return { path, bytes: 0, text: '', truncated: false };
+    },
+    async concatVideos(paths: readonly string[], outputPath: string) {
+      return {
+        outputPath,
+        bytes: paths.length * 1_000,
+        durationSeconds: paths.length,
+        segments: paths.length,
+      };
+    },
     async chooseExportDirectory() {
       return 'C:\\Users\\tester\\Exports';
     },
@@ -1644,6 +1883,20 @@ export function createFakeService(): FakeService {
     },
     mediaUrl(_root, relative) {
       return `asset://local/${relative}`;
+    },
+    async readProjectText() {
+      // LUT identidad 2³ mínima para ejercitar el parser de la preview.
+      return [
+        'LUT_3D_SIZE 2',
+        '0 0 0',
+        '1 0 0',
+        '0 1 0',
+        '1 1 0',
+        '0 0 1',
+        '1 0 1',
+        '0 1 1',
+        '1 1 1',
+      ].join('\n');
     },
     joinPath(root, relative) {
       return `${root}\\${relative.replace(/\//g, '\\')}`;

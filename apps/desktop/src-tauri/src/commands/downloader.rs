@@ -1509,6 +1509,15 @@ impl HdrTransfer {
             HdrTransfer::Hlg => "arib-std-b67",
         }
     }
+
+    /// Código ISO/ITU de transferencia para el bitstream filter AV1; libaom
+    /// no escribe `color_trc` por sí solo y el MP4 queda sin HDR.
+    pub(crate) fn av1_transfer_code(self) -> u8 {
+        match self {
+            HdrTransfer::Pq => 16,
+            HdrTransfer::Hlg => 18,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1703,18 +1712,30 @@ pub(crate) fn upscale_target(
     })
 }
 
+/// `delogo` es GPL y no existe en el FFmpeg LGPL empaquetado. En su lugar se
+/// cubre la zona con un recuadro negro semitransparente (`drawbox`), ampliado
+/// con margen para tapar también el ringing del encoder alrededor de la marca.
+/// No reconstruye el fondo como `delogo`, pero es honesto, determinista y no
+/// depende de filtros GPL.
+fn logo_cover_filter(delogo: Option<DelogoRect>) -> String {
+    let Some(rect) = delogo else {
+        return String::new();
+    };
+    let margin = (rect.w.min(rect.h) / 2).max(8);
+    let x = rect.x.saturating_sub(margin);
+    let y = rect.y.saturating_sub(margin);
+    let w = rect.w + (rect.x - x) + margin;
+    let h = rect.h + (rect.y - y) + margin;
+    format!("drawbox=x={x}:y={y}:w={w}:h={h}:color=black@0.82:t=fill,")
+}
+
 fn spatial_effects(delogo: Option<DelogoRect>, upscale: Option<UpscalePlan>) -> String {
-    let mut chain = String::new();
-    if let Some(rect) = delogo {
-        chain.push_str(&format!(
-            "delogo=x={}:y={}:w={}:h={},",
-            rect.x, rect.y, rect.w, rect.h
-        ));
-    }
+    let mut chain = logo_cover_filter(delogo);
     if let Some(plan) = upscale {
-        // Se usa Lanczos en CPU porque `delogo`, `noise` y `eq` también corren
-        // en CPU; `scale_cuda` exigiría hwupload/hwdownload y rompería la
-        // pasada única. El encoder HEVC sí puede ser NVENC/AMF/QSV.
+        // Se usa Lanczos en CPU porque `removegrain`, `noise` y los filtros de
+        // color también corren en CPU; `scale_cuda` exigiría
+        // hwupload/hwdownload y rompería la pasada única. El encoder HEVC sí
+        // puede ser NVENC/AMF/QSV.
         chain.push_str(&format!(
             "scale={}:{}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,\
 pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black,",
@@ -1750,6 +1771,18 @@ crop=trunc(iw/1.04/2)*2:trunc(ih/1.04/2)*2:{x}:{y},"
     }
 }
 
+/// Dimensiones reales que deja el zoom del 4 % sin upscale: se redondea a
+/// pares al escalar y al recortar. Se usa para saber si libkvazaar puede
+/// codificar el resultado (múltiplos de 8).
+pub(crate) fn look_output_dimensions(width: u32, height: u32) -> (u32, u32) {
+    if width < 2 || height < 2 {
+        return (width, height);
+    }
+    let scaled = |value: u32| ((value as f64 * 1.04) / 2.0).floor().max(1.0) as u32 * 2;
+    let cropped = |value: u32| ((value as f64 / 1.04) / 2.0).floor().max(1.0) as u32 * 2;
+    (cropped(scaled(width)), cropped(scaled(height)))
+}
+
 /// Cadena del look cinematográfico. Es pura para testear el orden y el foco.
 /// El flujo óptico va después de estirar el tiempo para que el resultado sea
 /// 60 fps reales y no 58,8 fps disfrazados.
@@ -1766,7 +1799,9 @@ pub(crate) fn cinematic_filter_with(
     let zoom = zoom_filters(focus, upscale);
     format!(
         "[0:v]{effects}setpts=PTS/0.98,minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:vsbmc=1,\
-eq=gamma=0.95:contrast=1.08:saturation=1.12,{zoom}\
+curves=master='0/0 0.5/0.4820 1/1',\
+colorlevels=rimin=0.0370:gimin=0.0370:bimin=0.0370:rimax=0.9630:gimax=0.9630:bimax=0.9630,\
+hue=s=1.12,{zoom}\
 hflip,noise=alls=8:allf=t+u,format=yuv420p[v]"
     )
 }
@@ -1798,10 +1833,10 @@ pub(crate) fn pipeline_filter_with(
 ) -> String {
     // Denoise espacial+temporal antes del flujo óptico: si se aplicara después,
     // el grano sintético también se suavizaría. El `replacen` deja el orden
-    // hqdn3d -> delogo -> Lanczos -> look.
+    // removegrain/atadenoise -> delogo -> Lanczos -> look.
     cinematic_filter_with(focus, delogo, upscale).replacen(
         "[0:v]",
-        "[0:v]hqdn3d=1.86:1.39:2.80:2.15,",
+        "[0:v]removegrain=m0=2:m1=2:m2=2,atadenoise=0a=0.02:0b=0.05:1a=0.02:1b=0.05:2a=0.02:2b=0.05,",
         1,
     )
 }
@@ -2305,12 +2340,15 @@ pub(crate) fn fast_cinematic_filter_with(
     // En la ruta larga se evita el flujo óptico y el grano, pero si hay
     // upscaling se mantiene el denoise previo para no ampliar el pixelado.
     let denoise = if upscale.is_some() {
-        "hqdn3d=1.86:1.39:2.80:2.15,"
+        "removegrain=m0=2:m1=2:m2=2,atadenoise=0a=0.02:0b=0.05:1a=0.02:1b=0.05:2a=0.02:2b=0.05,"
     } else {
         ""
     };
     format!(
-        "[0:v]{denoise}{effects}fps=60,setpts=PTS/0.98,eq=gamma=0.98:contrast=1.05:saturation=1.05,{zoom}\
+        "[0:v]{denoise}{effects}fps=60,setpts=PTS/0.98,\
+curves=master='0/0 0.5/0.4930 1/1',\
+colorlevels=rimin=0.0238:gimin=0.0238:bimin=0.0238:rimax=0.9762:gimax=0.9762:bimax=0.9762,\
+hue=s=1.05,{zoom}\
 hflip,format=yuv420p[v]"
     )
 }
@@ -2536,21 +2574,42 @@ fn process_video(
     command
         .args(["-filter_complex", &filter_complex, "-map", video_label])
         .args(["-pix_fmt", "yuv420p", "-r", "60", "-movflags", "+faststart"]);
+    // libkvazaar exige dimensiones múltiplos de 8. El upscale puede cambiarlas
+    // (1920x1080/3840x2160 sí cumplen); si no cumplen, el look manual cae a
+    // H.264 y el pipeline automático avisa en vez de escribir un MP4 vacío.
+    let (output_width, output_height) = upscale
+        .map(|plan| (plan.width, plan.height))
+        .unwrap_or_else(|| look_output_dimensions(source_width, source_height));
+    let hevc_ready = output_width > 0
+        && output_height > 0
+        && crate::render::encoders::hevc_dimensions_ok(output_width, output_height);
     if auto_pipeline {
+        if profile.args.iter().any(|arg| arg == "libkvazaar") && !hevc_ready {
+            return Err(format!(
+                "H.265 por software (libkvazaar) requiere múltiplos de 8; el video es \
+                 {output_width}×{output_height}. Elegí H.264 o una resolución múltiplo de 8."
+            ));
+        }
         command.args(&profile.args);
-        if profile
-            .args
-            .iter()
-            .any(|arg| arg.contains("hevc") || arg.contains("265"))
-        {
+        if profile.args.iter().any(|arg| {
+            arg.contains("hevc") || arg.contains("265") || arg.contains("libkvazaar")
+        }) {
             command.args(["-tag:v", "hvc1"]);
         }
     } else {
-        // El look manual también cierra en H.265 para que cualquier asset
-        // postprocesado por el hook sea HEVC, no una mezcla de códecs.
-        command.args([
-            "-c:v", "libx265", "-preset", "fast", "-crf", "22", "-tag:v", "hvc1",
-        ]);
+        // El look manual cierra en H.265 cuando la geometría lo permite para
+        // que el asset postprocesado por el hook sea HEVC; si no, H.264 LGPL.
+        let codec = if hevc_ready { "h265" } else { "h264" };
+        command.args(crate::render::encoders::software_video_args(
+            codec,
+            output_width.max(1920),
+            output_height.max(1080),
+            60.0,
+            22,
+        ));
+        if codec == "h265" {
+            command.args(["-tag:v", "hvc1"]);
+        }
     }
     let keep_clean_audio = auto_pipeline && replacement_audio.is_none();
     if use_noise_audio {
@@ -2642,6 +2701,7 @@ fn process_video(
 fn cinematic_video(
     progress: ProgressSink<'_>,
     ffmpeg: &Path,
+    ffprobe: Option<&Path>,
     input: &Path,
     focus: &str,
     replacement_audio: Option<&Path>,
@@ -2649,7 +2709,7 @@ fn cinematic_video(
     process_video(
         progress,
         ffmpeg,
-        None,
+        ffprobe,
         input,
         focus,
         replacement_audio,
@@ -2692,22 +2752,22 @@ fn compress_video(
                 .to_owned(),
         );
     }
-    // Medición sintética 1080p/5 s: medium 4,75 s · fast 4,35 s · faster
-    // 3,41 s. `faster` recorta ~28 % con un tamaño casi igual; el CRF sigue
-    // controlando la calidad y el peso final.
-    let preset = "faster";
-    let codec_name = if preserve_hdr {
-        if codec == "av1" {
-            "libaom-av1"
-        } else {
-            "libx265"
-        }
+    if preserve_hdr && codec == "h265" {
+        // El build LGPL no incluye libx265 (GPL) y libkvazaar sólo codifica
+        // 8 bits: conservar HDR en H.265 requeriría un encoder GPL. AV1 sí
+        // conserva 10 bits con libaom-av1.
+        return Err(
+            "Conservar HDR en H.265 no está disponible con el FFmpeg LGPL de Olyvia. \
+             Elegí AV1 para mantener el HDR, o «Convertir a SDR» para H.265/H.264."
+                .to_owned(),
+        );
+    }
+    // Los encoders LGPL (openh264/kvazaar) no aceptan `-preset` ni `-crf`:
+    // el bitrate se calcula desde resolución y CRF equivalente.
+    let codec_name = if codec == "av1" {
+        "libaom-av1"
     } else {
-        match codec {
-            "h264" => "libx264",
-            "av1" => "libaom-av1",
-            _ => "libx265",
-        }
+        crate::render::encoders::software_encoder(codec)
     };
     let codec_label = if preserve_hdr {
         "H.265 HDR"
@@ -2746,8 +2806,6 @@ fn compress_video(
     ]);
     if codec == "av1" {
         command.args(["-cpu-used", "6", "-row-mt", "1"]);
-    } else if !preserve_hdr {
-        command.args(["-preset", preset]);
     }
     if let Some(target_size_mb) = target_size_mb {
         let duration = source_duration
@@ -2779,14 +2837,41 @@ fn compress_video(
     } else if codec == "av1" {
         command.args(["-crf", "32", "-b:v", "0"]);
     } else {
-        let crf_value = crf.unwrap_or(24).to_string();
-        command.args(["-crf", &crf_value]);
+        let (width, height) = dimensions(ffprobe, input).unwrap_or((1920, 1080));
+        if crate::render::encoders::is_hevc(codec)
+            && !crate::render::encoders::hevc_dimensions_ok(width, height)
+        {
+            return Err(format!(
+                "H.265 por software (libkvazaar) requiere múltiplos de 8; el video es {width}×{height}. \
+                 Elegí H.264 o AV1, o usá una resolución múltiplo de 8."
+            ));
+        }
+        let bps = crate::render::encoders::software_bitrate_bps(
+            codec,
+            width,
+            height,
+            30.0,
+            crf.unwrap_or(24),
+        );
+        command.args(["-b:v", &bps.to_string()]);
     }
     if preserve_hdr {
         let transfer = color
             .transfer
             .map(HdrTransfer::color_trc)
             .unwrap_or("smpte2084");
+        if codec == "av1" {
+            let code = color
+                .transfer
+                .unwrap_or(HdrTransfer::Pq)
+                .av1_transfer_code();
+            command.args([
+                "-bsf:v",
+                &format!(
+                    "av1_metadata=color_primaries=9:transfer_characteristics={code}:matrix_coefficients=9"
+                ),
+            ]);
+        }
         command.args([
             "-pix_fmt",
             "yuv420p10le",
@@ -4737,7 +4822,9 @@ mod tests {
         assert!(filter.contains("setpts=PTS/0.98"));
         assert!(filter.contains("minterpolate=fps=60"));
         assert!(filter.contains("mi_mode=mci"));
-        assert!(filter.contains("eq=gamma=0.95:contrast=1.08:saturation=1.12"));
+        assert!(filter.contains("curves=master='0/0 0.5/0.4820 1/1'"));
+        assert!(filter.contains("colorlevels=rimin=0.0370"));
+        assert!(filter.contains("hue=s=1.12"));
         assert!(filter.contains("scale=trunc(iw*1.04/2)*2"));
         assert!(filter.contains("hflip"));
         assert!(filter.contains("noise=alls=8:allf=t+u"));
@@ -4750,7 +4837,7 @@ mod tests {
         assert!(filter.contains("fps=60"));
         assert!(!filter.contains("minterpolate"));
         assert!(!filter.contains("noise=alls"));
-        assert!(!filter.contains("hqdn3d"));
+        assert!(!filter.contains("removegrain"));
         assert!(filter.contains("hflip"));
         assert!(filter.contains("(iw-ow)*0.67"));
     }
@@ -4849,12 +4936,12 @@ mod tests {
             height: 1080,
         };
         let filter = pipeline_filter_with("center", Some(rect), Some(plan));
-        let denoise = filter.find("hqdn3d=").unwrap();
-        let delogo = filter.find("delogo=x=160:y=20:w=140:h=50").unwrap();
+        let denoise = filter.find("removegrain=").unwrap();
+        let cover = filter.find("drawbox=x=135:y=0:w=190:h=95").unwrap();
         let lanczos = filter.find("flags=lanczos").unwrap();
-        let look = filter.find("eq=gamma=0.95").unwrap();
-        assert!(denoise < delogo);
-        assert!(delogo < lanczos);
+        let look = filter.find("curves=master='0/0 0.5/0.4820 1/1'").unwrap();
+        assert!(denoise < cover);
+        assert!(cover < lanczos);
         assert!(lanczos < look);
         assert!(filter.contains("hflip"));
         assert!(filter.contains("noise=alls=8"));
@@ -4900,11 +4987,11 @@ mod tests {
             height: 2160,
         };
         let filter = fast_cinematic_filter_with("right", Some(rect), Some(plan));
-        assert!(filter.starts_with("[0:v]hqdn3d="));
-        assert!(filter.contains("delogo=x=0:y=0:w=16:h=16"));
+        assert!(filter.starts_with("[0:v]removegrain="));
+        assert!(filter.contains("drawbox=x=0:y=0:w=24:h=24"));
         assert!(filter.contains("scale=3840:2160"));
-        assert!(filter.find("hqdn3d").unwrap() < filter.find("delogo").unwrap());
-        assert!(filter.find("delogo").unwrap() < filter.find("scale=3840").unwrap());
+        assert!(filter.find("removegrain").unwrap() < filter.find("drawbox").unwrap());
+        assert!(filter.find("drawbox").unwrap() < filter.find("scale=3840").unwrap());
         assert!(!filter.contains("minterpolate"));
         assert!(!filter.contains("noise=alls"));
     }
@@ -5114,7 +5201,7 @@ mod tests {
     #[test]
     fn pipeline_filter_puts_denoise_before_the_look() {
         let filter = pipeline_filter("center");
-        assert!(filter.starts_with("[0:v]hqdn3d=1.86:1.39:2.80:2.15,setpts=PTS/0.98"));
+        assert!(filter.starts_with("[0:v]removegrain=m0=2:m1=2:m2=2,atadenoise=0a=0.02:0b=0.05:1a=0.02:1b=0.05:2a=0.02:2b=0.05,setpts=PTS/0.98"));
         assert!(filter.contains("minterpolate=fps=60"));
         assert!(filter.contains("noise=alls=8"));
     }
@@ -5153,9 +5240,9 @@ mod tests {
                 "-f",
                 "lavfi",
                 "-i",
-                "testsrc2=size=160x90:rate=30:duration=1",
+                "testsrc2=size=194x98:rate=30:duration=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -5163,7 +5250,9 @@ mod tests {
             .status()
             .unwrap();
         assert!(status.success());
-        let output = cinematic_video(&|_, _, _| {}, &ffmpeg, &input, "center", None).unwrap();
+        let output =
+            cinematic_video(&|_, _, _| {}, &ffmpeg, Some(&ffprobe), &input, "center", None)
+                .unwrap();
         let probe = Command::new(&ffprobe)
             .args([
                 "-v",
@@ -5180,13 +5269,13 @@ mod tests {
             .unwrap();
         let value: Value = serde_json::from_slice(&probe.stdout).unwrap();
         assert_eq!(value["streams"][0]["avg_frame_rate"].as_str(), Some("60/1"));
+        // 194x98 deja 192x96 tras el zoom: múltiplo de 8 para libkvazaar.
         assert_eq!(value["streams"][0]["codec_name"].as_str(), Some("hevc"));
-        // El zoom del 4 % se redondea a dimensiones pares para H.264; en
-        // resoluciones chicas pierde hasta 2 px, en 1080p es imperceptible.
+        // El zoom del 4 % se redondea a dimensiones pares.
         let width = value["streams"][0]["width"].as_u64().unwrap_or(0);
         let height = value["streams"][0]["height"].as_u64().unwrap_or(0);
-        assert!((156..=160).contains(&width), "ancho inesperado: {width}");
-        assert!((86..=90).contains(&height), "alto inesperado: {height}");
+        assert!((190..=194).contains(&width), "ancho inesperado: {width}");
+        assert!((94..=98).contains(&height), "alto inesperado: {height}");
         assert_eq!(width % 2, 0);
         assert_eq!(height % 2, 0);
 
@@ -5208,7 +5297,15 @@ mod tests {
             .unwrap();
         assert!(status.success());
         let with_audio =
-            cinematic_video(&|_, _, _| {}, &ffmpeg, &input, "left", Some(&audio)).unwrap();
+            cinematic_video(
+                &|_, _, _| {},
+                &ffmpeg,
+                Some(&ffprobe),
+                &input,
+                "left",
+                Some(&audio),
+            )
+            .unwrap();
         let probe = Command::new(&ffprobe)
             .args([
                 "-v",
@@ -5497,7 +5594,7 @@ mod tests {
                 "-vf",
             ])
             .arg(&draw)
-            .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .args(["-c:v", "libopenh264", "-pix_fmt", "yuv420p"])
             .arg(&input)
             .status()
             .unwrap();
@@ -5605,7 +5702,7 @@ mod tests {
         let video = root.join("meta.mp4");
         let cover = root.join("cover.jpg");
         assert!(Command::new(&ffmpeg)
-            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=1", "-c:v", "libopenh264", "-pix_fmt", "yuv420p"])
             .arg(&video)
             .status()
             .unwrap()
@@ -5660,7 +5757,7 @@ mod tests {
             .args([
                 "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i",
                 "testsrc2=size=320x180:rate=30:duration=6", "-f", "lavfi", "-i",
-                "sine=frequency=440:duration=6", "-c:v", "libx264", "-preset", "ultrafast",
+                "sine=frequency=440:duration=6", "-c:v", "libopenh264", "-preset", "ultrafast",
                 "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
             ])
             .arg(&input)
@@ -5736,11 +5833,11 @@ mod tests {
                 "-i",
                 "sine=frequency=440:duration=12",
                 "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-crf",
-                "30",
+                "libopenh264",
+                "-rc_mode",
+                "bitrate",
+                "-b:v",
+                "12000000",
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",
@@ -5822,11 +5919,17 @@ mod tests {
                 "-i",
                 "testsrc2=size=320x180:rate=30:duration=1",
                 "-c:v",
-                "libx265",
+                "libaom-av1",
                 "-pix_fmt",
                 "yuv420p10le",
-                "-x265-params",
-                "colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+                "-cpu-used",
+                "8",
+                "-crf",
+                "10",
+                "-b:v",
+                "0",
+                "-bsf:v",
+                "av1_metadata=color_primaries=9:transfer_characteristics=16:matrix_coefficients=9",
                 "-color_primaries",
                 "bt2020",
                 "-color_trc",
@@ -5834,7 +5937,7 @@ mod tests {
                 "-colorspace",
                 "bt2020nc",
                 "-tag:v",
-                "hvc1",
+                "av01",
             ])
             .arg(&hdr)
             .status()
@@ -5884,7 +5987,7 @@ mod tests {
                 "-i",
                 "testsrc2=size=320x180:rate=30:duration=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -5936,11 +6039,17 @@ mod tests {
                 "-i",
                 "testsrc2=size=320x180:rate=30:duration=1",
                 "-c:v",
-                "libx265",
+                "libaom-av1",
                 "-pix_fmt",
                 "yuv420p10le",
-                "-x265-params",
-                "colorprim=bt2020:transfer=arib-std-b67:colormatrix=bt2020nc",
+                "-cpu-used",
+                "8",
+                "-crf",
+                "10",
+                "-b:v",
+                "0",
+                "-bsf:v",
+                "av1_metadata=color_primaries=9:transfer_characteristics=18:matrix_coefficients=9",
                 "-color_primaries",
                 "bt2020",
                 "-color_trc",
@@ -5948,7 +6057,7 @@ mod tests {
                 "-colorspace",
                 "bt2020nc",
                 "-tag:v",
-                "hvc1",
+                "av01",
             ])
             .arg(&hlg)
             .status()
@@ -5963,7 +6072,7 @@ mod tests {
             &hlg,
             Some(26),
             None,
-            "h265",
+            "av1",
             "preserve",
             true,
         )
@@ -5984,7 +6093,8 @@ mod tests {
             .output()
             .unwrap();
         let value: Value = serde_json::from_slice(&probe.stdout).unwrap();
-        assert_eq!(value["streams"][0]["codec_name"].as_str(), Some("hevc"));
+        // El build LGPL no puede conservar HDR en H.265; AV1 10 bits sí.
+        assert_eq!(value["streams"][0]["codec_name"].as_str(), Some("av1"));
         assert_eq!(
             value["streams"][0]["pix_fmt"].as_str(),
             Some("yuv420p10le")
@@ -6076,7 +6186,7 @@ mod tests {
                 "-i",
                 "sine=frequency=440:duration=4",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-preset",
                 "ultrafast",
                 "-pix_fmt",
@@ -6133,7 +6243,7 @@ mod tests {
                 "-i",
                 "testsrc2=size=320x180:rate=30:duration=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])

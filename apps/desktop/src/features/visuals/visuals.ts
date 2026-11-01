@@ -1,6 +1,7 @@
 import type { Asset, Clip, ClipEffects, ProjectDocument } from '@editor-ia/project-schema';
 import type {
   VisualCatalog,
+  VisualEffectParameter,
   VisualPresetSpec,
   VisualTransitionSpec,
 } from '../../services/project-service';
@@ -84,27 +85,41 @@ export function transitionDescription(transition: VisualTransitionSpec | undefin
   return transition?.description ?? 'Sin transición de entrada.';
 }
 
-const fallbackEffect = (id: string, label: string, category: string, description: string) => ({
+const fallbackEffect = (
+  id: string,
+  label: string,
+  category: string,
+  description: string,
+  parameters: VisualEffectParameter[],
+) => ({
   id,
   label,
   category,
   description,
   filters: ['eq'],
   available: true,
-  parameters: [],
+  parameters,
 });
+
+const range = (
+  key: string,
+  label: string,
+  min: number,
+  max: number,
+  value: number,
+): VisualEffectParameter => ({ key, label, min, max, default: value, unit: 'range' });
 
 export const FALLBACK_VISUAL_CATALOG: VisualCatalog = {
   ffmpegAvailable: false,
   effects: [
-    fallbackEffect('brightness', 'Brillo', 'color', 'Sube o baja la exposición general del clip.'),
-    fallbackEffect('contrast', 'Contraste', 'color', 'Separa luces y sombras.'),
-    fallbackEffect('saturation', 'Saturación', 'color', 'Intensifica o desatura el color.'),
-    fallbackEffect('temperature', 'Temperatura', 'color', 'Enfría o calienta la imagen.'),
-    fallbackEffect('vignette', 'Viñeta', 'stylize', 'Oscurece los bordes para concentrar la mirada.'),
-    fallbackEffect('blur', 'Desenfoque', 'stylize', 'Desenfoque gaussiano en píxeles.'),
-    fallbackEffect('sharpen', 'Nitidez', 'stylize', 'Aumenta el detalle sin cambiar el color.'),
-    fallbackEffect('hueRotate', 'Giro de tono', 'color', 'Rota el matiz en grados.'),
+    fallbackEffect('brightness', 'Brillo', 'color', 'Sube o baja la exposición general del clip.', [range('brightness', 'Brillo', -1, 1, 0)]),
+    fallbackEffect('contrast', 'Contraste', 'color', 'Separa luces y sombras.', [range('contrast', 'Contraste', 0, 3, 1)]),
+    fallbackEffect('saturation', 'Saturación', 'color', 'Intensifica o desatura el color.', [range('saturation', 'Saturación', 0, 3, 1)]),
+    fallbackEffect('temperature', 'Temperatura', 'color', 'Enfría o calienta la imagen.', [range('temperature', 'Temperatura', -1, 1, 0)]),
+    fallbackEffect('vignette', 'Viñeta', 'stylize', 'Oscurece los bordes para concentrar la mirada.', [range('vignette', 'Intensidad', 0, 1, 0.25)]),
+    fallbackEffect('blur', 'Desenfoque', 'stylize', 'Desenfoque gaussiano en píxeles.', [range('blur', 'Radio', 0, 50, 2)]),
+    fallbackEffect('sharpen', 'Nitidez', 'stylize', 'Aumenta el detalle sin cambiar el color.', [range('sharpen', 'Intensidad', 0, 5, 1)]),
+    fallbackEffect('hueRotate', 'Giro de tono', 'color', 'Rota el matiz en grados.', [range('hueRotateDeg', 'Grados', -180, 180, 0)]),
   ],
   presets: [
     { id: 'soft', label: 'Suave', description: 'Color limpio con desenfoque mínimo.', settings: { blur: 1.2, brightness: 0.03, contrast: 0.98, saturation: 1.04 } },
@@ -124,6 +139,11 @@ export const FALLBACK_VISUAL_CATALOG: VisualCatalog = {
     { id: 'slide-right', label: 'Deslizar desde la izquierda', description: 'El clip entra desde el borde izquierdo.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
     { id: 'slide-up', label: 'Deslizar desde abajo', description: 'El clip entra desde el borde inferior.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
     { id: 'slide-down', label: 'Deslizar desde arriba', description: 'El clip entra desde el borde superior.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-left', label: 'Barrido desde la izquierda', description: 'La imagen se revela de izquierda a derecha.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-right', label: 'Barrido desde la derecha', description: 'La imagen se revela de derecha a izquierda.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-up', label: 'Barrido desde abajo', description: 'La imagen se revela de abajo hacia arriba.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-down', label: 'Barrido desde arriba', description: 'La imagen se revela de arriba hacia abajo.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'iris', label: 'Iris circular', description: 'Un círculo creciente revela el clip entrante desde el centro.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
   ],
   filters: [],
 };

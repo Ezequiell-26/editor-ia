@@ -301,17 +301,20 @@ export function ScopesPanel({
       if (now - last >= 180) {
         last = now;
         const stage = stageRef.current;
-        const media = stage?.querySelectorAll<HTMLVideoElement | HTMLImageElement>(
-          '.preview-media',
-        );
+        const media = stage?.querySelectorAll<
+          HTMLVideoElement | HTMLImageElement | HTMLCanvasElement
+        >('.preview-media');
         const source = media && media.length > 0 ? (media[media.length - 1] ?? null) : null;
         const ready =
           source !== null &&
           (source.tagName === 'IMG'
             ? (source as HTMLImageElement).complete &&
               (source as HTMLImageElement).naturalWidth > 0
-            : (source as HTMLVideoElement).readyState >= 2 &&
-              (source as HTMLVideoElement).videoWidth > 0);
+            : source.tagName === 'CANVAS'
+              ? (source as HTMLCanvasElement).width > 0 &&
+                (source as HTMLCanvasElement).height > 0
+              : (source as HTMLVideoElement).readyState >= 2 &&
+                (source as HTMLVideoElement).videoWidth > 0);
         if (!ready || !source) {
           setSignal(false);
         } else {

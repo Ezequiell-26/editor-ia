@@ -24,7 +24,7 @@ use super::storage;
 
 pub const PROJECT_SCHEMA_VERSION: u64 = 1;
 
-const KNOWN_ROOT_KEYS: [&str; 20] = [
+const KNOWN_ROOT_KEYS: [&str; 22] = [
     "id",
     "name",
     "schemaVersion",
@@ -36,8 +36,10 @@ const KNOWN_ROOT_KEYS: [&str; 20] = [
     "look",
     "assets",
     "timeline",
+    "compounds",
     "captions",
     "scenes",
+    "sequences",
     "motion",
     "markers",
     "audio",

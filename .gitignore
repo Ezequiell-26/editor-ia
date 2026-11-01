@@ -26,6 +26,7 @@ apps/desktop/src-tauri/resources/tools/
 .playwright-mcp/
 test-results/
 playwright-report/
+apps/desktop/e2e/lut-harness/bench.mp4
 
 # ONNX Runtime (binario grande, se instala con un script)
 apps/desktop/src-tauri/resources/onnxruntime/

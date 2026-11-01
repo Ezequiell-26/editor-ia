@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>LUT 1D harness</title>
+    <style>
+      body { font: 13px monospace; background: #111; color: #ddd; margin: 16px; }
+      .frame { position: relative; width: 320px; height: 180px; border: 1px solid #444; }
+      .frame img, .frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      #lut1d-status { margin: 12px 0; padding: 8px; background: #1c1c1c; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="lut1d-status">waiting</div>
+    <div id="lut1d-samples"></div>
+    <figure><figcaption>EffectOverlay con .cube 1D invertido</figcaption><div id="app" class="frame"></div></figure>
+    <script type="module" src="/e2e/lut-harness/lut1d.tsx"></script>
+  </body>
+</html>

@@ -24,6 +24,25 @@ function renderView() {
 }
 
 describe('gestor MCP', () => {
+  it('activa y persiste el control en vivo', async () => {
+    renderView();
+    const toggle = (await screen.findByRole('checkbox', {
+      name: /Permitir control en vivo/i,
+    })) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
+    expect(toggle.checked).toBe(true);
+    expect(window.localStorage.getItem('olyvia.mcp.live')).toBe('1');
+    const exportToggle = screen.getByRole('checkbox', {
+      name: /Permitir exportación por MCP/i,
+    }) as HTMLInputElement;
+    expect(exportToggle.disabled).toBe(false);
+    expect(exportToggle.checked).toBe(false);
+    fireEvent.click(exportToggle);
+    expect(exportToggle.checked).toBe(true);
+    expect(window.localStorage.getItem('olyvia.mcp.live.export')).toBe('1');
+  });
+
   it('extrae artefactos desde el contenido JSON del servidor MCP', () => {
     const result = {
       content: [

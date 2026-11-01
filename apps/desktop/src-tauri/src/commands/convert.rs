@@ -154,7 +154,7 @@ impl ConversionTarget {
 
 /// Preferencia de encoder del usuario. `Auto` usa hardware si la máquina lo
 /// tiene; `Hardware` lo exige (si no hay, cae a software); `Software` fuerza
-/// libx264/libx265.
+/// libopenh264/libkvazaar (build LGPL).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum EncoderPref {
@@ -224,7 +224,7 @@ pub struct ConversionResult {
     pub format_name: String,
     /// Tamaño del archivo de origen, para mostrar el ahorro en la interfaz.
     pub source_bytes: u64,
-    /// Encoder de video realmente usado (libx264, h264_nvenc, …).
+    /// Encoder de video realmente usado (libopenh264, h264_nvenc, …).
     pub encoder: String,
 }
 
@@ -288,7 +288,7 @@ pub(crate) fn video_filter_chain(
         parts.push(scale);
     }
     if enhance.denoise {
-        parts.push("hqdn3d=1.5:1.5:6:6".to_string());
+        parts.push("removegrain=m0=1:m1=1:m2=1".to_string());
     }
     if enhance.sharpen {
         parts.push("unsharp=5:5:0.8:5:5:0.0".to_string());
@@ -311,28 +311,22 @@ pub(crate) fn audio_filter_chain(enhance: EnhanceOptions) -> Option<String> {
 
 fn h264_encoder(hardware: &HardwareEncoders, pref: EncoderPref) -> String {
     match pref {
-        EncoderPref::Software => "libx264".to_string(),
+        EncoderPref::Software => crate::render::encoders::H264_SOFTWARE.to_string(),
         EncoderPref::Hardware | EncoderPref::Auto => hardware
             .h264
             .clone()
-            .unwrap_or_else(|| "libx264".to_string()),
+            .unwrap_or_else(|| crate::render::encoders::H264_SOFTWARE.to_string()),
     }
 }
 
 fn hevc_encoder(hardware: &HardwareEncoders, pref: EncoderPref) -> String {
     match pref {
-        EncoderPref::Software => "libx265".to_string(),
+        EncoderPref::Software => crate::render::encoders::HEVC_SOFTWARE.to_string(),
         EncoderPref::Hardware | EncoderPref::Auto => hardware
             .hevc
             .clone()
-            .unwrap_or_else(|| "libx265".to_string()),
+            .unwrap_or_else(|| crate::render::encoders::HEVC_SOFTWARE.to_string()),
     }
-}
-
-/// ¿El encoder elegido es de hardware? Los flags de rate control no son los
-/// mismos que en x264/x265, así que se ramifica en un solo lugar.
-fn is_hardware_encoder(encoder: &str) -> bool {
-    !(encoder.starts_with("libx264") || encoder.starts_with("libx265"))
 }
 
 fn push_bitrate(args: &mut Vec<String>, kbps: u32) {
@@ -346,23 +340,13 @@ fn push_bitrate(args: &mut Vec<String>, kbps: u32) {
     ]);
 }
 
-fn push_rate_control(args: &mut Vec<String>, options: ConvertOptions, encoder: &str) {
-    if is_hardware_encoder(encoder) {
-        // Los encoders de GPU no comparten `-crf`: se usa bitrate constante.
-        let kbps = options
-            .video_bitrate_kbps
-            .unwrap_or_else(|| quality_bitrate_kbps(options.quality));
-        push_bitrate(args, kbps);
-        return;
-    }
-    if let Some(kbps) = options.video_bitrate_kbps {
-        push_bitrate(args, kbps);
-        return;
-    }
-    let crf = options
-        .crf
-        .unwrap_or_else(|| crf_for_quality(options.quality));
-    args.extend(["-crf".into(), crf.to_string()]);
+fn push_rate_control(args: &mut Vec<String>, options: ConvertOptions, _encoder: &str) {
+    // GPU y encoders LGPL (openh264/kvazaar) no comparten `-crf`: todo el
+    // pipeline de conversión usa bitrate, con o sin tamaño objetivo.
+    let kbps = options
+        .video_bitrate_kbps
+        .unwrap_or_else(|| quality_bitrate_kbps(options.quality));
+    push_bitrate(args, kbps);
 }
 
 pub(crate) fn build_args(
@@ -477,9 +461,6 @@ pub(crate) fn build_args(
             };
             encoder_used = encoder.clone();
             args.extend(["-c:v".into(), encoder]);
-            if !is_hardware_encoder(&encoder_used) {
-                args.extend(["-preset".into(), "faster".into()]);
-            }
             push_rate_control(&mut args, options, &encoder_used);
             args.extend([
                 "-pix_fmt".into(),
@@ -1753,7 +1734,7 @@ mod tests {
                 "-i",
                 "testsrc=size=1280x720:rate=30:duration=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-preset",
                 "ultrafast",
                 "-pix_fmt",
@@ -1875,7 +1856,7 @@ mod tests {
                 "-i",
                 "testsrc=size=640x360:rate=30:duration=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-preset",
                 "ultrafast",
                 "-pix_fmt",
@@ -1891,7 +1872,7 @@ mod tests {
             .arg(&original)
             .args([
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-preset",
                 "ultrafast",
                 "-crf",
@@ -2001,7 +1982,7 @@ mod tests {
         };
         let chain = video_filter_chain(Some(1280), mejorado).expect("cadena");
         assert!(chain.contains("min(1280,iw)"));
-        assert!(chain.contains("hqdn3d"));
+        assert!(chain.contains("removegrain"));
         assert!(chain.contains("unsharp"));
         assert_eq!(
             audio_filter_chain(mejorado).as_deref(),
@@ -2021,10 +2002,11 @@ mod tests {
             &hardware,
         )
         .expect("args");
-        assert_eq!(encoder, "libx264");
-        assert!(args.contains(&"libx264".to_string()));
+        assert_eq!(encoder, "libopenh264");
+        assert!(args.contains(&"libopenh264".to_string()));
         assert!(args.iter().any(|arg| arg.contains("min(1280,iw)")));
-        assert!(args.contains(&"-crf".to_string()));
+        assert!(args.contains(&"-b:v".to_string()));
+        assert!(!args.contains(&"-crf".to_string()));
         assert!(!args.iter().any(|arg| arg == "sh" || arg == "-c"));
     }
 
@@ -2065,8 +2047,8 @@ mod tests {
             &hardware,
         )
         .expect("args");
-        assert_eq!(encoder, "libx265");
-        assert!(args.contains(&"libx265".to_string()));
+        assert_eq!(encoder, "libkvazaar");
+        assert!(args.contains(&"libkvazaar".to_string()));
         assert!(args.contains(&"+faststart".to_string()));
         assert_eq!(ConversionTarget::Hevc.extension(), "mp4");
     }
@@ -2138,7 +2120,7 @@ mod tests {
                 "sine=frequency=440:duration=1",
                 "-shortest",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
                 "-c:a",

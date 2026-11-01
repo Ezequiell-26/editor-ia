@@ -195,3 +195,12 @@ describe('AudioMixSchema', () => {
     expect(AudioMixSchema.safeParse({ reverb: 3 }).success).toBe(false);
   });
 });
+
+describe('escena · motor del router', () => {
+  it('acepta un motor conocido y rechaza uno inventado', () => {
+    const parsed = SceneSchema.parse(scene({ engine: 'ken-burns' }));
+    expect(parsed.engine).toBe('ken-burns');
+    expect(SceneSchema.safeParse(scene({ engine: 'magia' })).success).toBe(false);
+    expect(SceneSchema.parse(scene()).engine).toBeUndefined();
+  });
+});

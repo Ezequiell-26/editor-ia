@@ -147,7 +147,7 @@ fn catalog_effects() -> Vec<VisualEffectSpec> {
             "Brillo",
             "color",
             "Sube o baja la exposición general del clip.",
-            &["eq"],
+            &["colorbalance"],
             vec![parameter("brightness", "Brillo", -1.0, 1.0, 0.0)],
         ),
         effect(
@@ -155,7 +155,7 @@ fn catalog_effects() -> Vec<VisualEffectSpec> {
             "Contraste",
             "color",
             "Separa luces y sombras.",
-            &["eq"],
+            &["colorlevels"],
             vec![parameter("contrast", "Contraste", 0.0, 3.0, 1.0)],
         ),
         effect(
@@ -163,7 +163,7 @@ fn catalog_effects() -> Vec<VisualEffectSpec> {
             "Saturación",
             "color",
             "Intensifica o desatura el color.",
-            &["eq"],
+            &["hue"],
             vec![parameter("saturation", "Saturación", 0.0, 3.0, 1.0)],
         ),
         effect(
@@ -215,6 +215,53 @@ fn catalog_effects() -> Vec<VisualEffectSpec> {
             vec![parameter("sharpen", "Intensidad", 0.0, 5.0, 1.0)],
         ),
         effect(
+            "glow",
+            "Glow",
+            "stylize",
+            "Halo luminoso alrededor de las zonas claras.",
+            &["gblur", "blend"],
+            vec![
+                parameter("intensity", "Intensidad", 0.0, 1.0, 0.35),
+                parameter("radius", "Radio", 1.0, 80.0, 20.0),
+                parameter("threshold", "Umbral", 0.0, 0.95, 0.6),
+            ],
+        ),
+        effect(
+            "motionBlur",
+            "Motion blur",
+            "stylize",
+            "Mezcla temporal de frames para estelas de movimiento.",
+            &["tmix"],
+            vec![
+                parameter("frames", "Frames", 2.0, 12.0, 4.0),
+                parameter("intensity", "Intensidad", 0.0, 1.0, 0.5),
+            ],
+        ),
+        effect(
+            "denoise",
+            "Reducción de ruido",
+            "stylize",
+            "Reducción espacial con removegrain y temporal con atadenoise; sólo en el export.",
+            &["removegrain", "atadenoise"],
+            vec![parameter("denoise", "Cantidad", 0.0, 1.0, 0.3)],
+        ),
+        effect(
+            "grain",
+            "Grano de película",
+            "film",
+            "Textura de grano procedural, con preview SVG y export por `noise`.",
+            &["noise"],
+            vec![parameter("grain", "Intensidad", 0.0, 1.0, 0.25)],
+        ),
+        effect(
+            "fade",
+            "Fade",
+            "color",
+            "Levanta el negro para dar un look lavado.",
+            &["curves"],
+            vec![parameter("fade", "Cantidad", 0.0, 1.0, 0.0)],
+        ),
+        effect(
             "hueRotate",
             "Giro de tono",
             "color",
@@ -227,7 +274,7 @@ fn catalog_effects() -> Vec<VisualEffectSpec> {
             "LUT .cube",
             "color",
             "Aplica una LUT 3D del proyecto con intensidad.",
-            &["lut3d", "blend"],
+            &["lut3d", "lut1d", "blend"],
             vec![parameter("lutIntensity", "Intensidad", 0.0, 1.0, 1.0)],
         ),
         effect(
@@ -395,19 +442,58 @@ fn catalog_transitions() -> Vec<TransitionSpec> {
             15,
             true,
         ),
+        transition(
+            "wipe-left",
+            "Barrido desde la izquierda",
+            "La imagen se revela de izquierda a derecha.",
+            15,
+            true,
+        ),
+        transition(
+            "wipe-right",
+            "Barrido desde la derecha",
+            "La imagen se revela de derecha a izquierda.",
+            15,
+            true,
+        ),
+        transition(
+            "wipe-up",
+            "Barrido desde abajo",
+            "La imagen se revela de abajo hacia arriba.",
+            15,
+            true,
+        ),
+        transition(
+            "wipe-down",
+            "Barrido desde arriba",
+            "La imagen se revela de arriba hacia abajo.",
+            15,
+            true,
+        ),
+        transition(
+            "iris",
+            "Iris circular",
+            "Un círculo creciente revela el clip entrante desde el centro.",
+            15,
+            true,
+        ),
     ]
 }
 
 fn required_filters() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("eq", "Ajustes de color"),
+        ("colorlevels", "Niveles de color"),
         ("curves", "Curvas"),
         ("colorbalance", "Balance de color"),
         ("hue", "Tono y saturación"),
         ("vignette", "Viñeta"),
         ("gblur", "Desenfoque gaussiano"),
+        ("removegrain", "Reducción de ruido espacial"),
+        ("atadenoise", "Reducción de ruido temporal"),
+        ("noise", "Grano de película"),
         ("unsharp", "Nitidez"),
         ("lut3d", "LUT 3D"),
+        ("lut1d", "LUT 1D"),
         ("colorkey", "Chroma key"),
         ("geq", "Máscaras"),
         ("blend", "Mezcla"),
@@ -561,6 +647,11 @@ pub(crate) fn audit_project(
                 "slide-right",
                 "slide-up",
                 "slide-down",
+                "wipe-left",
+                "wipe-right",
+                "wipe-up",
+                "wipe-down",
+                "iris",
             ];
             if !allowed.contains(&kind) {
                 findings.push(finding(
@@ -707,9 +798,9 @@ mod tests {
 
     #[test]
     fn filter_parser_reads_ffmpeg_filter_list() {
-        let sample = "Filters:\n  T.. = Timeline support\n  TSC acompressor      A->A       Audio compressor.\n  ..C eq              V->V       Adjust brightness/contrast.\n  ... gblur           V->V       Gaussian blur.\n  T.. overlay         VV->V      Overlay.\n";
+        let sample = "Filters:\n  T.. = Timeline support\n  TSC acompressor      A->A       Audio compressor.\n  ..C colorlevels     V->V       Adjust video input/output levels.\n  ... gblur           V->V       Gaussian blur.\n  T.. overlay         VV->V      Overlay.\n";
         let filters = parse_filters(sample);
-        assert!(filters.contains("eq"));
+        assert!(filters.contains("colorlevels"));
         assert!(filters.contains("gblur"));
         assert!(filters.contains("overlay"));
         assert!(!filters.contains("Filters:"));
@@ -734,7 +825,12 @@ mod tests {
                 "slide-left",
                 "slide-right",
                 "slide-up",
-                "slide-down"
+                "slide-down",
+                "wipe-left",
+                "wipe-right",
+                "wipe-up",
+                "wipe-down",
+                "iris"
             ]
         );
         for list in [effects.len(), presets.len(), transitions.len()] {
@@ -748,6 +844,28 @@ mod tests {
         preset_ids.sort();
         preset_ids.dedup();
         assert_eq!(preset_ids.len(), presets.len());
+    }
+
+    #[test]
+    fn catalog_effects_carry_real_parameters() {
+        let effects = catalog_effects();
+        for id in ["glow", "motionBlur", "denoise", "grain", "fade"] {
+            let spec = effects
+                .iter()
+                .find(|item| item.id == id)
+                .unwrap_or_else(|| panic!("falta el efecto {id}"));
+            assert!(!spec.parameters.is_empty(), "{id} sin parámetros");
+            for parameter in &spec.parameters {
+                assert!(
+                    parameter.default >= parameter.min && parameter.default <= parameter.max,
+                    "{}: default {} fuera de {}..{}",
+                    parameter.key,
+                    parameter.default,
+                    parameter.min,
+                    parameter.max
+                );
+            }
+        }
     }
 
     #[test]

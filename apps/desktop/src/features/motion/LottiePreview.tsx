@@ -6,9 +6,19 @@ import type { LottieDocument } from './lottie';
  * muestra el alfa: lo que se ve detrás de la animación es transparencia, no un
  * color inventado.
  */
-export function LottiePreview({ document: doc }: { readonly document: LottieDocument }) {
+export function LottiePreview({
+  document: doc,
+  segment = null,
+  loop = true,
+}: {
+  readonly document: LottieDocument;
+  readonly segment?: readonly [number, number] | null;
+  readonly loop?: boolean;
+}) {
   const host = useRef<HTMLDivElement | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const segmentStart = segment?.[0];
+  const segmentEnd = segment?.[1];
 
   useEffect(() => {
     let disposed = false;
@@ -21,13 +31,18 @@ export function LottiePreview({ document: doc }: { readonly document: LottieDocu
         const animation = module.default.loadAnimation({
           container: host.current,
           renderer: 'canvas',
-          loop: true,
+          loop,
           autoplay: true,
           animationData: doc.raw,
           rendererSettings: { clearCanvas: true, preserveAspectRatio: 'xMidYMid meet' },
         });
         animation.addEventListener('data_failed', () => {
           setError('El motor Lottie no pudo interpretar la animación.');
+        });
+        animation.addEventListener('DOMLoaded', () => {
+          if (segmentStart !== undefined && segmentEnd !== undefined) {
+            animation.playSegments([segmentStart, segmentEnd], true);
+          }
         });
         destroy = () => animation.destroy();
       } catch (cause) {
@@ -44,7 +59,7 @@ export function LottiePreview({ document: doc }: { readonly document: LottieDocu
       disposed = true;
       destroy?.();
     };
-  }, [doc]);
+  }, [doc, loop, segmentStart, segmentEnd]);
 
   return (
     <div

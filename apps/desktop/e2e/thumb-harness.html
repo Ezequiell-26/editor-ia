@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>effect thumb harness</title>
+    <style>
+      /* La miniatura es sólo el cuadro: sin HUD, guías, tiempo ni transform. */
+      .preview-hud,
+      .preview-tools,
+      .preview-timecode-chip,
+      .safe-guides,
+      .preview-overlay,
+      .preview-caption,
+      .preview-transform-box,
+      .preview-real-frame-wrap,
+      .preview-guides,
+      .preview-safe-zone { display: none !important; }
+    </style>
+  </head>
+  <body style="margin:0;background:#0b0d12">
+    <div id="root"></div>
+    <div id="status" style="color:#ddd;font:12px monospace">running</div>
+    <script type="module" src="/e2e/thumb-harness.tsx"></script>
+  </body>
+</html>

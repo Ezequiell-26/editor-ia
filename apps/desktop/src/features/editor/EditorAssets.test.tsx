@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { ProjectProvider } from '../../state/project-store';
 import { addAsset, addClipFromAsset, ensureDelivery } from '../../state/project-actions';
@@ -64,6 +64,24 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
     }
   });
 
+  it('navega las pestañas con flechas y mantiene un solo tab stop', () => {
+    const view = renderRail();
+    const tabs = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>('.rail-tabs button'),
+    );
+    expect(tabs[0]!.tabIndex).toBe(0);
+    expect(tabs[1]!.tabIndex).toBe(-1);
+
+    fireEvent.keyDown(tabs[0]!, { key: 'ArrowRight' });
+    expect(tabs[1]!.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs[1]);
+    expect(tabs[1]!.tabIndex).toBe(0);
+
+    fireEvent.keyDown(tabs[1]!, { key: 'End' });
+    expect(tabs[7]!.getAttribute('aria-selected')).toBe('true');
+    expect(document.activeElement).toBe(tabs[7]);
+  });
+
   it('la pestaña Medios arranca activa y lista el medio del proyecto', async () => {
     const view = renderRail();
     const tabs = view.container.querySelectorAll('.rail-tabs button');
@@ -79,9 +97,11 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
     fireEvent.click(tabs[4]!); // Índice 4: Efectos
     const cards = view.container.querySelectorAll('.preset-card');
     expect(cards).toHaveLength(9);
-    // sin selección, los presets están deshabilitados y hay aviso
+    // sin selección, los presets quedan bloqueados para aplicar pero siguen
+    // siendo arrastrables a la timeline.
     for (const card of cards) {
-      expect((card as HTMLButtonElement).disabled).toBe(true);
+      expect(card.getAttribute('aria-disabled')).toBe('true');
+      expect(card.getAttribute('draggable')).toBe('true');
     }
     expect(screen.getByText(/Seleccioná un clip en la timeline/i)).toBeTruthy();
   });
@@ -120,6 +140,31 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
     const view = renderRail();
     const tabs = view.container.querySelectorAll('.rail-tabs button');
     fireEvent.click(tabs[5]!); // Índice 5: Transiciones
-    expect(view.container.querySelectorAll('.transition-card').length).toBe(7);
+    expect(view.container.querySelectorAll('.transition-card').length).toBe(12);
+  });
+
+  it('arrastra una transición con su identificador', () => {
+    const view = renderRail();
+    const tabs = view.container.querySelectorAll('.rail-tabs button');
+    fireEvent.click(tabs[5]!);
+    const card = view.container.querySelector('.transition-card');
+    if (!(card instanceof HTMLElement)) throw new Error('se esperaba una tarjeta');
+    const setData = vi.fn();
+    fireEvent.dragStart(card, { dataTransfer: { setData, effectAllowed: '' } });
+    expect(setData).toHaveBeenCalledWith('application/x-olyvia-transition', 'dissolve');
+  });
+
+  it('arrastra un preset de efectos con sus ajustes', () => {
+    const view = renderRail();
+    const tabs = view.container.querySelectorAll('.rail-tabs button');
+    fireEvent.click(tabs[4]!); // Índice 4: Efectos
+    const card = view.container.querySelector('.preset-card');
+    if (!(card instanceof HTMLElement)) throw new Error('se esperaba un preset');
+    const setData = vi.fn();
+    fireEvent.dragStart(card, { dataTransfer: { setData, effectAllowed: '' } });
+    expect(setData).toHaveBeenCalledWith(
+      'application/x-olyvia-effect-settings',
+      expect.stringContaining('{'),
+    );
   });
 });

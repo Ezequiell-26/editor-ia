@@ -25,6 +25,7 @@ export type ViewId =
   | 'ai-hub'
   | 'motion'
   | 'visuals'
+  | 'design'
   | 'background'
   | 'upscale'
   | 'lab'
@@ -72,6 +73,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'localization', label: 'Localización', hint: 'Subtítulos y traducción · Traducir a 8 idiomas con exportación SRT/VTT', group: 'herramientas' },
   { id: 'ai-hub', label: 'AI Hub', hint: 'Hub de IA · Prompts, briefs creativos y modelos locales con tokens', group: 'herramientas' },
   { id: 'motion', label: 'Motion', hint: 'Motion graphics · Títulos, lower-thirds y cierres con render local', group: 'herramientas' },
+  { id: 'design', label: 'Diseño', hint: 'Biblioteca Open Design · Sistemas, reglas de craft y plantillas de prompt', group: 'herramientas' },
   { id: 'visuals', label: 'Efectos', hint: 'Efectos y transiciones · Aplicar presets, ajustes y auditoría visual', group: 'herramientas' },
   { id: 'background', label: 'Fondo', hint: 'Quitar fondo · Recorte de silueta automático con IA local', group: 'herramientas' },
   { id: 'upscale', label: 'Upscale', hint: 'Mejora 4K · Super-resolución con IA Real-ESRGAN local', group: 'herramientas' },
@@ -154,6 +156,7 @@ export const PIPELINE_HIDDEN_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'localization',
   'ai-hub',
   'motion',
+  'design',
   'mixer',
   'vfx',
   'visuals',

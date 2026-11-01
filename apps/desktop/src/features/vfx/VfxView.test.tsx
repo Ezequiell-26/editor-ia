@@ -72,6 +72,31 @@ describe('vista VFX', () => {
     await waitFor(() => expect(screen.getByText(/4 claves/i)).toBeTruthy());
   });
 
+  it('sigue un punto y crea las claves del polígono', async () => {
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: /Crear polígono/i }));
+    const track = screen.getByRole('button', { name: /Seguir punto/i });
+    expect(track.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(track);
+    expect(await screen.findByText(/Seguimiento de punto:/i)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getAllByText(/2 claves/i).length).toBeGreaterThan(0),
+    );
+  });
+
+  it('sigue un objeto y crea claves desde la caja del polígono', async () => {
+    renderView();
+    fireEvent.click(screen.getByRole('button', { name: /Crear polígono/i }));
+    const track = screen.getByRole('button', { name: /Seguir objeto/i });
+    expect(track.hasAttribute('disabled')).toBe(false);
+    fireEvent.click(track);
+    expect(await screen.findByText(/Seguimiento de objeto:/i)).toBeTruthy();
+    expect(screen.getByText(/caja \d+×\d+ %/i)).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.getAllByText(/2 claves/i).length).toBeGreaterThan(0),
+    );
+  });
+
   it('sin clips visuales ofrece ir a Medios', () => {
     renderView(false);
     expect(screen.getByText(/No hay clips visuales/i)).toBeTruthy();

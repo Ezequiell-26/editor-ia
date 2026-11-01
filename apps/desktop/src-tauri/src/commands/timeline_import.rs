@@ -2175,7 +2175,7 @@ FCM: DROP FRAME
                 "-i",
                 "testsrc2=s=160x90:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -2244,7 +2244,7 @@ FCM: DROP FRAME
                 "-i",
                 "testsrc2=s=160x90:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])

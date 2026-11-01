@@ -1024,3 +1024,14 @@ button.shortcuts-keys:hover {
 .settings-window .settings-nav-copy small {
   display: none;
 }
+
+/* Presets de proveedor en Ajustes → IA */
+.provider-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.provider-presets .small {
+  white-space: nowrap;
+}

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NAV_VIEWS, type ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import {
   isLocalProviderUrl,
   type AssistantAction,
+  type AssistantAgentMessage,
   type ProviderInfo,
 } from '../../services/project-service';
 import { addMotionGraphic, fpsOf } from '../../state/project-actions';
@@ -13,6 +14,15 @@ import {
   parseOperatorCommand,
   type OperatorAction,
 } from '../ai-hub/operator';
+import { runAssistantAgent } from './assistant-agent';
+import {
+  assistantToolPayload,
+  estimateSchemaTokens,
+  findAssistantTool,
+  selectToolsForMessage,
+  type AssistantToolHost,
+} from './assistant-tools';
+import { createAssistantToolHost } from './assistant-host';
 import { PetCompanion, type PetMood } from './PetCompanion';
 
 interface ChatEntry {
@@ -23,7 +33,7 @@ interface ChatEntry {
 const GREETING: ChatEntry = {
   role: 'assistant',
   text:
-    'Hola, soy Olyvia. Puedo controlar la app, resumir el proyecto o crear un gráfico. Probá «abrir editor» o «estado».',
+    'Hola, soy Olyvia. Puedo buscar archivos en tu equipo, controlar la app, resumir el proyecto o crear un gráfico. Activá «Herramientas del agente» y probá «buscá videos en Descargas».',
 };
 
 function motionProps(
@@ -85,10 +95,22 @@ export function AssistantDock({
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [consent, setConsent] = useState(false);
+  const [toolsEnabled, setToolsEnabled] = useState(false);
   const [listening, setListening] = useState(false);
   const [replying, setReplying] = useState(false);
+  const [round, setRound] = useState(0);
+  const stopRef = useRef(false);
   const logRef = useRef<HTMLDivElement | null>(null);
+  // Vista previa del costo de la próxima llamada: mismas reglas que el envío.
+  const plannedTools = useMemo(() => selectToolsForMessage(input), [input]);
+  const plannedTokens = useMemo(() => estimateSchemaTokens(plannedTools), [plannedTools]);
   const replyTimerRef = useRef<number | null>(null);
+  const renderProgressRef = useRef<
+    import('../../services/project-service').RenderProgressEvent | undefined
+  >(undefined);
+  const renderFinishedRef = useRef<
+    import('../../services/project-service').RenderFinishedEvent | undefined
+  >(undefined);
 
   useEffect(
     () => () => {
@@ -96,6 +118,35 @@ export function AssistantDock({
     },
     [],
   );
+
+  useEffect(() => {
+    let active = true;
+    let unlistenProgress: (() => void) | null = null;
+    let unlistenFinished: (() => void) | null = null;
+    void store.service
+      .onRenderProgress((event) => {
+        renderProgressRef.current = event;
+      })
+      .then((unlisten) => {
+        if (active) unlistenProgress = unlisten;
+        else unlisten();
+      })
+      .catch(() => undefined);
+    void store.service
+      .onRenderFinished((event) => {
+        renderFinishedRef.current = event;
+      })
+      .then((unlisten) => {
+        if (active) unlistenFinished = unlisten;
+        else unlisten();
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unlistenProgress?.();
+      unlistenFinished?.();
+    };
+  }, [store.service]);
 
   useEffect(() => {
     let active = true;
@@ -118,9 +169,11 @@ export function AssistantDock({
     if (log) log.scrollTop = log.scrollHeight;
   }, [messages, open, busy]);
 
+  const anthropicAgent = provider?.agentKind === 'anthropic';
+  const useTools = toolsEnabled || anthropicAgent;
+
   const needsConsent =
     provider !== null &&
-    provider.kind !== 'mock' &&
     provider.baseUrl.length > 0 &&
     !isLocalProviderUrl(provider.baseUrl);
 
@@ -275,6 +328,18 @@ export function AssistantDock({
     }
   }
 
+  function assistantHost(): AssistantToolHost {
+    return createAssistantToolHost({
+      store,
+      view: () => activeId,
+      navigate: (view) => navigate(view),
+      renderEvents: {
+        progress: () => renderProgressRef.current ?? null,
+        finished: () => renderFinishedRef.current ?? null,
+      },
+    });
+  }
+
   async function send(): Promise<void> {
     const text = input.trim();
     if (!text || busy) return;
@@ -284,6 +349,16 @@ export function AssistantDock({
     }
     setInput('');
     setError(null);
+    stopRef.current = false;
+    setRound(0);
+    // Sin herramientas el agente no puede tocar el disco: avisamos antes de
+    // que el modelo responda “no puedo acceder a tu equipo”.
+    if (
+      !useTools &&
+      /\b(archiv|carpeta|disco|busca|busc|encontr|descargas?|escritorio|documentos?|videos?)/i.test(text)
+    ) {
+      setError('Activá «Herramientas del agente» (casilla bajo el chat) para que Olyvia pueda buscar en tus archivos.');
+    }
     append({ role: 'user', text });
 
     const local = parseOperatorCommand(text, NAV_VIEWS);
@@ -305,17 +380,72 @@ export function AssistantDock({
             view: activeId,
           }
         : { view: activeId };
-      const history = [...messages, { role: 'user' as const, text }]
+      const historyEntries = [...messages, { role: 'user' as const, text }]
         .filter((entry) => entry.text !== GREETING.text)
-        .slice(-12)
-        .map((entry) => ({ role: entry.role, content: entry.text }));
-      const result = await store.service.assistantChat({
-        messages: history,
-        context,
-        approvedCost: consent,
-      });
-      if (result.action) await runAssistantAction(result.action);
-      append({ role: 'assistant', text: result.reply });
+        .slice(-6)
+        .map((entry) => ({
+          role: entry.role,
+          // Un historial corto y acotado evita reenviar conversaciones enteras
+          // en cada ronda; el detalle vive en la UI, no en la ventana del modelo.
+          text: entry.text.length > 700 ? `${entry.text.slice(0, 700)}…` : entry.text,
+        }));
+      const history: AssistantAgentMessage[] = historyEntries.map((entry) => ({
+        role: entry.role,
+        content: entry.text,
+      }));
+      if (useTools) {
+        const host = assistantHost();
+        const selectedTools = selectToolsForMessage(text);
+        const result = await runAssistantAgent({
+          send: (request) =>
+            store.service.assistantAgent({
+              ...request,
+              ...(context ? { context } : {}),
+            }),
+          messages: history,
+          tools: assistantToolPayload(selectedTools),
+          ...(context ? { context } : {}),
+          approvedCost: consent,
+          policy: {
+            allowEdits: true,
+            allowExport: true,
+            // Sin tope práctico: el bucle sigue hasta que el modelo termina.
+            // Sólo queda la salvaguarda de seguridad y el botón Detener.
+            maxRounds: 0,
+            maxToolCallsPerRound: 12,
+            shouldStop: () => stopRef.current,
+            onRound: (value) => setRound(value),
+          },
+          execute: (name, args) => {
+            const tool = findAssistantTool(name);
+            if (!tool) return { ok: false, summary: `herramienta desconocida: ${name}` };
+            return tool.execute(args, host);
+          },
+        });
+        const steps = result.steps
+          .map((step) => `· ${step.name}: ${step.summary}`)
+          .join('\n');
+        append({
+          role: 'assistant',
+          text: steps ? `${result.reply}\n\n${steps}` : result.reply,
+        });
+        if (result.stoppedByUser) {
+          setError('Detuviste el agente. Lo que ya hizo quedó en el proyecto.');
+        } else if (result.stoppedByLimit) {
+          setError('Se detuvo por seguridad tras muchas rondas; escribí “seguí” para retomar.');
+        }
+      } else {
+        const result = await store.service.assistantChat({
+          messages: historyEntries.map((entry) => ({
+            role: entry.role,
+            content: entry.text,
+          })),
+          context,
+          approvedCost: consent,
+        });
+        if (result.action) await runAssistantAction(result.action);
+        append({ role: 'assistant', text: result.reply });
+      }
       flashReply();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'no se pudo contactar al asistente');
@@ -345,9 +475,7 @@ export function AssistantDock({
                 <strong>Olyvia Assistant</strong>
                 <span>
                   {provider
-                    ? provider.kind === 'mock'
-                      ? 'Modo simulado · sin red'
-                      : `${provider.model || 'Proveedor'} · ${provider.baseUrl}`
+                    ? `${provider.model || 'Proveedor'} · ${provider.baseUrl}`
                     : 'Proveedor no consultado'}
                 </span>
               </div>
@@ -395,6 +523,20 @@ export function AssistantDock({
             </label>
           ) : null}
 
+          <label className="assistant-consent">
+            <input
+              type="checkbox"
+              checked={useTools}
+              disabled={anthropicAgent}
+              onChange={(event) => setToolsEnabled(event.target.checked)}
+            />
+            <span>
+              {anthropicAgent
+                ? 'Herramientas del agente (Anthropic usa tool use siempre)'
+                : 'Herramientas del agente (buscar archivos, importar y editar el proyecto)'}
+            </span>
+          </label>
+
           <form
             className="assistant-composer"
             onSubmit={(event) => {
@@ -419,16 +561,36 @@ export function AssistantDock({
               onFocus={() => setListening(true)}
               onBlur={() => setListening(false)}
             />
-            <button type="submit" className="primary" aria-label="Enviar mensaje" disabled={busy || !input.trim()}>
-              <Icon name="send" size={15} />
-            </button>
+            {busy && useTools ? (
+              <button
+                type="button"
+                className="ghost"
+                aria-label="Detener al agente"
+                title="Detener al agente"
+                onClick={() => {
+                  stopRef.current = true;
+                }}
+              >
+                <Icon name="close" size={15} />
+              </button>
+            ) : (
+              <button type="submit" className="primary" aria-label="Enviar mensaje" disabled={busy || !input.trim()}>
+                <Icon name="send" size={15} />
+              </button>
+            )}
           </form>
 
           <footer className="assistant-foot">
             <button type="button" className="link" onClick={() => onSelect('settings')}>
               Configurar proveedor
             </button>
-            <span>Atajos locales sin tokens</span>
+            <span title="Herramientas que se envían con esta frase y peso aproximado de sus esquemas">
+              {busy && useTools && round > 0
+                ? `Ronda ${round} · sin límite`
+                : useTools
+                  ? `${plannedTools.length} herramientas · ~${plannedTokens.toLocaleString('es-AR')} tok`
+                  : 'Sin herramientas: solo texto'}
+            </span>
           </footer>
         </section>
       ) : null}

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
+import { openSettingsAt } from '../../app/settings-target';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import {
@@ -57,7 +58,10 @@ export function FactoryView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
       <ProLock
         feature="Fábrica de Variantes"
         description="Generar varios proyectos y renders desde un brief, con imágenes compartidas y montaje automático, forma parte de Pro."
-        onOpenSettings={() => onNavigate('settings')}
+        onOpenSettings={() => {
+          openSettingsAt('licencia');
+          onNavigate('settings');
+        }}
       />
     );
   }
@@ -194,6 +198,10 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
     try {
       for (const plan of plans) {
         setStage(`Generando ${plan.index + 1}/${plans.length} · ${plan.name}`);
+        // Cada variante del lote sale con una energía distinta: el mismo
+        // material produce un montaje calmo, uno estable y uno de impacto.
+        const variantRhythm =
+          (['steady', 'punchy', 'calm'] as const)[plan.index % 3] ?? 'steady';
         try {
           const variant = await generateVariant(
             store.service,
@@ -203,6 +211,7 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
             {
               photoMotion,
               transitionFrames,
+              transitionRhythm: variantRhythm,
               confirmRights,
               approveCost,
             },
@@ -210,6 +219,7 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
           const assembled = assembleVariant(variant.project, variant.narrations, {
             photoMotion,
             transitionFrames,
+            transitionRhythm: variantRhythm,
             confirmRights,
           });
           const written = await store.service.writeProjectVariant({
@@ -554,7 +564,7 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
             <div className="card">
               <p className="eyebrow">Proveedor actual</p>
               <p className="fine-print">
-                La fábrica usa el proveedor de guion configurado y SAPI local para la voz del lote, sin consumir créditos externos. Con el proveedor simulado podés probar el flujo completo sin red.
+                La fábrica usa el proveedor de guion configurado y SAPI local para la voz del lote, sin consumir créditos externos. Necesita un proveedor real configurado en Ajustes → IA.
               </p>
               <button type="button" className="ghost small" onClick={() => onNavigate('settings')}>
                 Revisar proveedores

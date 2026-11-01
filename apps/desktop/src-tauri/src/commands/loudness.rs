@@ -590,7 +590,9 @@ mod tests {
             "-i",
             "sine=frequency=997:sample_rate=48000:duration=6",
             "-af",
-            "volume=-23dB,aformat=channel_layouts=stereo",
+            // `sine` de FFmpeg 9 no tiene opción de amplitud: su tono base
+            // ronda -21 LUFS en estéreo, así que -2 dB lo lleva a -23 LUFS.
+            "volume=-2dB,aformat=channel_layouts=stereo",
             "-f",
             "f32le",
             "-",

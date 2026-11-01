@@ -22,12 +22,28 @@ function renderAppAt(search: string) {
 
 function nav(label: string): void {
   const navigation = screen.getByRole('navigation', { name: /vistas/i });
-  let button = within(navigation).queryByRole('button', { name: label });
-  if (!button) {
-    fireEvent.click(within(navigation).getByRole('button', { name: /Más herramientas/i }));
-    button = within(navigation).getByRole('button', { name: label });
+  // El sidebar cierra «Más herramientas» cuando cambia la vista activa. Bajo
+  // carga, la carga async del proyecto puede cambiar la vista justo después de
+  // abrir el menú; se reintenta sin relajar ninguna aserción.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const direct = within(navigation).queryByRole('button', { name: label });
+    if (direct) {
+      fireEvent.click(direct);
+      return;
+    }
+    const close = within(navigation).queryByRole('button', {
+      name: /Cerrar herramientas avanzadas/i,
+    });
+    if (close) fireEvent.click(close);
+    const more = within(navigation).queryByRole('button', { name: /Más herramientas/i });
+    if (more) fireEvent.click(more);
+    const advanced = within(navigation).queryByRole('button', { name: label });
+    if (advanced) {
+      fireEvent.click(advanced);
+      return;
+    }
   }
-  fireEvent.click(button);
+  throw new Error(`No se encontró la vista ${label} en el sidebar`);
 }
 
 async function hubTab(label: string): Promise<void> {
@@ -85,19 +101,21 @@ describe('shell de Olyvia', () => {
       ].map((button) => button.getAttribute('aria-label')),
     ).toEqual([
       'Inicio',
+      'Proyectos',
+      'Guion',
+      'Medios',
+      'Producción',
+      'Editor',
       'Descargar',
       'Creador',
-      'Proyectos',
-      'Editor',
       'Laboratorio',
-      'Producción',
       'Aprender',
       'Ajustes',
     ]);
     expect(
       within(navigation).getByRole('button', { name: /Más herramientas/i }),
     ).toBeTruthy();
-    expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(1);
+    expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(3);
     expect(
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('aria-current'),
     ).toBe('page');
@@ -105,6 +123,26 @@ describe('shell de Olyvia', () => {
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('data-tooltip'),
     ).toMatch(/Estado del estudio/i);
   });
+
+  it('ofrece las fuentes instaladas en el estilo de subtítulos', async () => {
+    renderApp();
+    await createProject('Fuentes QA');
+    const cueInput = await screen.findByPlaceholderText(
+      /Texto del subtítulo en el playhead/i,
+      {},
+      { timeout: 10_000 },
+    );
+    fireEvent.change(cueInput, { target: { value: 'Hola fuentes' } });
+    fireEvent.click(screen.getByRole('button', { name: /Agregar subtítulo/i }));
+    const datalist = await screen.findByTestId('caption-fonts', {}, { timeout: 5000 });
+    const values = [...datalist.querySelectorAll('option')].map((option) =>
+      option.getAttribute('value'),
+    );
+    expect(values).toEqual(expect.arrayContaining(['Arial', 'Segoe UI']));
+    const input = screen.getByLabelText('Fuente de subtítulos') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Arial' } });
+    expect(input.value).toBe('Arial');
+  }, 20_000);
 
   it('guarda las herramientas avanzadas detrás de Más', async () => {
     renderApp();
@@ -169,13 +207,17 @@ describe('shell de Olyvia', () => {
     );
   });
 
-  it('abre el descargador, analiza una URL y la importa con el servicio simulado', async () => {
+  it('abre el descargador, analiza una URL y la importa con el servicio de prueba', async () => {
     renderApp();
     await createProject('Obra descarga');
     nav('Descargar');
     const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('Motor de descargas'));
-    await waitFor(() => expect(main.textContent).toContain('Copiar conexión'));
+    await waitFor(() => expect(main.textContent).toContain('Motor de descargas'), {
+      timeout: 10_000,
+    });
+    await waitFor(() => expect(main.textContent).toContain('Copiar conexión'), {
+      timeout: 10_000,
+    });
     const url = within(main).getByRole('textbox', { name: /URL para descargar/i });
     fireEvent.change(url, { target: { value: 'https://example.com/video' } });
     fireEvent.click(within(main).getByRole('button', { name: /Analizar/i }));
@@ -205,8 +247,10 @@ describe('shell de Olyvia', () => {
     const service = renderApp();
     nav('Descargar');
     const main = screen.getByRole('main');
-    await waitFor(() =>
-      expect(within(main).getByRole('textbox', { name: /URL para descargar/i })).toBeTruthy(),
+    await waitFor(
+      () =>
+        expect(within(main).getByRole('textbox', { name: /URL para descargar/i })).toBeTruthy(),
+      { timeout: 10_000 },
     );
     const url = within(main).getByRole('textbox', { name: /URL para descargar/i });
     fireEvent.change(url, { target: { value: 'https://example.com/video' } });
@@ -299,8 +343,9 @@ describe('shell de Olyvia', () => {
     renderApp();
     await createProject('Obra modos');
     fireEvent.click(screen.getByRole('tab', { name: 'Mezcla' }));
-    await waitFor(() =>
-      expect(screen.getByRole('main').textContent).toContain('Mezcla de audio'),
+    await waitFor(
+      () => expect(screen.getByRole('main').textContent).toContain('Mezcla de audio'),
+      { timeout: 10_000 },
     );
     expect(document.querySelector('.timeline-surface')).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Mezcla' }).getAttribute('aria-selected')).toBe(
@@ -399,12 +444,12 @@ describe('shell de Olyvia', () => {
     for (const language of ['Español', 'Inglés', 'Chino', 'Hindi', 'Árabe', 'Portugués', 'Bengalí', 'Ruso']) {
       expect(main.textContent).toContain(language);
     }
-    await waitFor(() => expect(main.textContent).toContain('Proveedor simulado'));
+    await waitFor(() => expect(main.textContent).toContain('auto · local'));
     fireEvent.click(within(main).getByRole('button', { name: /Elegir subtítulos originales/i }));
     await waitFor(() => expect(main.textContent).toContain('demo.srt'));
     fireEvent.click(within(main).getByRole('button', { name: /Traducir a 1/i }));
     await waitFor(() => expect(main.textContent).toContain('EN: Hola subtítulo'));
-    expect(main.textContent).toContain('Traducido con simulado');
+    expect(main.textContent).toContain('Traducido con auto');
     expect(
       (within(main).getByRole('button', { name: /Exportar SRT/i }) as HTMLButtonElement).disabled,
     ).toBe(false);
@@ -484,7 +529,7 @@ describe('shell de Olyvia', () => {
     renderApp();
     await createProject('Layout inmersivo');
     expect(document.querySelector('.app-shell')?.className).toContain('editor-immersive');
-    expect(screen.getByRole('tab', { name: /Timeline 01/i })).toBeTruthy();
+    expect(screen.getByText('Timeline 01')).toBeTruthy();
     expect(screen.getByRole('complementary', { name: /Detalles/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Exportar video/i })).toBeTruthy();
   });
@@ -591,12 +636,12 @@ describe('shell de Olyvia', () => {
     await waitFor(() => expect(within(screen.getByRole('main')).getByText('V1')).toBeTruthy());
   });
 
-  it('muestra el proveedor simulado y la lista de escenas en Guion', async () => {
+  it('muestra el proveedor configurado y la lista de escenas en Guion', async () => {
     renderApp();
     await createProject('Obra guion');
     nav('Guion');
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Brief'));
-    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Simulado'));
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('auto ·'));
     expect(screen.getByRole('main').textContent).toMatch(/No hay escenas|escena/i);
     expect(
       (within(screen.getByRole('main')).getByRole('button', { name: /Generar guion/i }) as HTMLButtonElement).disabled,
@@ -724,8 +769,97 @@ describe('shell de Olyvia', () => {
     expect(media?.getAttribute('crossorigin')).toBe('anonymous');
   });
 
-  it('aplica la perspectiva del clip a la preview con matrix3d', async () => {
+  it('monta la superficie LUT del clip cuando hay un .cube asignado', async () => {
     vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra LUT', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const added = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const seeded = updateClip(added.project, added.clipId, {
+      effects: {
+        lutFile: 'media/luts/teal.cube',
+        lutIntensity: 0.7,
+      },
+    });
+    const seededOpened = {
+      project: seeded,
+      label: 'lut.editoria.json',
+      path: 'C:\\tmp\\lut.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra LUT');
+    const overlay = document.querySelector('.effect-preview-canvas');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-clip-id')).toBe(added.clipId);
+    // Sin WebGL2 (jsdom) el video original sigue visible: no hay frame negro.
+    const video = document.querySelector('.preview-media');
+    expect(video?.tagName).toBe('VIDEO');
+  });
+
+  it('monta la superficie de motion blur cuando el clip lo tiene activo', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra blur', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const added = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const seeded = updateClip(added.project, added.clipId, {
+      effects: { motionBlur: { frames: 4, intensity: 0.6 } },
+    });
+    const seededOpened = {
+      project: seeded,
+      label: 'blur.editoria.json',
+      path: 'C:\\tmp\\blur.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra blur');
+    const overlay = document.querySelector('.effect-preview-canvas');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-clip-id')).toBe(added.clipId);
+  });
+
+  it('monta la superficie de denoise cuando el clip lo tiene activo', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra denoise', '2025-01-01T00:00:00Z'));
+    const asset = readyAsset();
+    const added = addClipFromAsset(addAsset(base, asset), asset, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const seeded = updateClip(added.project, added.clipId, {
+      effects: { denoise: 0.6 },
+    });
+    const seededOpened = {
+      project: seeded,
+      label: 'denoise.editoria.json',
+      path: 'C:\\tmp\\denoise.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra denoise');
+    const overlay = document.querySelector('.effect-preview-canvas');
+    expect(overlay).not.toBeNull();
+    expect(overlay?.getAttribute('data-clip-id')).toBe(added.clipId);
+  });
+
+  it('aplica la perspectiva del clip a la preview con matrix3d', async () => {    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
     vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
     // jsdom no mide layout: se fija el tamaño real del visor para que la
     // homografía tenga un cuadro donde calcularse.
@@ -1419,6 +1553,18 @@ describe('menú principal por flujo de trabajo', () => {
     await hubTab('Fábrica');
     expect(await screen.findByText(/Fábrica de Variantes es una herramienta Pro/i)).toBeTruthy();
   });
+
+  it('abre Ajustes en Licencia desde el bloqueo Pro', async () => {
+    const service = createFakeService();
+    service.setLicenseTier('free');
+    render(<App service={service} />);
+    nav('Director');
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Ver licencia en Ajustes/i }),
+    );
+    const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
+    expect(within(dialog).getByRole('heading', { name: 'Licencia' })).toBeTruthy();
+  }, 20_000);
 
   it('muestra la ayuda contextual de Descargas como tooltip accesible', async () => {
     renderApp();

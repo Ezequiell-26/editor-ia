@@ -108,6 +108,16 @@ describe('planLottieExport', () => {
     expect(planLottieExport(odd).height).toBe(100);
   });
 
+  it('agranda iconos pequeños con scale acotado a 32×', () => {
+    const icon = parseLottieDocument(sample({ w: 32, h: 32, op: 40 }));
+    const plan = planLottieExport(icon, { scale: 16 });
+    expect(plan.width).toBe(512);
+    expect(plan.height).toBe(512);
+    expect(planLottieExport(icon).width).toBe(32);
+    expect(planLottieExport(icon, { scale: 0 }).width).toBe(32);
+    expect(planLottieExport(icon, { scale: 999 }).width).toBe(1024);
+  });
+
   it('limita frames y avisa cuando recorta el final', () => {
     const document = parseLottieDocument(sample({ fr: 30, op: 3000 })); // 100 s
     const plan = planLottieExport(document, { maxFrames: 10 });

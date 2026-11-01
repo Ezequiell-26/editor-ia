@@ -19,6 +19,7 @@ describe('rutas canónicas', () => {
       ['factory', 'factory'],
       ['thumbnails', 'thumbnails'],
       ['localization', 'localization'],
+      ['design', 'design'],
     ] as const) {
       expect(resolveViewRoute(id)).toEqual({ view: 'creator', hubTab: tab });
     }

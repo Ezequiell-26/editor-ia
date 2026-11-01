@@ -31,6 +31,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   localization: 'globe',
   'ai-hub': 'ai-hub',
   motion: 'motion',
+  design: 'palette',
   visuals: 'filters',
   background: 'background',
   upscale: 'upscale',

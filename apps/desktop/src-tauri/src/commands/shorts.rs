@@ -455,6 +455,13 @@ pub async fn export_short(
             "-i",
         ])
         .arg(&input)
+        .args(crate::render::encoders::software_video_args(
+            "h264",
+            SHORT_WIDTH,
+            SHORT_HEIGHT,
+            30.0,
+            18,
+        ))
         .args([
             "-t",
             &length,
@@ -464,12 +471,6 @@ pub async fn export_short(
             "0:v:0",
             "-map",
             "0:a?",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "medium",
-            "-crf",
-            "18",
             "-pix_fmt",
             "yuv420p",
             "-c:a",

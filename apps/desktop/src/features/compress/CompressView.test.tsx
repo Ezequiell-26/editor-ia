@@ -76,7 +76,7 @@ describe('comprimir como pro', () => {
     fireEvent.click(screen.getByRole('button', { name: /Comprimir/i }));
     await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
 
-    // El servicio simulado guarda el pedido: se comprueba que fue calidad.
+    // El servicio de prueba guarda el pedido: se comprueba que fue calidad.
     expect(service.calls.compressAny).toBe(1);
   });
 

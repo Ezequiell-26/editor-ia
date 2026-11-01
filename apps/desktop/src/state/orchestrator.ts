@@ -396,9 +396,6 @@ export async function runOrchestratorJob(
         language: job.options.language,
         approvedCost: job.options.approveCredits,
       });
-      if (script.simulated) {
-        log('warn', 'El guion vino del proveedor simulado; configurá un proveedor real para producción.');
-      }
       next = applyScenePlan(next, script, { replace: true });
       emit({ name: (script.title || job.name).slice(0, 120) });
       project = next;

@@ -1,10 +1,17 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
+import { createEmptyProject, type Asset, type ProjectDocument } from '@editor-ia/project-schema';
 import { ScriptView } from './ScriptView';
-import { ProjectProvider } from '../../state/project-store';
-import { addScene, ensureDelivery, updateScene } from '../../state/project-actions';
+import { ProjectProvider, useProjectStore } from '../../state/project-store';
+import {
+  addAsset,
+  addClipFromAsset,
+  addScene,
+  ensureDelivery,
+  newId,
+  updateScene,
+} from '../../state/project-actions';
 import { createFakeService } from '../../test/fake-service';
 
 const NOW = '2026-10-19T00:00:00.000Z';
@@ -30,6 +37,49 @@ function withScenes(): ProjectDocument {
   return project;
 }
 
+function videoAsset(): Asset {
+  return {
+    id: newId(),
+    label: 'Toma',
+    kind: 'video',
+    source: { type: 'local', path: 'media/toma.mp4' },
+    status: 'ready',
+    integrity: { sha256: 'a'.repeat(64), bytes: 10_000 },
+    rights: {
+      license: { id: 'owned', commercialUse: 'allowed' },
+      provenance: { origin: 'user-imported', acquiredAt: NOW },
+    },
+    media: { width: 1280, height: 720, durationFrames: 300, frameRate: { num: 30, den: 1 } },
+  } as Asset;
+}
+
+function withSceneAndClip(): { project: ProjectDocument; sceneId: string; clipId: string } {
+  const asset = videoAsset();
+  const withAsset = addAsset(withScenes(), asset);
+  const added = addClipFromAsset(withAsset, asset, { atFrame: 0 });
+  const sceneId = added.project.scenes[0]!.id;
+  return {
+    project: updateScene(added.project, sceneId, { clipIds: [added.clipId] }),
+    sceneId,
+    clipId: added.clipId,
+  };
+}
+
+function Probe() {
+  const store = useProjectStore();
+  return (
+    <pre data-testid="probe">
+      {JSON.stringify(
+        store.state.project?.scenes.map((scene) => ({
+          id: scene.id,
+          clipIds: scene.clipIds,
+          engine: scene.engine ?? null,
+        })) ?? [],
+      )}
+    </pre>
+  );
+}
+
 function renderView(project: ProjectDocument) {
   const service = createFakeService();
   const onNavigate = vi.fn();
@@ -47,6 +97,7 @@ function renderView(project: ProjectDocument) {
       }}
     >
       <ScriptView onNavigate={onNavigate} />
+      <Probe />
     </ProjectProvider>,
   );
   return { onNavigate };
@@ -76,5 +127,37 @@ describe('ScriptView · prompts para Flow', () => {
     }) as HTMLButtonElement;
     expect(download.disabled).toBe(true);
     expect(screen.getByText(/Generá o agregá escenas/i)).toBeTruthy();
+  });
+});
+
+describe('ScriptView · constructor de escenas', () => {
+  it('asocia clips visuales, fija el motor y persiste ambos', () => {
+    const { project, clipId } = withSceneAndClip();
+    renderView(project);
+
+    const clip = screen.getByRole('checkbox', {
+      name: /Clip Toma en El faro/i,
+    }) as HTMLInputElement;
+    expect(clip.checked).toBe(true);
+    fireEvent.click(clip);
+    expect(clip.checked).toBe(false);
+
+    const engine = screen.getByRole('combobox', {
+      name: /Motor de El faro/i,
+    }) as HTMLSelectElement;
+    fireEvent.change(engine, { target: { value: 'ken-burns' } });
+
+    const save = screen.getAllByRole('button', { name: /Guardar escena/i })[0]! as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+    fireEvent.click(save);
+    expect(screen.queryByText('cambios sin guardar')).toBeNull();
+
+    const saved = JSON.parse(screen.getByTestId('probe').textContent ?? '[]') as {
+      clipIds: string[];
+      engine: string | null;
+    }[];
+    expect(saved[0]?.clipIds).toEqual([]);
+    expect(saved[0]?.engine).toBe('ken-burns');
+    expect(clipId).toBeTruthy();
   });
 });

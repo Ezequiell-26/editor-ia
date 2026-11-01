@@ -257,16 +257,38 @@ async function ping(tabId) {
   }
 }
 
+async function waitForTabReady(tabId, timeoutMs = 25000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab && tab.status === 'complete') return tab;
+    await sleep(500);
+  }
+  return null;
+}
+
+async function openFlowTab() {
+  log('No hay una pestaña de Flow abierta; abriendo flow.google.com…');
+  const tab = await chrome.tabs.create({ url: 'https://flow.google.com/', active: true });
+  if (tab?.id !== undefined) {
+    await waitForTabReady(tab.id);
+  }
+  return tab;
+}
+
 async function connect() {
   els.connect.disabled = true;
   els.connect.textContent = 'Conectando…';
   try {
-    const tab = await findFlowTab();
+    let tab = await findFlowTab();
+    if (!tab?.id) {
+      tab = await openFlowTab();
+    }
     if (!tab?.id) {
       state.connectedTabId = null;
       state.diagnostics = null;
       renderConnection();
-      log('No hay una pestaña de Flow abierta.');
+      log('No pude abrir una pestaña de Flow.');
       return false;
     }
     state.connectedTabId = tab.id;
@@ -287,7 +309,7 @@ async function connect() {
       state.connectedTabId = null;
       state.diagnostics = null;
       renderConnection();
-      log('La pestaña no respondió. Recargá Flow y volvé a conectar.');
+      log('La pestaña no respondió. Iniciá sesión en Google, recargá Flow y volvé a conectar.');
       return false;
     }
     state.diagnostics = response.diagnostics;

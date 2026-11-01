@@ -1,0 +1,241 @@
+{
+  "generatedAt": "2026-11-01T08:00:57.751Z",
+  "hardware": {
+    "cpu": "AMD Ryzen 5 4600G with Radeon Graphics",
+    "cores": 12,
+    "ramGb": 13.9,
+    "platform": "win32 10.0.26300",
+    "webglRenderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  },
+  "video": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 60,
+    "seconds": 8
+  },
+  "results": [
+    {
+      "case": "none",
+      "fps": 58,
+      "frames": 234,
+      "elapsed": 4.016,
+      "p95Ms": 17.2,
+      "maxMs": 33.4,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519883930,
+      "endedAt": 1793519887946
+    },
+    {
+      "case": "lut",
+      "fps": 60,
+      "frames": 242,
+      "elapsed": 4.016,
+      "p95Ms": 16.9,
+      "maxMs": 17.1,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519890328,
+      "endedAt": 1793519894345
+    },
+    {
+      "case": "denoise",
+      "fps": 60,
+      "frames": 242,
+      "elapsed": 4.016,
+      "p95Ms": 16.8,
+      "maxMs": 17.2,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519896378,
+      "endedAt": 1793519900393
+    },
+    {
+      "case": "denoise-spatial",
+      "fps": 54.8,
+      "frames": 221,
+      "elapsed": 4.016,
+      "p95Ms": 33.4,
+      "maxMs": 33.9,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519902376,
+      "endedAt": 1793519906392
+    },
+    {
+      "case": "lut+denoise",
+      "fps": 43.9,
+      "frames": 178,
+      "elapsed": 4.032,
+      "p95Ms": 33.5,
+      "maxMs": 33.8,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519908358,
+      "endedAt": 1793519912392
+    },
+    {
+      "case": "lut+denoise-spatial",
+      "fps": 60,
+      "frames": 242,
+      "elapsed": 4.016,
+      "p95Ms": 16.9,
+      "maxMs": 17.3,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519914324,
+      "endedAt": 1793519918340
+    },
+    {
+      "case": "vignette",
+      "fps": 52.3,
+      "frames": 211,
+      "elapsed": 4.016,
+      "p95Ms": 33.4,
+      "maxMs": 33.7,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519920272,
+      "endedAt": 1793519924289
+    },
+    {
+      "case": "motionblur",
+      "fps": 41.3,
+      "frames": 167,
+      "elapsed": 4.016,
+      "p95Ms": 33.4,
+      "maxMs": 33.8,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519926187,
+      "endedAt": 1793519930204
+    },
+    {
+      "case": "lut+denoise+vignette+motionblur",
+      "fps": 47.1,
+      "frames": 190,
+      "elapsed": 4.016,
+      "p95Ms": 33.4,
+      "maxMs": 50,
+      "renderer": "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001636) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "width": 1920,
+      "height": 1080,
+      "startedAt": 1793519932186,
+      "endedAt": 1793519936216
+    }
+  ],
+  "usage": {
+    "note": "Chrome de Playwright durante la misma ventana de 4 s; CPU normalizada a la máquina completa, RAM = working set del árbol, GPU 3D = proceso gpu de Chrome. Muestreo aproximado a 1 Hz en una pasada aparte.",
+    "cores": 12,
+    "cases": [
+      {
+        "case": "none",
+        "error": "sin muestras de uso"
+      },
+      {
+        "case": "lut",
+        "windowSec": 2.59,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.37,
+        "cpuPercentOfMachine": 3.1,
+        "rssMb": 631,
+        "rssPeakMb": 635,
+        "gpu3dPercent": 58.4,
+        "gpu3dPeak": 64.4
+      },
+      {
+        "case": "denoise",
+        "windowSec": 2.67,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.57,
+        "cpuPercentOfMachine": 4.8,
+        "rssMb": 622,
+        "rssPeakMb": 623,
+        "gpu3dPercent": 77.3,
+        "gpu3dPeak": 78.4
+      },
+      {
+        "case": "denoise-spatial",
+        "windowSec": 2.67,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.37,
+        "cpuPercentOfMachine": 3.1,
+        "rssMb": 624,
+        "rssPeakMb": 624,
+        "gpu3dPercent": 66,
+        "gpu3dPeak": 66.4
+      },
+      {
+        "case": "lut+denoise",
+        "windowSec": 2.66,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.36,
+        "cpuPercentOfMachine": 3,
+        "rssMb": 620,
+        "rssPeakMb": 626,
+        "gpu3dPercent": 64.2,
+        "gpu3dPeak": 67.7
+      },
+      {
+        "case": "lut+denoise-spatial",
+        "windowSec": 2.66,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.29,
+        "cpuPercentOfMachine": 2.4,
+        "rssMb": 620,
+        "rssPeakMb": 620,
+        "gpu3dPercent": 55.8,
+        "gpu3dPeak": 65.3
+      },
+      {
+        "case": "vignette",
+        "windowSec": 2.6,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.38,
+        "cpuPercentOfMachine": 3.2,
+        "rssMb": 626,
+        "rssPeakMb": 630,
+        "gpu3dPercent": 66.6,
+        "gpu3dPeak": 67.3
+      },
+      {
+        "case": "motionblur",
+        "windowSec": 2.61,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.41,
+        "cpuPercentOfMachine": 3.4,
+        "rssMb": 632,
+        "rssPeakMb": 634,
+        "gpu3dPercent": 12.5,
+        "gpu3dPeak": 12.6
+      },
+      {
+        "case": "lut+denoise+vignette+motionblur",
+        "windowSec": 2.69,
+        "samples": 3,
+        "processes": 8,
+        "cpuCores": 0.34,
+        "cpuPercentOfMachine": 2.9,
+        "rssMb": 628,
+        "rssPeakMb": 629,
+        "gpu3dPercent": 93.7,
+        "gpu3dPeak": 94.3
+      }
+    ]
+  }
+}

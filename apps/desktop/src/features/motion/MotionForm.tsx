@@ -1,3 +1,10 @@
+import { useEffect, useState } from 'react';
+import { ColorField } from '../../components/ColorField';
+import {
+  DESIGN_APPLIED_EVENT,
+  loadDesignSelection,
+  type DesignSelection,
+} from '../design/design-selection';
 import type { MotionTemplate } from './templates';
 
 function colorValue(value: unknown): string {
@@ -15,8 +22,55 @@ export function MotionForm({
   readonly onChange: (props: Record<string, unknown>) => void;
   readonly disabled?: boolean;
 }) {
+  const [design, setDesign] = useState<DesignSelection | null>(() => loadDesignSelection());
+
+  useEffect(() => {
+    const onApplied = (event: Event): void => {
+      const detail = (event as CustomEvent<DesignSelection | undefined>).detail;
+      setDesign(detail ?? loadDesignSelection());
+    };
+    window.addEventListener(DESIGN_APPLIED_EVENT, onApplied);
+    return () => window.removeEventListener(DESIGN_APPLIED_EVENT, onApplied);
+  }, []);
+
+  const colorFields = template.fields.filter((field) => field.kind === 'color');
+  const canApplyPalette = Boolean(design) && colorFields.length > 0;
+
+  function applyPalette(): void {
+    if (!design) return;
+    const next = { ...props };
+    for (const field of colorFields) {
+      const value =
+        field.id === 'background'
+          ? design.bg
+          : field.id === 'color'
+            ? design.fg
+            : field.id === 'glitchB'
+              ? (design.accentOn ?? design.accent)
+              : design.accent;
+      if (value && /^#[0-9a-fA-F]{6}$/.test(value)) next[field.id] = value;
+    }
+    onChange(next);
+  }
+
   return (
     <div className="motion-fields">
+      {canApplyPalette && design ? (
+        <div className="motion-design-palette">
+          <span className="motion-design-swatches" aria-hidden="true">
+            <i style={{ background: design.bg ?? '#000000' }} />
+            <i style={{ background: design.accent }} />
+            <i style={{ background: design.fg ?? '#ffffff' }} />
+          </span>
+          <div>
+            <strong>{design.name}</strong>
+            <small>Paleta del sistema de diseño</small>
+          </div>
+          <button type="button" className="small ghost" onClick={applyPalette} disabled={disabled}>
+            Aplicar
+          </button>
+        </div>
+      ) : null}
       {template.fields.map((field) => {
         const id = `motion-${template.id}-${field.id}`;
         const raw = props[field.id];
@@ -41,12 +95,12 @@ export function MotionForm({
                 ))}
               </select>
             ) : field.kind === 'color' ? (
-              <input
+              <ColorField
                 id={id}
-                type="color"
+                label={field.label}
                 value={colorValue(raw)}
                 disabled={disabled}
-                onChange={(event) => update(event.target.value)}
+                onChange={update}
               />
             ) : field.kind === 'textarea' ? (
               <textarea

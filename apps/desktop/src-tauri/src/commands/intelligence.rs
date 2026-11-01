@@ -743,7 +743,7 @@ mod tests {
                 "-filter_complex",
                 "[0:v][1:v]concat=n=2:v=1:a=0",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -798,7 +798,7 @@ mod tests {
                 "-i",
                 "sine=frequency=440:duration=10",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-preset",
                 "ultrafast",
                 "-pix_fmt",

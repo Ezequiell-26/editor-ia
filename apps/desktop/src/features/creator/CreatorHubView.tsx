@@ -16,13 +16,19 @@ const LocalizationView = lazy(() =>
     default: module.LocalizationView,
   })),
 );
+const DesignLibraryView = lazy(() =>
+  import('../design/DesignLibraryView').then((module) => ({
+    default: module.DesignLibraryView,
+  })),
+);
 
-type CreatorTab = 'creator' | 'factory' | 'thumbnails' | 'localization';
+type CreatorTab = 'creator' | 'factory' | 'thumbnails' | 'design' | 'localization';
 
 const TABS: readonly (HubTab & { id: CreatorTab })[] = [
   { id: 'creator', label: 'Crear', hint: 'Hooks, formatos y CTA', icon: 'sparkles' },
   { id: 'factory', label: 'Fábrica', hint: 'Variantes en lote desde un brief', icon: 'factory' },
   { id: 'thumbnails', label: 'Miniaturas', hint: 'Carátulas para YouTube y redes', icon: 'thumbnails' },
+  { id: 'design', label: 'Diseño', hint: 'Sistemas, craft y prompts', icon: 'palette' },
   { id: 'localization', label: 'Localización', hint: 'Subtítulos y traducción', icon: 'globe' },
 ];
 
@@ -65,7 +71,13 @@ export function CreatorHubView({
   }
 
   function route(id: ViewId): void {
-    if (id === 'creator' || id === 'factory' || id === 'thumbnails' || id === 'localization') {
+    if (
+      id === 'creator' ||
+      id === 'factory' ||
+      id === 'thumbnails' ||
+      id === 'design' ||
+      id === 'localization'
+    ) {
       select(id);
       return;
     }
@@ -98,6 +110,13 @@ export function CreatorHubView({
         <div className="hub-panel" role="tabpanel" hidden={active !== 'thumbnails'}>
           <Suspense fallback={null}>
             <ThumbnailView onNavigate={route} />
+          </Suspense>
+        </div>
+      ) : null}
+      {visited.has('design') ? (
+        <div className="hub-panel" role="tabpanel" hidden={active !== 'design'}>
+          <Suspense fallback={null}>
+            <DesignLibraryView onNavigate={route} />
           </Suspense>
         </div>
       ) : null}

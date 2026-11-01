@@ -37,7 +37,26 @@ export interface MotionRectLayer {
   readonly animation: MotionAnimation;
 }
 
-export type MotionLayer = MotionTextLayer | MotionRectLayer;
+/**
+ * Partícula circular propia. El desplazamiento `drift` es normalizado y se
+ * aplica linealmente durante todo el clip; el render ASS lo convierte en
+ * `\move` y la preview en `translate(%)`, así ambos muestran la misma
+ * trayectoria. Con `drift` la animación debe ser `none` o `fade` para no
+ * encadenar dos movimientos distintos entre preview y export.
+ */
+export interface MotionCircleLayer {
+  readonly kind: 'circle';
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly color: string;
+  readonly opacity: number;
+  readonly animation: MotionAnimation;
+  readonly drift?: { readonly x: number; readonly y: number };
+}
+
+export type MotionLayer = MotionTextLayer | MotionRectLayer | MotionCircleLayer;
 
 export interface MotionPlan {
   readonly version: 1;
@@ -70,7 +89,7 @@ export interface MotionTemplate {
   readonly version: string;
   readonly label: string;
   readonly description: string;
-  readonly category: 'título' | 'identidad' | 'cierre' | 'dato';
+  readonly category: 'título' | 'identidad' | 'cierre' | 'dato' | 'partículas';
   readonly defaults: Readonly<Record<string, unknown>>;
   readonly fields: readonly MotionField[];
   readonly propsSchema: z.ZodTypeAny;
@@ -994,6 +1013,119 @@ export const cinematicTitleTemplate: MotionTemplate = {
   },
 };
 
+/** RNG determinista: el mismo seed produce las mismas partículas en preview y ASS. */
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let value = Math.imul(state ^ (state >>> 15), 1 | state);
+    value = (value + Math.imul(value ^ (value >>> 7), 61 | value)) ^ value;
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function shadeHex(hex: string, factor: number): string {
+  const value = Number.parseInt(hex.slice(1), 16);
+  const channel = (offset: number): string =>
+    Math.min(255, Math.max(0, Math.round(((value >> offset) & 0xff) * factor)))
+      .toString(16)
+      .padStart(2, '0');
+  return `#${channel(16)}${channel(8)}${channel(0)}`;
+}
+
+const particleSchema = z
+  .object({
+    count: z.number().int().min(6).max(15).default(12),
+    color: hexColor.default('#7dd3c0'),
+    spread: z.number().min(8).max(55).default(32),
+    seed: z.number().int().min(0).max(999).default(7),
+    label: line(48).default(''),
+  })
+  .strict();
+type ParticleProps = z.infer<typeof particleSchema>;
+
+/**
+ * Partículas propias, sin assets externos: círculos deterministas que nacen
+ * cerca del centro y derivan radialmente. La misma semilla produce el mismo
+ * plan, la preview CSS y el `\move` del ASS; el render no depende de ninguna
+ * imagen ni licencia de stock.
+ */
+export const particleBurstTemplate: MotionTemplate = {
+  id: 'particle-burst',
+  version: '1.0.0',
+  label: 'Explosión de partículas',
+  description: 'Partículas deterministas que derivan desde el centro; sin assets externos.',
+  category: 'partículas',
+  defaults: {
+    count: 12,
+    color: '#7dd3c0',
+    spread: 32,
+    seed: 7,
+    label: '',
+  },
+  fields: [
+    { id: 'count', label: 'Partículas (6–15)', kind: 'number', min: 6, max: 15 },
+    { id: 'color', label: 'Color base', kind: 'color' },
+    { id: 'spread', label: 'Dispersión %', kind: 'number', min: 8, max: 55 },
+    { id: 'seed', label: 'Semilla', kind: 'number', min: 0, max: 999 },
+    { id: 'label', label: 'Texto opcional', kind: 'text' },
+  ],
+  propsSchema: particleSchema,
+  buildLayers(raw, context) {
+    const props = raw as ParticleProps;
+    const rng = mulberry32(props.seed * 7919 + 13);
+    const aspect = context.width / Math.max(1, context.height);
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const spread = props.spread / 100;
+    const base = { x: 0.5, y: 0.45 };
+    const circles: MotionCircleLayer[] = [];
+    for (let index = 0; index < props.count; index += 1) {
+      const angle = rng() * Math.PI * 2;
+      const reach = spread * (0.35 + 0.65 * rng());
+      const width = Math.min(0.03, 0.004 + rng() * 0.008);
+      // En píxeles un círculo debe medir lo mismo en X e Y; `height` se
+      // compensa por el aspecto del proyecto.
+      const height = Math.min(0.12, width * aspect);
+      const jitterX = (rng() - 0.5) * 0.06;
+      const jitterY = (rng() - 0.5) * 0.06;
+      const x = Math.min(1 - width, Math.max(0, base.x - width / 2 + jitterX));
+      const y = Math.min(1 - height, Math.max(0, base.y - height / 2 + jitterY));
+      circles.push({
+        kind: 'circle',
+        x,
+        y,
+        width,
+        height,
+        color: shadeHex(props.color, 0.75 + rng() * 0.5),
+        opacity: 0.55 + rng() * 0.4,
+        animation: {
+          kind: 'fade',
+          inFrames: Math.max(3, Math.round(fps * (0.08 + rng() * 0.12))),
+          outFrames: Math.max(4, Math.round(fps * (0.15 + rng() * 0.25))),
+        },
+        drift: {
+          x: Math.cos(angle) * reach * (1 / aspect),
+          y: Math.sin(angle) * reach,
+        },
+      });
+    }
+    const labelLayers = props.label
+      ? textBlock(context, {
+          lines: wrapText(props.label, charsFor(context.width * 0.8, proFontSize(46, context.height / 1080)), 2),
+          x: 0.1,
+          y: 0.74,
+          width: 0.8,
+          fontSizePx: proFontSize(46, context.height / 1080),
+          weight: 700,
+          color: '#f8fafc',
+          align: 'center',
+          anim: { kind: 'fade', inFrames: Math.max(4, Math.round(fps * 0.25)), outFrames: Math.max(4, Math.round(fps * 0.3)) },
+        })
+      : [];
+    return [...circles.slice(0, Math.max(0, 16 - labelLayers.length)), ...labelLayers];
+  },
+};
+
 export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   titleCardTemplate,
   freeTextTemplate,
@@ -1005,6 +1137,7 @@ export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   zoomPunchTemplate,
   glitchTextTemplate,
   cinematicTitleTemplate,
+  particleBurstTemplate,
 ];
 
 export function templateById(id: string): MotionTemplate | null {

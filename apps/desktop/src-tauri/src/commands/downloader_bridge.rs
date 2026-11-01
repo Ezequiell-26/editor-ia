@@ -6,16 +6,17 @@
 //! shell, and the same yt-dlp/FFmpeg pipeline as the in-app downloader.
 
 use std::collections::BTreeMap;
+use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use uuid::Uuid;
 
 use crate::commands::downloader::{
@@ -66,6 +67,7 @@ struct BridgeJob {
 struct HttpRequest {
     method: String,
     path: String,
+    query: String,
     headers: BTreeMap<String, String>,
     body: Vec<u8>,
 }
@@ -106,6 +108,351 @@ struct BridgeDownloadRequest {
     #[serde(flatten)]
     download: DownloadRequest,
     direct_image: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LiveToolRequest {
+    tool: String,
+    #[serde(default = "empty_object")]
+    arguments: serde_json::Value,
+    #[serde(default)]
+    idempotency_key: Option<String>,
+}
+
+fn empty_object() -> serde_json::Value {
+    json!({})
+}
+
+fn parse_live_tool_request(body: &[u8]) -> Result<LiveToolRequest, String> {
+    let mut request: LiveToolRequest = serde_json::from_slice(body)
+        .map_err(|_| "el pedido en vivo no es JSON válido".to_owned())?;
+    if request.tool.trim().is_empty() || request.tool.len() > 80 {
+        return Err("falta el nombre de la herramienta".to_owned());
+    }
+    if !request.arguments.is_object() {
+        return Err("arguments debe ser un objeto".to_owned());
+    }
+    if let Some(key) = request.idempotency_key.take() {
+        let key = key.trim().to_owned();
+        if key.len() < 8
+            || key.len() > 128
+            || !key
+                .chars()
+                .all(|value| value.is_ascii_alphanumeric() || value == '-' || value == '_')
+        {
+            return Err(
+                "idempotencyKey necesita 8..128 caracteres alfanuméricos, '-' o '_'".to_owned(),
+            );
+        }
+        request.idempotency_key = Some(key);
+    }
+    Ok(request)
+}
+
+const AUDIT_MAX_BYTES: u64 = 1_000_000;
+const AUDIT_KEEP_LINES: usize = 400;
+static AUDIT_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn audit_path(app: &AppHandle) -> Option<PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|directory| directory.join("mcp-live-audit.jsonl"))
+}
+
+fn truncate_summary(value: Option<&serde_json::Value>) -> String {
+    value
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("")
+        .chars()
+        .take(300)
+        .collect()
+}
+
+fn append_audit_at(path: &Path, entry: &serde_json::Value) {
+    let lock = AUDIT_LOCK.get_or_init(|| Mutex::new(()));
+    let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(parent) = path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{entry}");
+    }
+    let oversized = fs::metadata(path)
+        .map(|metadata| metadata.len() > AUDIT_MAX_BYTES)
+        .unwrap_or(false);
+    if !oversized {
+        return;
+    }
+    let text = fs::read_to_string(path).unwrap_or_default();
+    let lines: Vec<&str> = text.lines().collect();
+    let start = lines.len().saturating_sub(AUDIT_KEEP_LINES);
+    let rotated = lines[start..].join("\n") + "\n";
+    let temporary = path.with_extension("jsonl.tmp");
+    if fs::write(&temporary, rotated).is_ok() {
+        let _ = fs::remove_file(path);
+        let _ = fs::rename(&temporary, path);
+    }
+}
+
+fn append_audit(app: &AppHandle, entry: &serde_json::Value) {
+    if let Some(path) = audit_path(app) {
+        append_audit_at(&path, entry);
+    }
+}
+
+fn read_audit_at(path: &Path, limit: usize) -> Vec<serde_json::Value> {
+    let text = fs::read_to_string(path).unwrap_or_default();
+    let mut entries: Vec<serde_json::Value> = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect();
+    let start = entries.len().saturating_sub(limit);
+    entries.drain(..start);
+    entries
+}
+
+fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        if name == key {
+            Some(value)
+        } else {
+            None
+        }
+    })
+}
+
+fn sse_frame(id: u64, payload: &str) -> String {
+    let event_type = serde_json::from_str::<serde_json::Value>(payload)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("type")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| "message".to_owned());
+    format!("id: {id}\nevent: {event_type}\ndata: {payload}\n\n")
+}
+
+fn live_events_route(mut stream: TcpStream, app: &AppHandle, last_event_id: Option<u64>) {
+    let state = app.state::<AppState>();
+    if !state.live_mcp.is_enabled() {
+        respond(
+            stream,
+            403,
+            error_body("El control en vivo está desactivado en Ajustes → MCP."),
+        );
+        return;
+    }
+    let receiver = state.live_mcp.subscribe_events();
+    let header = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream; charset=utf-8\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nX-Accel-Buffering: no\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
+    if stream.write_all(header.as_bytes()).is_err() {
+        return;
+    }
+    if let Some(last_id) = last_event_id {
+        for (id, payload) in state.live_mcp.events_since(last_id) {
+            if stream
+                .write_all(sse_frame(id, &payload).as_bytes())
+                .is_err()
+            {
+                return;
+            }
+        }
+    }
+    let _ = stream.flush();
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
+    loop {
+        match receiver.recv_timeout(Duration::from_secs(15)) {
+            Ok(payload) => {
+                let id = serde_json::from_str::<serde_json::Value>(&payload)
+                    .ok()
+                    .and_then(|value| value.get("eventId").and_then(serde_json::Value::as_u64))
+                    .unwrap_or(0);
+                if stream.write_all(sse_frame(id, &payload).as_bytes()).is_err() {
+                    break;
+                }
+                if stream.flush().is_err() {
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if stream.write_all(b": keep-alive\n\n").is_err() {
+                    break;
+                }
+                if stream.flush().is_err() {
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
+fn live_audit_route(stream: TcpStream, app: &AppHandle, query: &str) {
+    let state = app.state::<AppState>();
+    if !state.live_mcp.is_enabled() {
+        respond(
+            stream,
+            403,
+            error_body("El control en vivo está desactivado en Ajustes → MCP."),
+        );
+        return;
+    }
+    let limit = query_value(query, "limit")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(50)
+        .clamp(1, 200);
+    let entries = audit_path(app)
+        .map(|path| read_audit_at(&path, limit))
+        .unwrap_or_default();
+    respond(
+        stream,
+        200,
+        json!({ "ok": true, "entries": entries }).to_string(),
+    );
+}
+
+fn live_tools_route(stream: TcpStream, app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if !state.live_mcp.is_enabled() {
+        respond(
+            stream,
+            403,
+            error_body("El control en vivo está desactivado en Ajustes → MCP."),
+        );
+        return;
+    }
+    match state.live_mcp.tools_snapshot() {
+        Some(tools) => respond(
+            stream,
+            200,
+            json!({ "ok": true, "app": "editor-ia", "tools": tools }).to_string(),
+        ),
+        None => respond(
+            stream,
+            409,
+            error_body("La app todavía no registró las herramientas del agente."),
+        ),
+    }
+}
+
+fn live_tool_route(stream: TcpStream, app: &AppHandle, body: &[u8]) {
+    let request = match parse_live_tool_request(body) {
+        Ok(request) => request,
+        Err(error) => {
+            respond(stream, 400, error_body(error));
+            return;
+        }
+    };
+    let state = app.state::<AppState>();
+    if !state.live_mcp.is_enabled() {
+        respond(
+            stream,
+            403,
+            error_body("El control en vivo está desactivado en Ajustes → MCP."),
+        );
+        return;
+    }
+    let idempotency_key = request.idempotency_key.as_deref();
+    if let Some(key) = idempotency_key {
+        if let Some(mut cached) = state.live_mcp.cached_outcome(key) {
+            if let Some(object) = cached.as_object_mut() {
+                object.insert("cached".to_owned(), json!(true));
+            }
+            let at = now_ms();
+            let ok = cached
+                .get("ok")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let summary = truncate_summary(cached.get("summary"));
+            append_audit(
+                app,
+                &json!({
+                    "atMs": at,
+                    "durationMs": 0,
+                    "tool": request.tool,
+                    "ok": ok,
+                    "cached": true,
+                    "summary": summary,
+                }),
+            );
+            state.live_mcp.emit_event(&json!({
+                "type": "tool_finished",
+                "tool": request.tool,
+                "ok": ok,
+                "cached": true,
+                "durationMs": 0,
+                "summary": summary,
+                "atMs": at,
+            }));
+            respond(stream, 200, cached.to_string());
+            return;
+        }
+    }
+    let emitter = app.clone();
+    let timeout = match request.tool.as_str() {
+        // Horneado WebGL/WebCodecs y render FFmpeg pueden exceder 30 s en
+        // equipos modestos; el resto de herramientas no debe esperar tanto.
+        "rig_add" | "three_add" | "render_start" | "render_scene" => Duration::from_secs(120),
+        _ => Duration::from_secs(30),
+    };
+    let started = Instant::now();
+    let at = now_ms();
+    state.live_mcp.emit_event(&json!({
+        "type": "tool_started",
+        "tool": request.tool,
+        "atMs": at,
+    }));
+    let outcome = state.live_mcp.call(
+        &request.tool,
+        request.arguments,
+        |request_id, payload| {
+            emitter
+                .emit("mcp-live-request", payload)
+                .map_err(|error| error.to_string())
+        },
+        timeout,
+    );
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let ok = outcome
+        .get("ok")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let summary = truncate_summary(outcome.get("summary"));
+    if let Some(key) = idempotency_key {
+        state.live_mcp.remember_outcome(key, &outcome);
+    }
+    append_audit(
+        app,
+        &json!({
+            "atMs": at,
+            "durationMs": duration_ms,
+            "tool": request.tool,
+            "ok": ok,
+            "cached": false,
+            "summary": summary,
+        }),
+    );
+    state.live_mcp.emit_event(&json!({
+        "type": "tool_finished",
+        "tool": request.tool,
+        "ok": ok,
+        "cached": false,
+        "durationMs": duration_ms,
+        "summary": summary,
+        "atMs": at,
+    }));
+    respond(stream, 200, outcome.to_string());
 }
 
 fn provider_error(message: impl Into<String>) -> ProjectError {
@@ -229,7 +576,8 @@ fn read_http(stream: &mut TcpStream) -> Option<HttpRequest> {
             let mut lines = head.split("\r\n");
             let mut request_parts = lines.next()?.split_whitespace();
             let method = request_parts.next()?.to_ascii_uppercase();
-            let path = request_parts.next()?.split('?').next()?.to_owned();
+            let target = request_parts.next()?;
+            let (path, query) = target.split_once('?').unwrap_or((target, ""));
             let mut headers = BTreeMap::new();
             for line in lines {
                 if let Some((key, value)) = line.split_once(':') {
@@ -257,7 +605,8 @@ fn read_http(stream: &mut TcpStream) -> Option<HttpRequest> {
                 .to_vec();
             return Some(HttpRequest {
                 method,
-                path,
+                path: path.to_owned(),
+                query: query.to_owned(),
                 headers,
                 body,
             });
@@ -342,11 +691,23 @@ fn handle_connection(
         );
         return;
     }
+    let query = request.query.as_str();
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/v1/ping") => {
             respond(stream, 200, json!({ "ok": true }).to_string());
         }
         ("POST", "/v1/probe") => probe_route(stream, app, &request.body),
+        ("GET", "/v1/mcp/tools") => live_tools_route(stream, app),
+        ("GET", "/v1/mcp/events") => live_events_route(
+            stream,
+            app,
+            request
+                .headers
+                .get("last-event-id")
+                .and_then(|value| value.parse::<u64>().ok()),
+        ),
+        ("GET", "/v1/mcp/audit") => live_audit_route(stream, app, query),
+        ("POST", "/v1/mcp/tool") => live_tool_route(stream, app, &request.body),
         ("POST", "/v1/download") => download_route(
             stream,
             app,
@@ -805,6 +1166,51 @@ mod tests {
             "video (2).mp4"
         );
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn live_tool_requests_are_validated() {
+        let ok = parse_live_tool_request(
+            br#"{"tool":"project_inspect","arguments":{"detail":"full"}}"#,
+        )
+        .unwrap();
+        assert_eq!(ok.tool, "project_inspect");
+        assert_eq!(ok.arguments["detail"], json!("full"));
+        let empty = parse_live_tool_request(br#"{"tool":"project_inspect"}"#).unwrap();
+        assert_eq!(empty.arguments, json!({}));
+        assert!(parse_live_tool_request(br#"{"tool":""}"#).is_err());
+        assert!(parse_live_tool_request(br#"{"tool":"x","arguments":[]}"#).is_err());
+        assert!(parse_live_tool_request(br#"{"tool":"x","arguments":"no"}"#).is_err());
+        assert!(parse_live_tool_request(b"no json").is_err());
+        let keyed = parse_live_tool_request(
+            br#"{"tool":"x","idempotencyKey":"  pedido_123  "}"#,
+        )
+        .unwrap();
+        assert_eq!(keyed.idempotency_key.as_deref(), Some("pedido_123"));
+        assert!(parse_live_tool_request(br#"{"tool":"x","idempotencyKey":"corto"}"#).is_err());
+        assert!(parse_live_tool_request(
+            br#"{"tool":"x","idempotencyKey":"clave con espacios"}"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn audit_roundtrip_caps_and_reads_last_entries() {
+        let directory = std::env::temp_dir().join(format!("editor-ia-audit-{}", Uuid::new_v4()));
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("audit.jsonl");
+        for index in 0..5 {
+            append_audit_at(
+                &path,
+                &json!({ "tool": format!("tool-{index}"), "ok": true, "atMs": index }),
+            );
+        }
+        let entries = read_audit_at(&path, 3);
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[2]["tool"], json!("tool-4"));
+        assert_eq!(query_value("limit=10&x=1", "limit"), Some("10"));
+        assert_eq!(query_value("x=1", "limit"), None);
+        let _ = fs::remove_dir_all(&directory);
     }
 
     #[test]

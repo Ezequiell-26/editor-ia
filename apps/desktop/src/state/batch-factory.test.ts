@@ -58,4 +58,36 @@ describe('fábrica de contenido', () => {
     expect(assembled.captions.cues.length).toBeGreaterThan(0);
     expect(assembled.assets.every((asset) => asset.status === 'ready')).toBe(true);
   });
+
+  it('aplica el ritmo pedido a las transiciones de la variante', async () => {
+    const service = createFakeService();
+    const plan = planVariants(BRIEF)[0]!;
+    const generated = await generateVariant(service, BRIEF, plan, [IMAGE], {
+      photoMotion: 'auto',
+      transitionFrames: 20,
+      transitionRhythm: 'calm',
+      confirmRights: true,
+      approveCost: false,
+    });
+    const calm = assembleVariant(generated.project, generated.narrations, {
+      photoMotion: 'auto',
+      transitionFrames: 20,
+      transitionRhythm: 'calm',
+      confirmRights: true,
+    });
+    const punchy = assembleVariant(generated.project, generated.narrations, {
+      photoMotion: 'auto',
+      transitionFrames: 20,
+      transitionRhythm: 'punchy',
+      confirmRights: true,
+    });
+    const firstTransition = (project: typeof calm): number => {
+      const clip = project.timeline.clips.find(
+        (item) => 'transitionIn' in item && item.transitionIn !== undefined,
+      );
+      return clip && 'transitionIn' in clip ? (clip.transitionIn?.frames ?? 0) : 0;
+    };
+    expect(firstTransition(calm)).toBeGreaterThan(0);
+    expect(firstTransition(punchy)).toBeGreaterThan(firstTransition(calm));
+  });
 });

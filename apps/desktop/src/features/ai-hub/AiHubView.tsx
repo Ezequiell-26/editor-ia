@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NAV_VIEWS, type ViewId } from '../../app/navigation';
+import { openSettingsAt } from '../../app/settings-target';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import type { ProviderInfo } from '../../services/project-service';
@@ -138,8 +139,9 @@ export function AiHubView({
     } else if (action.kind === 'save') {
       reply = (await store.saveNow()) ? 'Proyecto guardado.' : 'No hay un proyecto abierto para guardar.';
     } else if (action.kind === 'export') {
+      onNavigate('editor');
       store.requestExport();
-      reply = 'Abrí el diálogo de exportación.';
+      reply = 'Abriendo el editor con el diálogo de exportación.';
     } else if (action.kind === 'create') {
       localStorage.setItem('editoria.factory.brief', action.topic);
       onNavigate('factory');
@@ -228,7 +230,14 @@ export function AiHubView({
       <ViewToolbar
         label="AI Hub"
         actions={
-          <button type="button" className="ghost icon-text" onClick={() => onNavigate('settings')}>
+          <button
+            type="button"
+            className="ghost icon-text"
+            onClick={() => {
+              openSettingsAt('ia');
+              onNavigate('settings');
+            }}
+          >
             <Icon name="settings" size={14} />
             <span>Proveedor</span>
           </button>
@@ -296,9 +305,7 @@ export function AiHubView({
         <div>
           <strong>
             {provider
-              ? provider.kind === 'mock'
-                ? 'Proveedor simulado'
-                : `${provider.model || 'Proveedor'} · ${provider.baseUrl}`
+              ? `${provider.model || 'Proveedor'} · ${provider.baseUrl}`
               : 'Proveedor no consultado'}
           </strong>
           <span>
@@ -306,7 +313,14 @@ export function AiHubView({
             este proveedor; si es remoto, esas vistas piden autorización de cuota.
           </span>
         </div>
-        <button type="button" className="ghost" onClick={() => onNavigate('settings')}>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => {
+            openSettingsAt('ia');
+            onNavigate('settings');
+          }}
+        >
           Cambiar
         </button>
       </div>

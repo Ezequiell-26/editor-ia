@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ClipSchema, TimelineSchema, TrackSchema } from './timeline.ts';
+import { ClipSchema, ClipTransitionSchema, TimelineSchema, TrackSchema } from './timeline.ts';
+import { sampleEffectKeyframes } from './effect-keyframes.ts';
 
 const TRACK_VIDEO = '11111111-1111-4111-8111-111111111111';
 const TRACK_AUDIO = '22222222-2222-4222-8222-222222222222';
@@ -337,6 +338,60 @@ describe('ClipSchema', () => {
     ).toBe(false);
   });
 
+  it('acepta una curva de velocidad aunque la ventana no tenga velocidad constante', () => {
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          durationFrames: 100,
+          source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 88 },
+          speedCurve: {
+            points: [
+              { t: 0, speed: 0.5 },
+              { t: 0.5, speed: 0.5 },
+              { t: 1, speed: 2 },
+            ],
+          },
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it('rechaza una curva combinada con reverse', () => {
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          durationFrames: 100,
+          reverse: true,
+          source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 88 },
+          speedCurve: {
+            points: [
+              { t: 0, speed: 0.5 },
+              { t: 1, speed: 2 },
+            ],
+          },
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('sigue rechazando velocidad constante y curva en el mismo clip', () => {
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          durationFrames: 100,
+          speed: { num: 1, den: 1 },
+          source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 88 },
+          speedCurve: {
+            points: [
+              { t: 0, speed: 0.5 },
+              { t: 1, speed: 2 },
+            ],
+          },
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
   it('accepts an image clip held for a duration with no source window', () => {
     expect(
       ClipSchema.safeParse(
@@ -488,5 +543,110 @@ describe('TimelineSchema', () => {
   it('rejects duplicate layer orders', () => {
     const second = videoTrack({ id: TRACK_AUDIO, kind: 'audio' });
     expect(timeline([videoTrack(), second], []).success).toBe(false);
+  });
+});
+
+describe('ClipEffectKeyframes', () => {
+  it('acepta keyframes de brillo/contraste/saturación dentro del clip', () => {
+    const clip = videoClip({
+      effectKeyframes: [
+        { frame: 10, property: 'brightness', value: 0.4, easing: 'ease-in' },
+        { frame: 40, property: 'brightness', value: -0.2 },
+        { frame: 40, property: 'contrast', value: 1.4 },
+        { frame: 20, property: 'blur', value: 6 },
+        { frame: 25, property: 'hueRotateDeg', value: 45 },
+        { frame: 30, property: 'lutIntensity', value: 0.5 },
+        { frame: 35, property: 'glowIntensity', value: 0.7 },
+        { frame: 40, property: 'grain', value: 0.4 },
+      ],
+    });
+    expect(timeline([videoTrack()], [clip]).success).toBe(true);
+  });
+
+  it('rechaza frames fuera del clip, valores fuera de rango y propiedades desconocidas', () => {
+    const late = videoClip({
+      effectKeyframes: [{ frame: 500, property: 'brightness', value: 0.4 }],
+    });
+    expect(timeline([videoTrack()], [late]).success).toBe(false);
+    const high = videoClip({
+      effectKeyframes: [{ frame: 10, property: 'blur', value: 90 }],
+    });
+    expect(timeline([videoTrack()], [high]).success).toBe(false);
+    const unknown = videoClip({
+      effectKeyframes: [{ frame: 10, property: 'glow', value: 1 }],
+    });
+    expect(timeline([videoTrack()], [unknown]).success).toBe(false);
+    const lutOutOfRange = videoClip({
+      effectKeyframes: [{ frame: 10, property: 'lutIntensity', value: 1.5 }],
+    });
+    expect(timeline([videoTrack()], [lutOutOfRange]).success).toBe(false);
+    const glowOutOfRange = videoClip({
+      effectKeyframes: [{ frame: 10, property: 'glowIntensity', value: -0.1 }],
+    });
+    expect(timeline([videoTrack()], [glowOutOfRange]).success).toBe(false);
+    const grainOutOfRange = videoClip({
+      effectKeyframes: [{ frame: 10, property: 'grain', value: 1.5 }],
+    });
+    expect(timeline([videoTrack()], [grainOutOfRange]).success).toBe(false);
+  });
+
+  it('muestrea con clamp, interpolación y hold', () => {
+    const keyframes = [
+      { frame: 0, property: 'brightness' as const, value: 0, easing: 'linear' as const },
+      { frame: 10, property: 'brightness' as const, value: 1, easing: 'linear' as const },
+      { frame: 20, property: 'brightness' as const, value: 0.2, easing: 'hold' as const },
+      { frame: 30, property: 'brightness' as const, value: 0.8 },
+    ];
+    expect(sampleEffectKeyframes(keyframes, -5)).toEqual({ brightness: 0 });
+    expect(sampleEffectKeyframes(keyframes, 5)).toEqual({ brightness: 0.5 });
+    expect(sampleEffectKeyframes(keyframes, 10)).toEqual({ brightness: 1 });
+    expect(sampleEffectKeyframes(keyframes, 15)).toEqual({ brightness: 0.6 });
+    expect(sampleEffectKeyframes(keyframes, 25)).toEqual({ brightness: 0.2 });
+    expect(sampleEffectKeyframes(keyframes, 20)).toEqual({ brightness: 0.2 });
+    expect(sampleEffectKeyframes(keyframes, 99)).toEqual({ brightness: 0.8 });
+    expect(sampleEffectKeyframes([], 4)).toEqual({});
+    expect(
+      sampleEffectKeyframes(
+        [
+          { frame: 0, property: 'blur' as const, value: 0 },
+          { frame: 10, property: 'blur' as const, value: 10 },
+        ],
+        5,
+      ),
+    ).toEqual({ blur: 5 });
+  });
+});
+
+describe('ClipTransitionSchema', () => {
+  it('accepts the four professional wipes and the iris reveal', () => {
+    for (const type of ['wipe-left', 'wipe-right', 'wipe-up', 'wipe-down', 'iris'] as const) {
+      expect(ClipTransitionSchema.safeParse({ type, frames: 12 }).success).toBe(true);
+      expect(
+        ClipTransitionSchema.safeParse({ type, frames: 12, easing: 'ease-in' }).success,
+      ).toBe(true);
+    }
+  });
+
+  it('keeps rejecting unknown transitions and frames above the cap', () => {
+    expect(ClipTransitionSchema.safeParse({ type: 'burn', frames: 12 }).success).toBe(false);
+    expect(ClipTransitionSchema.safeParse({ type: 'wipe-left', frames: 121 }).success).toBe(false);
+    expect(
+      ClipTransitionSchema.safeParse({ type: 'wipe-left', frames: 12, easing: 'bounce' })
+        .success,
+    ).toBe(false);
+    expect(
+      ClipTransitionSchema.safeParse({
+        type: 'fade-black',
+        frames: 12,
+        easing: 'ease-in',
+      }).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        videoClip({
+          effectKeyframes: [{ frame: 5, property: 'hueRotateDeg', value: 200 }],
+        }),
+      ).success,
+    ).toBe(false);
   });
 });

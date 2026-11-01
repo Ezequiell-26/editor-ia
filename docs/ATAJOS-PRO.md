@@ -115,3 +115,13 @@ contenedor de la timeline (`EditorWorkspace.tsx`), junto a Supr y S:
   siguen operando igual y los 🟡 no rompen nada mientras se cablean.
 - Test de validación: `npx vitest run --no-cache apps/desktop/src/state/shortcuts-pro.test.ts`
   (estructura del registro, teclas sin duplicar, acción real por atajo).
+
+## Recorte con ripple (2026-11-01)
+
+- **`Ctrl+Shift+→` · `edit.rippleTrimOut`**: recorta la salida del clip
+  seleccionado al playhead y corre el resto de la pista el mismo delta. Si el
+  playhead está antes del inicio del clip, avisa y no toca nada; si el recorte
+  no es posible (pista bloqueada o frame fuera de la ventana de origen), avisa
+  sin mutar. Implementado con `rippleTrimClip` en `state/project-actions.ts` y
+  cableado en `App.tsx`; cobertura en `project-actions.test.ts` y
+  `shortcuts-pro.test.ts`.

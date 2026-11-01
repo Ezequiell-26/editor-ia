@@ -348,15 +348,17 @@ Estilo y Todo** (solo aparecen las que aplican al tipo de clip). La pestaña
   playhead, cambiá los valores y capturá otra para animarla; la preview
   interpola y dibuja la rotación con un SVG, y el MP4 aplica la máscara por
   píxel con `geq`.
-- **LUT 3D con intensidad**: en **Color y efectos → LUT 3D**, cargá un `.cube`.
-  Se copia a `media/luts` y se aplica en el MP4 con `lut3d`. El campo
-  **Intensidad LUT (%)** mezcla el resultado con el original; 0 % equivale a no
-  aplicar el LUT. La misma mezcla existe en el look global y en las capas de
-  ajuste. La preview no simula el LUT; revisá el MP4.
+- **LUT 3D o 1D con intensidad**: en **Color y efectos → LUT**, cargá un `.cube`.
+  Se copia a `media/luts` y se aplica en el MP4 con `lut3d` o `lut1d` según el
+  encabezado. El campo **Intensidad LUT (%)** mezcla el resultado con el
+  original y se puede animar con keyframes; 0 % equivale a no aplicar el LUT.
+  La misma mezcla existe en el look global y en las capas de ajuste. La preview
+  lo aplica con WebGL2 (grade del clip antes del LUT); los videos con alfa
+  conservan el canal y las capas gráficas del look global quedan sin LUT en vivo.
 - **Scopes**: en la preview pulsá **Scopes**. El panel muestra onda de
   luminancia, vectorscopio de croma e histograma RGB del clip visual activo,
-  con el grade CSS de la preview. No incluye LUT, títulos, máscaras ni recortes,
-  y no reemplaza la medición del MP4.
+  con el grade CSS de la preview y el LUT ya aplicado. No incluye títulos,
+  máscaras ni recortes, y no reemplaza la medición del MP4.
 - **Efecto de voz**: grave, aguda, robot, eco, cueva o radio/teléfono. Se aplica
   en el render con filtros locales; la preview reproduce la voz original.
 - **Subtítulos**: estilos, edición de tiempos y texto; la transcripción local
@@ -737,8 +739,9 @@ sólo en el MP4; no es un modelo generativo). Smart reframe usa SeetaFace local,
 se puede previsualizar el track de rostro y cae al centro si no encuentra una
 cara. Tampoco hay matting por IA. Los scopes muestrean el clip activo con
 el grade CSS de la preview; no reflejan LUT, títulos, máscaras, recortes ni el
-compuesto final. Las transiciones son disolvencia, fundido a negro/blanco y
-deslizamientos laterales/verticales, sin crossfade solapado ni wipes de máscara.
+compuesto final. Las transiciones son disolvencia, fundido a negro/blanco,
+deslizamientos laterales/verticales, barridos por máscara e iris circular, con
+crossfade solapado y solape limitado.
 La vista **Efectos** ya está conectada a `list_visual_catalog` y `audit_visuals`;
 el renderer limita el solape de una transición a 2 s aunque el esquema admita
 más frames. No hay biblioteca de música/SFX/B-roll con licencia ni descarga de stock.
@@ -765,21 +768,31 @@ MCP.
 ## Motion graphics sin salir de la app
 
 1. Abrí **Motion** en Herramientas y elegí una plantilla: título de apertura,
-   lower third, cierre o dato destacado.
+   lower third, cierre, dato destacado o **Explosión de partículas**.
 2. Completá las props (texto, rol, colores, lado y animación), ajustá la
    duración y mové el control de preview para ver la entrada.
-3. Opcional: escribí un brief y pulsá **Generar con IA**. Si el proveedor es
+3. En **Explosión de partículas** ajustá cantidad (6–15), color, dispersión y
+   semilla: los círculos son propios y deterministas (sin assets externos), y
+   el texto es opcional. La misma semilla produce la misma preview y el mismo
+   `\move` del render ASS.
+4. Opcional: escribí un brief y pulsá **Generar con IA**. Si el proveedor es
    remoto, autorizá expresamente la posible cuota; la app valida las props y las
    muestra en la preview. Nada se agrega sin tu confirmación.
-4. Pulsá **Agregar a la timeline**. Se crea una pista gráfica con el clip; podés
+5. Pulsá **Agregar a la timeline**. Se crea una pista gráfica con el clip; podés
    editar las props desde el Inspector del clip.
-5. Exportá normalmente. El gráfico se quema antes que los subtítulos con
+6. Exportá normalmente. El gráfico se quema antes que los subtítulos con
    FFmpeg/libass; no necesita Node ni conexión.
 
 Para agentes externos, el servidor MCP de motion se registra en **Ajustes →
 Servidores MCP** con el comando `node` y el argumento
 `apps/motion-mcp/src/server.mjs`. Expone `motion_list_templates`,
 `motion_create` y `motion_validate`; el render sigue siendo de la app.
+
+**Overlays propios**: en Motion, la sección **Overlays propios** ofrece cinco
+recursos generados por Olyvia (fugas cálida/fría, polvo, bokeh y una mascota
+con alfa), sin stock de terceros. Al pulsar **Agregar**, se copian al proyecto
+y se montan en una pista **Overlays** con la mezcla declarada (Screen o Normal);
+podés moverlos, recortarlos o cambiar la mezcla desde el Inspector.
 
 Los gráficos quedan por encima del video compuesto. Si necesitás un gráfico
 debajo de otra pista, hoy no está soportado. Las transiciones, efectos y clips

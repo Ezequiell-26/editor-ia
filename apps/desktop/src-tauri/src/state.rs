@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
-use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::license::LicenseTier;
+use crate::projects::service::{ProjectError, ProjectErrorCode};
 
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -41,10 +41,12 @@ impl Session {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderSettings {
-    /// `openai-compatible` or `mock`.
+    /// Protocolo del chat/guion: `openai-compatible`.
     pub kind: String,
     pub base_url: String,
     pub model: String,
+    /// Protocolo del agente de herramientas: `openai-compatible` o `anthropic`.
+    pub agent_kind: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +88,9 @@ impl Settings {
         if self.provider.kind.is_empty() {
             self.provider.kind = "openai-compatible".to_owned();
         }
+        if self.provider.agent_kind.is_empty() {
+            self.provider.agent_kind = "openai-compatible".to_owned();
+        }
         if self.audio_provider.kind.is_empty() {
             self.audio_provider.kind = "windows-sapi".to_owned();
         }
@@ -116,6 +121,7 @@ pub struct AppState {
     pub thumbnails: Mutex<HashMap<String, String>>,
     pub analysis_cache: Mutex<HashMap<String, crate::commands::intelligence::MediaAnalysis>>,
     pub downloader_bridge: Mutex<Option<crate::commands::downloader_bridge::BridgeRuntime>>,
+    pub live_mcp: crate::commands::live_mcp::LiveMcp,
 }
 
 impl AppState {
@@ -152,6 +158,7 @@ impl AppState {
             thumbnails: Mutex::new(HashMap::new()),
             analysis_cache: Mutex::new(HashMap::new()),
             downloader_bridge: Mutex::new(None),
+            live_mcp: crate::commands::live_mcp::LiveMcp::default(),
         }
     }
 

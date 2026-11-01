@@ -1,0 +1,430 @@
+/*
+ * Studio layout — paneles redimensionables, modos de foco y responsive.
+ * Se carga último para ganarle a las reglas !important de resolve-theme.css.
+ */
+
+.app-shell.editor-immersive .content.content-flush {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.editor-workspace {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+/* Franja única: modos de edición + control del layout. Las dos filas
+   separadas de 32 px se funden en una sola de ~34 px para devolverle alto
+   al visor en pantallas de 1360×768. */
+.editor-top-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 34px;
+  padding: 0 8px 0 0;
+  background: #101114;
+  border-bottom: 1px solid var(--color-border);
+  min-width: 0;
+}
+
+.editor-top-strip .editor-mode-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 10px;
+  background: transparent;
+}
+
+.editor-top-strip .studio-layout-tools {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  /* En ventanas cortas el layout pasa a iconos: los rótulos largos se
+     ocultan para no aplastar los modos de edición. */
+  .editor-top-strip {
+    flex-wrap: wrap;
+    padding-right: 6px;
+  }
+  .editor-top-strip .editor-mode-tabs {
+    padding: 3px 6px;
+  }
+}
+
+/* Barra de herramientas del diseño, dentro de la franja superior. */
+.studio-layout-tools {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 0;
+  background: transparent;
+  border-bottom: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.studio-layout-tools::-webkit-scrollbar {
+  display: none;
+}
+.studio-layout-tool {
+  flex: 0 0 auto;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: #94a3b6;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+.studio-layout-tool:hover {
+  background: #23262b;
+  color: #e6edf6;
+}
+.studio-layout-tool[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  color: #eaf8ff;
+}
+.studio-layout-tool.ghost {
+  margin-left: auto;
+  color: #7f8da0;
+}
+.studio-layout-tool.ghost:hover {
+  color: #dbe7f4;
+}
+.studio-layout-separator {
+  flex: 0 0 1px;
+  height: 16px;
+  background: var(--color-border);
+  margin: 0 4px;
+}
+
+/* Grid gobernado por variables. */
+.editor-grid.studio-grid {
+  position: relative;
+  display: grid !important;
+  grid-template-columns:
+    var(--studio-left, 270px)
+    minmax(0, 1fr)
+    var(--studio-right, 290px) !important;
+  grid-template-rows: minmax(0, 1fr) var(--studio-timeline, 268px) !important;
+  gap: 1px !important;
+  flex: 1 1 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  background: var(--color-border) !important;
+}
+
+.studio-grid .preview-panel {
+  min-height: 0 !important;
+}
+.studio-grid .preview-panel .preview-stage {
+  min-height: 0 !important;
+  flex: 1 1 auto !important;
+}
+.studio-grid .timeline-panel {
+  min-height: 0 !important;
+}
+
+/* Divisores. */
+.studio-splitter {
+  position: absolute;
+  z-index: 24;
+  outline: none;
+  touch-action: none;
+}
+.studio-splitter > span {
+  position: absolute;
+  inset: 0;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+.studio-splitter:hover > span,
+.studio-splitter:focus-visible > span {
+  background: color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+.studio-splitter-x {
+  top: 0;
+  bottom: var(--studio-timeline, 268px);
+  width: 9px;
+  cursor: col-resize;
+}
+.studio-splitter-left {
+  left: calc(var(--studio-left, 270px) - 4px);
+}
+.studio-splitter-right {
+  right: calc(var(--studio-right, 290px) - 4px);
+}
+.studio-splitter-y {
+  left: 0;
+  right: 0;
+  bottom: calc(var(--studio-timeline, 268px) - 4px);
+  height: 9px;
+  cursor: row-resize;
+}
+
+/* Paneles colapsados: el panel sigue montado, pero sin ocupar ancho. */
+.studio-left-collapsed .asset-rail,
+.studio-right-collapsed .inspector {
+  display: none !important;
+}
+.studio-timeline-collapsed .timeline-panel .timeline-scroll,
+.studio-timeline-collapsed .timeline-panel .timeline-toolbar,
+.studio-timeline-collapsed .timeline-panel .timeline-empty {
+  display: none !important;
+}
+
+/* Modos de foco. */
+.studio-focus-viewer .asset-rail,
+.studio-focus-viewer .inspector,
+.studio-focus-viewer .timeline-panel {
+  display: none !important;
+}
+.studio-focus-viewer .preview-panel {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 / -1 !important;
+}
+.studio-focus-timeline .asset-rail,
+.studio-focus-timeline .inspector,
+.studio-focus-timeline .preview-panel {
+  display: none !important;
+}
+.studio-focus-timeline .timeline-panel {
+  grid-column: 1 / -1 !important;
+  grid-row: 1 / -1 !important;
+}
+.studio-focus-viewer .studio-splitter,
+.studio-focus-timeline .studio-splitter {
+  display: none !important;
+}
+
+/* La barra de la timeline no debe desaparecer en ventanas medianas. */
+.studio-grid .timeline-toolbar {
+  overflow-x: auto !important;
+  flex-wrap: nowrap !important;
+  scrollbar-width: thin;
+}
+
+@media (max-width: 999px) {
+  .editor-grid.studio-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-rows: minmax(0, 1fr) var(--studio-timeline, 246px) !important;
+  }
+  .studio-grid .preview-panel {
+    grid-column: 1 !important;
+  }
+  .studio-grid .timeline-panel {
+    grid-column: 1 !important;
+  }
+  .studio-grid .asset-rail,
+  .studio-grid .inspector {
+    display: none !important;
+  }
+  .studio-grid.studio-drawer-left-open .asset-rail {
+    display: flex !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: var(--studio-timeline, 246px);
+    width: min(340px, 86vw);
+    z-index: 70;
+    box-shadow: 12px 0 30px rgba(0, 0, 0, 0.35);
+  }
+  .studio-grid.studio-drawer-right-open .inspector {
+    display: flex !important;
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: var(--studio-timeline, 246px);
+    width: min(360px, 86vw);
+    z-index: 70;
+    box-shadow: -12px 0 30px rgba(0, 0, 0, 0.35);
+  }
+  .studio-splitter {
+    display: none !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .studio-layout-tools {
+    padding: 0 6px;
+  }
+  .studio-layout-tool {
+    padding: 0 7px;
+  }
+}
+
+/* Estado de medio no disponible: cubre el clip con una explicación útil. */
+.media-missing {
+  position: absolute !important;
+  inset: 0 !important;
+  transform: none !important;
+  z-index: 6;
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 18px;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 40%, rgba(53, 214, 255, 0.08), transparent 60%),
+    #0b0e12;
+  border: 1px dashed rgba(148, 163, 184, 0.32);
+  color: #dbe7f4;
+}
+.media-missing strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.media-missing span {
+  max-width: 46ch;
+  color: #93a4b8;
+  font-size: 11.5px;
+}
+.media-missing .media-missing-hint {
+  color: #6f8094;
+  font-size: 11px;
+}
+.media-missing button {
+  margin-top: 4px;
+}
+
+/* Conmutador de espacios durante Studio: reemplaza al rail oculto. */
+.topbar-workspaces {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+}
+.topbar-workspaces button {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #93a4b8;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.topbar-workspaces button:hover {
+  background: #23262b;
+  color: #e6edf6;
+}
+.topbar-workspaces button[aria-current='page'] {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  color: #eaf8ff;
+}
+@media (max-width: 900px) {
+  .topbar-workspaces button {
+    padding: 0 7px;
+    font-size: 11px;
+  }
+}
+
+/* Flujo de Ingesta: una sola lectura de dónde está parado el usuario. */
+.ingest-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 0 10px;
+}
+.ingest-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: #7f8da0;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.ingest-step:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.ingest-step b {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #23262b;
+  color: #a8b6c8;
+  font-size: 9.5px;
+  font-weight: 600;
+}
+.ingest-step.done {
+  color: #9fb2c7;
+  border-color: rgba(53, 214, 255, 0.22);
+}
+.ingest-step.done b {
+  background: rgba(53, 214, 255, 0.16);
+  color: #c9f2ff;
+}
+.ingest-step.active {
+  color: #eaf8ff;
+  border-color: rgba(53, 214, 255, 0.48);
+  background: rgba(53, 214, 255, 0.08);
+}
+.ingest-step.active b {
+  background: var(--color-accent);
+  color: #041018;
+}
+.ingest-error {
+  margin-bottom: 10px;
+}
+
+/* Inspector contextual: menos ruido cuando no hay selección. */
+.inspector-context-hint {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--color-accent);
+  background: rgba(53, 214, 255, 0.06);
+  color: #9fb2c7;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.inspector-disclosure summary {
+  cursor: pointer;
+  color: #93a4b8;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.inspector-disclosure summary:hover {
+  color: #e6edf6;
+}
+.inspector-disclosure[open] summary {
+  margin-bottom: 6px;
+}
+
+/* Foco visible compartido para teclado (no reemplaza los outlines existentes). */
+:where(button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.preview-look:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+@media (max-width: 900px) {
+  .assistant-panel {
+    right: 10px !important;
+    bottom: 10px !important;
+    width: min(420px, calc(100vw - 20px)) !important;
+    max-height: calc(100vh - 90px) !important;
+  }
+}

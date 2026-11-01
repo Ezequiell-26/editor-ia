@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Flow Queue</title>
+    <style>
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        padding: 14px;
+        width: 264px;
+        background: #0f1218;
+        color: #e7eaf0;
+        font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      h1 { margin: 0 0 4px; font-size: 15px; }
+      p { margin: 0 0 12px; color: #9aa4b2; font-size: 12px; }
+      button {
+        display: block;
+        width: 100%;
+        margin: 6px 0;
+        padding: 9px 10px;
+        border-radius: 8px;
+        border: 1px solid #2a303b;
+        background: #1a2029;
+        color: #e7eaf0;
+        font: inherit;
+        cursor: pointer;
+        text-align: left;
+      }
+      button.primary {
+        background: #2f7df6;
+        border-color: #2f7df6;
+        color: #fff;
+        font-weight: 600;
+      }
+      button:hover { border-color: #3b4351; }
+      #status { margin-top: 10px; color: #9aa4b2; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>Flow Queue</h1>
+    <p>Cola de prompts para Google Flow.</p>
+    <button id="open" class="primary" type="button">Abrir panel de cola</button>
+    <button id="flow" type="button">Abrir Google Flow</button>
+    <p id="status">Si el panel lateral no se abre, usá “Abrir panel de cola”.</p>
+    <script src="popup.js"></script>
+  </body>
+</html>

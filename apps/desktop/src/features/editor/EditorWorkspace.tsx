@@ -13,6 +13,15 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
+import { updateEditorPreferences } from '../../state/editor-preferences';
+import { PanelSplitter } from './PanelSplitter';
+import {
+  clampStudioWidth,
+  studioGridClasses,
+  studioGridStyle,
+  studioLayoutFromPreferences,
+  type StudioFocus,
+} from './studio-layout';
 import {
   clipKeyboardAction,
   nearestCompatibleTrack,
@@ -126,6 +135,14 @@ export function EditorWorkspace({
   const project = store.state.project;
   const preferences = useEditorPreferences();
   const [exportOpen, setExportOpen] = useState(false);
+  const [liveLayout, setLiveLayout] = useState<{
+    leftWidth?: number;
+    rightWidth?: number;
+    timelineHeight?: number;
+  }>({});
+  const [focus, setFocus] = useState<StudioFocus>('none');
+  const [drawers, setDrawers] = useState({ left: false, right: false });
+  const [narrow, setNarrow] = useState(false);
   const [mode, setMode] = useState<EditorMode>(initialMode);
   usePlayback();
 
@@ -294,8 +311,73 @@ export function EditorWorkspace({
       <VisualsView onNavigate={navigateFromMode} />
     ) : null;
 
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(max-width: 999px)');
+    const sync = () => setNarrow(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+
+  const baseLayout = studioLayoutFromPreferences(preferences);
+  const layout = { ...baseLayout, ...liveLayout };
+
+  function setPanelSize(kind: 'left' | 'right' | 'timeline', value: number): void {
+    const key = kind === 'left' ? 'leftWidth' : kind === 'right' ? 'rightWidth' : 'timelineHeight';
+    setLiveLayout((current) => ({ ...current, [key]: value }));
+  }
+
+  function commitPanelSize(kind: 'left' | 'right' | 'timeline', value: number): void {
+    const key = kind === 'left' ? 'leftWidth' : kind === 'right' ? 'rightWidth' : 'timelineHeight';
+    setLiveLayout((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    updateEditorPreferences(
+      kind === 'left'
+        ? { studioLeftWidth: value }
+        : kind === 'right'
+          ? { studioRightWidth: value }
+          : { studioTimelineHeight: value },
+    );
+  }
+
+  function togglePanel(kind: 'left' | 'right' | 'timeline'): void {
+    setFocus('none');
+    if (narrow && kind !== 'timeline') {
+      setDrawers((current) => ({ ...current, [kind]: !current[kind] }));
+      return;
+    }
+    updateEditorPreferences(
+      kind === 'left'
+        ? { studioLeftCollapsed: !baseLayout.leftCollapsed }
+        : kind === 'right'
+          ? { studioRightCollapsed: !baseLayout.rightCollapsed }
+          : { studioTimelineCollapsed: !baseLayout.timelineCollapsed },
+    );
+  }
+
+  function resetStudioLayout(): void {
+    setLiveLayout({});
+    setFocus('none');
+    setDrawers({ left: false, right: false });
+    updateEditorPreferences({
+      studioLeftWidth: 320,
+      studioRightWidth: 340,
+      studioTimelineHeight: 285,
+      studioLeftCollapsed: false,
+      studioRightCollapsed: false,
+      studioTimelineCollapsed: false,
+    });
+  }
+
   return (
     <section className="editor-workspace">
+      {/* Una sola franja superior: los modos a la izquierda y el control del
+          layout a la derecha. Antes eran dos filas de 32 px cada una. */}
+      <div className="editor-top-strip">
       <nav className="editor-mode-tabs" role="tablist" aria-label="Modos de edición">
         {EDITOR_MODES.map((item) => (
           <button
@@ -311,7 +393,69 @@ export function EditorWorkspace({
           </button>
         ))}
       </nav>
-      <div className={`editor-grid${mode !== 'timeline' ? ' editor-mode-active' : ''}`}>
+      {mode === 'timeline' ? (
+      <div className="studio-layout-tools" role="toolbar" aria-label="Diseño del Studio">
+        <button
+          type="button"
+          className="studio-layout-tool"
+          aria-pressed={narrow ? drawers.left : !layout.leftCollapsed}
+          onClick={() => togglePanel('left')}
+          title="Mostrar u ocultar la biblioteca de medios"
+        >
+          Medios
+        </button>
+        <button
+          type="button"
+          className="studio-layout-tool"
+          aria-pressed={narrow ? drawers.right : !layout.rightCollapsed}
+          onClick={() => togglePanel('right')}
+          title="Mostrar u ocultar el inspector"
+        >
+          Inspector
+        </button>
+        <button
+          type="button"
+          className="studio-layout-tool"
+          aria-pressed={!layout.timelineCollapsed}
+          onClick={() => togglePanel('timeline')}
+          title="Mostrar u ocultar la timeline"
+        >
+          Timeline
+        </button>
+        <span className="studio-layout-separator" aria-hidden="true" />
+        <button
+          type="button"
+          className="studio-layout-tool"
+          aria-pressed={focus === 'viewer'}
+          onClick={() => setFocus((current) => (current === 'viewer' ? 'none' : 'viewer'))}
+          title="Maximizar el visor"
+        >
+          Visor ampliado
+        </button>
+        <button
+          type="button"
+          className="studio-layout-tool"
+          aria-pressed={focus === 'timeline'}
+          onClick={() => setFocus((current) => (current === 'timeline' ? 'none' : 'timeline'))}
+          title="Maximizar la timeline"
+        >
+          Timeline ampliada
+        </button>
+        <button
+          type="button"
+          className="studio-layout-tool ghost"
+          onClick={resetStudioLayout}
+          title="Restaurar la distribución predeterminada"
+        >
+          Restablecer
+        </button>
+      </div>
+      ) : null}
+      </div>
+      <div
+        className={`${studioGridClasses(layout, focus, drawers)}${mode !== 'timeline' ? ' editor-mode-active' : ''}`}
+        style={studioGridStyle(layout, focus)}
+      >
         {mode === 'timeline' ? (
           <>
             <Suspense fallback={<AssetsFallback />}>
@@ -331,16 +475,10 @@ export function EditorWorkspace({
           </div>
         )}
         <div className="timeline-panel">
-          <div className="timeline-tabs" role="tablist" aria-label="Secuencias de la timeline">
-            <button
-              type="button"
-              role="tab"
-              aria-selected="true"
-              className="active"
-              title="Secuencia principal del proyecto"
-            >
+          <div className="timeline-tabs">
+            <span className="timeline-tab-static" title="Secuencia principal del proyecto">
               Timeline 01
-            </button>
+            </span>
             <span className="timeline-tabs-meta">
               {project.name} · {(totalFrames(project) / fps).toFixed(1)} s
             </span>
@@ -349,6 +487,50 @@ export function EditorWorkspace({
             <Timeline />
           </Suspense>
         </div>
+        {mode === 'timeline' && focus === 'none' && !narrow ? (
+          <>
+            {!layout.leftCollapsed ? (
+              <PanelSplitter
+                axis="x"
+                side="left"
+                value={layout.leftWidth}
+                min={180}
+                max={520}
+                label="Ancho de la biblioteca de medios"
+                onChange={(value) => setPanelSize('left', value)}
+                onCommit={(value) => commitPanelSize('left', clampStudioWidth('left', value))}
+                onReset={() => commitPanelSize('left', 320)}
+              />
+            ) : null}
+            {!layout.rightCollapsed ? (
+              <PanelSplitter
+                axis="x"
+                side="right"
+                invert
+                value={layout.rightWidth}
+                min={220}
+                max={520}
+                label="Ancho del inspector"
+                onChange={(value) => setPanelSize('right', value)}
+                onCommit={(value) => commitPanelSize('right', clampStudioWidth('right', value))}
+                onReset={() => commitPanelSize('right', 340)}
+              />
+            ) : null}
+            {!layout.timelineCollapsed ? (
+              <PanelSplitter
+                axis="y"
+                invert
+                value={layout.timelineHeight}
+                min={120}
+                max={520}
+                label="Altura de la timeline"
+                onChange={(value) => setPanelSize('timeline', value)}
+                onCommit={(value) => commitPanelSize('timeline', clampStudioWidth('timeline', value))}
+                onReset={() => commitPanelSize('timeline', 285)}
+              />
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       {exportOpen ? (

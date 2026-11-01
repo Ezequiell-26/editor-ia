@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>LUT harness</title>
+    <style>
+      body { font: 13px monospace; background: #111; color: #ddd; margin: 16px; }
+      .row { display: flex; gap: 12px; flex-wrap: wrap; }
+      figure { margin: 0; }
+      canvas { width: 256px; height: 144px; image-rendering: pixelated; border: 1px solid #444; }
+      #status { margin: 12px 0; padding: 8px; background: #1c1c1c; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="status">running</div>
+    <div class="row">
+      <figure>fuente<canvas id="source" width="256" height="144"></canvas></figure>
+      <figure>invert 100%<canvas id="invert" width="256" height="144"></canvas></figure>
+      <figure>invert 50%<canvas id="half" width="256" height="144"></canvas></figure>
+      <figure>brightness(0.5) → invert<canvas id="graded" width="256" height="144"></canvas></figure>
+      <figure>curva 3³<canvas id="curve" width="256" height="144"></canvas></figure>
+      <figure>ruido original<canvas id="noise0" width="256" height="144"></canvas></figure>
+      <figure>denoise 0.9<canvas id="noise1" width="256" height="144"></canvas></figure>
+      <figure>viñeta<canvas id="vignette" width="256" height="144"></canvas></figure>
+      <figure>viñeta gris 0,5<canvas id="vignetteGray" width="256" height="144"></canvas></figure>
+    </div>
+    <div style="display:none"><canvas id="noisy" width="256" height="144"></canvas></div>
+    <script type="module" src="/e2e/lut-harness/harness.ts"></script>
+  </body>
+</html>

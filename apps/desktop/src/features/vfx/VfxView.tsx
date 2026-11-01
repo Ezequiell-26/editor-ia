@@ -6,6 +6,7 @@ import { Icon } from '../../components/Icon';
 import { fpsOf, setMaskKeyframe, updateClip } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { maskFromFaceTrack, polygonAroundCenter } from './face-mask';
+import { maskFromPointTrack, maskFromObjectTrack } from './point-mask';
 import { ChromaPreview, sampleBackgroundColor, type ChromaSettings } from './ChromaPreview';
 
 export interface VfxViewProps {
@@ -257,6 +258,94 @@ export function VfxView({ onNavigate }: VfxViewProps) {
   function removeLastPoint(): void {
     if (!polygon || polygonPoints.length <= 3) return;
     patchMask({ ...polygon, points: polygonPoints.slice(0, -1) });
+  }
+
+  async function trackPoint(): Promise<void> {
+    if (!clip || !asset || clip.kind !== 'video' || clip.source.type !== 'asset' || !polygon) {
+      return;
+    }
+    const polygonPoints = polygon.points ?? [];
+    if (polygonPoints.length === 0) return;
+    const center = polygonPoints.reduce(
+      (sum, point) => ({ x: sum.x + point.x, y: sum.y + point.y }),
+      { x: 0, y: 0 },
+    );
+    const x = center.x / polygonPoints.length;
+    const y = center.y / polygonPoints.length;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await store.service.trackPoint({
+        path: asset.source.path,
+        startSeconds: clip.source.inFrame / fps,
+        endSeconds: clip.source.outFrame / fps,
+        x,
+        y,
+      });
+      const tracked = maskFromPointTrack(result, fps, 0.15);
+      if (!tracked) {
+        setError('El tracker no encontró el punto con suficiente confianza en este clip.');
+        return;
+      }
+      patchMask(tracked);
+      setNotice(
+        `Seguimiento de punto: ${result.points.length} muestras, ${tracked.keyframes?.length ?? 0} claves.`,
+      );
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : 'no se pudo seguir el punto del clip',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function trackObject(): Promise<void> {
+    if (!clip || !asset || clip.kind !== 'video' || clip.source.type !== 'asset' || !polygon) {
+      return;
+    }
+    const polygonPoints = polygon.points ?? [];
+    if (polygonPoints.length === 0) return;
+    const xs = polygonPoints.map((point) => point.x);
+    const ys = polygonPoints.map((point) => point.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const width = Math.max(0.03, Math.min(1, maxX - minX));
+    const height = Math.max(0.03, Math.min(1, maxY - minY));
+    const x = (minX + maxX) / 2;
+    const y = (minY + maxY) / 2;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await store.service.trackObject({
+        path: asset.source.path,
+        startSeconds: clip.source.inFrame / fps,
+        endSeconds: clip.source.outFrame / fps,
+        x,
+        y,
+        width,
+        height,
+      });
+      const tracked = maskFromObjectTrack(result, fps);
+      if (!tracked) {
+        setError('El tracker no encontró el objeto con suficiente confianza en este clip.');
+        return;
+      }
+      patchMask(tracked);
+      setNotice(
+        `Seguimiento de objeto: ${result.points.length} muestras, ${tracked.keyframes?.length ?? 0} claves, caja ${Math.round(width * 100)}×${Math.round(height * 100)} %.`,
+      );
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : 'no se pudo seguir el objeto del clip',
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function trackFace(): Promise<void> {
@@ -602,6 +691,26 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                   >
                     <Icon name="sparkles" size={12} />
                     <span>{busy ? 'Analizando…' : 'Seguir rostro'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    disabled={!polygon || busy || clip?.kind !== 'video'}
+                    onClick={() => void trackPoint()}
+                    title="Sigue el centro del polígono por correlación y traslada la máscara"
+                  >
+                    <Icon name="search" size={12} />
+                    <span>{busy ? 'Analizando…' : 'Seguir punto'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="small"
+                    disabled={!polygon || busy || clip?.kind !== 'video'}
+                    onClick={() => void trackObject()}
+                    title="Sigue la caja del polígono (objeto) y traslada la máscara"
+                  >
+                    <Icon name="search" size={12} />
+                    <span>{busy ? 'Analizando…' : 'Seguir objeto'}</span>
                   </button>
                   <button
                     type="button"

@@ -5,6 +5,7 @@ import type { VoiceInfo } from '../../services/project-service';
 import {
   formatTimecode,
   fpsOf,
+  updateScene,
 } from '../../state/project-actions';
 import {
   prepareAutoEdit,
@@ -13,6 +14,8 @@ import {
 } from '../../state/auto-edit';
 import { useProjectStore } from '../../state/project-store';
 import { ViewToolbar } from '../../components/ViewToolbar';
+import { useRenderQueue } from '../render/RenderQueueProvider';
+import { ENGINES } from '../engine/router';
 import { PublicationReadiness } from './PublicationReadiness';
 
 interface ProductionViewProps {
@@ -28,6 +31,15 @@ function sceneHasReadyAudio(project: { assets: readonly Asset[] }, scene: Scene)
 export function ProductionView({ onNavigate }: ProductionViewProps) {
   const store = useProjectStore();
   const project = store.state.project;
+  const queue = useRenderQueue();
+  const queueRoot = store.state.opened?.root ?? null;
+  const queueItems = queue && queueRoot
+    ? queue.state.items.filter((item) => item.projectRoot === queueRoot)
+    : [];
+  const queueFinals = queue && queueRoot
+    ? queue.state.finals.filter((final) => final.projectRoot === queueRoot)
+    : [];
+  const [queueConcat, setQueueConcat] = useState(true);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [voice, setVoice] = useState('');
   const [audioProviderKind, setAudioProviderKind] = useState('windows-sapi');
@@ -38,6 +50,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
   const [replaceTimeline, setReplaceTimeline] = useState(true);
   const [photoMotion, setPhotoMotion] = useState<'auto' | 'none'>('auto');
   const [transitionFrames, setTransitionFrames] = useState(8);
+  const [transitionRhythm, setTransitionRhythm] = useState<'calm' | 'steady' | 'punchy'>('steady');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -173,7 +186,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
         const result = prepareAutoEdit(
           current,
           narrations,
-          { assignment, includeCaptions, replaceTimeline, photoMotion, transitionFrames },
+          { assignment, includeCaptions, replaceTimeline, photoMotion, transitionFrames, transitionRhythm },
           confirmVoice,
         );
         return { project: result.project, plan: result.plan };
@@ -266,6 +279,93 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
         </div>
       </div>
 
+      {queue ? (
+        <div className="card" aria-label="Cola de render de escenas">
+          <div className="production-card-head">
+            <div>
+              <p className="eyebrow">Cola de render</p>
+              <h3>Escenas en segundo plano</h3>
+            </div>
+            <span className={`status-pill ${queue.running ? 'dirty' : 'saved'}`}>
+              {queue.state.paused ? 'Pausada' : queue.running ? 'Renderizando' : 'Activa'}
+            </span>
+          </div>
+          <p className="fine-print">
+            Los segmentos se procesan de a uno; si la app se cierra, la cola se
+            restaura y reutiliza los archivos ya listos. Podés seguir editando.
+          </p>
+          {queueItems.length === 0 ? (
+            <p className="fine-print">Sin trabajos en esta sesión.</p>
+          ) : (
+            <ul className="scene-queue-list">
+              {queueItems.map((item) => (
+                <li key={item.id}>
+                  <div>
+                    <strong>{item.sceneTitle}</strong>
+                    <small>
+                      {item.status}
+                      {item.bytes ? ` · ${item.bytes} B` : ''}
+                      {item.error ? ` · ${item.error}` : ''}
+                    </small>
+                  </div>
+                  {item.status === 'queued' ? (
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => queue.cancel(item.id)}
+                    >
+                      Cancelar
+                    </button>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {queueFinals.length > 0 ? (
+            <p className="fine-print">
+              Final: {queueFinals[0]!.outputPath} · {queueFinals[0]!.bytes} B
+            </p>
+          ) : null}
+          <div className="scene-queue-actions">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={queueConcat}
+                onChange={(event) => setQueueConcat(event.target.checked)}
+              />
+              <span>Unir al terminar</span>
+            </label>
+            <button
+              type="button"
+              className="primary"
+              disabled={scenes.length === 0 || queue.running}
+              onClick={() => {
+                try {
+                  queue.addScenes(
+                    scenes.map((scene) => scene.id),
+                    false,
+                    queueConcat,
+                  );
+                } catch (cause) {
+                  setWarnings((current) => [
+                    ...current,
+                    cause instanceof Error ? cause.message : 'no se pudo encolar',
+                  ]);
+                }
+              }}
+            >
+              Encolar todas las escenas
+            </button>
+            <button type="button" className="link" onClick={() => (queue.state.paused ? queue.resume() : queue.pause())}>
+              {queue.state.paused ? 'Reanudar' : 'Pausar'}
+            </button>
+            <button type="button" className="link" onClick={() => queue.clearFinished()}>
+              Limpiar terminadas
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="production-grid">
         <aside className="production-steps" aria-label="Pasos de producción">
           <p className="eyebrow">Pasos</p>
@@ -314,7 +414,42 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
               <ol className="production-scene-list">
                 {scenes.slice(0, 6).map((scene) => (
                   <li key={scene.id}>
-                    <strong>{scene.title}</strong>
+                    <div className="scene-engine-row">
+                      <strong>{scene.title}</strong>
+                      <select
+                        className="scene-engine-select"
+                        aria-label={`Motor de ${scene.title}`}
+                        value={scene.engine ?? ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          try {
+                            const ok = store.mutate((current) => ({
+                              project: updateScene(current, scene.id, {
+                                engine: value ? (value as Scene['engine']) : null,
+                              }),
+                            }));
+                            if (!ok) {
+                              setWarnings((current) => [
+                                ...current,
+                                `No se pudo fijar el motor de "${scene.title}"`,
+                              ]);
+                            }
+                          } catch (cause) {
+                            setWarnings((current) => [
+                              ...current,
+                              cause instanceof Error ? cause.message : 'No se pudo fijar el motor',
+                            ]);
+                          }
+                        }}
+                      >
+                        <option value="">Auto</option>
+                        {ENGINES.map((engine) => (
+                          <option key={engine.id} value={engine.id}>
+                            {engine.id}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                     <span>{scene.narration.text?.slice(0, 110) ?? 'sin texto'}</span>
                   </li>
                 ))}
@@ -461,7 +596,21 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
                 </select>
               </label>
               <label className="field">
-                <span>Transición entre fotos (frames)</span>
+                <span>Ritmo del montaje</span>
+                <select
+                  value={transitionRhythm}
+                  onChange={(event) =>
+                    setTransitionRhythm(event.target.value as 'calm' | 'steady' | 'punchy')
+                  }
+                  disabled={busy}
+                >
+                  <option value="calm">Calmo (transiciones suaves y cortas)</option>
+                  <option value="steady">Estable (equilibrado)</option>
+                  <option value="punchy">Impacto (cortes rápidos y variados)</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Duración base de transición (frames)</span>
                 <input
                   type="number"
                   min={0}
@@ -475,6 +624,10 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
                     )
                   }
                 />
+                <small>
+                  0 deja corte seco. El montaje elige el tipo por corte: disolvencia entre fotos,
+                  fundido a negro al cambiar de material y desplazamiento cuando no hay voz.
+                </small>
               </label>
             </div>
             <div className="actions">
@@ -557,6 +710,9 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
                   El render sigue siendo explícito: elegí el perfil y el destino en Editor →
                   Exportar MP4. Olyvia no publica solo.
                 </p>
+                {plan.transitionSummary ? (
+                  <p className="fine-print">{plan.transitionSummary}</p>
+                ) : null}
               </>
             ) : (
               <p className="muted">

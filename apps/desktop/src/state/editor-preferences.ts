@@ -14,7 +14,8 @@ export const EDITOR_PREFS_STORAGE_KEY = 'editoria.editor-prefs.v1';
 export const EDITOR_PREFS_CHANGED_EVENT = 'editoria:editor-prefs-changed';
 
 export interface EditorPreferences {
-  readonly version: 1;
+  /** v2: layout compacto del Studio (migra desde v1 sin perder ajustes). */
+  readonly version: 2;
   /** Retardo del autoguardado tras el último cambio, en milisegundos. */
   readonly autosaveDelayMs: number;
   /** Cuántos pasos de deshacer se conservan. */
@@ -39,6 +40,15 @@ export interface EditorPreferences {
   readonly safeMargins: boolean;
   /** Estilo de emoji para la preview y el selector: Android o abierto. */
   readonly emojiStyle: 'android' | 'open';
+  /** Ancho de la biblioteca de medios en Studio, en píxeles. */
+  readonly studioLeftWidth: number;
+  /** Ancho del inspector en Studio, en píxeles. */
+  readonly studioRightWidth: number;
+  /** Altura de la timeline en Studio, en píxeles. */
+  readonly studioTimelineHeight: number;
+  readonly studioLeftCollapsed: boolean;
+  readonly studioRightCollapsed: boolean;
+  readonly studioTimelineCollapsed: boolean;
 }
 
 /** Almacenamiento mínimo que necesitan estas preferencias. */
@@ -49,7 +59,7 @@ export interface PreferencesStorage {
 }
 
 export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
-  version: 1,
+  version: 2,
   autosaveDelayMs: 1_400,
   historyLimit: 80,
   defaultZoom: 2.4,
@@ -62,6 +72,15 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   jumpStepFrames: 1,
   safeMargins: false,
   emojiStyle: 'android',
+  // En pantallas de 1360 px el visor necesita el ancho máximo: columnas
+  // laterales compactas (la biblioteca y el inspector siguen siendo usables)
+  // y una timeline algo más baja para ganar alto de preview.
+  studioLeftWidth: 270,
+  studioRightWidth: 290,
+  studioTimelineHeight: 268,
+  studioLeftCollapsed: false,
+  studioRightCollapsed: false,
+  studioTimelineCollapsed: false,
 };
 
 /** Límites duros por campo: la UI y la normalización comparten la misma tabla. */
@@ -71,6 +90,9 @@ export const EDITOR_PREFERENCE_BOUNDS = {
   defaultZoom: { min: 0.4, max: 6, step: 0.1 },
   snapPixels: { min: 4, max: 24, step: 1 },
   jumpStepFrames: { min: 1, max: 60, step: 1 },
+  studioLeftWidth: { min: 180, max: 520, step: 8 },
+  studioRightWidth: { min: 220, max: 520, step: 8 },
+  studioTimelineHeight: { min: 120, max: 520, step: 8 },
 } as const;
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -87,8 +109,17 @@ function bool(value: unknown, fallback: boolean): boolean {
 export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
   const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   const bounds = EDITOR_PREFERENCE_BOUNDS;
+  const storedVersion = typeof source.version === 'number' ? source.version : 0;
+  // v1→v2: el layout viejo (320/340/285) no dejaba respirar al visor en
+  // pantallas de 1360 px. Si nadie lo personalizó, migramos al layout
+  // compacto; un valor distinto a los defaults v1 se respeta tal cual.
+  const studioValue = (key: string, previousDefault: number): unknown => {
+    const value = source[key];
+    if (storedVersion < 2 && value === previousDefault) return undefined;
+    return value;
+  };
   return {
-    version: 1,
+    version: 2,
     autosaveDelayMs: clamp(
       source.autosaveDelayMs,
       bounds.autosaveDelayMs.min,
@@ -132,6 +163,42 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
     ),
     safeMargins: bool(source.safeMargins, DEFAULT_EDITOR_PREFERENCES.safeMargins),
     emojiStyle: source.emojiStyle === 'open' ? 'open' : 'android',
+    studioLeftWidth: Math.round(
+      clamp(
+        studioValue('studioLeftWidth', 320),
+        bounds.studioLeftWidth.min,
+        bounds.studioLeftWidth.max,
+        DEFAULT_EDITOR_PREFERENCES.studioLeftWidth,
+      ),
+    ),
+    studioRightWidth: Math.round(
+      clamp(
+        studioValue('studioRightWidth', 340),
+        bounds.studioRightWidth.min,
+        bounds.studioRightWidth.max,
+        DEFAULT_EDITOR_PREFERENCES.studioRightWidth,
+      ),
+    ),
+    studioTimelineHeight: Math.round(
+      clamp(
+        studioValue('studioTimelineHeight', 285),
+        bounds.studioTimelineHeight.min,
+        bounds.studioTimelineHeight.max,
+        DEFAULT_EDITOR_PREFERENCES.studioTimelineHeight,
+      ),
+    ),
+    studioLeftCollapsed: bool(
+      source.studioLeftCollapsed,
+      DEFAULT_EDITOR_PREFERENCES.studioLeftCollapsed,
+    ),
+    studioRightCollapsed: bool(
+      source.studioRightCollapsed,
+      DEFAULT_EDITOR_PREFERENCES.studioRightCollapsed,
+    ),
+    studioTimelineCollapsed: bool(
+      source.studioTimelineCollapsed,
+      DEFAULT_EDITOR_PREFERENCES.studioTimelineCollapsed,
+    ),
   };
 }
 

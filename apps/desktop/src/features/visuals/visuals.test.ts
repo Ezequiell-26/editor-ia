@@ -54,7 +54,7 @@ describe('Visuals Studio helpers', () => {
     expect(safeTransitionFrames(300, { ...clip, durationFrames: 500 })).toBe(120);
   });
 
-  it('el catálogo local tiene ids únicos y las siete transiciones', () => {
+  it('el catálogo local tiene ids únicos y las once transiciones', () => {
     const presetIds = new Set(FALLBACK_VISUAL_CATALOG.presets.map((preset) => preset.id));
     expect(presetIds.size).toBe(FALLBACK_VISUAL_CATALOG.presets.length);
     expect(FALLBACK_VISUAL_CATALOG.transitions.map((transition) => transition.id)).toEqual([
@@ -65,6 +65,11 @@ describe('Visuals Studio helpers', () => {
       'slide-right',
       'slide-up',
       'slide-down',
+      'wipe-left',
+      'wipe-right',
+      'wipe-up',
+      'wipe-down',
+      'iris',
     ]);
   });
 });

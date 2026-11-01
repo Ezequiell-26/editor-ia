@@ -23,10 +23,12 @@ use crate::commands::system::resolve_tools;
 use crate::media::resolve_inside_root;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
-    alpha_video_decoder, apply_lut_to_chain, build_plan, eased_fraction, effects_lut,
-    expand_compounds, transition_lead_seconds, visual_filter, BuildPlanInput, Profile,
+    alpha_video_decoder, apply_lut_to_chain, build_plan, cubic_bezier_progress, eased_fraction,
+    effects_lut, expand_compounds, transition_lead_seconds, visual_filter_checked, BuildPlanInput,
+    Profile,
 };
-use crate::render::motion::has_visible_graphic_clips;
+use crate::render::motion::{build_motion_ass, has_visible_graphic_clips, MotionAssInput};
+use crate::render::time_remap::TimeRemap;
 use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,6 +44,10 @@ pub struct PreviewFrameRequest {
     /// el clip aislado y `native` siempre usa el clip a su resolución.
     #[serde(default)]
     pub composite: Option<bool>,
+    /// Planes de motion por clip gráfico, construidos por el frontend. Sin
+    /// ellos un compuesto con títulos cae al clip seleccionado.
+    #[serde(default)]
+    pub motion_plans: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -108,16 +114,20 @@ fn profile_for(project: &Value) -> Result<Profile, ProjectError> {
     })
 }
 
-fn source_time(clip: &Value, frame: u64, fps: f64) -> (f64, bool) {
+fn source_time(clip: &Value, frame: u64, fps: f64) -> Result<(f64, bool), ProjectError> {
     let start = clip["startFrame"].as_u64().unwrap_or(0);
     let duration = clip["durationFrames"].as_u64().unwrap_or(1).max(1);
     let local = frame.saturating_sub(start).min(duration.saturating_sub(1));
     let source = &clip["source"];
     let kind = clip["kind"].as_str().unwrap_or("video");
     if kind == "image" || kind == "graphic" || source["type"].as_str() != Some("asset") {
-        return (0.0, true);
+        return Ok((0.0, true));
     }
-    let in_frame = source["inFrame"].as_u64().unwrap_or(0) as f64;
+    let in_frame = source["inFrame"].as_u64().unwrap_or(0);
+    if let Some(remap) = TimeRemap::from_clip(clip)? {
+        return Ok((remap.source_seconds(local as u32, in_frame, fps), false));
+    }
+    let in_frame = in_frame as f64;
     let out_frame = source["outFrame"].as_u64().unwrap_or(0) as f64;
     let speed_num = clip["speed"]["num"].as_f64().unwrap_or(1.0).max(0.01);
     let speed_den = clip["speed"]["den"].as_f64().unwrap_or(1.0).max(0.01);
@@ -128,7 +138,7 @@ fn source_time(clip: &Value, frame: u64, fps: f64) -> (f64, bool) {
     } else {
         in_frame / fps.max(1.0) + local_seconds * speed_num / speed_den
     };
-    (time.max(0.0), false)
+    Ok((time.max(0.0), false))
 }
 
 /// Metadatos medidos del contenedor: dimensiones codificadas, rotación de
@@ -416,6 +426,44 @@ fn timeline_frames(project: &Value) -> u64 {
         total = total.max(cue["endFrame"].as_u64().unwrap_or(0));
     }
     total
+}
+
+/// ¿Hay un clip gráfico visible y activo en `frame`? En ese caso la ventana
+/// de un frame no conserva la animación del ASS: se compone la timeline real.
+fn active_graphic_at(project: &Value, frame: u64) -> bool {
+    let hidden: HashMap<&str, bool> = project["timeline"]["tracks"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter(|track| track["kind"].as_str() == Some("graphic"))
+        .filter_map(|track| {
+            Some((
+                track["id"].as_str()?,
+                track["hidden"].as_bool() == Some(true),
+            ))
+        })
+        .collect();
+    project["timeline"]["clips"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .any(|clip| {
+            if clip["kind"].as_str() != Some("graphic") || clip["enabled"].as_bool() == Some(false)
+            {
+                return false;
+            }
+            let Some(is_hidden) = hidden.get(clip["trackId"].as_str().unwrap_or("")) else {
+                return false;
+            };
+            if *is_hidden {
+                return false;
+            }
+            let start = clip["startFrame"].as_u64().unwrap_or(0);
+            let duration = clip["durationFrames"].as_u64().unwrap_or(0);
+            duration > 0 && frame >= start && frame < start + duration
+        })
 }
 
 /// Pistas visuales y subtítulos que el frame compuesto va a incluir. Se mide
@@ -754,6 +802,22 @@ fn preview_window_error(reason: &str) -> ProjectError {
     )
 }
 
+fn eased_transition_progress(progress: f64, easing: &str) -> f64 {
+    match easing {
+        "ease-in" => progress.powi(3),
+        "ease-out" => 1.0 - (1.0 - progress).powi(3),
+        "ease-in-out" => progress * progress * (3.0 - 2.0 * progress),
+        "hold" => {
+            if progress >= 1.0 {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        _ => progress,
+    }
+}
+
 fn freezable_transition(kind: &str) -> bool {
     matches!(
         kind,
@@ -764,12 +828,88 @@ fn freezable_transition(kind: &str) -> bool {
             | "slide-right"
             | "slide-up"
             | "slide-down"
+            | "wipe-left"
+            | "wipe-right"
+            | "wipe-up"
+            | "wipe-down"
+            | "iris"
     )
 }
 
 /// Reencuadra el proyecto a un único frame. Conserva el contenido visual de
 /// los clips activos (fuente, keyframes y Ken Burns rebasados) y descarta el
 /// resto del tiempo, para que FFmpeg no decodifique la timeline entera.
+fn effect_keyframe_value_at(
+    keyframe: &Value,
+    progress: f64,
+) -> f64 {
+    let t = progress.clamp(0.0, 1.0);
+    if let Some(bezier) = keyframe["bezier"].as_object() {
+        let cp = |key: &str| bezier.get(key).and_then(Value::as_f64).unwrap_or(0.0);
+        return cubic_bezier_progress(t, cp("cp1X"), cp("cp1Y"), cp("cp2X"), cp("cp2Y"));
+    }
+    eased_fraction(
+        t,
+        keyframe["easing"].as_str().unwrap_or("linear"),
+    )
+}
+
+/// Valor estático de cada propiedad animada en el frame pedido. La ventana
+/// del frame real dura un frame: se congela el valor muestreado y se quitan
+/// los keyframes para no depender de `sendcmd` en un solo fotograma.
+fn sampled_window_effects(clip: &Value, frame: f64) -> Vec<(&'static str, f64)> {
+    let Some(items) = clip["effectKeyframes"].as_array() else {
+        return Vec::new();
+    };
+    let specs: [(&str, f64, f64); 9] = [
+        ("brightness", -1.0, 1.0),
+        ("contrast", 0.0, 3.0),
+        ("saturation", 0.0, 3.0),
+        ("temperature", -1.0, 1.0),
+        ("blur", 0.0, 50.0),
+        ("hueRotateDeg", -180.0, 180.0),
+        ("lutIntensity", 0.0, 1.0),
+        ("glowIntensity", 0.0, 1.0),
+        ("grain", 0.0, 1.0),
+    ];
+    let mut sampled = Vec::new();
+    for (property, min, max) in specs {
+        let mut points: Vec<(f64, f64, &Value)> = items
+            .iter()
+            .filter(|keyframe| keyframe["property"].as_str() == Some(property))
+            .filter_map(|keyframe| {
+                Some((
+                    keyframe["frame"].as_f64()?,
+                    keyframe["value"].as_f64()?.clamp(min, max),
+                    keyframe,
+                ))
+            })
+            .collect();
+        if points.is_empty() {
+            continue;
+        }
+        points.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let value = if frame <= points[0].0 {
+            points[0].1
+        } else if frame >= points[points.len() - 1].0 {
+            points[points.len() - 1].1
+        } else {
+            let mut value = points[0].1;
+            for pair in points.windows(2) {
+                if frame >= pair[0].0 && frame < pair[1].0 {
+                    let span = (pair[1].0 - pair[0].0).max(1e-6);
+                    let eased = effect_keyframe_value_at(pair[0].2, (frame - pair[0].0) / span);
+                    value = pair[0].1 + (pair[1].1 - pair[0].1) * eased;
+                    break;
+                }
+            }
+            value
+        };
+        sampled.push((property, value));
+    }
+    sampled
+}
+
 fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
     // Los compuestos se expanden a sus clips internos, igual que en el render
     // completo; si no, la ventana los ignoraba y perdía esas capas.
@@ -856,9 +996,20 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
         let duration = clip["durationFrames"].as_u64().unwrap_or(0);
         let clip_seconds = duration as f64 / fps;
         let lead = transition_lead_seconds(clip, fps, clip_seconds, start as f64 / fps);
+        let transition_type = clip["transitionIn"]["type"].as_str().unwrap_or("");
+        // El clip entrante se superpone durante el lead. Los fundidos a
+        // negro/blanco usan `fade` sobre RGB y su primer frame antes del corte
+        // no se puede congelar con exactitud; en esa franja se usa el
+        // compuesto completo (paridad exacta, costo acotado al lead).
+        let starts_from_color = matches!(transition_type, "fade-black" | "fade-white");
         let active_from = start as f64 - lead * fps;
         if duration == 0 || (frame as f64) < active_from || frame >= start + duration {
             continue;
+        }
+        if starts_from_color && (frame as f64) < start as f64 {
+            return Err(preview_window_error(
+                "fade de color en el lead: compuesto completo",
+            ));
         }
         let clip_kind = clip["kind"].as_str().unwrap_or("");
         match clip_kind {
@@ -879,9 +1030,11 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                 let delta_seconds = delta_frames as f64 / fps;
                 let local_seconds = delta_seconds + lead;
                 let total_seconds = clip_seconds + lead;
-                let transition_type = clip["transitionIn"]["type"].as_str().unwrap_or("");
                 let transition_progress = if lead > PREVIEW_EPSILON {
-                    (local_seconds / lead).clamp(0.0, 1.0)
+                    eased_transition_progress(
+                        (local_seconds / lead).clamp(0.0, 1.0),
+                        clip["transitionIn"]["easing"].as_str().unwrap_or("linear"),
+                    )
                 } else {
                     1.0
                 };
@@ -908,6 +1061,14 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                     "slide-down" if remaining > 0.0005 => Some(serde_json::json!({
                         "x": 0.0, "y": -frame_height * remaining
                     })),
+                    kind @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris")
+                        if remaining > 0.0005 =>
+                    {
+                        Some(serde_json::json!({
+                            "wipe": kind,
+                            "progress": transition_progress
+                        }))
+                    }
                     _ => None,
                 };
                 // El Ken Burns se mide desde el inicio del solape; si un lead
@@ -950,37 +1111,81 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                     .unwrap_or_else(|| serde_json::json!({}));
                 shift_keyframes(&mut fast, "transform", delta_frames);
                 shift_keyframes(&mut fast, "mask", delta_frames);
+                let sampled = sampled_window_effects(&fast, delta_frames as f64);
+                if !sampled.is_empty() {
+                    if !fast["effects"].is_object() {
+                        fast["effects"] = serde_json::json!({});
+                    }
+                    if sampled.iter().any(|(property, _)| *property == "glowIntensity")
+                        && !fast["effects"]["glow"].is_object()
+                    {
+                        fast["effects"]["glow"] = serde_json::json!({
+                            "radius": 20.0,
+                            "threshold": 0.6
+                        });
+                    }
+                    if let Some(effects) = fast["effects"].as_object_mut() {
+                        for (property, value) in sampled {
+                            if property == "glowIntensity" {
+                                if let Some(glow) =
+                                    effects.get_mut("glow").and_then(Value::as_object_mut)
+                                {
+                                    glow.insert("intensity".to_owned(), serde_json::json!(value));
+                                }
+                            } else {
+                                effects.insert(property.to_owned(), serde_json::json!(value));
+                            }
+                        }
+                    }
+                }
+                if let Some(object) = fast.as_object_mut() {
+                    object.remove("effectKeyframes");
+                }
                 if reverse {
                     fast["reverse"] = serde_json::json!(false);
                 }
                 if clip_kind == "video" {
-                    let speed_num = fast["speed"]["num"].as_f64().unwrap_or(1.0).max(0.01);
-                    let speed_den = fast["speed"]["den"].as_f64().unwrap_or(1.0).max(0.01);
-                    let speed = speed_num / speed_den;
-                    // El plan completo busca `in - lead*speed` (sin bajar de 0)
-                    // y avanza `local` segundos; el recorte debe copiar ese
-                    // frame, no sólo `delta`, o tras un corte muestra el inicio.
                     let in_frames = fast["source"]["inFrame"].as_u64().unwrap_or(0);
-                    let in_seconds = in_frames as f64 / fps;
-                    let input_start = (in_seconds - lead * speed).max(0.0);
-                    if reverse {
-                        // `reverse` da la vuelta al bloque de entrada: el frame
-                        // local se cuenta desde el último fotograma de ese bloque.
-                        let input_frames = ((clip_seconds + lead) * speed * fps).max(1.0);
-                        let last_frame = (input_start * fps).round() + input_frames - 1.0;
+                    if let Some(remap) = TimeRemap::from_clip(&fast)? {
+                        // La ventana de un frame no puede conservar la curva:
+                        // se resuelve el frame de origen y se deja el clip a 1×.
+                        let local = delta_frames.max(0) as u32;
                         let source_frame =
-                            (last_frame - (local_seconds * speed * fps).round()).max(0.0) as u64;
+                            in_frames as i64 + remap.source_frame(local as u32) as i64;
                         fast["source"]["inFrame"] = serde_json::json!(source_frame);
                         fast["source"]["outFrame"] = serde_json::json!(source_frame + 1);
+                        fast["speed"] = serde_json::json!({ "num": 1, "den": 1 });
+                        if let Some(object) = fast.as_object_mut() {
+                            object.remove("speedCurve");
+                        }
                     } else {
-                        let source_frame = ((input_start + local_seconds * speed) * fps)
-                            .round()
-                            .max(0.0) as i64;
-                        let shift = source_frame - in_frames as i64;
-                        for key in ["inFrame", "outFrame"] {
-                            if let Some(frame) = fast["source"][key].as_u64() {
-                                fast["source"][key] =
-                                    serde_json::json!((frame as i64 + shift).max(0) as u64);
+                        let speed_num = fast["speed"]["num"].as_f64().unwrap_or(1.0).max(0.01);
+                        let speed_den = fast["speed"]["den"].as_f64().unwrap_or(1.0).max(0.01);
+                        let speed = speed_num / speed_den;
+                        // El plan completo busca `in - lead*speed` (sin bajar de 0)
+                        // y avanza `local` segundos; el recorte debe copiar ese
+                        // frame, no sólo `delta`, o tras un corte muestra el inicio.
+                        let in_seconds = in_frames as f64 / fps;
+                        let input_start = (in_seconds - lead * speed).max(0.0);
+                        if reverse {
+                            // `reverse` da la vuelta al bloque de entrada: el frame
+                            // local se cuenta desde el último fotograma de ese bloque.
+                            let input_frames = ((clip_seconds + lead) * speed * fps).max(1.0);
+                            let last_frame = (input_start * fps).round() + input_frames - 1.0;
+                            let source_frame = (last_frame - (local_seconds * speed * fps).round())
+                                .max(0.0) as u64;
+                            fast["source"]["inFrame"] = serde_json::json!(source_frame);
+                            fast["source"]["outFrame"] = serde_json::json!(source_frame + 1);
+                        } else {
+                            let source_frame = ((input_start + local_seconds * speed) * fps)
+                                .round()
+                                .max(0.0) as i64;
+                            let shift = source_frame - in_frames as i64;
+                            for key in ["inFrame", "outFrame"] {
+                                if let Some(frame) = fast["source"][key].as_u64() {
+                                    fast["source"][key] =
+                                        serde_json::json!((frame as i64 + shift).max(0) as u64);
+                                }
                             }
                         }
                     }
@@ -1125,7 +1330,7 @@ fn frame_args_from_plan(plan_args: &[String], time: f64, output: &Path) -> Optio
     Some(args)
 }
 
-fn composite_frame(
+fn composite_frame_with_plans(
     ffmpeg: &Path,
     ffprobe: &Path,
     root: &Path,
@@ -1133,9 +1338,11 @@ fn composite_frame(
     clip_id: &str,
     frame: u64,
     output_dir: &Path,
+    motion_plans: Option<&Value>,
 ) -> Result<PreviewFrameResult, ProjectError> {
-    // Un clip gráfico fuera del frame no impide componer; si está activo, la
-    // ventana lo rechaza y el comando cae al preview de clip.
+    // Un clip gráfico fuera del frame no impide componer; si está activo, el
+    // camino de ventana no puede conservar su animación: se usa el compuesto
+    // completo, que mantiene los tiempos del ASS de motion.
     let total = timeline_frames(project);
     if total == 0 || frame >= total {
         return Err(ProjectError::message(
@@ -1145,49 +1352,92 @@ fn composite_frame(
     }
     let silent = preview_copy(project);
     let debug = std::env::var_os("EDITOR_IA_PREVIEW_DEBUG").is_some();
-    let (mode, mut result) = match window_project(&silent, frame) {
-        Ok(window) => {
-            let graphic_omitted = window["previewGraphicOmitted"].as_bool() == Some(true);
-            match render_composite_project(ffmpeg, ffprobe, root, &window, clip_id, 0, output_dir) {
-                Ok(mut fast) => {
-                    if debug {
-                        eprintln!("preview compuesto: ventana de un frame");
+    let expanded = expand_compounds(project)?;
+    // Con plan de motion el compuesto completo conserva la animación del
+    // gráfico; sin plan, la ventana lo omite en vez de fallar.
+    let use_full = active_graphic_at(&expanded, frame) && motion_plans.is_some();
+    let (mode, mut result) = if use_full {
+        (
+            "full",
+            render_composite_project_with_plans(
+                ffmpeg,
+                ffprobe,
+                root,
+                &silent,
+                clip_id,
+                frame,
+                output_dir,
+                motion_plans,
+            )?,
+        )
+    } else {
+        match window_project(&silent, frame) {
+            Ok(window) => {
+                let graphic_omitted = window["previewGraphicOmitted"].as_bool() == Some(true);
+                match render_composite_project_with_plans(
+                    ffmpeg,
+                    ffprobe,
+                    root,
+                    &window,
+                    clip_id,
+                    0,
+                    output_dir,
+                    motion_plans,
+                ) {
+                    Ok(mut fast) => {
+                        if debug {
+                            eprintln!("preview compuesto: ventana de un frame");
+                        }
+                        if graphic_omitted {
+                            fast.fallback_reason =
+                                Some("clip gráfico omitido: falta el plan de motion".to_owned());
+                        }
+                        ("window", fast)
                     }
-                    if graphic_omitted {
-                        fast.fallback_reason =
-                            Some("clip gráfico omitido: falta el plan de motion".to_owned());
+                    Err(error) => {
+                        if debug {
+                            eprintln!(
+                                "preview ventana falló: {}; uso el compuesto completo",
+                                error.message
+                            );
+                        }
+                        (
+                            "full",
+                            render_composite_project_with_plans(
+                                ffmpeg,
+                                ffprobe,
+                                root,
+                                &silent,
+                                clip_id,
+                                frame,
+                                output_dir,
+                                motion_plans,
+                            )?,
+                        )
                     }
-                    ("window", fast)
-                }
-                Err(error) => {
-                    if debug {
-                        eprintln!(
-                            "preview ventana falló: {}; uso el compuesto completo",
-                            error.message
-                        );
-                    }
-                    (
-                        "full",
-                        render_composite_project(
-                            ffmpeg, ffprobe, root, &silent, clip_id, frame, output_dir,
-                        )?,
-                    )
                 }
             }
-        }
-        Err(error) => {
-            if debug {
-                eprintln!(
-                    "preview ventana no aplica: {}; uso el compuesto completo",
-                    error.message
-                );
+            Err(error) => {
+                if debug {
+                    eprintln!(
+                        "preview ventana no aplica: {}; uso el compuesto completo",
+                        error.message
+                    );
+                }
+                (
+                    "full",
+                    render_composite_project_with_plans(
+                        ffmpeg,
+                        ffprobe,
+                        root,
+                        &silent,
+                        clip_id,
+                        frame,
+                        output_dir,
+                        motion_plans,
+                    )?,
+                )
             }
-            (
-                "full",
-                render_composite_project(
-                    ffmpeg, ffprobe, root, &silent, clip_id, frame, output_dir,
-                )?,
-            )
         }
     };
     result.frame = frame;
@@ -1210,7 +1460,7 @@ fn composite_frame(
     Ok(result)
 }
 
-fn render_composite_project(
+fn render_composite_project_with_plans(
     ffmpeg: &Path,
     ffprobe: &Path,
     root: &Path,
@@ -1218,13 +1468,8 @@ fn render_composite_project(
     clip_id: &str,
     frame: u64,
     output_dir: &Path,
+    motion_plans: Option<&Value>,
 ) -> Result<PreviewFrameResult, ProjectError> {
-    if has_visible_graphic_clips(project) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::RenderFailed,
-            "el compuesto todavía no incluye clips gráficos; se muestra el clip seleccionado",
-        ));
-    }
     let profile = profile_for(project)?;
     let total = timeline_frames(project);
     if total == 0 || frame >= total {
@@ -1234,6 +1479,29 @@ fn render_composite_project(
         ));
     }
     let fps = profile.fps();
+    let motion_ass = if has_visible_graphic_clips(project) {
+        let plans = motion_plans.ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "el compuesto necesita los planes de motion de los clips gráficos",
+            )
+        })?;
+        Some(build_motion_ass(MotionAssInput {
+            project,
+            plans,
+            render_width: profile.width,
+            render_height: profile.height,
+            project_width: project["video"]["width"]
+                .as_u64()
+                .unwrap_or(profile.width as u64) as u32,
+            project_height: project["video"]["height"]
+                .as_u64()
+                .unwrap_or(profile.height as u64) as u32,
+            project_fps: fps,
+        })?)
+    } else {
+        None
+    };
     let time = frame as f64 / fps;
     let temp_dir = output_dir.join(format!("composite-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&temp_dir).map_err(|error| {
@@ -1253,7 +1521,7 @@ fn render_composite_project(
             include_captions: true,
             temp_dir: &temp_dir,
             ffprobe,
-            motion_ass: None,
+            motion_ass: motion_ass.as_deref(),
         })?;
         let args = frame_args_from_plan(&plan.args, time, &output).ok_or_else(|| {
             ProjectError::message(
@@ -1418,7 +1686,7 @@ fn render_frame(
     }
     let fps = profile.fps();
     let clip_seconds = clip["durationFrames"].as_u64().unwrap_or(1) as f64 / fps.max(1.0);
-    let (time, image) = source_time(&clip, frame, fps);
+    let (time, image) = source_time(&clip, frame, fps)?;
     let is_image = is_image || image;
     let (view_profile, source, still, decoder, native, cleanup) = if wants_native {
         let source = native_input(&input, is_image, time, &profile, output_dir);
@@ -1442,7 +1710,7 @@ fn render_frame(
     };
     // El PNG decodificado en proceso sólo vive hasta que FFmpeg termina.
     let _cleanup = Cleanup(cleanup);
-    let filters = visual_filter(
+    let filters = visual_filter_checked(
         0,
         &clip,
         &asset,
@@ -1453,7 +1721,9 @@ fn render_frame(
         1,
         1,
         is_image,
-    );
+        // El frame nativo siempre lleva alfa: es una imagen suelta.
+        false,
+    )?;
     let mut chain = filters;
     if let Some((lut, intensity)) = effects_lut(&clip["effects"], root)? {
         chain = apply_lut_to_chain(chain, "v0", &lut, intensity);
@@ -1585,11 +1855,12 @@ pub async fn render_preview_frame(
     let clip_id = request.clip_id;
     let frame = request.frame;
     let native = request.native;
+    let motion_plans = request.motion_plans;
     let wants_composite = request.composite.unwrap_or(true) && !native;
     tauri::async_runtime::spawn_blocking(move || {
         let mut fallback_reason = None;
         if wants_composite {
-            match composite_frame(
+            match composite_frame_with_plans(
                 &ffmpeg,
                 &ffprobe,
                 &root,
@@ -1597,6 +1868,7 @@ pub async fn render_preview_frame(
                 &clip_id,
                 frame,
                 &output_dir,
+                motion_plans.as_ref(),
             ) {
                 Ok(result) => return Ok(result),
                 Err(error) => fallback_reason = Some(error.message),
@@ -1627,6 +1899,34 @@ pub async fn render_preview_frame(
 mod tests {
     use super::*;
 
+    fn composite_frame(
+        ffmpeg: &Path,
+        ffprobe: &Path,
+        root: &Path,
+        project: &Value,
+        clip_id: &str,
+        frame: u64,
+        output_dir: &Path,
+    ) -> Result<PreviewFrameResult, ProjectError> {
+        composite_frame_with_plans(
+            ffmpeg, ffprobe, root, project, clip_id, frame, output_dir, None,
+        )
+    }
+
+    fn render_composite_project(
+        ffmpeg: &Path,
+        ffprobe: &Path,
+        root: &Path,
+        project: &Value,
+        clip_id: &str,
+        frame: u64,
+        output_dir: &Path,
+    ) -> Result<PreviewFrameResult, ProjectError> {
+        render_composite_project_with_plans(
+            ffmpeg, ffprobe, root, project, clip_id, frame, output_dir, None,
+        )
+    }
+
     #[test]
     fn source_time_honours_trim_and_speed() {
         let clip = serde_json::json!({
@@ -1636,13 +1936,34 @@ mod tests {
             "source": { "type": "asset", "inFrame": 15, "outFrame": 75 },
             "speed": { "num": 1, "den": 1 }
         });
-        let (time, image) = source_time(&clip, 30, 30.0);
+        let (time, image) = source_time(&clip, 30, 30.0).expect("source_time");
         assert!(!image);
         assert!((time - 0.5).abs() < 0.001);
         let mut fast = clip.clone();
         fast["speed"] = serde_json::json!({ "num": 2, "den": 1 });
-        let (time, _) = source_time(&fast, 60, 30.0);
+        let (time, _) = source_time(&fast, 60, 30.0).expect("source_time");
         assert!((time - 2.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn source_time_uses_the_speed_curve_table() {
+        let clip = serde_json::json!({
+            "kind": "video",
+            "startFrame": 0,
+            "durationFrames": 100,
+            "source": { "type": "asset", "inFrame": 0, "outFrame": 88 },
+            "speedCurve": {
+                "points": [
+                    { "t": 0, "speed": 0.5 },
+                    { "t": 0.5, "speed": 0.5 },
+                    { "t": 1, "speed": 2 }
+                ]
+            }
+        });
+        // El frame local 60 elige el origen 32; +0.5 cae en el centro.
+        let (time, image) = source_time(&clip, 60, 30.0).expect("source_time");
+        assert!(!image);
+        assert!((time - 32.5 / 30.0).abs() < 1e-6);
     }
 
     #[test]
@@ -1662,7 +1983,7 @@ mod tests {
                 "-i",
                 "testsrc2=s=320x180:d=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -1717,7 +2038,7 @@ mod tests {
                 "-i",
                 "testsrc2=s=640x360:d=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -1767,7 +2088,7 @@ mod tests {
             "-map",
             "[aout]",
             "-c:v",
-            "libx264",
+            "libopenh264",
             "-c:a",
             "aac",
             "-t",
@@ -1791,7 +2112,7 @@ mod tests {
             !has_pair("-map", "[aout]"),
             "el compuesto no debe mapear audio"
         );
-        assert!(!args.iter().any(|arg| arg.as_str() == "libx264"));
+        assert!(!args.iter().any(|arg| arg.as_str() == "libopenh264"));
         assert!(!args.iter().any(|arg| arg.as_str() == "-t"));
         assert_eq!(args.last().map(String::as_str), Some("frame.png"));
         let graph_position = args
@@ -1878,7 +2199,7 @@ mod tests {
                 "-i",
                 "color=c=red:s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -1979,6 +2300,99 @@ mod tests {
             result.height,
             started.elapsed().as_secs_f64(),
             result.clip_label
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore = "requiere FFmpeg/FFprobe en PATH"]
+    fn live_composite_includes_an_active_graphic_with_its_motion_plan() {
+        let dir = std::env::temp_dir().join(format!("editoria-graphic-{}", Uuid::new_v4()));
+        let media = dir.join("media");
+        std::fs::create_dir_all(&media).expect("media");
+        let video = media.join("red.mp4");
+        assert!(Command::new("ffmpeg")
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:s=320x180:r=30:d=2",
+                "-c:v",
+                "libopenh264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(&video)
+            .status()
+            .expect("ffmpeg video")
+            .success());
+        let rights = serde_json::json!({ "license": { "commercialUse": "allowed" } });
+        let project = serde_json::json!({
+            "video": {
+                "width": 320, "height": 180,
+                "frameRate": { "num": 30, "den": 1 },
+                "backgroundColor": "#000000"
+            },
+            "assets": [{
+                "id": "base", "kind": "video", "label": "Base",
+                "source": { "path": "media/red.mp4" },
+                "status": "ready", "rights": rights
+            }],
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 1 },
+                    { "id": "g1", "kind": "graphic", "order": 2 }
+                ],
+                "clips": [
+                    {
+                        "id": "baseClip", "trackId": "v1", "kind": "video", "label": "Base",
+                        "startFrame": 0, "durationFrames": 60,
+                        "source": { "type": "asset", "assetId": "base", "inFrame": 0, "outFrame": 60 },
+                        "speed": { "num": 1, "den": 1 }
+                    },
+                    {
+                        "id": "graphic", "trackId": "g1", "kind": "graphic", "label": "Título",
+                        "startFrame": 0, "durationFrames": 60,
+                        "source": { "type": "graphic", "motionId": "m1" }
+                    }
+                ]
+            },
+            "captions": { "cues": [] }
+        });
+        let plans = serde_json::json!({
+            "graphic": {
+                "version": 1,
+                "layers": [{
+                    "kind": "text", "text": "HOLA", "color": "#ffffff",
+                    "fontSizePx": 40, "weight": 700, "align": "center",
+                    "x": 0.2, "y": 0.35, "width": 0.6, "height": 0.3
+                }]
+            }
+        });
+        let result = composite_frame_with_plans(
+            Path::new("ffmpeg"),
+            Path::new("ffprobe"),
+            &dir,
+            &project,
+            "baseClip",
+            10,
+            &dir,
+            Some(&plans),
+        )
+        .expect("compuesto con gráfico");
+        assert!(result.composite);
+        assert_eq!(result.composite_mode, "full");
+        let image = image::open(&result.path).expect("png").to_rgb8();
+        let bright = image
+            .pixels()
+            .filter(|pixel| pixel[0] > 200 && pixel[1] > 200 && pixel[2] > 200)
+            .count();
+        assert!(
+            bright > 20,
+            "el título debe dejar píxeles blancos: {bright}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -2220,6 +2634,117 @@ mod tests {
     }
 
     #[test]
+    fn active_graphic_detection_respects_frame_track_and_enabled() {
+        let mut project = preview_project();
+        project["timeline"]["tracks"]
+            .as_array_mut()
+            .expect("tracks")
+            .push(serde_json::json!({
+                "id": "g1", "kind": "graphic", "order": 3
+            }));
+        project["timeline"]["clips"]
+            .as_array_mut()
+            .expect("clips")
+            .push(serde_json::json!({
+                "id": "graphic", "trackId": "g1", "kind": "graphic",
+                "label": "Gráfico", "startFrame": 20, "durationFrames": 10,
+                "source": { "type": "graphic" }
+            }));
+        assert!(active_graphic_at(&project, 20));
+        assert!(active_graphic_at(&project, 29));
+        assert!(!active_graphic_at(&project, 19));
+        assert!(!active_graphic_at(&project, 30));
+
+        project["timeline"]["clips"][3]["enabled"] = serde_json::json!(false);
+        assert!(!active_graphic_at(&project, 20));
+        project["timeline"]["clips"][3]["enabled"] = serde_json::json!(true);
+        let graphic_track = project["timeline"]["tracks"]
+            .as_array_mut()
+            .expect("tracks")
+            .iter_mut()
+            .find(|track| track["id"] == "g1")
+            .expect("g1");
+        graphic_track["hidden"] = serde_json::json!(true);
+        assert!(!active_graphic_at(&project, 20));
+    }
+
+    #[test]
+    fn window_applies_the_transition_easing() {
+        let mut project = preview_project();
+        project["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
+        project["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
+            "type": "dissolve", "frames": 12, "easing": "ease-in"
+        });
+        let window = window_project(&preview_copy(&project), 16).expect("disolvencia con ease-in");
+        let later = window["timeline"]["clips"]
+            .as_array()
+            .expect("clips")
+            .iter()
+            .find(|clip| clip["id"] == "later")
+            .expect("clip entrante");
+        let alpha = later["transitionFrozen"]["alpha"]
+            .as_f64()
+            .expect("alfa congelado");
+        assert!((alpha - 0.125).abs() < 1e-6, "alfa {alpha}");
+    }
+
+    #[test]
+    fn window_freezes_effect_keyframes_at_the_requested_frame() {
+        let mut project = preview_project();
+        project["timeline"]["clips"][0]["effects"] = serde_json::json!({
+            "lutFile": "media/look.cube",
+            "lutIntensity": 0,
+            "glow": { "intensity": 0, "radius": 24, "threshold": 0.5 },
+            "grain": 0
+        });
+        project["timeline"]["clips"][0]["effectKeyframes"] = serde_json::json!([
+            { "frame": 5, "property": "brightness", "value": 0.2 },
+            { "frame": 20, "property": "brightness", "value": 0.6 },
+            { "frame": 0, "property": "lutIntensity", "value": 0 },
+            { "frame": 20, "property": "lutIntensity", "value": 1 },
+            { "frame": 0, "property": "temperature", "value": -0.5 },
+            { "frame": 20, "property": "temperature", "value": 0.5 },
+            { "frame": 0, "property": "glowIntensity", "value": 0 },
+            { "frame": 20, "property": "glowIntensity", "value": 1 },
+            { "frame": 0, "property": "grain", "value": 0 },
+            { "frame": 20, "property": "grain", "value": 1 }
+        ]);
+        let window = window_project(&preview_copy(&project), 20).expect("ventana");
+        let clip = window["timeline"]["clips"]
+            .as_array()
+            .expect("clips")
+            .iter()
+            .find(|clip| clip["id"] == "main")
+            .expect("clip principal");
+        assert!(
+            clip.get("effectKeyframes").is_none(),
+            "la ventana de un frame no debe conservar keyframes: {clip}"
+        );
+        let effects = clip["effects"].as_object().expect("effects");
+        let brightness = effects["brightness"].as_f64().expect("brillo");
+        assert!(
+            (brightness - 1.0 / 3.0).abs() < 1e-4,
+            "brillo muestreado en el frame 10: {brightness}"
+        );
+        let lut = effects["lutIntensity"].as_f64().expect("lutIntensity");
+        assert!((lut - 0.5).abs() < 1e-6, "LUT muestreado: {lut}");
+        let temperature = effects["temperature"].as_f64().expect("temperature");
+        assert!(
+            temperature.abs() < 1e-6,
+            "temperatura muestreada en el frame 10: {temperature}"
+        );
+        let glow = effects["glow"].as_object().expect("glow");
+        assert!(
+            (glow["intensity"].as_f64().unwrap_or(-1.0) - 0.5).abs() < 1e-6,
+            "glow muestreado: {glow:?}"
+        );
+        assert_eq!(glow["radius"], 24.0);
+        assert_eq!(glow["threshold"], 0.5);
+        let grain = effects["grain"].as_f64().expect("grain");
+        assert!((grain - 0.5).abs() < 1e-6, "grano muestreado: {grain}");
+    }
+
+    #[test]
     fn window_freezes_fades_and_transition_leads() {
         let mut project = preview_project();
         project["timeline"]["clips"][0]["effects"] =
@@ -2291,10 +2816,11 @@ mod tests {
         fade["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
             "type": "fade-black", "frames": 12
         });
-        let window = window_project(&preview_copy(&fade), 16).expect("fade-black en lead");
-        let later = later_clip(&window);
-        assert_eq!(later["transitionFrozen"]["mode"], "black");
-        assert!((later["transitionFrozen"]["alpha"].as_f64().unwrap() - 0.5).abs() < 1e-6);
+        // Los fundidos a color usan el compuesto completo durante el lead:
+        // congelarlos con RGB no reproduce `fade` y rompía la paridad.
+        assert!(window_project(&preview_copy(&fade), 10).is_err());
+        assert!(window_project(&preview_copy(&fade), 16).is_err());
+        // Desde el corte el fade ya terminó y la ventana vuelve a aplicar.
         assert!(window_project(&preview_copy(&fade), 22).is_ok());
 
         let mut motion = preview_project();
@@ -2340,9 +2866,23 @@ mod tests {
         let mut unknown = preview_project();
         unknown["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
         unknown["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
-            "type": "wipe", "frames": 12
+            "type": "burn", "frames": 12
         });
         assert!(window_project(&preview_copy(&unknown), 16).is_err());
+
+        let mut wipe = preview_project();
+        wipe["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
+        wipe["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
+            "type": "wipe-left", "frames": 12
+        });
+        let window = window_project(&preview_copy(&wipe), 16).expect("wipe en lead");
+        let later = later_clip(&window);
+        assert_eq!(later["transitionFrozen"]["wipe"], "wipe-left");
+        let progress = later["transitionFrozen"]["progress"]
+            .as_f64()
+            .expect("progreso del barrido");
+        assert!((progress - 0.5).abs() < 1e-6, "progreso {progress}");
+        assert!(window_project(&preview_copy(&wipe), 22).is_ok());
 
         let mut project = preview_project();
         project["timeline"]["clips"][0]["transform"]["keyframes"][1]["opacity"] =
@@ -2512,7 +3052,7 @@ mod tests {
                 "-i",
                 "smptebars=s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -2613,7 +3153,7 @@ mod tests {
                 "-i",
                 "smptebars=s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -2728,7 +3268,7 @@ mod tests {
                 "-vf",
                 "drawbox=x=110:y=40:w=100:h=100:color=red:t=fill",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -2858,7 +3398,7 @@ mod tests {
                 "-vf",
                 "drawbox=x=110:y=40:w=100:h=100:color=red:t=fill",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -2974,7 +3514,7 @@ mod tests {
                 "-vf",
                 "drawbox=x=110:y=40:w=100:h=100:color=red:t=fill",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -3089,7 +3629,7 @@ mod tests {
                 "-vf",
                 "drawbox=x=110:y=40:w=100:h=100:color=red:t=fill",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -3207,7 +3747,7 @@ mod tests {
                 "-vf",
                 "drawbox=x=110:y=40:w=100:h=100:color=red:t=fill",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -3323,7 +3863,7 @@ mod tests {
                 "-vf",
                 "drawbox=x=110:y=40:w=100:h=100:color=red:t=fill",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -3524,7 +4064,7 @@ mod tests {
                 "-i",
                 "color=c=0xB4B4B4:s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -3625,7 +4165,7 @@ mod tests {
         ] {
             assert!(Command::new("ffmpeg")
                 .args(["-v", "error", "-y", "-f", "lavfi", "-i", source])
-                .args(["-c:v", "libx264", "-pix_fmt", "yuv420p"])
+                .args(["-c:v", "libopenh264", "-pix_fmt", "yuv420p"])
                 .arg(media.join(format!("{name}.mp4")))
                 .status()
                 .expect("ffmpeg fuente")
@@ -3677,7 +4217,12 @@ mod tests {
                     &dir,
                 )
                 .expect("ventana con transición");
-                assert_eq!(window.composite_mode, "window", "{label} frame {frame}");
+                let color_fade = matches!(kind, "fade-black" | "fade-white");
+                let expected_mode = if color_fade && frame < 24 { "full" } else { "window" };
+                assert_eq!(
+                    window.composite_mode, expected_mode,
+                    "{label} frame {frame}"
+                );
                 let full = render_composite_project(
                     Path::new("ffmpeg"),
                     Path::new("ffprobe"),
@@ -3699,7 +4244,10 @@ mod tests {
                     }
                 }
                 let mean_diff = total as f64 / count.max(1) as f64;
-                println!("transición {label} frame {frame}: diff {mean_diff:.3}/255");
+                println!(
+                    "transición {label} frame {frame}: diff {mean_diff:.3}/255 · ventana {:?} · full {:?}",
+                    window.path, full.path
+                );
                 assert!(
                     mean_diff <= 5.0,
                     "{label} frame {frame}: diff {mean_diff:.3}/255"
@@ -3749,7 +4297,10 @@ mod tests {
                     }
                 }
                 let mean_diff = total as f64 / count.max(1) as f64;
-                println!("transición {label} frame {frame}: diff {mean_diff:.3}/255");
+                println!(
+                    "transición {label} frame {frame}: diff {mean_diff:.3}/255 · ventana {:?} · full {:?}",
+                    window.path, full.path
+                );
                 assert!(
                     mean_diff <= 5.0,
                     "{label} frame {frame}: diff {mean_diff:.3}/255"
@@ -3845,7 +4396,10 @@ mod tests {
                     }
                 }
                 let mean_diff = total as f64 / count.max(1) as f64;
-                println!("transición {label} frame {frame}: diff {mean_diff:.3}/255");
+                println!(
+                    "transición {label} frame {frame}: diff {mean_diff:.3}/255 · ventana {:?} · full {:?}",
+                    window.path, full.path
+                );
                 assert!(
                     mean_diff <= 5.0,
                     "{label} frame {frame}: diff {mean_diff:.3}/255"
@@ -3872,7 +4426,7 @@ mod tests {
                 "-i",
                 "color=c=0xB4B4B4:s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -3961,7 +4515,7 @@ mod tests {
                 "-i",
                 "testsrc2=s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -4091,7 +4645,7 @@ mod tests {
                 "-i",
                 "testsrc2=s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -4261,7 +4815,7 @@ mod tests {
                 "-i",
                 "color=c=0xB4B4B4:s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -4363,7 +4917,7 @@ mod tests {
                 "-i",
                 "color=c=0xB4B4B4:s=320x180:r=30:d=2",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])
@@ -4688,7 +5242,7 @@ mod tests {
                 "-i",
                 "testsrc2=s=640x360:d=1",
                 "-c:v",
-                "libx264",
+                "libopenh264",
                 "-pix_fmt",
                 "yuv420p",
             ])

@@ -82,7 +82,6 @@ const SECTIONS: readonly LearnSection[] = [
     title: 'Escenas, narración y prompts',
     body: 'El generador crea hasta 30 escenas con intención, narración y nota visual. Podés editarlas, agregar escenas a mano y descargar un .txt con un prompt por escena para Flow.',
     tips: [
-      'El proveedor simulado funciona sin red y sin clave.',
       'Los prompts de Flow se guardan con el estilo que elijas.',
     ],
     action: { label: 'Abrir Guion', view: 'script' },

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>LUT overlay harness</title>
+    <style>
+      body { font: 13px monospace; background: #111; color: #ddd; margin: 16px; }
+      .row { display: flex; gap: 16px; align-items: flex-start; }
+      .frame { position: relative; width: 320px; height: 180px; border: 1px solid #444; }
+      .frame img, .frame canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+      #overlay-status { margin: 12px 0; padding: 8px; background: #1c1c1c; white-space: pre; }
+    </style>
+  </head>
+  <body>
+    <div id="overlay-status">waiting</div>
+    <div id="overlay-samples"></div>
+    <div class="row">
+      <figure><figcaption>original</figcaption><div id="original" class="frame"></div></figure>
+      <figure><figcaption>EffectOverlay (invert)</figcaption><div id="app" class="frame"></div></figure>
+    </div>
+    <script type="module" src="/e2e/lut-harness/overlay.tsx"></script>
+  </body>
+</html>

@@ -208,6 +208,26 @@ pub async fn analyze_stabilization(
             "ffmpeg no está disponible para estabilizar",
         ));
     };
+    // vidstab es GPL y el build LGPL distribuido no lo incluye. Se avisa antes
+    // de gastar tiempo analizando, en vez de dejar un .trf que el render no
+    // podrá aplicar.
+    if let Ok(list) = Command::new(&ffmpeg)
+        .args(["-hide_banner", "-filters"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output()
+    {
+        let has_vidstab = String::from_utf8_lossy(&list.stdout)
+            .lines()
+            .any(|line| line.split_whitespace().nth(1) == Some("vidstabdetect"));
+        if !has_vidstab {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "La estabilización vidstab no está en el FFmpeg LGPL de Olyvia (filtro GPL). \
+                 Usá un FFmpeg externo con vidstab o estabilizá el clip antes de importarlo.",
+            ));
+        }
+    }
     let opened = service::open_project(&session.path)?;
     let asset = opened.project["assets"]
         .as_array()

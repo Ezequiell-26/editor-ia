@@ -3,10 +3,12 @@ import {
   useMemo,
   useRef,
   useState,
+  type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { ClipEffectsSchema, ClipTransitionSchema } from '@editor-ia/project-schema';
 import type { Asset, CaptionCue, Clip, ClipColorTag, ClipEffects, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { peaksForWindow, useWaveform } from '../../hooks/useWaveform';
@@ -53,6 +55,7 @@ import {
   snapSpan,
   snapThreshold,
 } from '../../state/snapping';
+import { frameRangeIsVisible, visibleFrameRange } from './visible-range';
 
 const HEADER = 168;
 const ROW_HEIGHT = 56;
@@ -251,6 +254,45 @@ function ClipBlock({
         onSelect();
         if (!track.locked) onDrag(event, 'move');
       }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'copy';
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!['video', 'image', 'freeze'].includes(clip.kind)) return;
+        const transitionId = event.dataTransfer.getData('application/x-olyvia-transition');
+        if (transitionId) {
+          const frames = Math.max(
+            1,
+            Math.min(12, clip.durationFrames, 120),
+          );
+          const parsed = ClipTransitionSchema.safeParse({ type: transitionId, frames });
+          if (parsed.success) {
+            store.update(
+              (current) => updateClip(current, clip.id, { transitionIn: parsed.data }),
+              { notice: `Transición ${parsed.data.type} aplicada desde la biblioteca.` },
+            );
+          }
+          return;
+        }
+        const raw = event.dataTransfer.getData('application/x-olyvia-effect-settings');
+        if (!raw) return;
+        try {
+          const settings = JSON.parse(raw) as Record<string, unknown>;
+          const current = 'effects' in clip ? (clip.effects ?? {}) : {};
+          const parsed = ClipEffectsSchema.safeParse({ ...current, ...settings });
+          if (parsed.success) {
+            store.update(
+              (next) => updateClip(next, clip.id, { effects: parsed.data }),
+              { notice: 'Efectos aplicados desde la biblioteca.' },
+            );
+          }
+        } catch {
+          // Un arrastre con JSON inválido se ignora sin tocar el proyecto.
+        }
+      }}
       onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -448,12 +490,59 @@ export function Timeline() {
   const scrubRafRef = useRef(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Viewport horizontal del scroll: con cientos de clips sólo se montan los
+  // que tocan la ventana visible (más un overscan), no todos.
+  const [viewportLeft, setViewportLeft] = useState(0);
+  const [viewportWidth, setViewportWidth] = useState(0);
   const [contextMenu, setContextMenu] = useState<{
     clipId: string;
     x: number;
     y: number;
   } | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Mide el viewport del scroll y lo actualiza en cada scroll/resize. Se
+  // coalesce a un frame de pantalla para no re-renderizar por cada píxel.
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    let frame = 0;
+    const read = () => {
+      frame = 0;
+      const nextLeft = element.scrollLeft;
+      const nextWidth = element.clientWidth;
+      setViewportLeft((current) => (Math.abs(current - nextLeft) < 1 ? current : nextLeft));
+      setViewportWidth((current) => (current === nextWidth ? current : nextWidth));
+    };
+    const schedule = () => {
+      if (frame !== 0) return;
+      if (typeof window.requestAnimationFrame === 'function') {
+        frame = window.requestAnimationFrame(read);
+      } else {
+        frame = window.setTimeout(read, 16);
+      }
+    };
+    read();
+    element.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(schedule);
+      observer.observe(element);
+    }
+    return () => {
+      element.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+      observer?.disconnect();
+      if (frame !== 0) {
+        if (typeof window.cancelAnimationFrame === 'function') {
+          window.cancelAnimationFrame(frame);
+        } else {
+          window.clearTimeout(frame);
+        }
+      }
+    };
+  }, []);
 
   const fps = project ? fpsOf(project) : 30;
   const duration = project ? Math.max(store.durationFrames, Math.round(fps * 4)) : 0;
@@ -465,6 +554,57 @@ export function Timeline() {
         : [],
     [project],
   );
+
+  // Ventana visible en frames. El overscan de 1,5 s mantiene montado lo que
+  // está por entrar; sin viewport medido el rango es completo.
+  const visibleRange = useMemo(
+    () =>
+      visibleFrameRange({
+        scrollLeft: viewportLeft,
+        viewportWidth,
+        pxPerFrame,
+        headerPx: HEADER,
+        overscanPx: pxPerFrame * Math.max(1, Math.round(fps * 1.5)),
+      }),
+    [viewportLeft, viewportWidth, pxPerFrame, fps],
+  );
+
+  // Sólo los clips y cues que tocan la ventana se entregan a cada carril.
+  const visibleClipsByTrack = useMemo(() => {
+    const map = new Map<string, Clip[]>();
+    if (!project) return map;
+    for (const clip of project.timeline.clips) {
+      if (!frameRangeIsVisible(clip.startFrame, clip.durationFrames, visibleRange)) continue;
+      const list = map.get(clip.trackId);
+      if (list) list.push(clip);
+      else map.set(clip.trackId, [clip]);
+    }
+    return map;
+  }, [project, visibleRange]);
+
+  const visibleCuesByTrack = useMemo(() => {
+    const map = new Map<string, CaptionCue[]>();
+    if (!project) return map;
+    for (const cue of project.captions.cues) {
+      if (!frameRangeIsVisible(cue.startFrame, cue.endFrame - cue.startFrame, visibleRange)) {
+        continue;
+      }
+      const list = map.get(cue.trackId);
+      if (list) list.push(cue);
+      else map.set(cue.trackId, [cue]);
+    }
+    return map;
+  }, [project, visibleRange]);
+
+  // Para el cartel de pista vacía hay que mirar el proyecto entero: una pista
+  // con clips fuera de la ventana no está vacía.
+  const tracksWithContent = useMemo(() => {
+    const set = new Set<string>();
+    if (!project) return set;
+    for (const clip of project.timeline.clips) set.add(clip.trackId);
+    for (const cue of project.captions.cues) set.add(cue.trackId);
+    return set;
+  }, [project]);
 
   const selectedClipId =
     store.state.selection.kind === 'clip' ? store.state.selection.id : null;
@@ -1056,6 +1196,61 @@ export function Timeline() {
     }
   }
 
+  /** Suelta una transición o preset de efectos sobre el ruler y lo aplica al
+   * clip editable más cercano a ese frame. Evita tener que apuntar a un clip
+   * angosto y cierra el gesto profesional de soltar sobre el corte. */
+  function dropOnRuler(event: ReactDragEvent<HTMLDivElement>): void {
+    const transitionId = event.dataTransfer.getData('application/x-olyvia-transition');
+    const raw = event.dataTransfer.getData('application/x-olyvia-effect-settings');
+    if (!transitionId && !raw) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const frame = Math.max(0, Math.round((event.clientX - rect.left) / pxPerFrame));
+    const current = store.state.project;
+    if (!current) return;
+    const tracks = new Map(current.timeline.tracks.map((track) => [track.id, track]));
+    const candidates = current.timeline.clips.filter(
+      (clip) =>
+        ['video', 'image', 'freeze'].includes(clip.kind) &&
+        !tracks.get(clip.trackId)?.locked,
+    );
+    if (candidates.length === 0) return;
+    const distance = (clip: Clip): number => {
+      const end = clip.startFrame + clip.durationFrames;
+      if (frame < clip.startFrame) return clip.startFrame - frame;
+      if (frame >= end) return frame - end + 1;
+      return 0;
+    };
+    const target = [...candidates].sort(
+      (left, right) =>
+        distance(left) - distance(right) || left.startFrame - right.startFrame,
+    )[0];
+    if (!target) return;
+    if (transitionId) {
+      const frames = Math.max(1, Math.min(12, target.durationFrames, 120));
+      const parsed = ClipTransitionSchema.safeParse({ type: transitionId, frames });
+      if (!parsed.success) return;
+      store.update(
+        (next) => updateClip(next, target.id, { transitionIn: parsed.data }),
+        { notice: `Transición ${parsed.data.type} aplicada al clip más cercano.` },
+      );
+      return;
+    }
+    try {
+      const settings = JSON.parse(raw) as Record<string, unknown>;
+      const existing = 'effects' in target ? (target.effects ?? {}) : {};
+      const parsed = ClipEffectsSchema.safeParse({ ...existing, ...settings });
+      if (!parsed.success) return;
+      store.update(
+        (next) => updateClip(next, target.id, { effects: parsed.data }),
+        { notice: 'Efectos aplicados al clip más cercano.' },
+      );
+    } catch {
+      // JSON inválido: se ignora sin tocar el proyecto.
+    }
+  }
+
   function beginClipDrag(
     event: ReactPointerEvent,
     clip: Clip,
@@ -1464,7 +1659,15 @@ export function Timeline() {
               <span className="ruler-corner-title">Timeline</span>
               <span className="ruler-corner-badge">SEQ 01</span>
             </div>
-            <div className="ruler-lane" style={{ width: surfaceWidth }}>
+            <div
+              className="ruler-lane"
+              style={{ width: surfaceWidth }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'copy';
+              }}
+              onDrop={dropOnRuler}
+            >
               {minorTicks.map((frame) => (
                 <span
                   key={`minor-${frame}`}
@@ -1527,11 +1730,9 @@ export function Timeline() {
           ) : null}
 
           {tracks.map((track) => {
-            const trackClips = project.timeline.clips.filter((clip) => clip.trackId === track.id);
+            const trackClips = visibleClipsByTrack.get(track.id) ?? [];
             const trackCues =
-              track.kind === 'caption'
-                ? project.captions.cues.filter((cue) => cue.trackId === track.id)
-                : [];
+              track.kind === 'caption' ? (visibleCuesByTrack.get(track.id) ?? []) : [];
             const height = track.kind === 'caption' ? CAPTION_ROW_HEIGHT : ROW_HEIGHT;
             return (
               <div
@@ -1647,7 +1848,7 @@ export function Timeline() {
                       onDrag={(event) => beginCueDrag(event, cue)}
                     />
                   ))}
-                  {trackClips.length === 0 && trackCues.length === 0 ? (
+                  {trackClips.length === 0 && !tracksWithContent.has(track.id) ? (
                     <span className="lane-hint">
                       {track.kind === 'caption' ? 'Sin subtítulos' : 'Pista vacía'}
                     </span>

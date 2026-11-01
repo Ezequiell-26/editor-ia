@@ -32,6 +32,7 @@ export type ShortcutId =
   | 'edit.redo'
   | 'edit.duplicateClip'
   | 'edit.rippleDelete'
+  | 'edit.rippleTrimOut'
   | 'edit.deselect'
   | 'playback.playPause'
   // Atajos "pro" (paridad CapCut / DaVinci / Premiere): sólo acciones que ya
@@ -78,6 +79,7 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'edit.redo': 'Rehacer',
   'edit.duplicateClip': 'Duplicar clip',
   'edit.rippleDelete': 'Eliminar clip y cerrar hueco',
+  'edit.rippleTrimOut': 'Recortar la salida al playhead y cerrar el hueco',
   'edit.deselect': 'Deseleccionar todo',
   'playback.playPause': 'Reproducir / Pausar',
   'playback.shuttleForward': 'Shuttle: reproducir hacia adelante',
@@ -120,6 +122,7 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'edit.redo': 'Editar',
   'edit.duplicateClip': 'Editar',
   'edit.rippleDelete': 'Editar',
+  'edit.rippleTrimOut': 'Editar',
   'edit.deselect': 'Editar',
   'playback.playPause': 'Reproducción',
   'playback.shuttleForward': 'Reproducción',
@@ -162,6 +165,7 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'edit.redo': 'Ctrl+Shift+Z',
   'edit.duplicateClip': 'Ctrl+D',
   'edit.rippleDelete': 'Ctrl+Shift+Delete',
+  'edit.rippleTrimOut': 'Ctrl+Shift+ArrowRight',
   'edit.deselect': 'Escape',
   'playback.playPause': 'Space',
   // Shuttle: L reproduce (setPlaying(true)), K pausa (setPlaying(false)).

@@ -12,6 +12,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "editor-ia-desktop"
 path = "src/main.rs"
+
+[[bin]]
+name = "olyvia-render-worker"
+path = "src/bin/olyvia-render-worker.rs"
 # `src/main.rs` sólo arranca la lib. Desactivar su test evita duplicar el
 # manifiesto de recursos cuando `cargo test` enlaza el test de la lib.
 test = false
@@ -51,8 +55,13 @@ thiserror = "2"
 ort = { version = "2.0.0-rc.15", default-features = false, features = ["load-dynamic"] }
 # Decodificar/encodear imágenes para las capacidades de imagen. MIT/Apache-2.0.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
+# Lectura tolerante de tags de audio (título, artista, álbum, BPM) al importar.
+# MIT OR Apache-2.0; los formatos (WAV, MP3, FLAC, MP4...) vienen en el crate.
+lofty = "0.25"
 # Detección facial local para smart reframe. BSD-2-Clause, sin DLL externo.
 rustface = "0.1.7"
+# Catálogo de fuentes instaladas para títulos/motion. MIT.
+fontdb = "0.24"
 # Decodificación de frames en proceso (MIT/Apache-2.0). Requiere FFmpeg dev.
 # `ndarray` entrega el frame en RGB24 y con su timestamp, sin pasar por FFmpeg CLI.
 video-rs = { version = "0.12", default-features = false, features = ["ndarray"] }
