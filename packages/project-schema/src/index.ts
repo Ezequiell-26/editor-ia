@@ -118,6 +118,10 @@ export {
   CompoundInnerClipSchema,
   CompoundClipSchema,
   clipFitsTrack,
+  MIN_RAMP_SPEED,
+  MAX_RAMP_SPEED,
+  SpeedCurvePointSchema,
+  SpeedCurveSchema,
 } from './timeline.ts';
 export type {
   Track,
@@ -147,7 +151,21 @@ export type {
   ClipMaskKeyframe,
   Compound,
   CompoundInnerClip,
+  SpeedCurve,
+  SpeedCurvePoint,
 } from './timeline.ts';
+
+export {
+  SPEED_CURVE_INTEGRAL_STEPS,
+  SPEED_CURVE_MAX_KNOTS,
+  buildSpeedKnots,
+  curveDurationFrames,
+  curveSourceFraction,
+  meanSpeedCurve,
+  sampleSpeedCurve,
+  speedEasingProgress,
+} from './speed-curve.ts';
+export type { SpeedCurveLike, SpeedCurvePointLike, SpeedKnot } from './speed-curve.ts';
 
 export {
   hasGainKeyframes,

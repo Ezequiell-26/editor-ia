@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { DecibelSchema, EntityIdSchema, UnitIntervalSchema } from './primitives.ts';
+import { curveDurationFrames, meanSpeedCurve } from './speed-curve.ts';
 import { DurationSchema, FrameRateSchema, FrameSchema } from './time.ts';
 
 /**
@@ -1030,6 +1031,17 @@ export const ClipSchema = z
           path: ['source', 'outFrame'],
           message: 'a clip source window must end after it starts',
         });
+      } else if (clip.kind === 'video' && clip.speedCurve) {
+        // Con curva la duración sigue a la media de la velocidad; la igualdad
+        // exacta de `speed` no aplica porque cada frame tiene su multiplicador.
+        const expected = curveDurationFrames(sourceFrames, clip.speedCurve);
+        if (Math.abs(clip.durationFrames - expected) > 1) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['durationFrames'],
+            message: `a speed curve with mean ${meanSpeedCurve(clip.speedCurve).toFixed(3)}x needs ${expected} frames for this source window`,
+          });
+        }
       } else {
         const speed = clip.speed ?? { num: 1, den: 1 };
         if (clip.durationFrames * speed.num !== sourceFrames * speed.den) {

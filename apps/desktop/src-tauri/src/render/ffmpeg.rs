@@ -1677,10 +1677,7 @@ fn perspective_filter(clip: &Value, profile: &Profile) -> Option<String> {
     for corner in corners {
         let x = corner["x"].as_f64()?.clamp(0.0, 1.0);
         let y = corner["y"].as_f64()?.clamp(0.0, 1.0);
-        points.push((
-            x * profile.width as f64,
-            y * profile.height as f64,
-        ));
+        points.push((x * profile.width as f64, y * profile.height as f64));
     }
     let (tl, tr, br, bl) = (points[0], points[1], points[2], points[3]);
     let default = (
@@ -1689,9 +1686,7 @@ fn perspective_filter(clip: &Value, profile: &Profile) -> Option<String> {
         (profile.width as f64, profile.height as f64),
         (0.0, profile.height as f64),
     );
-    let close = |a: (f64, f64), b: (f64, f64)| {
-        (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01
-    };
+    let close = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01;
     if close(tl, default.0) && close(tr, default.1) && close(br, default.2) && close(bl, default.3)
     {
         return None;
@@ -1707,6 +1702,284 @@ fn perspective_filter(clip: &Value, profile: &Profile) -> Option<String> {
         "perspective=x0={:.3}:y0={:.3}:x1={:.3}:y1={:.3}:x2={:.3}:y2={:.3}:x3={:.3}:y3={:.3}:sense=source:interpolation={interpolation}:eval=init",
         tl.0, tl.1, tr.0, tr.1, bl.0, bl.1, br.0, br.1
     ))
+}
+
+// --- Curvas de velocidad continuas ------------------------------------------
+//
+// La curva vive en el tiempo de SALIDA normalizado: `speed` es el multiplicador
+// (2 = doble de rápido). La ventana de origen se conserva completa, así que la
+// duración es `source / media(speed)`. El render construye un `setpts` por
+// tramos a partir de la integral acumulada; `speed-curve.ts` implementa la
+// misma regla para el editor y los tests.
+
+#[derive(Debug, Clone, Copy)]
+struct CurveBezier {
+    cp1x: f64,
+    cp1y: f64,
+    cp2x: f64,
+    cp2y: f64,
+}
+
+#[derive(Debug, Clone)]
+struct CurvePoint {
+    t: f64,
+    speed: f64,
+    easing: Option<String>,
+    bezier: Option<CurveBezier>,
+}
+
+const CURVE_INTEGRAL_STEPS: usize = 1024;
+const CURVE_MAX_KNOTS: usize = 64;
+const CURVE_MAX_EXPRESSION_CHARS: usize = 28_000;
+
+fn curve_ease(easing: Option<&str>, progress: f64) -> f64 {
+    match easing.unwrap_or("linear") {
+        "ease-in" => progress * progress * progress,
+        "ease-out" => 1.0 - (1.0 - progress) * (1.0 - progress) * (1.0 - progress),
+        "ease-in-out" => progress * progress * (3.0 - 2.0 * progress),
+        "hold" => 0.0,
+        _ => progress,
+    }
+}
+
+/// Misma resolución de cubic-bezier que `keyframes.ts` (Newton + bisección).
+fn curve_bezier_progress(progress: f64, bezier: CurveBezier) -> f64 {
+    let clamped = progress.clamp(0.0, 1.0);
+    if clamped <= 0.0 {
+        return 0.0;
+    }
+    if clamped >= 1.0 {
+        return 1.0;
+    }
+    let cx = 3.0 * bezier.cp1x;
+    let bx = 3.0 * (bezier.cp2x - bezier.cp1x) - cx;
+    let ax = 1.0 - cx - bx;
+    let cy = 3.0 * bezier.cp1y;
+    let by = 3.0 * (bezier.cp2y - bezier.cp1y) - cy;
+    let ay = 1.0 - cy - by;
+    let sample_x = |u: f64| ((ax * u + bx) * u + cx) * u;
+    let sample_y = |u: f64| ((ay * u + by) * u + cy) * u;
+    let derivative_x = |u: f64| (3.0 * ax * u + 2.0 * bx) * u + cx;
+
+    let mut u = clamped;
+    for _ in 0..8 {
+        let x = sample_x(u) - clamped;
+        if x.abs() < 1e-6 {
+            return sample_y(u);
+        }
+        let d = derivative_x(u);
+        if d.abs() < 1e-6 {
+            break;
+        }
+        u -= x / d;
+    }
+    let mut low = 0.0;
+    let mut high = 1.0;
+    u = clamped;
+    for _ in 0..24 {
+        let x = sample_x(u);
+        if (x - clamped).abs() < 1e-6 {
+            break;
+        }
+        if x < clamped {
+            low = u;
+        } else {
+            high = u;
+        }
+        u = (low + high) / 2.0;
+    }
+    sample_y(u)
+}
+
+fn curve_sample(points: &[CurvePoint], t: f64) -> f64 {
+    let Some(first) = points.first() else {
+        return 1.0;
+    };
+    let last = points.last().unwrap_or(first);
+    let at = if t.is_finite() {
+        t.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    if at <= first.t {
+        return first.speed;
+    }
+    if at >= last.t {
+        return last.speed;
+    }
+    for pair in points.windows(2) {
+        let left = &pair[0];
+        let right = &pair[1];
+        if at >= left.t && at <= right.t {
+            let span = right.t - left.t;
+            if span <= 0.0 {
+                return right.speed;
+            }
+            let local = (at - left.t) / span;
+            let eased = match left.bezier {
+                Some(bezier) => curve_bezier_progress(local, bezier),
+                None => curve_ease(left.easing.as_deref(), local),
+            };
+            return left.speed + (right.speed - left.speed) * eased;
+        }
+    }
+    last.speed
+}
+
+fn curve_mean(points: &[CurvePoint]) -> f64 {
+    let steps = CURVE_INTEGRAL_STEPS;
+    let mut total = 0.0;
+    for index in 0..steps {
+        total += curve_sample(points, (index as f64 + 0.5) / steps as f64);
+    }
+    let mean = total / steps as f64;
+    if mean.is_finite() && mean > 0.0 {
+        mean
+    } else {
+        1.0
+    }
+}
+
+fn curve_source_fraction(points: &[CurvePoint], output: f64) -> f64 {
+    let tau = output.clamp(0.0, 1.0);
+    if tau <= 0.0 {
+        return 0.0;
+    }
+    if tau >= 1.0 {
+        return 1.0;
+    }
+    let steps = ((CURVE_INTEGRAL_STEPS as f64 * tau).round() as usize).max(16);
+    let mut partial = 0.0;
+    for index in 0..steps {
+        partial += curve_sample(points, (index as f64 + 0.5) / steps as f64 * tau);
+    }
+    let mut total = 0.0;
+    for index in 0..CURVE_INTEGRAL_STEPS {
+        total += curve_sample(points, (index as f64 + 0.5) / CURVE_INTEGRAL_STEPS as f64);
+    }
+    if total <= 0.0 {
+        return tau;
+    }
+    let fraction = partial / steps as f64 * tau / (total / CURVE_INTEGRAL_STEPS as f64);
+    fraction.clamp(0.0, 1.0)
+}
+
+fn curve_knots(points: &[CurvePoint], count: usize) -> Vec<(f64, f64)> {
+    let steps = count.clamp(2, CURVE_MAX_KNOTS);
+    let mut knots = vec![(0.0, 0.0)];
+    let mut previous_input = 0.0;
+    for index in 1..steps {
+        let output = index as f64 / steps as f64;
+        let input = curve_source_fraction(points, output).max(previous_input);
+        previous_input = input;
+        knots.push((input, output));
+    }
+    knots.push((1.0, 1.0));
+    knots
+}
+
+fn parse_curve_bezier(value: &Value) -> Option<CurveBezier> {
+    Some(CurveBezier {
+        cp1x: value.get("cp1X")?.as_f64()?,
+        cp1y: value.get("cp1Y")?.as_f64()?,
+        cp2x: value.get("cp2X")?.as_f64()?,
+        cp2y: value.get("cp2Y")?.as_f64()?,
+    })
+}
+
+fn parse_speed_curve(clip: &Value) -> Option<Vec<CurvePoint>> {
+    let list = clip.get("speedCurve")?.get("points")?.as_array()?;
+    if list.len() < 2 {
+        return None;
+    }
+    let mut points = Vec::with_capacity(list.len());
+    for value in list {
+        points.push(CurvePoint {
+            t: value.get("t")?.as_f64()?,
+            speed: value.get("speed")?.as_f64()?,
+            easing: value
+                .get("easing")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            bezier: value.get("bezier").and_then(parse_curve_bezier),
+        });
+    }
+    Some(points)
+}
+
+fn curve_has_slow(points: &[CurvePoint]) -> bool {
+    points.iter().any(|point| point.speed < 0.999)
+}
+
+fn curve_optical_flow_fps(clip: &Value, profile: &Profile) -> Option<usize> {
+    let curve = clip.get("speedCurve")?;
+    if curve.get("opticalFlow").and_then(Value::as_bool) != Some(true) {
+        return None;
+    }
+    let fps = curve
+        .get("targetFps")
+        .and_then(Value::as_u64)
+        .map(|value| value as usize)
+        .unwrap_or(profile.fps_num as usize);
+    Some(fps.clamp(24, 120))
+}
+
+/// `setpts` por tramos para una curva. Devuelve `None` si el clip no tiene
+/// curva, si hay lead de transición o si la expresión no cabe en el grafo.
+fn curve_setpts(
+    clip: &Value,
+    duration_seconds: f64,
+    source_seconds: f64,
+    lead_seconds: f64,
+) -> Option<String> {
+    if lead_seconds > 0.001 || duration_seconds <= 0.0 || source_seconds <= 0.0 {
+        return None;
+    }
+    let points = parse_speed_curve(clip)?;
+    for knots in [CURVE_MAX_KNOTS, 32, 16] {
+        if let Some(expression) =
+            curve_setpts_with(&points, duration_seconds, source_seconds, knots)
+        {
+            if expression.len() <= CURVE_MAX_EXPRESSION_CHARS {
+                return Some(expression);
+            }
+        }
+    }
+    None
+}
+
+fn curve_setpts_with(
+    points: &[CurvePoint],
+    duration_seconds: f64,
+    source_seconds: f64,
+    knots_count: usize,
+) -> Option<String> {
+    let knots = curve_knots(points, knots_count);
+    if knots.len() < 2 {
+        return None;
+    }
+    let x = "(PTS-STARTPTS)";
+    let mut segments: Vec<(f64, String)> = Vec::new();
+    for pair in knots.windows(2) {
+        let (input, output) = pair[0];
+        let (next_input, next_output) = pair[1];
+        let span = next_input - input;
+        if span <= 1e-9 {
+            continue;
+        }
+        let slope = (next_output - output) / span;
+        let multiplier = duration_seconds * slope / source_seconds;
+        let constant = duration_seconds * (output - input * slope);
+        segments.push((
+            next_input * source_seconds,
+            format!("{multiplier:.9}*{x}+{constant:.9}/TB"),
+        ));
+    }
+    let mut body = segments.last()?.1.clone();
+    for (limit, segment) in segments.iter().rev().skip(1) {
+        body = format!("if(lt({x},{limit:.9}/TB),{segment},{body})");
+    }
+    Some(format!("setpts='{body}'"))
 }
 
 pub(crate) fn visual_filter(
@@ -1889,9 +2162,8 @@ pub(crate) fn visual_filter(
         let spill = number(chroma, "spill").unwrap_or(0.0).clamp(0.0, 1.0);
         if spill > 0.001 {
             let hex = &chroma_color[1..];
-            let channel = |start: usize| {
-                u8::from_str_radix(&hex[start..start + 2], 16).unwrap_or(0)
-            };
+            let channel =
+                |start: usize| u8::from_str_radix(&hex[start..start + 2], 16).unwrap_or(0);
             let (red, green, blue) = (channel(0), channel(2), channel(4));
             let screen = if green > red && green > blue {
                 Some("green")
@@ -1901,9 +2173,7 @@ pub(crate) fn visual_filter(
                 None
             };
             if let Some(screen) = screen {
-                filters.push(format!(
-                    "despill=type={screen}:mix={spill:.4}:expand=0.15"
-                ));
+                filters.push(format!("despill=type={screen}:mix={spill:.4}:expand=0.15"));
             }
         }
     }
@@ -2120,23 +2390,39 @@ pub(crate) fn visual_filter(
         }
     }
 
-    if !is_image && speed_num != speed_den {
-        filters.push(format!(
-            "setpts=(PTS-STARTPTS)*{}/{}",
-            speed_den.max(1),
-            speed_num.max(1)
-        ));
-        // Cámara lenta suave: `setpts` estira los tiempos y deja huecos; la
-        // interpolación de movimiento los rellena a la tasa del perfil. Sólo
-        // se aplica al bajar de 1×, nunca al acelerar.
-        if speed_num < speed_den && clip["slowMotionSmoothing"].as_bool() == Some(true) {
-            // `tpad` clona el último frame para que la interpolación cubra
-            // también el tramo final; sin eso el filtro entrega ~0,1 s menos.
-            filters.push("tpad=stop_mode=clone:stop_duration=0.5".to_owned());
+    if !is_image {
+        let source_seconds = total_seconds * (speed_num as f64 / speed_den as f64);
+        if let Some(expression) = curve_setpts(clip, total_seconds, source_seconds, lead) {
+            filters.push(expression);
+            if let (Some(points), Some(fps)) = (
+                parse_speed_curve(clip),
+                curve_optical_flow_fps(clip, profile),
+            ) {
+                if curve_has_slow(&points) {
+                    filters.push("tpad=stop_mode=clone:stop_duration=0.5".to_owned());
+                    filters.push(format!(
+                        "minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=none"
+                    ));
+                }
+            }
+        } else if speed_num != speed_den {
             filters.push(format!(
-                "minterpolate=fps={}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=none",
-                profile.fps_arg()
+                "setpts=(PTS-STARTPTS)*{}/{}",
+                speed_den.max(1),
+                speed_num.max(1)
             ));
+            // Cámara lenta suave: `setpts` estira los tiempos y deja huecos; la
+            // interpolación de movimiento los rellena a la tasa del perfil. Sólo
+            // se aplica al bajar de 1×, nunca al acelerar.
+            if speed_num < speed_den && clip["slowMotionSmoothing"].as_bool() == Some(true) {
+                // `tpad` clona el último frame para que la interpolación cubra
+                // también el tramo final; sin eso el filtro entrega ~0,1 s menos.
+                filters.push("tpad=stop_mode=clone:stop_duration=0.5".to_owned());
+                filters.push(format!(
+                    "minterpolate=fps={}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1:scd=none",
+                    profile.fps_arg()
+                ));
+            }
         }
     }
     if !is_image {
@@ -3165,6 +3451,19 @@ pub(crate) fn build_plan_range(
         let speed_den = speed["den"].as_u64().unwrap_or(1) as u32;
         let speed_den = speed_den.max(1);
         let speed_num = speed_num.max(1);
+        // Con curva, la velocidad constante que usan el audio, el seek y la
+        // ventana de origen es la media de la curva; el video se retima por
+        // frame con el `setpts` por tramos.
+        let (speed_num, speed_den) = match parse_speed_curve(&clip) {
+            Some(points) => {
+                let den = 1_000u32;
+                let num = (curve_mean(&points) * den as f64)
+                    .round()
+                    .clamp(1.0, 4_000.0) as u32;
+                (num, den)
+            }
+            None => (speed_num, speed_den),
+        };
         let blend = clip["blendMode"].as_str().and_then(blend_mode_name);
         let layer_index = if blend.is_some() {
             let index = inputs;
@@ -3885,10 +4184,7 @@ fn probe_output(
 /// duración correcta aunque una de sus pistas se haya cortado antes: por eso
 /// se exige que existan video y audio, y que la duración declarada de cada
 /// pista coincida con la timeline dentro de la tolerancia del perfil.
-fn verify_probe_payload(
-    value: &Value,
-    plan: &RenderPlan,
-) -> Result<(f64, u32, u32), ProjectError> {
+fn verify_probe_payload(value: &Value, plan: &RenderPlan) -> Result<(f64, u32, u32), ProjectError> {
     let duration = value["format"]["duration"]
         .as_str()
         .and_then(|text| text.parse::<f64>().ok())
@@ -4091,6 +4387,79 @@ mod tests {
             }
         });
         assert!(perspective_filter(&identity, &profile()).is_none());
+    }
+
+    #[test]
+    fn curve_math_matches_the_editor() {
+        let points = vec![
+            CurvePoint {
+                t: 0.0,
+                speed: 0.5,
+                easing: None,
+                bezier: None,
+            },
+            CurvePoint {
+                t: 1.0,
+                speed: 2.0,
+                easing: None,
+                bezier: None,
+            },
+        ];
+        assert!((curve_mean(&points) - 1.25).abs() < 1e-4);
+        // Rampa lineal 0.5→2: la mitad de la salida consume 35 % de la fuente.
+        assert!((curve_source_fraction(&points, 0.5) - 0.35).abs() < 0.01);
+        let knots = curve_knots(&points, 8);
+        assert_eq!(knots.len(), 9);
+        assert_eq!(knots[0], (0.0, 0.0));
+        assert_eq!(knots[8], (1.0, 1.0));
+        assert!(knots.windows(2).all(|pair| pair[1].0 >= pair[0].0));
+    }
+
+    #[test]
+    fn curve_setpts_builds_a_bounded_piecewise_expression() {
+        let clip = serde_json::json!({
+            "speedCurve": {
+                "points": [
+                    { "t": 0.0, "speed": 0.5 },
+                    { "t": 1.0, "speed": 2.0 }
+                ]
+            }
+        });
+        let expression = curve_setpts(&clip, 8.0, 10.0, 0.0).expect("expresión");
+        assert!(expression.starts_with("setpts='"));
+        assert!(expression.contains("if(lt((PTS-STARTPTS)"));
+        assert!(expression.len() <= CURVE_MAX_EXPRESSION_CHARS);
+        // Con lead de transición se cae al camino constante.
+        assert!(curve_setpts(&clip, 8.0, 10.0, 0.4).is_none());
+
+        let many = serde_json::json!({
+            "speedCurve": {
+                "points": (0..50)
+                    .map(|index| serde_json::json!({
+                        "t": index as f64 / 49.0,
+                        "speed": 0.5 + (index % 5) as f64 * 0.75
+                    }))
+                    .collect::<Vec<_>>()
+            }
+        });
+        let long = curve_setpts(&many, 8.0, 10.0, 0.0).expect("expresión larga");
+        assert!(long.len() <= CURVE_MAX_EXPRESSION_CHARS);
+    }
+
+    #[test]
+    fn curve_optical_flow_respects_the_toggle_and_caps_fps() {
+        let points = serde_json::json!([
+            { "t": 0.0, "speed": 0.5 },
+            { "t": 1.0, "speed": 2.0 }
+        ]);
+        let enabled = serde_json::json!({
+            "speedCurve": { "points": points, "opticalFlow": true, "targetFps": 240 }
+        });
+        assert_eq!(curve_optical_flow_fps(&enabled, &profile()), Some(120));
+        let disabled = serde_json::json!({
+            "speedCurve": { "points": points, "opticalFlow": false }
+        });
+        assert_eq!(curve_optical_flow_fps(&disabled, &profile()), None);
     }
 
     fn profile() -> Profile {
@@ -7130,6 +7499,108 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Render real de una curva de velocidad 0.5×→2× sobre 3 s de testsrc.
+    /// La ventana de 90 frames tiene media 1.25×, así que la salida debe durar
+    /// 72 frames (2,4 s) y el grafo debe usar el `setpts` por tramos. Correr
+    /// con `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test render_live_speed_curve -- --ignored`.
+    #[test]
+    #[ignore]
+    fn render_live_speed_curve_produces_a_verified_mp4() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("render_live_speed_curve omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+        let root =
+            std::env::temp_dir().join(format!("editor-ia-curve-live-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        let video_path = media.join("video.mp4");
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner".to_string(),
+                "-y".into(),
+                "-f".into(),
+                "lavfi".into(),
+                "-i".into(),
+                "testsrc=size=320x180:rate=30:duration=3".into(),
+                "-pix_fmt".into(),
+                "yuv420p".into(),
+                path_to_string(&video_path),
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success(), "no se pudo generar el video base");
+        let project = serde_json::json!({
+            "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+            "timeline": {
+                "tracks": [{ "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false }],
+                "clips": [{
+                    "id": "c1",
+                    "trackId": "v1",
+                    "kind": "video",
+                    "startFrame": 0,
+                    "durationFrames": 72,
+                    "source": { "type": "asset", "assetId": "asset1", "inFrame": 0, "outFrame": 90 },
+                    "speedCurve": { "points": [
+                        { "t": 0.0, "speed": 0.5 },
+                        { "t": 1.0, "speed": 2.0 }
+                    ] }
+                }]
+            },
+            "assets": [
+                { "id": "asset1", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/video.mp4" }, "media": { "durationFrames": 90 } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        });
+        let output = root.join("out.mp4");
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+        let mut profile = profile();
+        profile.width = 320;
+        profile.height = 180;
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile,
+            output_path: &output,
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: &ffprobe,
+            motion_ass: None,
+        })
+        .expect("el plan con curva debería construirse");
+        let graph = plan.args.join(" ");
+        assert!(graph.contains("setpts='"), "falta el setpts por tramos");
+        assert!(
+            graph.contains("if(lt((PTS-STARTPTS)"),
+            "falta la expresión por tramos"
+        );
+        let verification = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+            .expect("el render real de la curva debería verificarse");
+        eprintln!(
+            "speed curve render: {} bytes, {}x{}, {:.3}s",
+            verification.output_bytes,
+            verification.width,
+            verification.height,
+            verification.duration_seconds
+        );
+        assert!(output.is_file());
+        assert!(verification.output_bytes > 1_000);
+        assert_eq!(verification.width, 320);
+        assert_eq!(verification.height, 180);
+        assert!(
+            (verification.duration_seconds - 2.4).abs() < 0.3,
+            "duración inesperada: {}",
+            verification.duration_seconds
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     /// Overlay real: un WebM VP9 con alfa generado por el pipeline de Lottie
     /// sobre un video azul. La esquina transparente debe mostrar el azul del
     /// fondo y el centro opaco el rojo de la animación. Ignorado por defecto;
@@ -8845,11 +9316,9 @@ mod tests {
 
     #[test]
     fn probe_payload_accepts_a_complete_render() {
-        let result = verify_probe_payload(
-            &probe_value("5.0", Some("5.0"), Some("5.0")),
-            &probe_plan(),
-        )
-        .expect("un render completo debería verificarse");
+        let result =
+            verify_probe_payload(&probe_value("5.0", Some("5.0"), Some("5.0")), &probe_plan())
+                .expect("un render completo debería verificarse");
         assert!((result.0 - 5.0).abs() < f64::EPSILON);
         assert_eq!((result.1, result.2), (1920, 1080));
     }
@@ -9357,12 +9826,7 @@ mod tests {
             let status = Command::new(&ffmpeg)
                 .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
                 .arg(&output)
-                .args([
-                    "-vf",
-                    &format!("select=eq(n\\,{index})"),
-                    "-frames:v",
-                    "1",
-                ])
+                .args(["-vf", &format!("select=eq(n\\,{index})"), "-frames:v", "1"])
                 .arg(&frame)
                 .status()
                 .expect("ffmpeg debería extraer el frame");
@@ -9387,7 +9851,10 @@ mod tests {
         eprintln!(
             "opacidad Bézier 5 s: rojo frame 0 {start:.1} (preview 255.0), frame 64 {middle:.1} (preview {preview_middle:.2}), frame 119 {end:.1} (preview 0.0)"
         );
-        assert!(start >= 245.0, "el frame 0 debería estar casi opaco: {start}");
+        assert!(
+            start >= 245.0,
+            "el frame 0 debería estar casi opaco: {start}"
+        );
         assert!(
             (middle - preview_middle).abs() <= 12.0,
             "el frame 64 debe coincidir con la Bézier de la preview: medido {middle:.1}, esperado {preview_middle:.2}"
@@ -9412,10 +9879,8 @@ mod tests {
         use crate::commands::system::find_executable;
         let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
         let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
-        let root = std::env::temp_dir().join(format!(
-            "editoria-5s-animated-pan-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("editoria-5s-animated-pan-{}", uuid::Uuid::new_v4()));
         let media = root.join("media");
         std::fs::create_dir_all(&media).unwrap();
 

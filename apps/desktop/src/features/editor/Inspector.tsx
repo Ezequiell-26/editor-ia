@@ -25,6 +25,7 @@ import {
 } from '../../state/speed-ramp-presets';
 import { CLIP_COLORS } from '../../state/clip-colors';
 import { MotionClipInspector } from '../motion/MotionClipInspector';
+import { SpeedCurveEditor } from './SpeedCurveEditor';
 import { polygonAroundCenter } from '../vfx/face-mask';
 import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
@@ -44,6 +45,7 @@ import {
   importSubtitleCues,
   addTranscriptionCues,
   applySpeedCurve,
+  applySpeedCurvePoints,
   applySpeedRamp,
   captureTransformKeyframe,
   clearGainKeyframes,
@@ -72,6 +74,7 @@ import {
   removeTransformKeyframe,
   replaceClipWithDerivedAsset,
   rollClip,
+  removeSpeedCurve,
   setClipSpeed,
   setClipStabilization,
   setSlowMotionSmoothing,
@@ -2395,6 +2398,33 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               reverse.
             </p>
           </div>
+          {clip.kind === 'video' ? (
+            <div className="keyframe-panel">
+              <div className="production-card-head">
+                <div>
+                  <p className="eyebrow">Curva continua</p>
+                  <span className="fine-print">Puntos con Bézier y render por frame</span>
+                </div>
+              </div>
+              <SpeedCurveEditor
+                key={`${clip.id}-${clip.speedCurve ? 'curve' : 'plain'}`}
+                sourceFrames={clip.source.outFrame - clip.source.inFrame}
+                fps={fps}
+                curve={clip.speedCurve}
+                disabled={lockedTrack}
+                onApply={(curve) => {
+                  store.update((current) => applySpeedCurvePoints(current, clip.id, curve));
+                }}
+                onRemove={
+                  clip.speedCurve
+                    ? () => {
+                        store.update((current) => removeSpeedCurve(current, clip.id));
+                      }
+                    : undefined
+                }
+              />
+            </div>
+          ) : null}
           <div className="keyframe-panel">
             <div className="production-card-head">
               <div>

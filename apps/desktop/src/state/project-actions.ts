@@ -21,6 +21,7 @@ import type {
   MotionItem,
   ProjectDocument,
   Scene,
+  SpeedCurve,
   Track,
 } from '@editor-ia/project-schema';
 import {
@@ -28,9 +29,12 @@ import {
   MAX_ASSET_TAGS,
   MAX_ASSET_TAG_LENGTH,
   MAX_GAIN_KEYFRAMES,
+  MAX_RAMP_SPEED,
   MAX_TRANSFORM_KEYFRAMES,
+  MIN_RAMP_SPEED,
   TRANSFORM_KEYFRAME_SCALE_MAX,
   TRANSFORM_KEYFRAME_SCALE_MIN,
+  curveDurationFrames,
   hasGeometryKeyframes,
   sampleGainKeyframes,
   sampleTransformKeyframes,
@@ -3054,6 +3058,110 @@ export function setClipSpeed(
       else delete clip.slowMotionSmoothing;
     }
   }
+  const delta = clip.durationFrames - oldDuration;
+  const oldEnd = clip.startFrame + oldDuration;
+  if (delta !== 0) {
+    for (const other of next.timeline.clips) {
+      if (other.id === clip.id || other.trackId !== clip.trackId) continue;
+      if (other.startFrame >= oldEnd) {
+        other.startFrame = Math.max(0, other.startFrame + delta);
+      }
+    }
+  }
+  touch(next);
+  return next;
+}
+
+/**
+ * Aplica una curva de velocidad continua a un clip de video.
+ *
+ * La ventana de origen no se toca: la curva decide cuánto dura la salida, y la
+ * duración resultante es `sourceFrames / media(speed)`. Los clips siguientes de
+ * la pista se desplazan como en cualquier cambio de velocidad.
+ */
+export function applySpeedCurvePoints(
+  project: ProjectDocument,
+  clipId: string,
+  curve: SpeedCurve,
+): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || clip.kind !== 'video') {
+    throw new ProjectActionError('la curva de velocidad continua necesita un clip de video');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  if (clip.transform?.keyframes?.length || clip.audio?.gainKeyframes?.length) {
+    throw new ProjectActionError(
+      'quitá los keyframes de transformación o volumen antes de aplicar la curva',
+    );
+  }
+  if (clip.motion) {
+    throw new ProjectActionError('quitá el movimiento Ken Burns antes de aplicar la curva');
+  }
+  if (clip.reverse) {
+    throw new ProjectActionError('quitá el reverse antes de aplicar la curva');
+  }
+  if (clip.stabilization) {
+    throw new ProjectActionError('quitá la estabilización antes de aplicar la curva');
+  }
+  if (clip.transitionIn) {
+    throw new ProjectActionError('quitá la transición de entrada antes de aplicar la curva');
+  }
+  const points = curve.points;
+  if (points.length < 2 || points.length > 50) {
+    throw new ProjectActionError('la curva necesita entre 2 y 50 puntos');
+  }
+  if (points[0]!.t !== 0 || points[points.length - 1]!.t !== 1) {
+    throw new ProjectActionError('la curva debe empezar en 0 y terminar en 1');
+  }
+  let previous = -1;
+  for (const point of points) {
+    if (!Number.isFinite(point.t) || point.t <= previous || point.t < 0 || point.t > 1) {
+      throw new ProjectActionError('los puntos de la curva deben estar ordenados entre 0 y 1');
+    }
+    if (!Number.isFinite(point.speed) || point.speed < MIN_RAMP_SPEED || point.speed > MAX_RAMP_SPEED) {
+      throw new ProjectActionError('las velocidades de la curva deben estar entre 0.1x y 4x');
+    }
+    previous = point.t;
+  }
+  const sourceFrames = clip.source.outFrame - clip.source.inFrame;
+  const oldDuration = clip.durationFrames;
+  const duration = curveDurationFrames(sourceFrames, curve);
+  clip.durationFrames = duration;
+  clip.speedCurve = curve;
+  delete clip.speed;
+  delete clip.slowMotionSmoothing;
+  const delta = duration - oldDuration;
+  const oldEnd = clip.startFrame + oldDuration;
+  if (delta !== 0) {
+    for (const other of next.timeline.clips) {
+      if (other.id === clip.id || other.trackId !== clip.trackId) continue;
+      if (other.startFrame >= oldEnd) {
+        other.startFrame = Math.max(0, other.startFrame + delta);
+      }
+    }
+  }
+  touch(next);
+  return next;
+}
+
+/** Quita la curva y devuelve el clip a 1× sin mover la ventana de origen. */
+export function removeSpeedCurve(project: ProjectDocument, clipId: string): ProjectDocument {
+  const next = cloneProject(project);
+  const clip = next.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || clip.kind !== 'video') {
+    throw new ProjectActionError('sólo los clips de video tienen curva de velocidad');
+  }
+  if (next.timeline.tracks.find((item) => item.id === clip.trackId)?.locked) {
+    throw new ProjectActionError('la pista del clip está bloqueada');
+  }
+  const sourceFrames = clip.source.outFrame - clip.source.inFrame;
+  const oldDuration = clip.durationFrames;
+  delete clip.speedCurve;
+  delete clip.speed;
+  clip.durationFrames = Math.max(1, sourceFrames);
   const delta = clip.durationFrames - oldDuration;
   const oldEnd = clip.startFrame + oldDuration;
   if (delta !== 0) {
