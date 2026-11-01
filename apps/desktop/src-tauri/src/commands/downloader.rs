@@ -24,7 +24,6 @@ use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 use crate::commands::system::resolve_tools;
-use crate::license::{check_download, check_parallel, LicenseTier};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
@@ -4049,43 +4048,6 @@ pub async fn download_media(
     state: State<'_, AppState>,
     mut request: DownloadRequest,
 ) -> Result<DownloadOutcome, ProjectError> {
-    let tier = state.license_tier();
-    let active = active_controls()
-        .lock()
-        .map(|controls| controls.len())
-        .unwrap_or(0);
-    if let Err(error) = check_parallel(tier, active) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::LicenseRequired,
-            &error.message,
-        ));
-    }
-    let upscale_target = request
-        .upscale
-        .unwrap_or(false)
-        .then(|| request.upscale_target.as_deref().unwrap_or("auto"));
-    if let Err(error) = check_download(
-        tier,
-        request.max_height,
-        request.codec.as_deref(),
-        request.format.as_deref(),
-        request.hdr_mode.as_deref(),
-        upscale_target,
-        request.sponsorblock.unwrap_or(false),
-    ) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::LicenseRequired,
-            &error.message,
-        ));
-    }
-    if tier == LicenseTier::Free {
-        if request.max_height.is_none() {
-            request.max_height = Some(1080);
-        }
-        if request.codec.is_none() {
-            request.codec = Some("h264".to_owned());
-        }
-    }
     let engine = resolve_engine(&state.config_dir)?;
     let settings = state.settings_snapshot()?;
     let (ffmpeg, ffprobe, _) = resolve_tools(&settings);

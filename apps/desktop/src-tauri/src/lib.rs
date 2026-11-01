@@ -8,7 +8,6 @@
 use tauri::{Emitter, Listener, Manager};
 
 pub mod commands;
-pub mod license;
 pub mod media;
 pub mod projects;
 pub mod render;
@@ -423,11 +422,6 @@ pub fn run() {
             commands::transcribe::transcribe_asset,
             commands::variants::write_project_variant,
             commands::variants::render_project_variant,
-            commands::license::license_status,
-            commands::license::start_trial,
-            commands::license::choose_license_file,
-            commands::license::activate_license,
-            commands::license::deactivate_license,
             commands::system::system_info,
             commands::system::choose_tool,
             commands::system::reveal_output,

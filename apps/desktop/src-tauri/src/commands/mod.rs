@@ -133,7 +133,6 @@ pub mod face;
 pub mod fcpxml;
 pub mod filmcraft_scopes;
 pub mod intelligence;
-pub mod license;
 pub mod lip_sync;
 pub mod localization;
 pub mod lottie;

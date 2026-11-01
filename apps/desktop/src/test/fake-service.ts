@@ -10,8 +10,6 @@ import type {
   DesktopService,
   GenerateScriptRequest,
   ImportOutcome,
-  LicenseStatus,
-  LicenseTier,
   McpCallResult,
   McpProbeResult,
   McpSessionInfo,
@@ -30,7 +28,6 @@ import type {
   YouTubeChannelReport,
   VoiceInfo,
 } from '../services/project-service';
-import { FREE_LICENSE_STATUS } from '../services/project-service';
 import { ensureDelivery, newId } from '../state/project-actions';
 
 /** Medición de mezcla determinista: 6 s, objetivo −14 LUFS, delta +2,2 dB. */
@@ -114,7 +111,6 @@ export interface FakeService extends DesktopService {
   emitFinished(event: RenderFinishedEvent): void;
   setSaveFailure(message: string | null): void;
   setImportOutcome(outcome: ImportOutcome | null): void;
-  setLicenseTier(tier: LicenseTier): void;
   readonly deliveries: { fileName: string; bytes: Uint8Array }[];
   readonly alphaFrameBatches: { token: string; startIndex: number; count: number }[];
   readonly alphaSequences: AlphaSequenceRequest[];
@@ -241,7 +237,6 @@ export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'):
 
 export function createFakeService(): FakeService {
   let current: OpenedProject | null = null;
-  let licenseTier: LicenseTier = 'pro';
   let saveFailure: string | null = null;
   let importOutcome: ImportOutcome | null = null;
   let mcpServers: McpServerConfig[] = [];
@@ -250,21 +245,6 @@ export function createFakeService(): FakeService {
   const openSessions = new Set<string>();
   const sessionCalls = new Map<string, number>();
   let flowGenerations = 0;
-  const licenseStatus = (): LicenseStatus =>
-    licenseTier === 'pro'
-      ? {
-          tier: 'pro',
-          isPro: true,
-          email: 'tester@example.com',
-          licenseId: 'lic-test',
-          issuedAt: '2026-10-28T00:00:00Z',
-          expiresAtUnix: null,
-          trialEndsAtUnix: null,
-          trialDaysLeft: null,
-          source: 'license-file',
-          error: null,
-        }
-      : { ...FREE_LICENSE_STATUS };
   const progressHandlers = new Set<(event: RenderProgressEvent) => void>();
   const finishedHandlers = new Set<(event: RenderFinishedEvent) => void>();
   const convertHandlers = new Set<(event: ConvertProgress) => void>();
@@ -1482,32 +1462,6 @@ export function createFakeService(): FakeService {
           },
         ],
       };
-    },
-    async licenseStatus(): Promise<LicenseStatus> {
-      return licenseStatus();
-    },
-    async chooseLicenseFile() {
-      return 'C:\tmp\olyvia-license.json';
-    },
-    async activateLicense() {
-      licenseTier = 'pro';
-      return licenseStatus();
-    },
-    async startTrial() {
-      licenseTier = 'pro';
-      return {
-        ...licenseStatus(),
-        source: 'trial',
-        trialEndsAtUnix: Math.floor(Date.now() / 1000) + 14 * 86_400,
-        trialDaysLeft: 14,
-      };
-    },
-    async deactivateLicense() {
-      licenseTier = 'free';
-      return licenseStatus();
-    },
-    setLicenseTier(tier) {
-      licenseTier = tier;
     },
     async systemInfo(): Promise<SystemInfo> {
       return {

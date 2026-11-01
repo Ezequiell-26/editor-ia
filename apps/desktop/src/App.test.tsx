@@ -555,9 +555,8 @@ describe('shell de Olyvia', () => {
     expect(screen.getByRole('contentinfo').textContent).toMatch(/Guardado/i);
   });
 
-  it('abre un proyecto existente en Free sin bloquear su edición', async () => {
+  it('abre un proyecto existente sin licencias y sin bloquear su edición', async () => {
     const service = createFakeService();
-    service.setLicenseTier('free');
     render(<App service={service} />);
     fireEvent.click(await screen.findByRole('button', { name: /Abrir proyecto/i }));
     await waitFor(() =>
@@ -1411,7 +1410,6 @@ describe('menú principal por flujo de trabajo', () => {
 
   it('abre Director y Fábrica sin licencia ni bloqueo Pro', async () => {
     const service = createFakeService();
-    service.setLicenseTier('free');
     render(<App service={service} />);
     nav('Director');
     expect(await screen.findByText(/No hay un proyecto abierto/i)).toBeTruthy();

@@ -242,9 +242,6 @@ export function routeLabel(duration: number | null, title: string | null): strin
 
 export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
-  // Sin planes ni licencias: todas las funciones de descarga quedan abiertas.
-  const isPro = true;
-  const freeQueueLimit = 25;
   const project = store.state.project;
   const service = store.service;
   const [pendingUrl] = useState(takePendingDownloadUrl);
@@ -360,11 +357,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [advancedParallel, setAdvancedParallel] = useState(
     () => loadMaxParallel() > RECOMMENDED_PARALLEL_MAX,
   );
-  const parallelMax = isPro
-    ? advancedParallel
-      ? MAX_PARALLEL
-      : RECOMMENDED_PARALLEL_MAX
-    : 2;
+  const parallelMax = advancedParallel ? MAX_PARALLEL : RECOMMENDED_PARALLEL_MAX;
 
   const [scheduledFor, setScheduledFor] = useState('');
   const [repeat, setRepeat] = useState<'none' | 'hourly' | 'daily' | 'weekly'>('none');
@@ -1406,15 +1399,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     setError(null);
   }
 
-  function planQueueMessage(): string {
-    return `El plan Free permite ${freeQueueLimit} descargas en cola. Activá Pro para ampliarla.`;
-  }
-
   function enqueueCurrent(): void {
-    if (!isPro && occupiedQueueSlots >= freeQueueLimit) {
-      setError(planQueueMessage());
-      return;
-    }
     if (!probe || !rights) {
       setError('Confirmá que tenés derechos para descargar y usar este contenido.');
       return;
@@ -1483,14 +1468,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
       store.setNotice('Todas las URLs del lote ya estaban completadas.');
       return;
     }
-    const capacity = isPro
-      ? urls.length
-      : Math.max(0, freeQueueLimit - occupiedQueueSlots);
-    if (capacity === 0) {
-      setError(planQueueMessage());
-      return;
-    }
-    const acceptedUrls = urls.slice(0, capacity);
+    const acceptedUrls = urls;
     let schedule: string | null;
     try {
       schedule = scheduledIso();
@@ -1532,11 +1510,9 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     setScheduledFor('');
     setError(null);
     store.setNotice(
-      acceptedUrls.length < urls.length
-        ? `Se agregaron ${jobs.length} de ${urls.length} URL(s): ${planQueueMessage()}`
-        : schedule
-          ? `${jobs.length} URL(s) programadas para ${new Date(schedule).toLocaleString('es-AR')}.`
-          : `${jobs.length} URL(s) agregadas a la cola.`,
+      schedule
+        ? `${jobs.length} URL(s) programadas para ${new Date(schedule).toLocaleString('es-AR')}.`
+        : `${jobs.length} URL(s) agregadas a la cola.`,
     );
   }
 
@@ -1556,19 +1532,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
       urls.push(normalized);
     }
     if (urls.length === 0) return 0;
-    const capacity = isPro
-      ? urls.length
-      : Math.max(0, freeQueueLimit - occupiedQueueSlots);
-    if (capacity === 0) {
-      setAutomationNotice(planQueueMessage());
-      return 0;
-    }
-    const acceptedUrls = urls.slice(0, capacity);
-    if (acceptedUrls.length < urls.length) {
-      setAutomationNotice(
-        `Se agregaron ${acceptedUrls.length} de ${urls.length} URL(s). ${planQueueMessage()}`,
-      );
-    }
+    const acceptedUrls = urls;
     const jobs = acceptedUrls.map((url) => {
       const stub: DownloadProbe = {
         url,
@@ -1825,21 +1789,21 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   refreshFeedsRef.current = refreshFeeds;
 
   useEffect(() => {
-    if (!isPro || !watchEnabled || !watchDir) return;
+    if (!watchEnabled || !watchDir) return;
     void refreshWatchRef.current();
     const timer = window.setInterval(() => {
       void refreshWatchRef.current();
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [isPro, watchEnabled, watchDir]);
+  }, [watchEnabled, watchDir]);
 
   useEffect(() => {
-    if (!isPro || feeds.length === 0) return;
+    if (feeds.length === 0) return;
     const timer = window.setInterval(() => {
       void refreshFeedsRef.current();
     }, 300_000);
     return () => window.clearInterval(timer);
-  }, [isPro, feeds.length]);
+  }, [feeds.length]);
 
   useEffect(() => {
     if (proxyPool.length < 2) return;
@@ -1978,10 +1942,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   }
 
   function retryHistory(entry: DownloadHistoryEntry): void {
-    if (!isPro && occupiedQueueSlots >= freeQueueLimit) {
-      store.setNotice(planQueueMessage());
-      return;
-    }
     const runId = entry.runId;
     const retry: DownloadJob = {
       id: newJobId(),
@@ -2377,8 +2337,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       }}
                     >
                       <option value="best">
-                        {isPro ? 'Mejor disponible' : 'Mejor hasta 1080p (Free)'}
-                        {isPro && bestQuality ? ` · ${qualitySummary(bestQuality)}` : ''}
+                        Mejor disponible
+                        {bestQuality ? ` · ${qualitySummary(bestQuality)}` : ''}
                       </option>
                       <option value="worst">
                         Mínima disponible
@@ -2388,7 +2348,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                         <option
                           key={item.height}
                           value={item.height}
-                          disabled={!isPro && item.height > 1080}
                         >
                           Solo {qualitySummary(item)}
                         </option>
@@ -2430,8 +2389,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     }}
                   >
                     <option value="mp4">MP4 · más compatible</option>
-                    <option value="mkv" disabled={!isPro}>MKV · contenedor flexible</option>
-                    <option value="webm" disabled={!isPro}>WebM · web</option>
+                    <option value="mkv">MKV · contenedor flexible</option>
+                    <option value="webm">WebM · web</option>
                     <option value="mp3">MP3 · sólo audio</option>
                     <option value="m4a">M4A · audio AAC</option>
                   </select>
@@ -2469,11 +2428,11 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       setCodec(event.target.value as 'h265' | 'h264' | 'av1')
                     }
                   >
-                    <option value="h265" disabled={!isPro}>H.265 · más chico</option>
+                    <option value="h265">H.265 · más chico</option>
                     <option value="h264" disabled={hdrMode === 'preserve'}>
                       H.264 · más compatible
                     </option>
-                    <option value="av1" disabled={!isPro}>AV1 · máxima compresión</option>
+                    <option value="av1">AV1 · máxima compresión</option>
                   </select>
                 </label>
                 <label className="field">
@@ -2488,7 +2447,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     }}
                   >
                     <option value="tonemap">HDR → SDR · tonemap</option>
-                    <option value="preserve" disabled={!isPro}>Conservar HDR 10-bit (H.265/AV1)</option>
+                    <option value="preserve">Conservar HDR 10-bit (H.265/AV1)</option>
                   </select>
                 </label>
                 <label className="field">
@@ -2690,8 +2649,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       <label className="check">
                         <input
                           type="checkbox"
-                          checked={upscale && isPro}
-                          disabled={busy || !isPro}
+                          checked={upscale}
+                          disabled={busy}
                           onChange={(event) => setUpscale(event.target.checked)}
                         />
                         <span>
@@ -2711,9 +2670,9 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                               )
                             }
                           >
-                            <option value="auto" disabled={!isPro}>Auto · 1080p cortos / 4K largos</option>
+                            <option value="auto">Auto · 1080p cortos / 4K largos</option>
                             <option value="1080">Full HD · 1920×1080</option>
-                            <option value="2160" disabled={!isPro}>4K UHD · 3840×2160</option>
+                            <option value="2160">4K UHD · 3840×2160</option>
                           </select>
                           <small className="fine-print">
                             Mantiene la orientación: un vertical va a 1080×1920. Nunca
@@ -3187,8 +3146,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     <label className="check">
                       <input
                         type="checkbox"
-                        checked={sponsorblock && isPro}
-                        disabled={busy || !isPro}
+                        checked={sponsorblock}
+                        disabled={busy}
                         onChange={(event) => {
                           setSponsorblock(event.target.checked);
                           if (!event.target.checked) setSponsorSegments([]);
@@ -3509,12 +3468,6 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               </details>
               <details className="download-cinematic download-network download-automation">
                 <summary>Automatización: carpeta vigilada, RSS y salud de proxies</summary>
-                {!isPro ? (
-                  <p className="fine-print download-pro-note">
-                    Carpeta vigilada, RSS y refresco automático son Pro. La prueba manual de
-                    proxies sigue disponible.
-                  </p>
-                ) : null}
                 <div className="download-cinematic-body">
                   <label className="field">
                     <span>Carpeta vigilada · archivos .txt con URLs</span>
@@ -3536,7 +3489,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     <button
                       type="button"
                       className="small ghost"
-                      disabled={!isPro || !watchDir}
+                      disabled={!watchDir}
                       onClick={() => void refreshWatch()}
                     >
                       Escanear ahora
@@ -3545,8 +3498,8 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   <label className="check">
                     <input
                       type="checkbox"
-                      checked={watchEnabled && isPro}
-                      disabled={!isPro || !watchDir}
+                      checked={watchEnabled}
+                      disabled={!watchDir}
                       onChange={(event) => {
                         setWatchEnabled(event.target.checked);
                         saveWatchFolder(watchDir, event.target.checked);
@@ -3598,7 +3551,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     <button
                       type="button"
                       className="small"
-                      disabled={!isPro || feedBusy || !rssUrl.trim()}
+                      disabled={feedBusy || !rssUrl.trim()}
                       onClick={() => void addFeed()}
                     >
                       {feedBusy ? 'Leyendo…' : 'Agregar feed'}
@@ -3606,7 +3559,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     <button
                       type="button"
                       className="small ghost"
-                      disabled={!isPro || feedBusy || feeds.length === 0}
+                      disabled={feedBusy || feeds.length === 0}
                       onClick={() => void refreshFeeds()}
                     >
                       Actualizar feeds
@@ -3852,8 +3805,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     <span>Avanzado</span>
                     <input
                       type="checkbox"
-                      checked={advancedParallel && isPro}
-                      disabled={!isPro}
+                      checked={advancedParallel}
                       aria-label="Permitir hasta 512 descargas simultáneas"
                       onChange={(event) => {
                         const next = event.target.checked;
@@ -4114,12 +4066,7 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </div>
             <details className="download-accordion download-schedule">
               <summary>Programación y repetición</summary>
-              {!isPro ? (
-                <p className="fine-print download-pro-note">
-                  Programación, repetición y ventanas horarias son parte de Pro.
-                </p>
-              ) : null}
-              <fieldset className="download-pro-fields" disabled={!isPro}>
+              <fieldset className="download-pro-fields">
               <label className="field">
                 <span>Programar inicio (opcional)</span>
                 <input

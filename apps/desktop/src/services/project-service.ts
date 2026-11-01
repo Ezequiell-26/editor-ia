@@ -1440,34 +1440,6 @@ export interface PickedSubtitleFile {
   readonly text: string;
 }
 
-export type LicenseTier = 'free' | 'pro';
-
-export interface LicenseStatus {
-  readonly tier: LicenseTier;
-  readonly isPro: boolean;
-  readonly email: string | null;
-  readonly licenseId: string | null;
-  readonly issuedAt: string | null;
-  readonly expiresAtUnix: number | null;
-  readonly trialEndsAtUnix: number | null;
-  readonly trialDaysLeft: number | null;
-  readonly source: 'license-file' | 'trial' | 'none' | string;
-  readonly error: string | null;
-}
-
-export const FREE_LICENSE_STATUS: LicenseStatus = {
-  tier: 'free',
-  isPro: false,
-  email: null,
-  licenseId: null,
-  issuedAt: null,
-  expiresAtUnix: null,
-  trialEndsAtUnix: null,
-  trialDaysLeft: null,
-  source: 'none',
-  error: null,
-};
-
 export interface DesktopService {
   readonly available: boolean;
   readonly unavailableReason: string | null;
@@ -1634,11 +1606,6 @@ export interface DesktopService {
     model?: string,
   ): Promise<TranscriptionResult>;
   systemInfo(): Promise<SystemInfo>;
-  licenseStatus(): Promise<LicenseStatus>;
-  chooseLicenseFile(): Promise<string | null>;
-  activateLicense(path: string): Promise<LicenseStatus>;
-  startTrial(): Promise<LicenseStatus>;
-  deactivateLicense(): Promise<LicenseStatus>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
   getProvider(): Promise<ProviderInfo>;
@@ -1879,11 +1846,6 @@ export const PROJECT_COMMANDS = {
   saveDirectorMemory: 'save_director_memory',
   transcribeAsset: 'transcribe_asset',
   systemInfo: 'system_info',
-  licenseStatus: 'license_status',
-  chooseLicenseFile: 'choose_license_file',
-  activateLicense: 'activate_license',
-  startTrial: 'start_trial',
-  deactivateLicense: 'deactivate_license',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
   getProvider: 'get_provider',
@@ -2787,21 +2749,6 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
     },
-    async licenseStatus() {
-      return (await call(PROJECT_COMMANDS.licenseStatus)) as LicenseStatus;
-    },
-    async chooseLicenseFile() {
-      return ((await call(PROJECT_COMMANDS.chooseLicenseFile)) as string | null) ?? null;
-    },
-    async activateLicense(path) {
-      return (await call(PROJECT_COMMANDS.activateLicense, { path })) as LicenseStatus;
-    },
-    async startTrial() {
-      return (await call(PROJECT_COMMANDS.startTrial)) as LicenseStatus;
-    },
-    async deactivateLicense() {
-      return (await call(PROJECT_COMMANDS.deactivateLicense)) as LicenseStatus;
-    },
     async chooseTool(tool) {
       return (await call(PROJECT_COMMANDS.chooseTool, { tool })) as SystemInfo | null;
     },
@@ -3093,15 +3040,6 @@ function createUnavailableService(): DesktopService {
     saveDirectorMemory: async () => unavailable(),
     transcribeAsset: async () => unavailable(),
     systemInfo: async () => unavailable(),
-    licenseStatus: async () => FREE_LICENSE_STATUS,
-    chooseLicenseFile: async () => null,
-    activateLicense: async () => {
-      throw new Error('La licencia se activa desde la app de escritorio.');
-    },
-    startTrial: async () => {
-      throw new Error('La prueba se inicia desde la app de escritorio.');
-    },
-    deactivateLicense: async () => FREE_LICENSE_STATUS,
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),
     getProvider: async () => unavailable(),

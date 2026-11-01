@@ -97,8 +97,6 @@ pub enum ProjectErrorCode {
     AssetNotReady,
     UnsupportedSpeed,
     SessionMismatch,
-    LicenseRequired,
-    LicenseInvalid,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -137,8 +135,6 @@ impl ProjectErrorCode {
             ProjectErrorCode::AssetNotReady => "ASSET_NOT_READY",
             ProjectErrorCode::UnsupportedSpeed => "UNSUPPORTED_SPEED",
             ProjectErrorCode::SessionMismatch => "SESSION_MISMATCH",
-            ProjectErrorCode::LicenseRequired => "LICENSE_REQUIRED",
-            ProjectErrorCode::LicenseInvalid => "LICENSE_INVALID",
         }
     }
 }

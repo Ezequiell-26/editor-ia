@@ -16,7 +16,6 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::commands::system::resolve_tools;
-use crate::license::check_render;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::{
     self, build_plan_range, expand_compounds, parse_profile, sanitize_log, BuildPlanInput,
@@ -298,17 +297,6 @@ fn start_render_with_output(
         profile_json["hardwareEncoder"] = Value::String(encoder);
     }
     let profile = parse_profile(&profile_json)?;
-    if let Err(error) = check_render(
-        state.license_tier(),
-        profile.width,
-        profile.height,
-        &profile.video_codec,
-    ) {
-        return Err(ProjectError::message(
-            ProjectErrorCode::LicenseRequired,
-            &error.message,
-        ));
-    }
     let project_width = project["video"]["width"].as_u64().unwrap_or(1920) as u32;
     let project_height = project["video"]["height"].as_u64().unwrap_or(1080) as u32;
     let project_fps = project["video"]["frameRate"]["num"].as_u64().unwrap_or(30) as f64

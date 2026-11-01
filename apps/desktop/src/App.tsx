@@ -29,7 +29,6 @@ import {
 import { ProjectProvider, useProjectStore } from './state/project-store';
 import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
-import { ExperienceProvider, filterViewsForMode, useExperienceMode } from './state/experience';
 import {
   collectSearchDocuments,
   createGlobalSearch,
@@ -283,13 +282,9 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const store = useProjectStore();
-  const { mode: experienceMode } = useExperienceMode();
   // El rail es la lista corta de superficies; las herramientas avanzadas
   // quedan detrás de «Más». El menú Ver sigue listando el rail visible.
-  const railViews = useMemo(
-    () => filterViewsForMode(MAIN_NAV_VIEWS, experienceMode),
-    [experienceMode],
-  );
+  const railViews = MAIN_NAV_VIEWS;
 
   // Precarga de todos los chunks de vista en tiempo ocioso: cuando el usuario
   // hace clic, el módulo ya está evaluado y el cambio no espera nada.
@@ -798,13 +793,11 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
         {/* La cola de Flow vive por encima de las vistas: una corrida larga no
             debe cortarse al cambiar de pantalla. */}
         <FlowQueueProvider>
-          <ExperienceProvider>
-            {showStart ? (
-              <StartScreen onEnterApp={handleEnterApp} />
-            ) : (
-              <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
-            )}
-          </ExperienceProvider>
+          {showStart ? (
+            <StartScreen onEnterApp={handleEnterApp} />
+          ) : (
+            <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
+          )}
         </FlowQueueProvider>
       </ProjectProvider>
     </AppearanceProvider>
