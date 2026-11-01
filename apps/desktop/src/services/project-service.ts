@@ -38,6 +38,18 @@ export interface ImportOutcome {
   readonly warnings: string[];
 }
 
+export interface MediaFolderFile {
+  readonly path: string;
+  readonly name: string;
+  readonly kind: 'image' | 'audio' | 'video' | string;
+  readonly bytes: number;
+}
+
+export interface MediaFolderListing {
+  readonly directory: string;
+  readonly files: readonly MediaFolderFile[];
+}
+
 export interface ExecutableInfo {
   readonly available: boolean;
   readonly path: string | null;
@@ -133,7 +145,8 @@ export type AssistantAction =
       readonly templateId: string;
       readonly text: string;
       readonly secondary?: string;
-    };
+    }
+  | { readonly kind: 'media_folder'; readonly folder: string };
 
 export interface AssistantChatRequest {
   readonly messages: readonly AssistantMessage[];
@@ -1460,6 +1473,10 @@ export interface DesktopService {
     confirmRights?: boolean;
     provider?: string;
   }): Promise<ImportOutcome>;
+  listMediaFolder(input: {
+    folder: string;
+    root?: string;
+  }): Promise<MediaFolderListing>;
   importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
   chooseSubtitleFile(): Promise<PickedSubtitleFile | null>;
   chooseTimelineFile(): Promise<string | null>;
@@ -1740,6 +1757,7 @@ export const PROJECT_COMMANDS = {
   close: 'close_project',
   importAssets: 'import_assets',
   importMediaPaths: 'import_media_paths',
+  listMediaFolder: 'list_media_folder',
   importLut: 'import_lut',
   chooseSubtitleFile: 'choose_subtitle_file',
   chooseTimelineFile: 'choose_timeline_file',
@@ -2109,6 +2127,26 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         assets: parseAssets(record.assets),
         warnings: Array.isArray(record.warnings)
           ? record.warnings.filter((warning): warning is string => typeof warning === 'string')
+          : [],
+      };
+    },
+    async listMediaFolder(input) {
+      const raw = (await call(PROJECT_COMMANDS.listMediaFolder, {
+        folder: input.folder,
+        root: input.root ?? null,
+      })) as { directory?: unknown; files?: unknown };
+      return {
+        directory: typeof raw.directory === 'string' ? raw.directory : '',
+        files: Array.isArray(raw.files)
+          ? raw.files
+              .filter((file): file is Record<string, unknown> => typeof file === 'object' && file !== null)
+              .map((file) => ({
+                path: String(file.path ?? ''),
+                name: String(file.name ?? ''),
+                kind: String(file.kind ?? ''),
+                bytes: Number(file.bytes ?? 0),
+              }))
+              .filter((file) => file.path !== '' && file.name !== '')
           : [],
       };
     },
@@ -2914,6 +2952,7 @@ function createUnavailableService(): DesktopService {
     closeProject: async () => unavailable(),
     importAssets: async () => unavailable(),
     importMediaPaths: async () => unavailable(),
+    listMediaFolder: async () => unavailable(),
     importLut: async () => unavailable(),
     chooseSubtitleFile: async () => unavailable(),
     chooseTimelineFile: async () => unavailable(),

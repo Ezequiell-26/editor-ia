@@ -26,6 +26,7 @@ import {
   addClipFromAsset,
   importSubtitleCues,
 } from '../../state/project-actions';
+import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
 import { addMarker } from '../../state/markers';
 import { parseSubtitles } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
@@ -75,8 +76,6 @@ const COMPRESSION_OPTIONS = [
   { value: 'balanced', label: 'Equilibrada · CRF 24 (recomendada)' },
   { value: 'compact', label: 'Compacta · CRF 27' },
 ] as const;
-
-const DOWNLOAD_DIR_KEY = 'editor-ia.download-dir.v1';
 
 function loadDownloadDir(): string | null {
   try {

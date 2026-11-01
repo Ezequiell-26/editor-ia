@@ -148,6 +148,11 @@ fn clean_action(value: Option<&Value>) -> Option<Value> {
             }
             Some(action)
         }
+        "media_folder" => {
+            let folder = value.get("folder")?.as_str()?;
+            let name = crate::commands::media::sanitize_media_folder_name(folder)?;
+            Some(json!({ "kind": "media_folder", "folder": name }))
+        }
         "play" | "pause" | "save" | "export" | "status" | "undo" | "redo" => {
             Some(json!({ "kind": kind }))
         }
@@ -244,7 +249,11 @@ async fn call_provider(
         "{\"reply\": string, \"action\"?: object}. ",
         "Acciones permitidas: {\"kind\":\"navigate\",\"view\":\"home|projects|script|assets|production|editor|download|director|factory|compliance|convert|compare|compress|denoise|thumbnails|localization|ai-hub|motion|visuals|background|upscale|learn|mcp|settings\"}, ",
         "{\"kind\":\"play\"}, {\"kind\":\"pause\"}, {\"kind\":\"save\"}, {\"kind\":\"export\"}, {\"kind\":\"status\"}, {\"kind\":\"undo\"}, {\"kind\":\"redo\"}, ",
-        "o {\"kind\":\"motion\",\"templateId\":\"title-card|lower-third|end-card|stat-callout\",\"text\":string,\"secondary\"?:string}. ",
+        "{\"kind\":\"motion\",\"templateId\":\"title-card|lower-third|end-card|stat-callout\",\"text\":string,\"secondary\"?:string}, ",
+        "o {\"kind\":\"media_folder\",\"folder\":string}. ",
+        "Si piden usar los archivos, fotos, sonido o audio de una carpeta de Descargas, ",
+        "devolvé media_folder con el nombre exacto de la carpeta (sin ruta); la app la ",
+        "resuelve, importa y monta. No digas que la abrirás: usá la acción. ",
         "No propongas acciones destructivas ni inventes rutas. Si no hace falta una acción, omití action. ",
         "Contexto del proyecto: "
     );
@@ -398,6 +407,25 @@ mod tests {
         assert_eq!(motion["templateId"], "lower-third");
         assert_eq!(motion["text"], "Ana");
         assert!(clean_action(Some(&json!({ "kind": "delete_everything" }))).is_none());
+    }
+
+    #[test]
+    fn media_folder_action_only_accepts_a_folder_name() {
+        assert_eq!(
+            clean_action(Some(&json!({ "kind": "media_folder", "folder": " video 1 " }))),
+            Some(json!({ "kind": "media_folder", "folder": "video 1" }))
+        );
+        assert!(clean_action(Some(&json!({
+            "kind": "media_folder",
+            "folder": "..\\Windows"
+        })))
+        .is_none());
+        assert!(clean_action(Some(&json!({
+            "kind": "media_folder",
+            "folder": "C:\\Users\\ofici\\Downloads"
+        })))
+        .is_none());
+        assert!(clean_action(Some(&json!({ "kind": "media_folder", "folder": "" }))).is_none());
     }
 
     #[test]

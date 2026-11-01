@@ -354,6 +354,9 @@ export function createFakeService(): FakeService {
         warnings: [],
       };
     },
+    async listMediaFolder() {
+      return { directory: '', files: [] };
+    },
     async importLut() {
       return { path: 'media/luts/fake.cube', name: 'fake.cube' };
     },

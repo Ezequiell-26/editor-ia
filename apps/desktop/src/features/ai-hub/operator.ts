@@ -16,6 +16,7 @@ export type OperatorAction =
       readonly secondary?: string;
     }
   | { readonly kind: 'status' }
+  | { readonly kind: 'media_folder'; readonly folder: string }
   | { readonly kind: 'help' }
   | { readonly kind: 'unknown'; readonly message: string };
 
@@ -96,6 +97,19 @@ export function parseOperatorCommand(
 
   const create = text.match(/^(?:crear|hacer|generar)\s+(?:un\s+)?(?:video|short|reel|contenido)\s+(?:sobre|de|con)\s+(.+)$/);
   if (create) return { kind: 'create', topic: create[1]!.trim() };
+
+  // "usá los archivos de descargas de la carpeta video 1": operador local,
+  // sin tokens. La carpeta se resuelve en Rust dentro de Descargas.
+  if (
+    text.includes('carpeta') &&
+    /(descarga|imagen|imagenes|foto|fotos|audio|sonido|video|archivo)/.test(text)
+  ) {
+    const match = text.match(
+      /carpeta\s+["“'«]?([^"”'»]+?)["”'»]?(?:\s+(?:de|en)\s+descargas?|\s+para\b|$)/,
+    );
+    const folder = match?.[1]?.trim();
+    if (folder) return { kind: 'media_folder', folder };
+  }
   const navigation = text.match(
     /^(?:abrir|abri|ir a|ve a|ve al|navegar a|ir|abrime|mostrame)\s+(.+)$/,
   );
@@ -119,4 +133,4 @@ export function parseOperatorCommand(
 }
 
 export const OPERATOR_HELP =
-  'Comandos: abrir <vista>, crear un video sobre <tema>, crear título <texto>, crear lower third <nombre, rol>, crear cierre <texto>, crear dato <valor, etiqueta>, reproducir, pausar, guardar, exportar, deshacer, rehacer, estado. Es un operador local determinista: no usa IA ni tokens.';
+  'Comandos: abrir <vista>, usar la carpeta <nombre> de descargas, crear un video sobre <tema>, crear título <texto>, crear lower third <nombre, rol>, crear cierre <texto>, crear dato <valor, etiqueta>, reproducir, pausar, guardar, exportar, deshacer, rehacer, estado. Es un operador local determinista: no usa IA ni tokens.';

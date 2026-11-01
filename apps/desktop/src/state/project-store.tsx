@@ -101,6 +101,8 @@ export interface ProjectStoreValue {
   saveAs(): Promise<boolean>;
   packageProject(): Promise<boolean>;
   closeProject(): void;
+  /** Proyecto vivo del store, incluso antes del próximo render. */
+  getProject(): ProjectDocument | null;
   mutate<T extends { project: ProjectDocument }>(
     recipe: (project: ProjectDocument) => T,
     options?: { readonly history?: boolean; readonly notice?: string },
@@ -436,6 +438,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     return () => recoveryWriter.cancel();
   }, [state.project, state.opened, recoveryWriter]);
 
+  const getProject = useCallback((): ProjectDocument | null => stateRef.current.project ?? null, []);
+
   const applyRecipe = useCallback(
     <T extends { project: ProjectDocument }>(
       recipe: (project: ProjectDocument) => T,
@@ -640,6 +644,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       saveAs,
       packageProject,
       closeProject,
+      getProject,
       mutate: applyRecipe,
       update,
       undo,
@@ -662,6 +667,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       createProject,
       dismissRecovery,
       durationFrames,
+      getProject,
       openProject,
       openProjectAt,
       packageProject,

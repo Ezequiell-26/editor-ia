@@ -216,6 +216,8 @@ export function AiHubView({
         : 'No hay un proyecto abierto.';
     } else if (action.kind === 'help') {
       reply = OPERATOR_HELP;
+    } else if (action.kind === 'media_folder') {
+      reply = 'El montaje de carpetas se ejecuta desde el asistente flotante de Olyvia.';
     } else {
       reply = action.message;
     }

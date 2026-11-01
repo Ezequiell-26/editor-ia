@@ -325,6 +325,7 @@ pub fn run() {
             commands::projects::recent_project_thumbnail,
             commands::media::import_assets,
             commands::media::import_media_paths,
+            commands::media::list_media_folder,
             commands::media::import_lut,
             commands::subtitles::choose_subtitle_file,
             commands::media::extract_freeze_frame,

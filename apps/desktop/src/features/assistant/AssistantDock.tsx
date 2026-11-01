@@ -6,7 +6,15 @@ import {
   type AssistantAction,
   type ProviderInfo,
 } from '../../services/project-service';
-import { addMotionGraphic, fpsOf } from '../../state/project-actions';
+import { parseProject } from '@editor-ia/project-schema';
+import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
+import { buildFolderTimeline } from '../../state/folder-timeline';
+import {
+  addAsset,
+  addMotionGraphic,
+  fpsOf,
+  markAssetReady,
+} from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import {
   OPERATOR_HELP,
@@ -23,7 +31,7 @@ interface ChatEntry {
 const GREETING: ChatEntry = {
   role: 'assistant',
   text:
-    'Hola, soy Olyvia. Puedo controlar la app, resumir el proyecto o crear un gráfico. Probá «abrir editor» o «estado».',
+    'Hola, soy Olyvia. Puedo controlar la app, montar una carpeta de Descargas con fotos y audio, resumir el proyecto o crear un gráfico. Probá «usar la carpeta video 1 de descargas» o «abrir editor».',
 };
 
 function motionProps(
@@ -159,10 +167,104 @@ export function AssistantDock({
     return `Abriendo ${label ?? target.label}.`;
   }
 
+  /**
+   * Importa una carpeta de Descargas y monta imágenes/audio en la timeline.
+   * La carpeta llega como nombre (nunca una ruta): Rust la resuelve dentro de
+   * Descargas y del destino configurado del descargador.
+   */
+  async function mountMediaFolder(folder: string): Promise<string> {
+    const name = folder.trim();
+    if (!name || /[\\/]/.test(name)) return 'El nombre de la carpeta no es válido.';
+    const root = window.localStorage.getItem(DOWNLOAD_DIR_KEY) ?? undefined;
+    let listing;
+    try {
+      listing = await store.service.listMediaFolder({
+        folder: name,
+        ...(root ? { root } : {}),
+      });
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : 'No pude leer la carpeta.';
+    }
+    if (listing.files.length === 0) {
+      return `No encontré imágenes, audio o video en «${name}».`;
+    }
+    let target = store.getProject();
+    if (!target) {
+      const created = await store.createProject({
+        name,
+        width: 1920,
+        height: 1080,
+        fpsNum: 30,
+        fpsDen: 1,
+      });
+      if (!created) return 'No pude crear el proyecto para montar la carpeta.';
+      // El store publica el proyecto en el próximo render; se espera sin
+      // bloquear la UI y se aborta si no aparece.
+      for (let attempt = 0; attempt < 50 && !target; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        target = store.getProject();
+      }
+      if (!target) return 'El proyecto se está abriendo; probá de nuevo en un segundo.';
+    }
+    const rate = target.video.frameRate;
+    let outcome;
+    try {
+      outcome = await store.service.importMediaPaths({
+        paths: listing.files.map((file) => file.path),
+        fpsNum: rate.num,
+        fpsDen: rate.den,
+        confirmRights: true,
+      });
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : 'No pude importar los archivos.';
+    }
+    if (outcome.assets.length === 0) {
+      return outcome.warnings[0] ?? 'No pude importar los archivos de la carpeta.';
+    }
+    const images = outcome.assets.filter((asset) => asset.kind === 'image');
+    const videos = outcome.assets.filter((asset) => asset.kind === 'video');
+    const audio = outcome.assets.filter((asset) => asset.kind === 'audio');
+    let next = target;
+    for (const asset of outcome.assets) {
+      next = addAsset(next, asset);
+      next = markAssetReady(next, asset.id, 'allowed');
+    }
+    let built;
+    try {
+      built = buildFolderTimeline(next, { images, videos, audio });
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : 'No pude montar la carpeta.';
+    }
+    const parsed = parseProject(built.project);
+    if (!parsed.ok) {
+      const first = parsed.issues[0];
+      return `No pude montar: ${
+        first ? `${first.path}: ${first.message}` : 'el proyecto quedaría inválido'
+      }.`;
+    }
+    const applied = store.update(() => parsed.project, {
+      notice: 'Montaje de carpeta aplicado.',
+    });
+    if (!applied) return 'El proyecto cambió mientras montaba; probá de nuevo.';
+    if (built.firstClipId) store.setSelection({ kind: 'clip', id: built.firstClipId });
+    onSelect('editor');
+    const parts = [
+      images.length > 0 ? `${images.length} imagen(es)` : null,
+      videos.length > 0 ? `${videos.length} video(s)` : null,
+      audio.length > 0 ? 'audio' : null,
+    ]
+      .filter(Boolean)
+      .join(' + ');
+    const warning = built.warnings[0] ? ` ${built.warnings[0]}` : '';
+    return `Monté ${parts} de «${name}» en el editor.${warning}`;
+  }
+
   async function executeOperator(action: Exclude<OperatorAction, { kind: 'unknown' }>): Promise<string> {
     switch (action.kind) {
       case 'navigate':
         return navigate(action.view, action.label);
+      case 'media_folder':
+        return mountMediaFolder(action.folder);
       case 'play':
         store.setPlaying(true);
         return 'Reproduciendo.';
@@ -221,40 +323,43 @@ export function AssistantDock({
     }
   }
 
-  async function runAssistantAction(action: AssistantAction): Promise<void> {
+  async function runAssistantAction(action: AssistantAction): Promise<string | null> {
+    if (action.kind === 'media_folder') {
+      return mountMediaFolder(action.folder);
+    }
     if (action.kind === 'navigate') {
       navigate(action.view);
-      return;
+      return null;
     }
     if (action.kind === 'play' || action.kind === 'pause') {
       store.setPlaying(action.kind === 'play');
-      return;
+      return null;
     }
     if (action.kind === 'undo') {
       store.undo();
-      return;
+      return null;
     }
     if (action.kind === 'redo') {
       store.redo();
-      return;
+      return null;
     }
     if (action.kind === 'save') {
       await store.saveNow();
-      return;
+      return null;
     }
     if (action.kind === 'export') {
       if (activeId !== 'editor') onSelect('editor');
       store.requestExport();
-      return;
+      return null;
     }
     if (action.kind === 'status') {
-      return;
+      return null;
     }
     if (action.kind === 'motion') {
       const project = store.state.project;
-      if (!project) return;
+      if (!project) return null;
       const props = motionProps(action.templateId, action.text, action.secondary);
-      if (!props) return;
+      if (!props) return null;
       let clipId: string | null = null;
       const ok = store.mutate((current) => {
         const added = addMotionGraphic(current, {
@@ -273,6 +378,7 @@ export function AssistantDock({
         onSelect('editor');
       }
     }
+    return null;
   }
 
   async function send(): Promise<void> {
@@ -288,8 +394,15 @@ export function AssistantDock({
 
     const local = parseOperatorCommand(text, NAV_VIEWS);
     if (local.kind !== 'unknown') {
-      const reply = await executeOperator(local);
-      append({ role: 'assistant', text: reply });
+      try {
+        const reply = await executeOperator(local);
+        append({ role: 'assistant', text: reply });
+      } catch (cause) {
+        append({
+          role: 'assistant',
+          text: cause instanceof Error ? cause.message : 'No pude ejecutar el comando.',
+        });
+      }
       flashReply();
       return;
     }
@@ -314,8 +427,9 @@ export function AssistantDock({
         context,
         approvedCost: consent,
       });
-      if (result.action) await runAssistantAction(result.action);
+      const summary = result.action ? await runAssistantAction(result.action) : null;
       append({ role: 'assistant', text: result.reply });
+      if (summary) append({ role: 'assistant', text: summary });
       flashReply();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'no se pudo contactar al asistente');

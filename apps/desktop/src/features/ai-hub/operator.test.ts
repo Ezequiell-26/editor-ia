@@ -32,6 +32,17 @@ describe('operador local', () => {
     });
   });
 
+  it('reconoce montar una carpeta de Descargas', () => {
+    expect(
+      parseOperatorCommand('usá los archivos de descargas de la carpeta "video 1"', views),
+    ).toMatchObject({ kind: 'media_folder', folder: 'video 1' });
+    expect(parseOperatorCommand('usar la carpeta video 1 de descargas', views)).toMatchObject({
+      kind: 'media_folder',
+      folder: 'video 1',
+    });
+    expect(parseOperatorCommand('abrir carpeta vigilada', views).kind).toBe('unknown');
+  });
+
   it('no inventa una vista desconocida', () => {
     const action = parseOperatorCommand('abrir ovnis', views);
     expect(action.kind).toBe('unknown');
