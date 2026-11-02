@@ -14,6 +14,8 @@ import './styles/home.css';
 import './styles/start-screen.css';
 import './styles/resolve-theme.css';
 import './styles/olyvia.css';
+import './styles/effect-studio.css';
+import './styles/brain.css';
 import './styles/commercial.css';
 
 // Apply the saved chrome before the first paint so the window never flashes

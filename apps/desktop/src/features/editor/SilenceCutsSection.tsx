@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Clip } from '@editor-ia/project-schema';
 import type { AudioPeaks } from '../../services/project-service';
 import {
-  applySilenceCuts,
+  applySilenceCutsToTargets,
   planSilenceCutsForProject,
   type SilenceCutPlan,
 } from '../../state/silence-cuts';
@@ -14,7 +14,7 @@ import { useProjectStore } from '../../state/project-store';
  * `state/silence-cuts` con umbral, silencio mínimo y colchón configurables.
  * Analiza los picos que mide FFmpeg, muestra una vista previa de cuánto se
  * recortaría y pide confirmación antes de aplicar. Sin lógica propia: sólo
- * llama a `planSilenceCutsForProject` + `applySilenceCuts`, que ya traen la
+ * llama a `planSilenceCutsForProject` + `applySilenceCutsToTargets`, que ya traen la
  * guardia anti-borrado masivo (>80% de un clip) y aplican por split + ripple.
  */
 
@@ -185,23 +185,17 @@ export function SilenceCutsSection(props: {
     const options = { thresholdDb, minSilenceSeconds, paddingSeconds };
     let touched = 0;
     let removedSeconds = 0;
+    // El lote se aplica con la misma función que usan el menú y el asistente:
+    // rearma el plan contra el proyecto vigente y saltea los planes excesivos.
     const ok = store.update((current) => {
-      let next = current;
-      for (const item of analysis.plans) {
-        if (item.plan.excessive) continue;
-        // Se rearma el plan contra el proyecto ACTUAL: el ripple de un clip
-        // anterior corre a los siguientes de la misma pista y un plan viejo
-        // cortaría en frames equivocados.
-        const fresh = planSilenceCutsForProject(next, item.clipId, item.peaks, options);
-        if (!fresh || fresh.excessive) continue;
-        const after = applySilenceCuts(next, item.clipId, fresh);
-        if (after !== next) {
-          touched += 1;
-          removedSeconds += fresh.removedSeconds;
-        }
-        next = after;
-      }
-      return next;
+      const result = applySilenceCutsToTargets(
+        current,
+        analysis.plans.map((item) => ({ clipId: item.clipId, peaks: item.peaks })),
+        options,
+      );
+      touched = result.clips;
+      removedSeconds = result.removedSeconds;
+      return result.project;
     });
     setAnalysis(null);
     setConfirming(false);

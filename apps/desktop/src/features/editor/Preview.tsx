@@ -12,6 +12,7 @@ import {
   isTrackAudible,
   resumePreviewAudio,
   setPreviewClipPan,
+  syncPreviewAudioAtFrame,
   syncPreviewAudioFromProject,
   syncPreviewAudioPanAtFrame,
   trackGainDb,
@@ -914,10 +915,10 @@ export function Preview() {
     if (project) syncPreviewAudioFromProject(project);
   }, [project]);
 
-  // Paneo de pista animado: el grafo se muestrea en el frame visible, también
-  // al arrastrar el playhead, no sólo cuando cambia el proyecto.
+  // Automatización de pista (fader y paneo): el grafo se muestrea en el frame visible,
+  // también al arrastrar el playhead, no sólo cuando cambia el proyecto.
   useEffect(() => {
-    if (project) syncPreviewAudioPanAtFrame(project, playhead);
+    if (project) syncPreviewAudioAtFrame(project, playhead);
   }, [project, playhead]);
 
   const visualClips = useMemo(() => {

@@ -1,6 +1,6 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-10-28. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-02. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
@@ -19,6 +19,401 @@ reconstruye el instalador salvo que el ítem lo pida.
   **103.720.928 B**, PID **28496**. No se reemplazó para no cerrar la sesión
   abierta.
 - **Sin** commit ni push.
+
+## Lote cerebro de edición (2026-11-01)
+
+Detalle en `docs/EDIT-BRAIN.md`.
+
+- `[done]` **Capa de decisión determinista** — `state/brain/`: análisis de la timeline
+  completa (ASL, huecos, gancho, cobertura de subtítulos, repetición de material), nueve
+  políticas independientes y plan ordenado por impacto × confianza. **13 tests**.
+- `[done]` **Ejecución sobre primitivas existentes** — `apply.ts` llama a `closeGaps`,
+  `splitClipAtFrames`, `deleteClip`, `applyTransitionToCuts` y `updateAudioMix`; no
+  reimplementa edición. Una propuesta sin operación disponible se marca como
+  recomendación manual en vez de fingir que se aplica.
+- `[done]` **Brief para la IA** — el asistente ahora recibe el plan medido antes del JSON
+  del proyecto (`assistant.rs` lo antepone como texto). Antes el contexto eran cinco
+  campos y el modelo opinaba a ciegas. **1 test de integración** sobre el request real.
+- `[done]` **UI** — modo «Cerebro» dentro del Editor: salud 0–100, métricas, hallazgos y
+  propuestas con Aplicar/Descartar y "Aplicar lo seguro". **5 tests**.
+- `[done]` **Cortes en el pulso** — `beatPolicy` recibe una grilla (`BeatGrid`) que la UI
+  arma con `detectBeats` + `planBeatCuts`; con confianza ≥ 0,4 parte los planos largos
+  sobre beats y apaga el corte por tiempo. Métrica «Cortes en beat» y botón
+  «Detectar beats» en el panel. **3 tests** (incluye el caso de grilla poco confiable).
+- `[done]` **Guion y narración** — `analyzeScript` + cinco reglas: escenas sin material,
+  sin narración, narración demasiado rápida o lenta y subtítulos ilegibles. Son
+  recomendaciones sin payload y penalizan el score. **3 tests**.
+- `[pending]` El cerebro todavía no reescribe texto ni reordena escenas; tampoco usa la
+  grilla de beats para alinear cortes ya existentes (sólo para crear cortes nuevos).
+
+## Lote efectos declarativos (2026-11-01)
+
+Referencia: auditoría de `CutWire-Studios/Drift` en `docs/DRIFT-PARITY.md`.
+
+- `[done]` **Motor de efectos** — paquete nuevo `@editor-ia/effect-kit` (MIT):
+  manifiesto, parámetros tipados con grupos, stack ordenado, registro con
+  búsqueda, compilador a FFmpeg y renderer WebGL2 multipaso. **22 tests**.
+- `[done]` **Catálogo propio** — **48 efectos** de video y **22 transiciones**,
+  sin copiar código GPL de Drift. El test de integridad verifica que cada
+  parámetro tenga su uniform y que toda receta compile sin marcadores sin
+  resolver.
+- `[done]` **`clip.effects.stack`** — campo opcional y retrocompatible en el
+  schema; JSON Schema regenerado; **4 tests** nuevos en `effects.test.ts`.
+- `[done]` **Export** — `effect_recipes.rs` generado desde el catálogo
+  (`npm run effects:codegen`) y `apply_effect_stack` en el renderer nativo.
+  **4 tests de Rust** en verde.
+- `[done]` **UI** — `EffectStudio` en la vista VFX: catálogo con búsqueda y
+  categorías, pila con reordenar/duplicar/apagar/resetear, parámetros por grupo
+  y preview GPU con aviso de fidelidad de export. **5 tests**.
+- `[pending]` Efectos de audio (30 en Drift), plantillas guardables, keyframes
+  en export y el importador de paquetes de terceros. Detalle en
+  `docs/DRIFT-PARITY.md` §5.
+- **Verificación**: `npm run typecheck` verde en los 4 proyectos; `vite build`
+  OK (chunk `VfxView` 100,55 kB); suite de escritorio 1070/1074 (las 3 fallas
+  de `LottiePanel` vienen del WIP previo en `motion/`, comprobado con `git
+  stash`; la de `EmojiPicker.focus` pasa al reintentar).
+
+## Integración Google Flow MCP (miyakejima) (2026-11-02)
+
+- `[done]` **Preset** — MCP → «Agregar servidor» → «Preset: Google Flow»: precarga `node` +
+  `dist/index.js` para el repo `miyakejima/google-flow-mcp`. El servidor es stdio local y necesita
+  `npm ci && npm run build` antes de apuntarlo.
+- `[done]` **Compatibilidad de dialectos** — `buildFlowArgs` en `state/flow.ts`: si conoce el
+  `inputSchema` manda exactamente lo que declara; si no, manda el superconjunto. Cubre las dos
+  familias: `ratio`/`output_folder`/`auto_confirm`/`duration` y
+  `aspectRatio`/`outputDirectory`/`confirmCreditSpend`/`durationSeconds`. Se usa en el panel Flow,
+  la cola de generación continua y la fábrica.
+- **Verificación**: `flow.test` **4** (dialecto nuevo, dialecto viejo, superconjunto, sin créditos).
+  Typecheck verde. La ejecución real del servidor no se probó: requiere Chromium, extensión y una
+  cuenta de Google con Flow.
+
+## Lote servidor MCP (2026-11-02)
+
+La app ya era cliente de MCP; ahora también es **servidor**: una IA externa puede manejarla.
+
+- `[done]` **Transporte** — `commands/mcp_server.rs`: HTTP en `127.0.0.1:0` (puerto aleatorio) con
+  JSON-RPC 2.0 en `POST /mcp`. Token nuevo por arranque, obligatorio en
+  `Authorization: Bearer`; sin token responde 401. Límites de headers y cuerpo.
+- `[done]` **Herramientas (50)** — `state/mcp-catalog.ts` es la fuente única de `tools/list` (el
+  servidor Rust la pide a la ventana); `state/mcp-tools.ts` ejecuta cada una con la misma primitiva
+  que la UI, y todo cambio pasa por `store.update` (queda en el historial):
+  - Lectura: `app_status`, `project_summary`, `timeline_clips`, `captions_list`, `assets_list`,
+    `tracks_list`, `export_profiles`, `critic_run`, `markers_list`, `settings_get`, `review_build`.
+  - Proyecto: `project_new`, `project_open`, `project_save`, `project_save_as`, `project_close`,
+    `undo`, `redo`, `package_project`.
+  - Medios: `asset_import` (rutas del disco), `asset_remove`.
+  - Pistas: `track_add`, `track_update`, `track_delete`.
+  - Clips: `clip_add`, `clip_update`, `clip_move`, `clip_split`, `clip_delete`, `clip_effects`.
+  - Subtítulos, audio y marcadores: `caption_add/update/delete`, `diarize`, `audio_mix`,
+    `marker_add`, `marker_delete`.
+  - Operación: `run_automation`, `critic_fix`, `review_apply`, `export_render`,
+    `export_interchange`, `navigate`, `playhead`, `run_command`, `settings_set`,
+    `settings_set_tools` (rutas de FFmpeg).
+  - Flujos compuestos: `multicam_build` (corte por voz o dado), `factory_run` (brief → video),
+    `caption_style_update`.
+- `[done]` **Acceso** — comando local «servidor mcp» / «conectar una IA»: arranca el servidor y
+  devuelve el bloque JSON listo para Claude Desktop o Cursor.
+- **Verificación**: Rust `commands::mcp_server` **3** (catálogo de respaldo, headers, errores);
+  `mcp-tools.test` **17** (catálogo, resumen, listas, edición, subtítulos CRUD, pistas y clips,
+  velocidad, audio/crítico, marcadores, ajustes, revisión, multicámara, estilo, rutas de
+  herramientas, cabezal, automatización, navegar/operador, errores). Typecheck y `cargo check`
+  verdes.
+- **Límite declarado**: el servidor vive mientras la app está abierta y sólo escucha en loopback.
+  Un cliente externo puede ejecutar cualquier comando del operador con los permisos del usuario:
+  el token es la única barrera, así que no se comparte.
+
+## Lote crítico de edición (2026-11-02)
+
+La inteligencia dejó de ser sólo «proponer»: ahora también **evalúa** la edición terminada.
+
+- `[done]` **Motor** — `state/timeline-critic.ts` con 7 reglas medibles: aire al inicio, huecos
+  entre clips de audio, dispersión de duración de planos, velocidad de subtítulos (CPS),
+  loudness ausente, planos de más de 12 s y flashes de menos de 6 frames. Cada hallazgo tiene
+  severidad y puntaje 100 − descuentos.
+- `[done]` **Arreglos seguros** — sólo tres tocan la timeline: recorte global del inicio
+  (`trimTimelineStart`, nuevo: mueve clips, subtítulos y marcadores), cierre de huecos por pista y
+  objetivo de loudness. El resto son avisos: no hay botón que adivine.
+- `[done]` **UI** — Editar → «Criticar edición…»: puntaje, hallazgos con severidad, casilla sólo
+  en los arreglables y «Aplicar N arreglos».
+- **Verificación**: `timeline-critic.test` **8** (aire, huecos, dispersión, CPS, loudness, planos
+  largos, flashes, edición sana en 100, sin aceptados no toca nada); `CriticDialog.test` **3**.
+  Typecheck verde.
+
+## Lote hablantes con API propia (2026-11-02)
+
+La diarización no se resolvió con un modelo embebido: la persona conecta su API.
+
+- `[done]` **Modelo** — `CaptionCueSchema.speaker` opcional (40 caracteres). Compatible hacia
+  atrás: los proyectos viejos validan igual.
+- `[done]` **Mapeo** — `state/speakers.ts`: cada cue toma el hablante con **mayor solapamiento**;
+  identificadores numéricos (Deepgram) y de letra (AssemblyAI) se traducen a «Hablante N»; prefijo
+  opcional en el texto; sin tramos no se toca nada.
+- `[done]` **Backend** — `commands/diarize.rs`: `get/save_diarize_provider` con la clave en el
+  almacén de Windows (nunca en los ajustes ni en el proyecto) y `diarize_audio` con dos
+  adaptadores: Deepgram (una petición binaria) y AssemblyAI (subida + trabajo + sondeo). Parsers
+  puros con tests; sin clave no se inventa nada.
+- `[done]` **UI** — Inspector → Audio → «Hablantes»: proveedor, idioma, URL base opcional, clave,
+  prefijo y «Etiquetar hablantes».
+- **Verificación**: `speakers.test` **7**; Rust `commands::diarize` **3** (parsers); typecheck y
+  `cargo check` verdes. La llamada HTTP real no se probó: requiere clave del usuario.
+- **Límite declarado**: la app no valida el plan ni el costo del proveedor; la clave y el consumo
+  son de la persona.
+
+## Lote cola por carpeta (2026-11-02)
+
+El bloqueo era `write_project_variant`: exigía `state.require_session()` y espejaba assets desde la
+raíz de la sesión. Se resolvió con dos comandos que no dependen de la sesión.
+
+- `[done]` **Backend** — `copy_media_into` copia el material externo a `media/` de la entrega con
+  nombres seguros y sin pisar archivos; `write_project_file` valida y escribe el proyecto en una
+  carpeta absoluta. `render_project_variant` ya era independiente de la sesión.
+- `[done]` **Motor** — `state/folder-queue.ts`: escanea la carpeta, filtra videos, prueba cada
+  archivo, copia, arma un proyecto con ruta relativa, mide picos por ruta (`audio_peaks_path`),
+  limpia con el perfil adaptativo, escribe, renderiza y verifica duración. Un fallo no cancela el
+  resto.
+- `[done]` **UI** — Producción → «Procesar una carpeta»: entrada, entrega y resultados por archivo.
+  No abre ni modifica el proyecto actual.
+- **Verificación**: `folder-queue.test` **4** (dos videos, sin pista de video, render fallido que
+  no frena la cola, carpeta vacía). Typecheck y `cargo check` verdes.
+- `[pending]` **Diarización**: requiere un modelo de embeddings de hablante (sherpa-onnx o
+  pyannote) en el backend. Etiquetar hablantes por pausas sería inventar.
+- `[done]` **Tarjeta de título** — `state/auto-title.ts`: usa el **nombre del proyecto** como
+  título (no la primera frase, que produce «Hola, ¿cómo están?») y la primera frase de los
+  subtítulos como subtítulo. Menú Editar → «Agregar tarjeta de título». `auto-title.test`: **4**.
+
+## Lote calidad visual con VMAF (2026-11-02)
+
+- `[done]` **Puerta de calidad opcional** — `runAutoPilot({ qualityCheck: true })`: elige el perfil
+  de referencia con el CRF más bajo (más calidad), renderiza la referencia, mide VMAF contra la
+  entrega y, si queda por debajo de 93, **clona el perfil con CRF −4**, reescribe, reexporta y
+  vuelve a medir una vez. El reporte incluye `quality.vmaf`, `referenceProfileId` y
+  `adjustedProfileId`; el resumen muestra `VMAF 95`.
+- **Costo declarado**: la puerta viene **apagada** porque suma un render de referencia (y otro más
+  si corrige). Activarla es una decisión de tiempo, no de calidad.
+- **Límite**: si el perfil elegido usa bitrate objetivo en vez de CRF, no hay perfil que ajustar y
+  la puerta se saltea; se informa `vmaf` igual si hay referencia.
+- **Verificación**: `auto-pilot.test` **11** (3 nuevos: verificación sin corrección, corrección con
+  reexporta, sin gasto extra si no se pide). Typecheck verde.
+
+## Lote multicámara automática y perfil por formato (2026-11-02)
+
+- `[done]` **Corte por voz en multicámara** — `autoCutByActivity` en `features/multicam/multicam.ts`:
+  compara las envolventes de audio de las cámaras en el tiempo del programa y elige la que suena.
+  Guardias: plano mínimo 1,2 s, histéresis 1,25 y umbral de silencio 0,08 (en silencio no cambia).
+  Botón «Auto-cortar por voz» en la vista; los cortes quedan en la lista para revisarlos antes de
+  montar.
+- `[done]` **Perfil de export por formato** — `state/render-profile.ts`: elige el perfil cuyo
+  `aspectRatio` coincide con el proyecto (16:9, 9:16, 1:1), cae al perfil nativo y después al
+  primero. Lo usan el piloto automático y el diálogo de exportación.
+- **Verificación**: `multicam.test` **13** (5 nuevos: cambio y vuelta, silencio, histéresis, plano
+  mínimo, sin envolventes); `render-profile.test` **4**; `auto-pilot.test` **8**. Typecheck verde.
+
+## Lote revisión por ítem (2026-11-02)
+
+La automatización se aceptaba entera o se deshacía entera. Ahora se puede auditar.
+
+- `[done]` **Motor** — `state/review-queue.ts`: arma ítems independientes (cada silencio, cada
+  pausa, el ruido por clip, el zoom por clip y el nivelado global) con tramos **relativos al
+  clip**, así un corte previo no invalida los siguientes. Aplica primero los ajustes por clip y
+  al final los cortes, porque un corte cambia los ids de las piezas.
+- `[done]` **UI** — Editar → «Revisar automatización…» abre un diálogo con la lista agrupada,
+  casillas por ítem y por grupo, y el resumen de lo que se va a aplicar. Nada se toca hasta
+  confirmar.
+- `[done]` **Completado de `auto_pilot`** — el operador y el tipo ya tenían la acción, pero no
+  tenía ejecutor: el typecheck fallaba. Ahora el dock corre el piloto (guardar → medir → limpiar
+  → exportar → verificar) y Rust la valida para el modelo.
+- **Verificación**:
+  - `review-queue.test`: **6** (ítems, sin silencios, sólo cortes aceptados, ruido+nivel sin
+    cortar, vacío, resumen).
+  - `ReviewDialog.test`: **2** (aplicar lo aceptado; desmarcar un grupo no lo aplica).
+  - `operator.test` + `ai-hub`: **39** en el lote. Rust `commands::assistant`: **7/7**.
+  - Typecheck verde en 4 proyectos.
+
+## Lote piloto automático y nivel 5 (2026-11-02)
+
+Cierra los dos huecos que impedían hablar de nivel 5: parámetros elegidos por una persona y
+entrega sin verificación.
+
+- `[done]` **Perfil adaptativo** — `state/adaptive.ts`: piso de ruido (percentil 10 de los picos),
+  voz (percentil 90), SNR; de ahí salen umbral de silencio (piso + 6 dB), nivel de denoise
+  (SNR ≥ 30 suave, ≥ 18 medio, si no fuerte), zoom según plano mediano (<2 s 5 %, ≤5 s 8 %,
+  si no 12 %) y LUFS objetivo. Sin picos medibles devuelve un perfil conservador **explícito**.
+- `[done]` **Piloto automático** — `state/auto-pilot.ts`: mide → limpia con ese perfil → agrega
+  perfiles de entrega si faltan → escribe el proyecto → renderiza → **sondea el MP4** y compara
+  duración contra la timeline y pistas presentes. Si algo no cuadra, `verified: false` y
+  `warnings`; no dice «listo» por decir.
+- `[done]` **Acceso** — Editar → «Piloto automático: limpiar y exportar» (escribe en
+  `<raíz>/entregas`) y «Entrega automática cada 10 min»: mientras está activa, si la revisión del
+  proyecto cambió, guarda y vuelve a entregar sin intervención.
+- **Verificación**:
+  - `adaptive.test`: **6** (estudio silencioso, ruido moderado, mucho ruido, sin picos, zoom por
+    plano, resumen).
+  - `auto-pilot.test`: **6** (camino feliz con verificación, duración que no coincide, MP4 sin
+    audio, perfiles agregados, sin picos, resumen).
+  - Typecheck verde en 4 proyectos.
+- `[done]` **Lazo cerrado de loudness** — `measure_file_loudness` (nuevo comando) mide el MP4 con
+  `loudnorm=print_format=json`; el piloto compara con el objetivo y, si está a más de 1 LU,
+  corrige `masterGainDb`, reescribe y reexporta **una vez**. El reporte dice la corrección.
+- `[done]` **Base para la carpeta** — `audio_peaks_path` (picos de un archivo sin proyecto) y
+  `measure_file_loudness` ya existen y están registrados.
+- `[pending]` **Disparador por carpeta**: `write_project_variant` exige `state.require_session()` y
+  copia assets desde `session.root`, así que no puede escribir un proyecto armado fuera de la
+  sesión. Falta un escritor/render sin sesión; sin eso, la cola de carpeta no se puede hacer
+  honestamente.
+
+## Lote limpieza automática (2026-11-02)
+
+La lista de producto pedida estaba repartida en cinco pantallas. Este lote la junta en un paso.
+
+- `[done]` **Orquestador** — `state/auto-cleanup.ts`: huecos (opcional) → silencios → pausas de
+  voz → denoise en tres niveles → nivelado a −14 LUFS con limitador → zoom alternado en los
+  cortes. Respeta pistas bloqueadas y no pisa un `motion` existente.
+- `[done]` **Acceso** — Editar → «Limpieza automática del proyecto»; operador local («limpiá el
+  video», «dejalo listo para publicar», con «sin zoom», «sin pausas», «denoise fuerte»); acción
+  `auto_cleanup` para el modelo con validación de rangos en Rust.
+- `[done]` **Reporte** — `autoCleanupSummary` devuelve conteos y segundos removidos; la UI y el
+  asistente lo dicen tal cual.
+- `[done]` **Matriz de producto** — `docs/FEATURES-CHECKLIST.md` contrasta los 11 puntos pedidos
+  con el código: 9 existen, CapCut es parcial (no importa OTIO/EDL) y el envío por mail no existe
+  porque la app es local.
+- **Verificación**:
+  - `auto-cleanup.test`: **7** (silencios, pausas, denoise+nivelado+zoom, motion previo,
+    pistas bloqueadas, sin opciones, resumen).
+  - `operator.test`: **30** (4 nuevos). `AssistantDock.test`: **1 nuevo** de punta a punta.
+  - Rust `commands::assistant`: **7/7** con `auto_cleanup`.
+  - Typecheck verde en 4 proyectos.
+
+## Lote cortes por pausas de voz (2026-11-02)
+
+Cierra el pendiente declarado en el lote anterior: cortar por **frases**, no por amplitud. El
+detector de silencios confunde una respiración con una pausa y no sabe dónde termina una idea.
+
+- `[done]` **Motor** — `state/speech-cuts.ts`: arma intervalos de habla con las palabras de los
+  subtítulos (o con el rango del cue si no las tiene), fusiona solapamientos y recorta sólo los
+  huecos ≥ `minPauseSeconds`, conservando `paddingSeconds` de aire. Guardia: si quitaría más del
+  60 % del clip, el plan se rechaza.
+- `[done]` **Corrimiento de subtítulos** — `removeCaptionRange` en `project-actions`: al eliminar
+  un tramo, los cues posteriores se corren y los que cruzan el corte se recortan. Sin esto, cada
+  corte dejaba los subtítulos atrasados respecto de la voz (afectaba también al corte de
+  silencios).
+- `[done]` **UI** — `SpeechCutsSection` en el Inspector (clip y pista): analiza los subtítulos
+  existentes, muestra pausas y segundos, y aplica con confirmación. Si el clip no tiene
+  subtítulos, lo dice y no inventa pausas.
+- `[done]` **IA** — acción `cut_voice_pauses` (`selection|project`, pausa mínima y aire) en
+  operador, `AssistantAction` y `clean_action`. Si el clip no tiene subtítulos, transcribe
+  primero, genera los cues y corta: **un solo paso de deshacer**.
+- **Verificación**:
+  - `speech-cuts.test`: **12** (pausa entre frases, respiración corta, solapamientos, excesivo,
+    ventana del clip, cues con y sin palabras, transcripción, aplicación con ripple y
+    corrimiento de subtítulos).
+  - `SpeechCutsSection.test`: **2** (sin subtítulos, análisis + aplicación).
+  - `operator.test`: **27** (3 nuevos, incluida la distinción silencio/pausa).
+  - `AssistantDock.test`: **2 nuevos** (cues existentes; transcripción previa).
+  - Rust `commands::assistant`: **7/7**.
+  - Typecheck verde en 4 proyectos.
+
+## Lote subtítulos automáticos y legibles (2026-11-02)
+
+El botón «Transcribir a subtítulos» existía, pero volcaba un segmento de Whisper por cue: frases
+de 6–8 segundos y 15–20 palabras que no entran en dos líneas ni se leen en el tiempo que duran.
+La IA tampoco podía pedirlo.
+
+- `[done]` **Planificador** — `state/caption-planner.ts`: parte cada segmento en cues de como
+  máximo `maxCharsPerLine × maxLines` (42×2 en horizontal, 32×2 en vertical), usa los tiempos de
+  palabra cuando existen y reparte en proporción al texto cuando no, respeta un mínimo de 0,8 s
+  sin pisar el cue siguiente y parte los tramos de más de 6 s.
+- `[done]` **Honestidad sobre la velocidad** — los caracteres por segundo se **miden**, no se
+  estiran: `overCps` y `maxCps` vuelven al llamador para que la UI avise. Cambiar el tiempo
+  rompería la sincronización con la voz.
+- `[done]` **Sin pérdida de texto** — si las palabras del transcriptor no cubren el segmento
+  (Whisper devuelve a veces sólo una parte), se descartan sus tiempos y se usa el texto completo.
+- `[done]` **Colocación** — en 9:16 los cues llevan `offsetY` de −8 % de la altura: la franja
+  inferior pertenece a la UI de TikTok/Reels/Shorts.
+- `[done]` **Integración** — `addTranscriptionCues` usa el planificador para todos los llamadores
+  (Inspector, narración, asistente). El aviso del Inspector ahora informa subtítulos creados y
+  cuántos superan la lectura cómoda.
+- `[done]` **IA** — acción `auto_subtitles` (`selection|project`) en operador, `AssistantAction` y
+  `clean_action`. Transcribe con Whisper local, planifica y agrega todo en **un solo paso de
+  deshacer**. Guarda el proyecto antes (el transcriptor lee el archivo de disco) y limita a 12
+  clips por pedido para no bloquear el chat.
+- **Verificación**:
+  - `caption-planner.test`: **10 tests** (partido, líneas, tiempos de palabra, reparto
+    proporcional, mínimo, CPS, palabras incompletas, vertical).
+  - `project-actions.test`: **98**, con 2 nuevos (segmento largo partido, offset vertical).
+  - `operator.test`: **25**, con 2 nuevos (automático vs. manual).
+  - `AssistantDock.test`: **2 nuevos** de punta a punta (transcribe y crea cues; sin audio).
+  - Rust `commands::assistant`: **7/7** con la validación de `auto_subtitles`.
+  - Typecheck verde en 4 proyectos.
+- `[done]` **Cortar por voz** — cerrado en el lote de pausas de voz: usa los tiempos de los
+  subtítulos y respeta las frases en vez de la amplitud.
+
+## Lote corte de silencios para la app y la IA (2026-11-02)
+
+El motor existía (`state/silence-cuts.ts` + sección del Inspector), pero sólo se podía usar
+entrando al Inspector y apretando tres veces. Faltaba el acceso directo y, sobre todo, que la IA
+pudiera pedirlo.
+
+- `[done]` **Runner compartido** — `runSilenceCuts` elige candidatos (video/audio con asset, 1×,
+  pista desbloqueada), pide los picos con caché por asset y aplica en lote rearmando el plan
+  contra el proyecto vigente. La sección del Inspector ahora usa el mismo
+  `applySilenceCutsToTargets`, así no hay dos implementaciones que se separen.
+- `[done]` **Menú** — Editar → «Cortar silencios automáticamente». Con un clip seleccionado opera
+  sobre él; sin selección, sobre todo el proyecto. Avisa cuántos cortes y segundos, y queda en
+  el historial (Ctrl+Z).
+- `[done]` **Operador local** — «cortá los silencios», «auto corte de silencio», «limpiá los
+  silencios del proyecto con umbral -40, mínimo 0.5 s, colchón 0.2 s». El singular «quita el
+  silencio» sigue significando desmutear: no cambió de significado.
+- `[done]` **Modelo** — acción `cut_silences` con `scope` (`selection|project`) y los tres
+  parámetros opcionales. `clean_action` valida y acota los rangos (-90..-10 dB, 0,05..5 s,
+  0..2 s) y el prompt le indica no borrar clip por clip cuando piden limpiar pausas.
+- `[done]` **Ejecución** — ambos caminos del dock (operador y modelo) llaman a la misma función;
+  si no hay clip seleccionado, cae al proyecto y lo dice en la respuesta.
+- **Verificación**:
+  - `state/silence-cuts`: **12 tests**, incluidos 3 nuevos del runner (corte real, sin picos,
+    alcance por clip y pista bloqueada).
+  - `operator.test`: **23**, con 4 nuevos (defaults, parámetros, desmutear vs. cortar, clamping).
+  - `AssistantDock.test`: **3 nuevos** de punta a punta (comando local, acción del modelo,
+    material sin picos).
+  - Rust `commands::assistant`: **7/7**, con los rangos y defaults de `cut_silences`.
+  - Typecheck verde en los 4 proyectos.
+- `[pending]` **Brain** — el cerebro mide huecos, no silencios (no tiene picos). Una política que
+  delegue en este runner cuando el hueco esté dentro de un clip con audio es el paso siguiente.
+
+## Lote efectos de audio (2026-11-02)
+
+Cierra el primer pendiente de `docs/DRIFT-PARITY.md` §5: Drift tiene 30 efectos de audio y
+Olyvia sólo tenía EQ/paneo/loudness por pista.
+
+- `[done]` **Catálogo** — `packages/effect-kit/src/catalog/audio.ts`: **30 efectos** en cinco
+  familias (8 espacio, 5 textura, 5 transmisión, 6 utilería, 6 voz), con parámetros tipados y
+  cadena de filtros real. Categorías nuevas en `EFFECT_CATEGORIES` para que el navegador agrupe.
+- `[done]` **Compilador** — `compileAudioStack` en `ffmpeg.ts`. Resuelve `%RATE%` (sample rate
+  del perfil) y `%INV:<param>%` (inverso del parámetro) para que un cambio de tono conserve la
+  duración. `manifestFidelity` / `manifestNote` dan a la UI una sola respuesta para video y audio.
+- `[done]` **Schema** — `effects.audioStack` (máx. 32) en clips de video/imagen y
+  `AudioClipEffectsSchema` en clips de audio (sólo `audioStack`; un `brightness` en un clip de
+  audio se rechaza). JSON Schema regenerado: **115 líneas** nuevas.
+- `[done]` **Render** — `audio_chain` en la tabla generada (**70 recetas: 40 de video + 30 de
+  audio**) y `apply_audio_effect_stack` dentro de `audio_filter`, después de los presets de voz
+  y antes del fader.
+- `[done]` **UI** — `AudioEffectStack` en el Inspector → Audio del clip: catálogo filtrado,
+  pila con reordenar/duplicar/apagar, fidelidad y cadena compilada visible.
+- **Verificación**:
+  - Las **30 cadenas** ejecutan contra el FFmpeg empaquetado sin error (`audio-live.test.ts`,
+    3,3 s). Ese archivo se corre con `EDITOR_IA_RUN_AUDIO_TESTS=1`.
+  - `audio.muffled` sobre un tono de 6 kHz: **−21,1 dB → −56,9 dB** (35,8 dB), medido en TS y en
+    el test live de Rust `live_audio_stack_muffles_a_high_tone` (0,80 s).
+  - `audio.voice_deep`: 1,000 s de entrada → 1,000 s de salida (±0,05 s).
+  - `effect-kit`: **29 tests** (17 catálogo + 12 motor) + 3 live. `project-schema`: **343**.
+    Suite de escritorio serial: **1563 pasan**, quedan los 3 de `LottiePanel` (WIP previo del
+    usuario en `motion/`).
+  - Typecheck verde en los 4 proyectos. `npm run build` en 9,81 s; el catálogo y los paneles
+    comparten un chunk (`EffectStackPanel` 84,02 kB / 24,45 gzip), así que el Inspector no
+    duplica la tabla.
+- `[pending]` **Preview Web Audio** — la cadena es export-only; el panel lo declara. Simular 30
+  efectos con nodos nativos (biquad, delay, waveshaper, worklet) es un bloque propio.
+- `[pending]` **Plantillas de efecto** (23 en Drift) y **keyframes de efecto en export** siguen
+  abiertos, igual que el importador de paquetes de terceros.
 
 ## Lote velocidad (2026-10-28)
 
@@ -1167,12 +1562,11 @@ reconstruye el instalador salvo que el ítem lo pida.
       al disparador y no propaga, Tab cierra, `aria-checked` con
       `menuitemcheckbox`. `MenuBar.test.tsx` 8/8, suite **1321/1321 en 160
       archivos** en 53,89 s, build 8,33 s. Ver “Lote accesibilidad del menubar”.
-    - 10b `[pending]` **Contraste de guías de curvas** — `KeyframeCurveEditor`
-      dibuja la línea central en `#3a3f46` (**1,80:1** sobre `#0a0f1e`) y las
-      guías punteadas en `#565d66` (**2,87:1**), ambas por debajo de 3:1
-      (WCAG 1.4.11). Candidatos medidos sobre el mismo fondo: `#6b7480`
-      (4,03:1) y `#7b8591` (5,10:1). Falta elegir el par y fijar el test de
-      ratio.
+    - 10b `[done]` **Contraste de guías de curvas** — `KeyframeCurveEditor`
+      define y exporta `CURVE_CANVAS_BG` (`#0a0f1e`), `GUIDE_CENTER_COLOR` (`#6b7480`,
+      **4,03:1**) y `GUIDE_BOUNDS_COLOR` (`#7b8591`, **5,10:1**), ambas superando
+      el ratio mínimo de 3:1 de WCAG 2.1 SC 1.4.11. `KeyframeCurveEditor.test.tsx`
+      **12/12** (incluyendo el test unitario de ratio de contraste sRGB).
     - 10c `[done]` **Etiquetas de paneo** — verificado en código: la mesa usa
       `aria-label` «Paneo de <pista>» + `aria-valuetext` con `panLabel`
       (C / L 40 / R 25); la automatización rotula cada clave por pista y
@@ -1193,11 +1587,13 @@ reconstruye el instalador salvo que el ítem lo pida.
     unificado en Inspector.
 16. **VFX preview honesta** `[done]` — la vista marca chroma, sharpen y
     viñeta como solo export; no se muestran inertes.
-17. **Emoji diferido** — el catálogo (~240 kB fuente) ya no está en el shell:
-    vive en el chunk `EmojiPicker` (**719,71 kB min / 113,13 gzip**, escapado
-    ASCII) que comparten rail e Inspector y todavía se carga al montar el
-    editor. Falta importarlo recién al abrir el picker y medir el chunk
-    antes/después.
+17. **Emoji diferido** `[done]` — el catálogo (~240 kB fuente) y el popover se
+    extrajeron a `EmojiPickerPopover.tsx` con carga perezosa (`React.lazy`) y
+    precarga en hover/focus. El chunk cargado al montar el editor cayó de
+    **719,66 kB a 2,78 kB** (gzip 113,10 → 1,22 kB, reducción del **99,6%**).
+    El chunk diferido `EmojiPickerPopover` (717,61 kB / 112,37 gzip) se descarga
+    únicamente al interactuar con el selector. Tests unitarios y de accesibilidad
+    (trampa de foco, Escape) 12/12 verdes.
 18. **Composición opaca en yuv420p** — si ningún clip necesita alfa
     (sin chroma, máscara, opacidad, blend ni transición), componer sin
     RGBA. Un benchmark externo midió −32% (2,08→1,41 s) con salida
@@ -1208,10 +1604,13 @@ reconstruye el instalador salvo que el ítem lo pida.
 20. **Denoise de audio en preview** — el `afftdn` del export no se
     simula en Web Audio; evaluar un filtro aproximado o marcar la
     diferencia en la UI.
-21. **Automatización de fader de pista en preview** — el export aplica
-    `gainKeyframes` con `volume` por frame, pero la preview sigue leyendo el
-    `gainDb` estático. Reutilizar el muestreo por playhead del paneo y medir
-    las ganancias del fader con un test.
+21. **Automatización de fader de pista en preview** `[done]` — `trackAudioParams()`
+    en `usePreviewAudio.ts` ahora muestrea `track.gainKeyframes` con `sampleTrackGain()`
+    en el frame actual; `syncPreviewAudioAtFrame()` actualiza tanto fader como
+    paneo animado en cada cambio de playhead. 4 tests nuevos en `LiveMeters.test.tsx`
+    verifican la escala logarítmica/dB (`10^(dB/20)`), idéntica interpolación
+    Bézier al export Rust, clamp de extremos y coexistencia de fader + paneo.
+    14/14 tests verdes en LiveMeters y 144/144 en la suite editor/mixer.
 22. **Lottie: `.lottie` y prueba IPC nativa** — abrir el ZIP `.lottie` con
     `fflate` (ya es dependencia) y ejercitar la conversión completa en la app
     nativa, IPC incluido, midiendo el WebM resultante.

@@ -265,6 +265,50 @@ pub async fn audio_peaks(
     })
 }
 
+/// Picos de un archivo arbitrario, sin proyecto abierto.
+///
+/// La cola de carpeta trabaja sobre material que todavía no está en ningún
+/// proyecto y necesita los picos para medir el perfil adaptativo antes de armar
+/// la timeline. Es la misma decodificación que `audio_peaks`, sólo cambia de
+/// dónde sale la ruta.
+#[tauri::command]
+pub async fn audio_peaks_path(
+    state: State<'_, AppState>,
+    path: String,
+    buckets: Option<u32>,
+) -> Result<AudioPeaks, ProjectError> {
+    let buckets = clamp_buckets(buckets.unwrap_or(600));
+    let settings = state.settings_snapshot()?;
+    let (ffmpeg, ffprobe, _) = resolve_tools(&settings);
+    let (Some(ffmpeg), Some(ffprobe)) = (ffmpeg, ffprobe) else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg y FFprobe son necesarios para leer la onda",
+        ));
+    };
+    let source = PathBuf::from(path.trim());
+    if !source.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "el archivo no existe",
+        ));
+    }
+    let (duration, rate) = probe_audio(&ffprobe, &source)?;
+    let peaks = decode_peaks(&ffmpeg, &source, buckets, duration, rate)?;
+    if peaks.is_empty() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "este material no tiene audio que mostrar",
+        ));
+    }
+    Ok(AudioPeaks {
+        asset_id: source.to_string_lossy().to_string(),
+        duration_seconds: duration,
+        buckets,
+        peaks,
+    })
+}
+
 // --------------------------------------------------------------------------- //
 // Aceleración por hardware
 // --------------------------------------------------------------------------- //
@@ -309,7 +353,7 @@ where
     None
 }
 
-fn encoder_works(ffmpeg: &Path, encoder: &str) -> bool {
+pub(crate) fn encoder_works(ffmpeg: &Path, encoder: &str) -> bool {
     let mut command = Command::new(ffmpeg);
     command.args([
         "-hide_banner",

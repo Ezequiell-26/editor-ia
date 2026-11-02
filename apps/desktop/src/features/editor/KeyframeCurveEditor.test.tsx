@@ -3,6 +3,9 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ClipTransformKeyframe, CubicBezier } from '@editor-ia/project-schema';
 import {
+  CURVE_CANVAS_BG,
+  GUIDE_BOUNDS_COLOR,
+  GUIDE_CENTER_COLOR,
   KeyframeCurveEditor,
   handleDistance,
   initialBezier,
@@ -202,3 +205,30 @@ describe('KeyframeCurveEditor (interacción)', () => {
     expect(queryByRole('img')).toBeNull();
   });
 });
+
+describe('accesibilidad de contraste de guías (WCAG SC 1.4.11 >= 3:1)', () => {
+  function sRgbLuminance(hex: string): number {
+    const clean = hex.replace('#', '');
+    const r = parseInt(clean.slice(0, 2), 16) / 255;
+    const g = parseInt(clean.slice(2, 4), 16) / 255;
+    const b = parseInt(clean.slice(4, 6), 16) / 255;
+    const lin = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+
+  function contrastRatio(hex1: string, hex2: string): number {
+    const l1 = sRgbLuminance(hex1);
+    const l2 = sRgbLuminance(hex2);
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  it('cumple el ratio de contraste mínimo de 3:1 sobre el fondo del canvas', () => {
+    const centerRatio = contrastRatio(GUIDE_CENTER_COLOR, CURVE_CANVAS_BG);
+    const boundsRatio = contrastRatio(GUIDE_BOUNDS_COLOR, CURVE_CANVAS_BG);
+    expect(centerRatio).toBeGreaterThanOrEqual(3.0);
+    expect(boundsRatio).toBeGreaterThanOrEqual(3.0);
+  });
+});
+

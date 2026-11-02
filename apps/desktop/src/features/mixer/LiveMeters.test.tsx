@@ -14,7 +14,7 @@ import {
   updateClip,
   updateTrack,
 } from '../../state/project-actions';
-import { setTrackPanKeyframe } from '../../state/track-automation';
+import { setTrackGainKeyframe, setTrackPanKeyframe } from '../../state/track-automation';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { LiveMeters } from './LiveMeters';
 import {
@@ -22,6 +22,7 @@ import {
   detachPreviewAudio,
   readPreviewAudioLevels,
   resetPreviewAudio,
+  syncPreviewAudioAtFrame,
   syncPreviewAudioFromProject,
   syncPreviewAudioPanAtFrame,
 } from './usePreviewAudio';
@@ -420,6 +421,19 @@ function panNodesOf(ctx: FakeAudioContext): { left: FakeGain; right: FakeGain } 
   return { left, right };
 }
 
+/** Fader de ganancia de pista: input → EQ → fader. */
+function faderNodeOf(ctx: FakeAudioContext): FakeGain {
+  const input = trackInputOf(ctx);
+  const eqLow = input.connections[0];
+  const eqMid = eqLow?.connections[0];
+  const eqHigh = eqMid?.connections[0];
+  const fader = eqHigh?.connections[0];
+  if (!(fader instanceof FakeGain)) {
+    throw new Error('sin fader de pista');
+  }
+  return fader;
+}
+
 describe('paneo de pista animado en la preview', () => {
   beforeEach(() => {
     resetPreviewAudio();
@@ -541,3 +555,130 @@ describe('paneo de pista animado en la preview', () => {
     expect(right.gain.value).toBe(1);
   });
 });
+
+describe('automatización de fader de pista en la preview', () => {
+  beforeEach(() => {
+    resetPreviewAudio();
+    installFakeAudioContext();
+  });
+
+  function animatedGainProject(): { project: ProjectDocument; musicTrackId: string } {
+    const { project, musicTrackId } = buildProject();
+    return {
+      project: setTrackGainKeyframe(
+        setTrackGainKeyframe(project, musicTrackId, 0, -6),
+        musicTrackId,
+        30,
+        0,
+      ),
+      musicTrackId,
+    };
+  }
+
+  it('muestrea las claves de ganancia en el frame del playhead con la ley en dB', () => {
+    const { project, musicTrackId } = animatedGainProject();
+    syncPreviewAudioFromProject(project);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const fader = faderNodeOf(lastFakeContext());
+
+    // Frame 0: -6 dB -> 10^(-6/20) ~ 0.5011872
+    syncPreviewAudioAtFrame(project, 0);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-6 / 20), 5);
+
+    // Frame 15: mitad del segmento (-3 dB) -> 10^(-3/20) ~ 0.7079457
+    syncPreviewAudioAtFrame(project, 15);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-3 / 20), 5);
+
+    // Frame 30: 0 dB -> 1.0
+    syncPreviewAudioAtFrame(project, 30);
+    expect(fader.gain.value).toBeCloseTo(1.0, 5);
+
+    // Después de la última clave queda clampeado al valor final
+    syncPreviewAudioAtFrame(project, 120);
+    expect(fader.gain.value).toBeCloseTo(1.0, 5);
+
+    // Antes de la primera clave queda clampeado a la primera
+    syncPreviewAudioAtFrame(project, -10);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-6 / 20), 5);
+  });
+
+  it('aplica easing y curva Bézier idéntica al export Rust', () => {
+    const { project, musicTrackId } = buildProject();
+    const withBezier = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        tracks: project.timeline.tracks.map((item) =>
+          item.id === musicTrackId
+            ? {
+                ...item,
+                gainKeyframes: [
+                  {
+                    frame: 0,
+                    gainDb: -12,
+                    easing: 'linear' as const,
+                    bezier: { cp1X: 0.42, cp1Y: 0, cp2X: 1, cp2Y: 1 },
+                  },
+                  { frame: 30, gainDb: 0, easing: 'linear' as const },
+                ],
+              }
+            : item,
+        ),
+      },
+    } as ProjectDocument;
+    syncPreviewAudioFromProject(withBezier);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const fader = faderNodeOf(lastFakeContext());
+
+    // En frame 15, cubicBezierProgress(0.5, 0.42, 0, 1, 1) = 0.3153568125...
+    const expectedProgress = 0.31535681250589304;
+    const expectedDb = -12 + 12 * expectedProgress;
+    const expectedGain = 10 ** (expectedDb / 20);
+
+    syncPreviewAudioAtFrame(withBezier, 15);
+    expect(fader.gain.value).toBeCloseTo(expectedGain, 5);
+  });
+
+  it('conserva el fader estático cuando la pista no tiene claves de volumen', () => {
+    const { project, musicTrackId } = buildProject();
+    const withStaticGain = updateTrack(project, musicTrackId, { gainDb: -4 });
+    syncPreviewAudioFromProject(withStaticGain);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+    const fader = faderNodeOf(lastFakeContext());
+
+    syncPreviewAudioAtFrame(withStaticGain, 50);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-4 / 20), 5);
+  });
+
+  it('sincroniza fader y paneo juntos en el mismo frame', () => {
+    const { project, musicTrackId } = buildProject();
+    const withBoth = setTrackGainKeyframe(
+      setTrackPanKeyframe(project, musicTrackId, 0, -1),
+      musicTrackId,
+      0,
+      -6,
+    );
+    const withBothEnd = setTrackGainKeyframe(
+      setTrackPanKeyframe(withBoth, musicTrackId, 30, 1),
+      musicTrackId,
+      30,
+      0,
+    );
+    syncPreviewAudioFromProject(withBothEnd);
+    expect(attachPreviewAudio(musicTrackId, document.createElement('audio'))).toBe(true);
+
+    const fader = faderNodeOf(lastFakeContext());
+    const { left, right } = panNodesOf(lastFakeContext());
+
+    syncPreviewAudioAtFrame(withBothEnd, 0);
+    expect(fader.gain.value).toBeCloseTo(10 ** (-6 / 20), 5);
+    expect(left.gain.value).toBe(1);
+    expect(right.gain.value).toBe(0);
+
+    syncPreviewAudioAtFrame(withBothEnd, 30);
+    expect(fader.gain.value).toBeCloseTo(1, 5);
+    expect(left.gain.value).toBe(0);
+    expect(right.gain.value).toBe(1);
+  });
+});
+

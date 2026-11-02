@@ -6,6 +6,11 @@
  * que la CSP de la app (`script-src 'self'`, sin `unsafe-eval`) siga intacta.
  * El rasterizado usa el renderer de canvas y devuelve PNG RGBA por frame; el
  * canal alfa es real y lo conserva el codificador VP9 del backend.
+ *
+ * Se aceptan dos formatos de entrada:
+ *  - `.json` — el JSON de Lottie directamente.
+ *  - `.lottie` — ZIP que contiene `animation.json` o `animations/*.json`.
+ *    Se descomprime con `fflate` (dependencia ya instalada, sin WASM).
  */
 
 export const LOTTIE_MAX_SIDES = { width: 1920, height: 1080 } as const;
@@ -255,4 +260,68 @@ export async function createLottieRasterizer(
     container.remove();
     throw error;
   }
+}
+
+// ─── Soporte para el formato .lottie (ZIP) ──────────────────────────────────
+
+/**
+ * Candidatos de ruta donde puede vivir la animación principal dentro de
+ * un ZIP `.lottie` (en orden de prioridad).
+ */
+const LOTTIE_ZIP_CANDIDATES = [
+  'animation.json',
+  'animations/animation.json',
+  'data.json',
+];
+
+/**
+ * Descomprime un buffer de ZIP `.lottie` y devuelve el texto JSON de la
+ * primera animación encontrada. Lanza `LottieParseError` si el ZIP no tiene
+ * ninguna entrada compatible o si la descompresión falla.
+ *
+ * Usa `fflate` (MIT, JS puro, sin WASM) que ya es dependencia del proyecto.
+ */
+export async function extractLottieZip(buffer: ArrayBuffer): Promise<string> {
+  let unzipSyncFn: typeof import('fflate').unzipSync;
+  try {
+    const mod = await import('fflate');
+    unzipSyncFn = mod.unzipSync;
+  } catch {
+    throw new LottieParseError('No se pudo cargar fflate para descomprimir el .lottie.');
+  }
+
+  let files: ReturnType<typeof unzipSyncFn>;
+  try {
+    files = unzipSyncFn(new Uint8Array(buffer));
+  } catch {
+    throw new LottieParseError('El archivo .lottie no es un ZIP válido o está dañado.');
+  }
+
+  // 1. Buscar en rutas canónicas conocidas.
+  for (const candidate of LOTTIE_ZIP_CANDIDATES) {
+    const entry = files[candidate];
+    if (entry) {
+      return new TextDecoder().decode(entry);
+    }
+  }
+
+  // 2. Buscar cualquier .json dentro de animations/.
+  const animKey = Object.keys(files).find(
+    (key) => key.startsWith('animations/') && key.endsWith('.json'),
+  );
+  if (animKey) {
+    return new TextDecoder().decode(files[animKey]!);
+  }
+
+  // 3. Cualquier .json en la raíz del ZIP.
+  const rootJson = Object.keys(files).find(
+    (key) => !key.includes('/') && key.endsWith('.json'),
+  );
+  if (rootJson) {
+    return new TextDecoder().decode(files[rootJson]!);
+  }
+
+  throw new LottieParseError(
+    'El .lottie no contiene un archivo animation.json. Verificá que el ZIP sea válido.',
+  );
 }

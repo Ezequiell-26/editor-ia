@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { zipSync } from 'fflate';
 import {
   LottieParseError,
   lottieFrameAt,
   parseLottieDocument,
   planLottieExport,
   LOTTIE_MAX_FRAMES,
+  extractLottieZip,
 } from './lottie';
+
 
 function sample(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -133,5 +136,47 @@ describe('lottieFrameAt', () => {
     const plan = planLottieExport(document);
     expect(lottieFrameAt(document, plan, -5)).toBe(0);
     expect(lottieFrameAt(document, plan, 999)).toBeCloseTo(59, 6);
+  });
+});
+
+// ─── extractLottieZip ───────────────────────────────────────────────
+
+function makeZip(files: Record<string, string>): ArrayBuffer {
+  const input: Record<string, Uint8Array> = {};
+  for (const [name, text] of Object.entries(files)) {
+    input[name] = new TextEncoder().encode(text);
+  }
+  return zipSync(input).buffer as ArrayBuffer;
+}
+
+const ANIM_JSON = JSON.stringify(sample());
+
+describe('extractLottieZip', () => {
+  it('extrae animation.json de la raíz del ZIP', async () => {
+    const buf = makeZip({ 'animation.json': ANIM_JSON });
+    const text = await extractLottieZip(buf);
+    expect(JSON.parse(text)).toMatchObject({ fr: 30, w: 200, h: 200 });
+  });
+
+  it('extrae desde animations/ si no hay animation.json en la raíz', async () => {
+    const buf = makeZip({ 'animations/main.json': ANIM_JSON, 'meta.json': '{}' });
+    const text = await extractLottieZip(buf);
+    expect(JSON.parse(text)).toMatchObject({ fr: 30 });
+  });
+
+  it('cae de regreso a cualquier .json en la raíz si no hay candidato canónico', async () => {
+    const buf = makeZip({ 'my_anim.json': ANIM_JSON });
+    const text = await extractLottieZip(buf);
+    expect(JSON.parse(text)).toMatchObject({ fr: 30 });
+  });
+
+  it('lanza LottieParseError si el ZIP no trae ningún JSON de animación', async () => {
+    const buf = makeZip({ 'readme.txt': 'hola' });
+    await expect(extractLottieZip(buf)).rejects.toThrow(LottieParseError);
+  });
+
+  it('lanza LottieParseError si el buffer no es un ZIP válido', async () => {
+    const buf = new TextEncoder().encode('no soy un zip').buffer as ArrayBuffer;
+    await expect(extractLottieZip(buf)).rejects.toThrow(LottieParseError);
   });
 });

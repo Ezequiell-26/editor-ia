@@ -8,6 +8,7 @@ import { useProjectStore } from '../../state/project-store';
 import {
   activeCameraAt,
   assetDurationFrames,
+  autoCutByActivity,
   buildMulticamProject,
   clampFrame,
   envelopeFromPeaks,
@@ -58,6 +59,7 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [playing, setPlaying] = useState(false);
   const [programSeconds, setProgramSeconds] = useState(0);
   const [audioSyncBusy, setAudioSyncBusy] = useState(false);
+  const [autoCutBusy, setAutoCutBusy] = useState(false);
   const [timecodeBusy, setTimecodeBusy] = useState(false);
   const [timecodeWarning, setTimecodeWarning] = useState<string | null>(null);
   const [autoSyncBusy, setAutoSyncBusy] = useState(false);
@@ -269,6 +271,39 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
    * las entradas manuales como están. `resolveMulticamSync` decide y redacta el
    * informe de qué método se usó y por qué.
    */
+  /**
+   * Arma los cortes mirando qué cámara suena en cada momento. No toca la
+   * timeline: los cortes quedan en la lista para revisarlos y recién después
+   * se aplican con «Montar».
+   */
+  async function autoCutByVoice(): Promise<void> {
+    if (cameras.length < 2 || autoCutBusy) return;
+    setAutoCutBusy(true);
+    setError(null);
+    try {
+      const envelopes: (AudioEnvelope | null)[] = [];
+      for (const camera of cameras) {
+        try {
+          const duration = assetDurationFrames(camera.asset) / fps;
+          const buckets = Math.max(16, Math.min(4000, Math.round(duration * 25)));
+          const peaks = await store.service.audioPeaks(camera.asset.id, buckets);
+          envelopes.push(envelopeFromPeaks(peaks));
+        } catch {
+          envelopes.push(null);
+        }
+      }
+      const generated = autoCutByActivity(cameras, envelopes, fps);
+      if (generated.length <= 1) {
+        setError('No encontré actividad de voz suficiente para cortar entre cámaras.');
+        return;
+      }
+      setCuts(generated);
+      store.setNotice(`Multicámara: ${generated.length} corte(s) automáticos por voz.`);
+    } finally {
+      setAutoCutBusy(false);
+    }
+  }
+
   async function syncAutomatically(): Promise<void> {
     if (cameras.length < 2 || autoSyncBusy) return;
     setAutoSyncBusy(true);
@@ -482,6 +517,16 @@ export function MulticamView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                   >
                     <Icon name="sparkles" size={13} />
                     <span>{autoSyncBusy ? 'Sincronizando todo…' : 'Sincronizar todo'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost icon-text"
+                    onClick={() => void autoCutByVoice()}
+                    disabled={autoCutBusy || cameras.length < 2}
+                    title="Compara qué cámara suena en cada momento y propone los cortes; respeta un plano mínimo de 1,2 s"
+                  >
+                    <Icon name="sparkles" size={13} />
+                    <span>{autoCutBusy ? 'Analizando voces…' : 'Auto-cortar por voz'}</span>
                   </button>
                   <button
                     type="button"

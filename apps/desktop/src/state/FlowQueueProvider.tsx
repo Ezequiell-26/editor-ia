@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
-import { artifactPaths, toolPayload } from './flow';
+import { artifactPaths, buildFlowArgs, toolPayload } from './flow';
 import {
   EMPTY_FLOW_QUEUE,
   createFlowQueue,
@@ -212,14 +212,14 @@ export function FlowQueueProvider({ children }: { readonly children: ReactNode }
             const result = await storeRef.current.service.callMcpTool(
               serverId,
               'flow_generate_image',
-              {
+              buildFlowArgs({
                 prompt: item.prompt,
+                kind: 'image',
+                outputDir: outputFolder,
                 model: stateRef.current.settings.model,
                 ratio: stateRef.current.settings.ratio,
-                auto_confirm: true,
-                output_folder: outputFolder,
-                response_format: 'concise',
-              },
+                credits: true,
+              }),
             );
             outcome = result.isError
               ? { ok: false, error: messageOf(result.result) }

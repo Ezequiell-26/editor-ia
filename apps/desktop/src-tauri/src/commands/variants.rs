@@ -406,3 +406,116 @@ pub async fn render_project_variant(
         height: verification.height,
     })
 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopiedMedia {
+    pub source: String,
+    pub relative_path: String,
+    pub bytes: u64,
+}
+
+/// Copia material externo dentro de una carpeta de entrega.
+///
+/// La cola por carpeta trabaja con archivos que no pertenecen a ningún
+/// proyecto. El render resuelve las rutas **dentro** de la raíz del proyecto,
+/// así que primero se copian a `media/` y el proyecto apunta a la ruta relativa.
+#[tauri::command]
+pub fn copy_media_into(
+    directory: String,
+    paths: Vec<String>,
+) -> Result<Vec<CopiedMedia>, ProjectError> {
+    let root = PathBuf::from(directory.trim());
+    if !root.is_absolute() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la carpeta de entrega debe ser una ruta absoluta",
+        ));
+    }
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo crear la carpeta media de la entrega",
+        )
+    })?;
+    let mut copied = Vec::new();
+    for path in paths {
+        let source = PathBuf::from(path.trim());
+        if !source.is_file() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "uno de los archivos de la carpeta no existe",
+            ));
+        }
+        let stem = source
+            .file_stem()
+            .map(|value| safe_stem(&value.to_string_lossy()))
+            .unwrap_or_else(|| "media".to_owned());
+        let extension = source
+            .extension()
+            .map(|value| value.to_string_lossy().to_lowercase())
+            .unwrap_or_else(|| "mp4".to_owned());
+        let mut candidate = media.join(format!("{stem}.{extension}"));
+        let mut index = 2;
+        while candidate.exists() {
+            candidate = media.join(format!("{stem}-{index}.{extension}"));
+            index += 1;
+        }
+        let bytes = std::fs::copy(&source, &candidate).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo copiar uno de los archivos a la entrega",
+            )
+        })?;
+        let relative = candidate
+            .strip_prefix(&root)
+            .map(|value| value.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|_| candidate.to_string_lossy().to_string());
+        copied.push(CopiedMedia {
+            source: path,
+            relative_path: relative,
+            bytes,
+        });
+    }
+    Ok(copied)
+}
+
+/// Escribe un proyecto en una carpeta **sin** exigir una sesión abierta.
+///
+/// `write_project_variant` espeja assets desde la raíz de la sesión; para la
+/// cola por carpeta el material ya está copiado al lado del proyecto, así que
+/// sólo hace falta validar y escribir.
+#[tauri::command]
+pub fn write_project_file(
+    directory: String,
+    file_name: String,
+    project: Value,
+) -> Result<VariantWritten, ProjectError> {
+    let root = PathBuf::from(directory.trim());
+    if !root.is_absolute() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la carpeta de entrega debe ser una ruta absoluta",
+        ));
+    }
+    std::fs::create_dir_all(&root).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo crear la carpeta de entrega",
+        )
+    })?;
+    let mut name = safe_stem(&file_name);
+    if name.ends_with(".editoria") {
+        name.push_str(".json");
+    } else if !name.ends_with(".json") {
+        name.push_str(".editoria.json");
+    }
+    let target = root.join(&name);
+    let saved = service::save_project(&target, &project)?;
+    Ok(VariantWritten {
+        path: saved.path,
+        bytes: saved.bytes,
+        copied_assets: 0,
+    })
+}

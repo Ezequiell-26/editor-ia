@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NAV_VIEWS, type ViewId } from '../../app/navigation';
+import { AiBrandMark } from '../../components/AiBrandMark';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
+import { detectAiBrand, endpointLabel } from '../../services/ai-models';
 import type { ProviderInfo } from '../../services/project-service';
 import { addMotionGraphic, fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
@@ -218,6 +220,27 @@ export function AiHubView({
       reply = OPERATOR_HELP;
     } else if (action.kind === 'media_folder') {
       reply = 'El montaje de carpetas se ejecuta desde el asistente flotante de Olyvia.';
+    } else if (
+      action.kind === 'new_project' ||
+      action.kind === 'import_file' ||
+      action.kind === 'download_url' ||
+      action.kind === 'add_clip' ||
+      action.kind === 'delete_selected' ||
+      action.kind === 'split_at_playhead' ||
+      action.kind === 'goto' ||
+      action.kind === 'add_caption' ||
+      action.kind === 'set_speed' ||
+      action.kind === 'set_gain' ||
+      action.kind === 'mute_clip' ||
+      action.kind === 'cut_silences' ||
+      action.kind === 'auto_subtitles' ||
+      action.kind === 'cut_voice_pauses' ||
+      action.kind === 'auto_cleanup' ||
+      action.kind === 'auto_pilot' ||
+      action.kind === 'mcp_server' ||
+      action.kind === 'brain'
+    ) {
+      reply = `Ese comando lo ejecuta el asistente flotante de Olyvia: abrilo con Ctrl+K o con el botón del chat y pedí «${action.kind}».`;
     } else {
       reply = action.message;
     }
@@ -294,18 +317,21 @@ export function AiHubView({
       ) : null}
 
       <div className="localization-provider">
-        <Icon name="sparkles" size={17} />
+        <AiBrandMark
+          brand={provider ? detectAiBrand(provider.baseUrl, provider.model) : 'mock'}
+          size={34}
+          title={provider?.model ?? 'sin modelo'}
+        />
         <div>
           <strong>
             {provider
-              ? provider.kind === 'mock'
-                ? 'Proveedor simulado'
-                : `${provider.model || 'Proveedor'} · ${provider.baseUrl}`
+              ? `${provider.model || 'sin modelo'}`
               : 'Proveedor no consultado'}
           </strong>
           <span>
-            Las skills no llaman al modelo por sí solas. Guion y Localización usan
-            este proveedor; si es remoto, esas vistas piden autorización de cuota.
+            {provider ? endpointLabel(provider.baseUrl) : '—'} · Las skills no llaman
+            al modelo por sí solas. Guion y Localización usan este proveedor; si es
+            remoto, esas vistas piden autorización de cuota.
           </span>
         </div>
         <button type="button" className="ghost" onClick={() => onNavigate('settings')}>

@@ -1,4 +1,4 @@
-import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
+import type { Asset, ClipTransition, ProjectDocument } from '@editor-ia/project-schema';
 import type { MediaAnalysis } from '../../services/project-service';
 import {
   addCaptionCueWindows,
@@ -10,7 +10,7 @@ import {
   touch,
   updateClip,
 } from '../../state/project-actions';
-import type { AutoEditVariant } from './auto-edit';
+import type { AutoEditTransition, AutoEditVariant } from './auto-edit';
 
 export interface ApplyAutoEditOptions {
   /** Reemplaza los clips actuales en vez de agregar la variante al final. */
@@ -19,6 +19,10 @@ export interface ApplyAutoEditOptions {
   readonly improveAudio: boolean;
   /** Agrega los subtítulos disponibles (si la variante los tiene). */
   readonly addCaptions: boolean;
+  /** Transición de entrada entre cortes. */
+  readonly transition?: AutoEditTransition;
+  /** Intensidad del zoom, 0–100. 0 deja los cortes quietos. */
+  readonly zoom?: number;
 }
 
 export interface ApplyAutoEditResult {
@@ -27,24 +31,37 @@ export interface ApplyAutoEditResult {
   readonly captionCount: number;
 }
 
+function transitionFor(
+  kind: AutoEditTransition,
+  style: AutoEditVariant['style'],
+): ClipTransition | null {
+  if (kind === 'none') return null;
+  if (kind === 'fade') return { type: 'fade-black', frames: style === 'impact' ? 8 : 12 };
+  return { type: 'dissolve', frames: style === 'impact' ? 5 : 8 };
+}
+
 /**
  * Convierte una variante del editor automático en clips reales de la timeline.
- * Los clips conservan el material original, se pueden recortar, mover y
- * deshacer; no se exporta nada hasta que el usuario lo pida.
+ *
+ * Cada corte puede venir de un video distinto: el montaje toma el asset que
+ * declara el corte. Los clips conservan el material original, se pueden
+ * recortar, mover y deshacer; no se exporta nada hasta que se pida.
  */
 export function applyAutoEditVariant(
   project: ProjectDocument,
-  asset: Asset,
+  assets: readonly Asset[] | Asset,
   variant: AutoEditVariant,
-  analysis: MediaAnalysis,
+  analysis: MediaAnalysis | null,
   options: ApplyAutoEditOptions,
 ): ApplyAutoEditResult {
+  const pool = Array.isArray(assets) ? assets : [assets as Asset];
+  if (pool.length === 0) throw new Error('no hay material para montar');
+  const fallback = pool[0]!;
+  const byId = new Map(pool.map((asset) => [asset.id, asset] as const));
   const fps = project.video.frameRate.num / Math.max(1, project.video.frameRate.den);
-  const mediaFrames =
-    'media' in asset && asset.media && 'durationFrames' in asset.media
-      ? asset.media.durationFrames
-      : undefined;
-  if (!mediaFrames) throw new Error('el material no declara duración medida');
+  const transition = transitionFor(options.transition ?? 'dissolve', variant.style);
+  const zoomStrength = Math.max(0, Math.min(100, options.zoom ?? 40));
+
   let next = cloneProject(project);
   const offset = options.replace ? 0 : totalFrames(next);
   if (options.replace) {
@@ -56,15 +73,27 @@ export function applyAutoEditVariant(
   const track = addTrack(next, 'video', `Auto · ${variant.name}`);
   const trackId = track.trackId;
   next = track.project;
-  const loudness = analysis.loudness?.integratedLufs ?? null;
-  const gainDb = options.improveAudio && loudness !== null
-    ? Math.max(-6, Math.min(6, Math.round((-14 - loudness) * 10) / 10))
-    : 0;
+  const loudness = analysis?.loudness?.integratedLufs ?? null;
+  const gainDb =
+    options.improveAudio && loudness !== null
+      ? Math.max(-6, Math.min(6, Math.round((-14 - loudness) * 10) / 10))
+      : 0;
   let cursor = offset;
   let clipCount = 0;
   for (const [index, cut] of variant.cuts.entries()) {
+    const asset = byId.get(cut.assetId) ?? fallback;
+    const mediaFrames =
+      'media' in asset && asset.media && 'durationFrames' in asset.media
+        ? asset.media.durationFrames
+        : undefined;
+    if (!mediaFrames) {
+      throw new Error(`el material “${asset.label}” no declara duración medida`);
+    }
     const inFrame = Math.max(0, Math.min(mediaFrames - 1, Math.round(cut.startSeconds * fps)));
-    const outFrame = Math.max(inFrame + 1, Math.min(mediaFrames, Math.round(cut.endSeconds * fps)));
+    const outFrame = Math.max(
+      inFrame + 1,
+      Math.min(mediaFrames, Math.round(cut.endSeconds * fps)),
+    );
     const added = addClipFromAsset(next, asset, {
       trackId,
       atFrame: cursor,
@@ -75,22 +104,16 @@ export function applyAutoEditVariant(
     clipCount += 1;
     next = updateClip(next, added.clipId, {
       label: `${variant.name} · ${String(index + 1).padStart(2, '0')}`,
-      ...(index > 0
-        ? { transitionIn: { type: 'dissolve' as const, frames: variant.style === 'impact' ? 5 : 8 } }
-        : {}),
+      ...(index > 0 && transition ? { transitionIn: transition } : {}),
     });
-    if (cut.zoom) {
+    if (cut.zoom && zoomStrength > 0) {
       const last = outFrame - inFrame - 1;
-      next = setTransformKeyframe(next, added.clipId, 0, { scale: 1.14, opacity: 1 });
-      next = setTransformKeyframe(next, added.clipId, Math.min(last, 10), {
-        scale: 1,
-        opacity: 1,
-      });
-      if (last > 12) {
-        next = setTransformKeyframe(next, added.clipId, last, {
-          scale: 1.04,
-          opacity: 1,
-        });
+      const peak = 1 + 0.06 + (zoomStrength / 100) * 0.16;
+      const settle = Math.min(last, Math.max(6, Math.round(fps * 0.4)));
+      next = setTransformKeyframe(next, added.clipId, 0, { scale: peak, opacity: 1 });
+      next = setTransformKeyframe(next, added.clipId, settle, { scale: 1, opacity: 1 });
+      if (last > settle + 4) {
+        next = setTransformKeyframe(next, added.clipId, last, { scale: 1.04, opacity: 1 });
       }
     }
     if (options.improveAudio) {

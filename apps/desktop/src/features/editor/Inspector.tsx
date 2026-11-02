@@ -26,6 +26,8 @@ import {
 import { CLIP_COLORS } from '../../state/clip-colors';
 import { MotionClipInspector } from '../motion/MotionClipInspector';
 import { SpeedCurveEditor } from './SpeedCurveEditor';
+import { AudioEffectStack } from './AudioEffectStack';
+import type { EffectStack } from '@editor-ia/effect-kit';
 import { polygonAroundCenter } from '../vfx/face-mask';
 import { captionMotionPreset } from '../../state/caption-motion';
 import { parseSubtitles, serializeSrt } from '../../state/subtitles';
@@ -33,6 +35,8 @@ import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
 import { KeyframeCurveEditor } from './KeyframeCurveEditor';
 import { SilenceCutsSection } from './SilenceCutsSection';
+import { SpeechCutsSection } from './SpeechCutsSection';
+import { SpeakersSection } from './SpeakersSection';
 import { COLOR_LOOKS } from './color-looks';
 import {
   addAsset,
@@ -497,6 +501,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const windowedSource = source.type === 'asset' && 'inFrame' in source ? source : undefined;
   const transform = clip.transform ?? {};
   const audio = clip.audio ?? {};
+  const audioStack = ('effects' in clip ? clip.effects?.audioStack : undefined) ?? [];
   const transitionIn =
     'transitionIn' in clip
       ? (
@@ -561,6 +566,14 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
     }
     store.update((current) =>
       updateClip(current, clip.id, { audio: next as NonNullable<Clip['audio']> }),
+    );
+  }
+  function patchEffects(patch: Partial<ClipEffects>): void {
+    const currentEffects = 'effects' in clip ? clip.effects : undefined;
+    store.update((current) =>
+      updateClip(current, clip.id, {
+        effects: { ...(currentEffects ?? {}), ...patch } as ClipEffects,
+      }),
     );
   }
   function patchMask(patch: Partial<ClipMask>): void {
@@ -920,15 +933,22 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         return;
       }
       const result = await store.service.transcribeAsset(asset.id, project?.language, 'small');
-      const inserted = store.update((current) =>
-        addTranscriptionCues(current, clip.id, result.segments).project,
-      );
+      let stats = { added: 0, overCps: 0 };
+      const inserted = store.update((current) => {
+        const planned = addTranscriptionCues(current, clip.id, result.segments);
+        stats = { added: planned.added, overCps: planned.overCps };
+        return planned.project;
+      });
       if (inserted) {
         setTranscribeInfo(
-          `${result.segments.length} segmento(s) · idioma ${result.language} · modelo ${result.model}`,
+          `${stats.added} subtítulo(s) desde ${result.segments.length} segmento(s) · idioma ${result.language} · modelo ${result.model}`,
         );
         store.setNotice(
-          `Transcripción local agregada como subtítulos (${result.segments.length} segmento(s)). Revisá nombres y puntuación.`,
+          `Transcripción local agregada: ${stats.added} subtítulo(s) partidos en dos líneas.${
+            stats.overCps > 0
+              ? ` ${stats.overCps} superan la velocidad de lectura cómoda: acortá esos tramos.`
+              : ''
+          } Revisá nombres y puntuación.`,
         );
       }
     } catch (error) {
@@ -4091,6 +4111,13 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             El efecto se aplica en el render con filtros locales (`asetrate`, `aecho`, `vibrato`,
             high/low-pass). La preview reproduce la voz original.
           </p>
+          <AudioEffectStack
+            stack={audioStack as EffectStack}
+            onChange={(next) =>
+              patchEffects({ audioStack: [...next] as ClipEffects['audioStack'] })
+            }
+            clipLabel={asset?.label ?? clip.label}
+          />
           <div className="actions compact">
             <label className="check">
               <input
@@ -4255,6 +4282,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {timed ? <SilenceCutsSection clips={[clip]} group="audio" /> : null}
+      {timed ? <SpeechCutsSection clips={[clip]} group="audio" /> : null}
+      {timed ? <SpeakersSection clip={clip} /> : null}
 
       {clip.kind === 'audio' ? (
         <Section title="Ritmo" group="audio">
@@ -4465,7 +4494,10 @@ function TrackInspector({ track }: { track: Track }) {
       </div>
     </Section>
     {track.kind === 'audio' || track.kind === 'narration' ? (
-      <SilenceCutsSection clips={trackClips} title="Cortar silencios de la pista" />
+      <>
+        <SilenceCutsSection clips={trackClips} title="Cortar silencios de la pista" />
+        <SpeechCutsSection clips={trackClips} title="Cortar pausas de voz de la pista" />
+      </>
     ) : null}
     </>
   );

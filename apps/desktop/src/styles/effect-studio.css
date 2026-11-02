@@ -1,0 +1,445 @@
+/* Estudio de efectos: catálogo, stack y preview GPU.
+   Usa sólo tokens del tema para acompañar claro/oscuro sin duplicar paletas. */
+
+.effect-studio {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.effect-studio-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.effect-studio-head h2 {
+  margin: 0;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text);
+}
+
+.effect-studio-head .fine-print {
+  margin: 4px 0 0;
+}
+
+.effect-studio-head strong.exact {
+  color: var(--color-success);
+}
+
+.effect-studio-head strong.approximate {
+  color: var(--color-warning);
+}
+
+.effect-studio-head strong.preview-only {
+  color: var(--color-danger);
+}
+
+.effect-studio-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.effect-studio-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(240px, 0.95fr) minmax(280px, 1.1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+@media (max-width: 1180px) {
+  .effect-studio-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.effect-studio-preview,
+.effect-studio-panel,
+.effect-studio-stack {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.effect-preview-frame {
+  position: relative;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+}
+
+.effect-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.effect-canvas-error {
+  padding: 14px;
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+  text-align: center;
+}
+
+.effect-preview-hint {
+  position: absolute;
+  bottom: 6px;
+  left: 8px;
+  font-size: 10px;
+  color: var(--color-text-muted);
+  background: rgb(0 0 0 / 55%);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.effect-notes {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.effect-notes summary {
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.effect-notes ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.effect-kind-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.effect-browser {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.effect-browser-head {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.effect-browser-head input[type='search'] {
+  flex: 1;
+  min-width: 0;
+  background: var(--color-panel-2);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  padding: 6px 8px;
+}
+
+.effect-browser-count {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  min-width: 18px;
+  text-align: right;
+}
+
+.effect-browser-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.effect-browser-chips .chip {
+  font-size: 10px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.effect-browser-chips .chip.on {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: rgb(53 214 255 / 10%);
+}
+
+.effect-browser-chips .chip span {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+.effect-browser-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.effect-card {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    'name badge'
+    'desc desc';
+  gap: 2px 8px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--color-panel-2);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.effect-card:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: var(--color-panel-3);
+}
+
+.effect-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.effect-card-name {
+  grid-area: name;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.effect-card-desc {
+  grid-area: desc;
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.effect-card-badge {
+  grid-area: badge;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 999px;
+  border: 1px solid currentcolor;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.effect-card-badge.exact {
+  color: var(--color-success);
+}
+
+.effect-card-badge.approximate {
+  color: var(--color-warning);
+}
+
+.effect-card-badge.preview-only {
+  color: var(--color-danger);
+}
+
+.effect-browser-empty {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  padding: 10px 4px;
+}
+
+.effect-stack {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.effect-row {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.effect-row.off {
+  opacity: 0.6;
+}
+
+.effect-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.effect-row-index {
+  font-size: 10px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.effect-row-title {
+  flex: 1;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.effect-row-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.effect-row-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.effect-row-actions .icon-button {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.effect-row-actions .icon-button.danger {
+  color: var(--color-danger);
+}
+
+.effect-row-body {
+  padding: 4px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.effect-group {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.effect-group legend {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: 0;
+  margin-bottom: 2px;
+}
+
+.effect-param {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+.effect-param > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.effect-param em {
+  font-style: normal;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.effect-param input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.effect-param input[type='color'] {
+  width: 100%;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+}
+
+.effect-param select {
+  background: var(--color-panel-2);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: var(--text-xs);
+  padding: 4px 6px;
+}
+
+.effect-param.switch {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.effect-param-axes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.effect-stack-empty {
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  padding: 14px;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
+.effect-stack-empty p {
+  margin: 0 0 6px;
+}

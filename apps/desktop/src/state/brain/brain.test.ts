@@ -1,0 +1,284 @@
+import { describe, expect, it } from 'vitest';
+import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
+import { addAsset, addClipFromAsset, ensureDelivery } from '../project-actions.ts';
+import { readyAsset } from '../../test/fake-service.ts';
+import { analyzeTimeline } from './analyze.ts';
+import { applyProposal, applyProposals, applySafeProposals } from './apply.ts';
+import { planEdits } from './plan.ts';
+import { brainBrief } from './report.ts';
+
+const NOW = '2026-11-01T00:00:00.000Z';
+
+function baseProject(): ProjectDocument {
+  return ensureDelivery(createEmptyProject('Cerebro', NOW));
+}
+
+interface Built {
+  readonly project: ProjectDocument;
+  readonly firstClipId: string;
+  readonly secondClipId: string;
+}
+
+/**
+ * Timeline de prueba: un plano de 8 s, un hueco de 2 s y un plano de 2 s.
+ * 12 s en total, 2 planos, plano medio 5 s.
+ */
+function timelineWithGap(): Built {
+  const asset = readyAsset({ label: 'Toma larga' });
+  let project = addAsset(baseProject(), asset);
+  const first = addClipFromAsset(project, asset, { atFrame: 0, durationFrames: 240 });
+  project = first.project;
+  const second = addClipFromAsset(project, asset, { atFrame: 300, durationFrames: 60 });
+  project = second.project;
+  return { project: second.project, firstClipId: first.clipId, secondClipId: second.clipId };
+}
+
+describe('análisis de timeline', () => {
+  it('mide duración, planos, huecos y plano medio', () => {
+    const { project } = timelineWithGap();
+    const signals = analyzeTimeline(project);
+    expect(signals.durationSeconds).toBe(12);
+    expect(signals.visualShots).toHaveLength(2);
+    expect(signals.averageShotSeconds).toBe(5);
+    expect(signals.gapSeconds).toBe(2);
+    expect(signals.gaps).toHaveLength(1);
+    expect(signals.cutCount).toBe(0);
+  });
+
+  it('detecta repetición de material en tres planos seguidos', () => {
+    const asset = readyAsset({ label: 'Mismo asset' });
+    let project = addAsset(baseProject(), asset);
+    for (const atFrame of [0, 60, 120]) {
+      project = addClipFromAsset(project, asset, { atFrame, durationFrames: 60 }).project;
+    }
+    const signals = analyzeTimeline(project);
+    expect(signals.repeatedRuns).toHaveLength(1);
+    expect(signals.repeatedRuns[0]).toHaveLength(3);
+  });
+
+  it('una timeline vacía no reporta problemas', () => {
+    const plan = planEdits(baseProject(), { intent: 'short' });
+    expect(plan.proposals).toHaveLength(0);
+    expect(plan.score.now).toBe(100);
+    expect(plan.findings).toHaveLength(0);
+  });
+});
+
+describe('plan de edición', () => {
+  it('propone cerrar el hueco, partir el plano largo y fijar loudness', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const kinds = plan.proposals.map((proposal) => proposal.kind);
+    expect(kinds).toContain('close-gaps');
+    expect(kinds).toContain('split-long');
+    expect(kinds).toContain('loudness');
+    expect(kinds).toContain('captions');
+
+    const split = plan.proposals.find((proposal) => proposal.kind === 'split-long');
+    expect(split?.payload?.kind).toBe('split');
+    expect(plan.proposals.find((proposal) => proposal.kind === 'captions')?.payload).toBeUndefined();
+  });
+
+  it('ordena por impacto y confianza, no por tipo', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const scores = plan.proposals.map((proposal) => proposal.impact * proposal.confidence);
+    const sorted = [...scores].sort((a, b) => b - a);
+    expect(scores[0]).toBeCloseTo(sorted[0] ?? 0, 5);
+  });
+
+  it('el potencial nunca baja del estado actual ni pasa de 100', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'reel' });
+    expect(plan.score.potential).toBeGreaterThanOrEqual(plan.score.now);
+    expect(plan.score.potential).toBeLessThanOrEqual(100);
+  });
+
+  it('un formato de tutorial no propone transiciones ni cortes de gancho', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'tutorial' });
+    const kinds = plan.proposals.map((proposal) => proposal.kind);
+    expect(kinds).not.toContain('transition');
+    expect(kinds).not.toContain('hook-cut');
+  });
+});
+
+describe('aplicación', () => {
+  it('aplica cortes, loudness y huecos en ese orden', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const accepted = plan.proposals
+      .filter((proposal) => ['close-gaps', 'split-long', 'loudness'].includes(proposal.kind))
+      .map((proposal) => proposal.id);
+    const outcome = applyProposals(project, plan.proposals, { accepted });
+    expect(outcome.applied.length).toBe(3);
+    expect(outcome.project.timeline.clips.length).toBeGreaterThan(
+      project.timeline.clips.length,
+    );
+    expect(outcome.project.audio.loudnessTarget?.platform).toBe('shorts');
+  });
+
+  it('aplicar todo lo seguro deja la timeline sin huecos', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const outcome = applySafeProposals(project, plan);
+    const after = analyzeTimeline(outcome.project);
+    expect(after.gapSeconds).toBe(0);
+    expect(outcome.applied.length).toBeGreaterThan(0);
+  });
+
+  it('no aplica una recomendación sin payload', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const manual = plan.proposals.find((proposal) => !proposal.payload);
+    expect(manual).toBeTruthy();
+    if (!manual) return;
+    const result = applyProposal(project, manual);
+    expect(result.applied).toBe(false);
+    expect(result.project).toBe(project);
+  });
+
+  it('omite con motivo una propuesta que ya no aplica', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const split = plan.proposals.find((proposal) => proposal.payload?.kind === 'split');
+    expect(split).toBeTruthy();
+    if (!split) return;
+    // Se aplica dos veces: la segunda ya no encuentra el corte.
+    const first = applyProposal(project, split);
+    expect(first.applied).toBe(true);
+    const second = applyProposal(first.project, split);
+    expect(second.applied).toBe(false);
+    expect(second.message.length).toBeGreaterThan(0);
+  });
+});
+
+describe('brief para la IA', () => {
+  it('incluye métricas, hallazgos y propuestas numeradas', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short' });
+    const brief = brainBrief(plan);
+    expect(brief).toContain('CEREBRO DE EDICIÓN');
+    expect(brief).toContain('salud');
+    expect(brief).toContain('Propuestas:');
+    expect(brief).toMatch(/1\. \[/);
+    expect(brief.length).toBeLessThan(1400);
+  });
+
+  it('sin propuestas lo dice explícitamente', () => {
+    const plan = planEdits(baseProject(), { intent: 'short' });
+    expect(brainBrief(plan)).toContain('ninguna');
+  });
+});
+
+describe('cortes en el pulso', () => {
+  const grid = {
+    bpm: 120,
+    confidence: 0.82,
+    beatsFrames: Array.from({ length: 24 }, (_, index) => index * 15),
+  };
+
+  it('parte el plano largo sobre los beats en vez de en el tiempo justo', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short', beats: grid, limit: 20 });
+    const beat = plan.proposals.find((proposal) => proposal.kind === 'beat-cut');
+    expect(beat).toBeTruthy();
+    expect(beat?.payload?.kind).toBe('split');
+    if (beat?.payload?.kind === 'split') {
+      expect(beat.payload.atFrames.length).toBeGreaterThan(0);
+      for (const frame of beat.payload.atFrames) {
+        expect(frame % 15).toBe(0);
+      }
+    }
+    expect(plan.proposals.some((proposal) => proposal.kind === 'split-long')).toBe(false);
+  });
+
+  it('reporta el porcentaje de cortes alineados y el BPM', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'short', beats: grid, limit: 20 });
+    const metric = plan.metrics.find((entry) => entry.id === 'beat');
+    expect(metric?.target).toBe('120 BPM');
+    expect(metric?.value).toMatch(/%/);
+    expect(brainBrief(plan)).toContain('120 BPM');
+  });
+
+  it('ignora una grilla con poca confianza', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, {
+      intent: 'short',
+      beats: { ...grid, confidence: 0.2 },
+      limit: 20,
+    });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'beat-cut')).toBe(false);
+    expect(plan.proposals.some((proposal) => proposal.kind === 'split-long')).toBe(true);
+  });
+});
+
+describe('propuestas sobre el guion', () => {
+  function projectWithScenes(): ProjectDocument {
+    const base = timelineWithGap().project;
+    return {
+      ...base,
+      scenes: [
+        {
+          id: 's1',
+          order: 0,
+          title: 'Gancho',
+          intent: 'hook',
+          status: 'draft',
+          narration: {
+            text: Array.from({ length: 60 }, () => 'palabra').join(' '),
+            estimatedDurationFrames: 90,
+          },
+          clipIds: [],
+        },
+        {
+          id: 's2',
+          order: 1,
+          title: 'Demo',
+          intent: 'demo',
+          status: 'reviewed',
+          narration: {},
+          clipIds: ['clip-x'],
+        },
+        {
+          id: 's3',
+          order: 2,
+          title: 'Cierre',
+          intent: 'outro',
+          status: 'approved',
+          narration: { text: 'Gracias por ver', estimatedDurationFrames: 60 },
+          clipIds: ['clip-y'],
+        },
+      ],
+    } as ProjectDocument;
+  }
+
+  it('detecta escenas sin material, sin narración y texto que no entra', () => {
+    const plan = planEdits(projectWithScenes(), { intent: 'short', limit: 20 });
+    const ids = plan.proposals.map((proposal) => proposal.id);
+    expect(ids).toContain('script:scenes-without-clips');
+    expect(ids).toContain('script:scenes-without-narration');
+    expect(ids).toContain('script:narration-fast');
+    expect(ids).toContain('script:drafts');
+  });
+
+  it('las propuestas de guion son recomendaciones, no se aplican solas', () => {
+    const project = projectWithScenes();
+    const plan = planEdits(project, { intent: 'short', limit: 20 });
+    const scriptProposals = plan.proposals.filter((proposal) => proposal.kind === 'script');
+    expect(scriptProposals.length).toBeGreaterThan(0);
+    for (const proposal of scriptProposals) {
+      expect(proposal.payload).toBeUndefined();
+      expect(applyProposal(project, proposal).applied).toBe(false);
+    }
+  });
+
+  it('expone las señales del guion en el plan', () => {
+    const plan = planEdits(projectWithScenes(), { intent: 'short', limit: 20 });
+    expect(plan.script).toHaveLength(3);
+    expect(plan.script[0]?.narrationWords).toBe(60);
+    expect(plan.script[0]?.clipCount).toBe(0);
+    expect(plan.script[1]?.hasNarration).toBe(false);
+  });
+});

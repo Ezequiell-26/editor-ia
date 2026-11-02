@@ -93,6 +93,8 @@ const loadCompress = () =>
   import('./features/compress/CompressView').then((module) => ({ default: module.CompressView }));
 const loadDenoise = () =>
   import('./features/denoise/DenoiseView').then((module) => ({ default: module.DenoiseView }));
+const loadSharpen = () =>
+  import('./features/sharpen/SharpenView').then((module) => ({ default: module.SharpenView }));
 const loadThumbnails = () =>
   import('./features/thumbnails/ThumbnailView').then((module) => ({
     default: module.ThumbnailView,
@@ -178,6 +180,7 @@ const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown
   compare: loadCompare,
   compress: loadCompress,
   denoise: loadDenoise,
+  sharpen: loadSharpen,
   thumbnails: loadThumbnails,
   localization: loadLocalization,
   'ai-hub': loadAiHub,

@@ -4,6 +4,7 @@ import { addAsset, ensureDelivery } from '../../state/project-actions';
 import { readyAsset } from '../../test/fake-service';
 import {
   activeCameraAt,
+  autoCutByActivity,
   assetDurationFrames,
   buildMulticamProject,
   normalizeCuts,
@@ -151,5 +152,62 @@ describe('multicámara · sincronización por audio', () => {
     expect(result.durationSeconds).toBe(2);
     expect(result.stepSeconds).toBeCloseTo(0.04);
     expect(result.values[25]).toBeCloseTo(0.25);
+  });
+});
+
+
+describe('multicámara · corte automático por voz', () => {
+  function envelope(
+    durationSeconds: number,
+    stepSeconds: number,
+    level: (seconds: number) => number,
+  ): AudioEnvelope {
+    const count = Math.floor(durationSeconds / stepSeconds) + 1;
+    return {
+      durationSeconds,
+      stepSeconds,
+      values: Array.from({ length: count }, (_, index) => level(index * stepSeconds)),
+    };
+  }
+
+  const cameras: MulticamCamera[] = [
+    { asset: readyAsset({ label: 'A', media: { width: 1920, height: 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } } }), offsetFrames: 0 },
+    { asset: readyAsset({ label: 'B', media: { width: 1920, height: 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } } }), offsetFrames: 0 },
+  ];
+
+  it('cambia a la cámara que habla y vuelve cuando termina', () => {
+    const a = envelope(10, 0.04, (seconds) => (seconds < 3 || seconds >= 6 ? 0.5 : 0.02));
+    const b = envelope(10, 0.04, (seconds) => (seconds >= 3 && seconds < 6 ? 0.5 : 0.02));
+    const cuts = autoCutByActivity(cameras, [a, b], 30);
+    expect(cuts.map((cut) => cut.cameraIndex)).toEqual([0, 1, 0]);
+    expect(cuts[1]!.frame).toBeGreaterThanOrEqual(88);
+    expect(cuts[1]!.frame).toBeLessThanOrEqual(92);
+    expect(cuts[2]!.frame).toBeGreaterThanOrEqual(178);
+    expect(cuts[2]!.frame).toBeLessThanOrEqual(182);
+  });
+
+  it('no corta a un plano mudo', () => {
+    const quiet = envelope(10, 0.04, () => 0.01);
+    const cuts = autoCutByActivity(cameras, [quiet, quiet], 30);
+    expect(cuts).toEqual([{ frame: 0, cameraIndex: 0 }]);
+  });
+
+  it('la histéresis evita cambiar por un pico leve', () => {
+    const a = envelope(10, 0.04, () => 0.45);
+    const b = envelope(10, 0.04, () => 0.5);
+    const cuts = autoCutByActivity(cameras, [a, b], 30);
+    expect(cuts).toHaveLength(1);
+  });
+
+  it('respeta el plano mínimo', () => {
+    const a = envelope(10, 0.04, () => 0.4);
+    const b = envelope(10, 0.04, (seconds) => (seconds >= 0.2 && seconds < 0.9 ? 0.9 : 0.05));
+    const cuts = autoCutByActivity(cameras, [a, b], 30);
+    expect(cuts).toHaveLength(1);
+  });
+
+  it('sin envolventes devuelve el plano inicial', () => {
+    const cuts = autoCutByActivity(cameras, [null, null], 30);
+    expect(cuts).toEqual([{ frame: 0, cameraIndex: 0 }]);
   });
 });

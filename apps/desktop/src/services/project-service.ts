@@ -140,13 +140,54 @@ export interface AssistantMessage {
 export type AssistantAction =
   | { readonly kind: 'navigate'; readonly view: string }
   | { readonly kind: 'play' | 'pause' | 'save' | 'export' | 'status' | 'undo' | 'redo' }
+  | { readonly kind: 'new_project'; readonly name: string }
+  | { readonly kind: 'import_file'; readonly path: string }
+  | { readonly kind: 'download_url'; readonly url: string }
+  | { readonly kind: 'add_clip'; readonly asset: string; readonly atPlayhead: boolean }
+  | { readonly kind: 'delete_selected' }
+  | { readonly kind: 'split_at_playhead' }
+  | { readonly kind: 'goto'; readonly seconds: number }
+  | { readonly kind: 'add_caption'; readonly text: string; readonly seconds: number }
+  | { readonly kind: 'set_speed'; readonly speed: number }
+  | { readonly kind: 'set_gain'; readonly db: number }
+  | { readonly kind: 'mute_clip'; readonly muted: boolean }
+  | {
+      readonly kind: 'cut_silences';
+      readonly thresholdDb: number;
+      readonly minSilenceSeconds: number;
+      readonly paddingSeconds: number;
+      readonly scope: 'selection' | 'project';
+    }
+  | { readonly kind: 'auto_subtitles'; readonly scope: 'selection' | 'project' }
+  | {
+      readonly kind: 'cut_voice_pauses';
+      readonly minPauseSeconds: number;
+      readonly paddingSeconds: number;
+      readonly scope: 'selection' | 'project';
+    }
+  | {
+      readonly kind: 'auto_cleanup';
+      readonly denoise: 'off' | 'light' | 'medium' | 'strong';
+      readonly levelAudio: boolean;
+      readonly zoomCuts: boolean;
+      readonly cutSilences: boolean;
+      readonly cutPauses: boolean;
+      readonly targetLufs: number;
+    }
+  | { readonly kind: 'auto_pilot' }
   | {
       readonly kind: 'motion';
       readonly templateId: string;
       readonly text: string;
       readonly secondary?: string;
     }
-  | { readonly kind: 'media_folder'; readonly folder: string };
+  | { readonly kind: 'media_folder'; readonly folder: string }
+  /**
+   * Delega la edición al cerebro de la app: `report` devuelve el diagnóstico,
+   * `safe` aplica sólo lo que no puede romper nada y `all` aplica todo lo que
+   * tenga operación disponible.
+   */
+  | { readonly kind: 'brain'; readonly mode: 'safe' | 'all' | 'report' };
 
 export interface AssistantChatRequest {
   readonly messages: readonly AssistantMessage[];
@@ -393,6 +434,68 @@ export type ConversionTarget =
   | 'opus'
   | 'flac';
 
+const ORIENTATIONS = new Set(['landscape', 'portrait', 'square']);
+const TEMPERATURES = new Set(['warm', 'cool', 'neutral']);
+
+/**
+ * Normaliza la respuesta del backend de comprensión visual. Se usa tanto para
+ * imágenes (`analyze_images`) como para cuadros de video
+ * (`analyze_media_frames`), así que la validación vive acá una sola vez.
+ */
+function mapImageContents(raw: unknown): ImageContent[] {
+  if (!Array.isArray(raw)) return [];
+  const number = (value: unknown, fallback = 0): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  const nullable = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return raw
+    .filter(
+      (item): item is Record<string, unknown> =>
+        typeof item === 'object' && item !== null && typeof item.assetId === 'string',
+    )
+    .map((item): ImageContent => {
+      const orientation = String(item.orientation ?? 'square');
+      const temperature = String(item.temperature ?? 'neutral');
+      return {
+        assetId: String(item.assetId ?? ''),
+        width: number(item.width),
+        height: number(item.height),
+        aspect: number(item.aspect, 1),
+        orientation: (ORIENTATIONS.has(orientation) ? orientation : 'square') as
+          | 'landscape'
+          | 'portrait'
+          | 'square',
+        lumaMean: number(item.lumaMean),
+        lumaStd: number(item.lumaStd),
+        saturationMean: number(item.saturationMean),
+        colorfulness: number(item.colorfulness),
+        dominantHue: number(item.dominantHue),
+        hueConcentration: number(item.hueConcentration),
+        temperature: (TEMPERATURES.has(temperature) ? temperature : 'neutral') as
+          | 'warm'
+          | 'cool'
+          | 'neutral',
+        edgeDensity: number(item.edgeDensity),
+        sharpness: number(item.sharpness),
+        skyBias: number(item.skyBias),
+        faceCount: number(item.faceCount),
+        faceCenterX: nullable(item.faceCenterX),
+        faceCenterY: nullable(item.faceCenterY),
+        faceSize: nullable(item.faceSize),
+        palette: Array.isArray(item.palette)
+          ? item.palette.filter((color): color is string => typeof color === 'string')
+          : [],
+        sampledAtSeconds:
+          typeof item.sampledAtSeconds === 'number' && Number.isFinite(item.sampledAtSeconds)
+            ? item.sampledAtSeconds
+            : undefined,
+        warnings: Array.isArray(item.warnings)
+          ? item.warnings.filter((text): text is string => typeof text === 'string')
+          : [],
+      };
+    });
+}
+
 /** Automático (GPU si existe), hardware forzado o software. */
 export type EncoderPreference = 'auto' | 'hardware' | 'software';
 
@@ -608,6 +711,56 @@ export interface DenoiseResult {
 
 /** Progreso en vivo del render de denoise. */
 export interface DenoiseProgress {
+  readonly percent: number;
+}
+
+/** Modo de la cadena de definición. */
+export type SharpenMode = 'video' | 'image';
+
+/**
+ * Pedido de definición: las cinco etapas ya resueltas. El preset lo resuelve la
+ * vista para que los controles muestren el valor real que se va a aplicar.
+ */
+export interface SharpenRequest {
+  readonly inputPath: string;
+  readonly outputDir?: string | null;
+  readonly mode: SharpenMode;
+  /** Limpieza temporal, 0–100. 0 apaga el suavizado. */
+  readonly denoise?: number;
+  /** De-blocking de compresión, independiente de `denoise`. */
+  readonly deblock?: boolean;
+  /** Altura destino; 0 deja la resolución original. */
+  readonly targetHeight?: number;
+  /** Escalar en un espacio de trabajo de 16 bits por canal. */
+  readonly highPrecision?: boolean;
+  /** Cantidad de la máscara de enfoque, 0–3. */
+  readonly unsharpAmount?: number;
+  /** Tamaño de la matriz de la máscara: 3, 5, 7 o 9. */
+  readonly unsharpSize?: number;
+  /** Fuerza de la curva S, 0–100. */
+  readonly curve?: number;
+  /** Intensidad del grano, 0–3 (%). */
+  readonly grain?: number;
+  readonly preset?: string | null;
+}
+
+/** Resultado del render de definición. */
+export interface SharpenResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly sourceBytes: number;
+  readonly filter: string;
+  readonly encoder: string;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly sourceWidth: number | null;
+  readonly sourceHeight: number | null;
+  readonly durationSeconds: number | null;
+  readonly preset: string | null;
+}
+
+/** Progreso en vivo del render de definición. */
+export interface SharpenProgress {
   readonly percent: number;
 }
 
@@ -1018,6 +1171,12 @@ export interface HardwareEncoders {
   readonly checked: boolean;
 }
 
+export interface CopiedMedia {
+  readonly source: string;
+  readonly relativePath: string;
+  readonly bytes: number;
+}
+
 export interface VariantWritten {
   readonly path: string;
   readonly bytes: number;
@@ -1039,6 +1198,34 @@ export interface TranscriptionWord {
   readonly probability: number;
 }
 
+export interface McpServerInfo {
+  readonly url: string;
+  readonly token: string;
+}
+
+export interface DiarizeProviderInfo {
+  readonly kind: string;
+  readonly baseUrl: string;
+  readonly language: string;
+  readonly hasKey: boolean;
+}
+
+export interface DiarizeResult {
+  readonly provider: string;
+  readonly segments: readonly {
+    readonly start: number;
+    readonly end: number;
+    readonly text: string;
+    readonly speaker: string;
+  }[];
+}
+
+export interface FileLoudness {
+  readonly integratedLufs: number;
+  readonly truePeakDb: number;
+  readonly lraLu: number;
+}
+
 export interface TranscriptionSegment {
   readonly start: number;
   readonly end: number;
@@ -1052,6 +1239,42 @@ export interface TranscriptionResult {
   readonly durationSeconds: number;
   readonly model: string;
   readonly segments: readonly TranscriptionSegment[];
+}
+
+export interface MatchMediaPlanResult {
+  readonly assignments: readonly number[];
+  readonly model: string;
+}
+
+/**
+ * Contenido medido de una imagen por el backend (`commands/image_sense.rs`).
+ * Es la materia prima del montaje inteligente: sin esto el emparejamiento sólo
+ * puede mirar el nombre del archivo.
+ */
+export interface ImageContent {
+  readonly assetId: string;
+  readonly width: number;
+  readonly height: number;
+  readonly aspect: number;
+  readonly orientation: 'landscape' | 'portrait' | 'square';
+  readonly lumaMean: number;
+  readonly lumaStd: number;
+  readonly saturationMean: number;
+  readonly colorfulness: number;
+  readonly dominantHue: number;
+  readonly hueConcentration: number;
+  readonly temperature: 'warm' | 'cool' | 'neutral';
+  readonly edgeDensity: number;
+  readonly sharpness: number;
+  readonly skyBias: number;
+  readonly faceCount: number;
+  readonly faceCenterX: number | null;
+  readonly faceCenterY: number | null;
+  readonly faceSize: number | null;
+  readonly palette: readonly string[];
+  /** Solo videos: segundo del que salió el cuadro analizado. */
+  readonly sampledAtSeconds?: number | undefined;
+  readonly warnings: readonly string[];
 }
 
 export interface DownloaderStatus {
@@ -1477,6 +1700,19 @@ export interface DesktopService {
     folder: string;
     root?: string;
   }): Promise<MediaFolderListing>;
+  matchMediaPlan(input: {
+    sentences: readonly string[];
+    images: readonly string[];
+    /** Descripción medida del contenido, alineada con `images` por índice. */
+    imageDescriptions?: readonly string[];
+    approvedCost?: boolean;
+  }): Promise<MatchMediaPlanResult>;
+  analyzeImages(assetIds: readonly string[]): Promise<ImageContent[]>;
+  /**
+   * Igual que `analyzeImages`, pero también acepta videos: mide el cuadro del
+   * punto medio de cada uno. Es lo que le permite al asistente *ver* los clips.
+   */
+  analyzeMediaFrames(assetIds: readonly string[]): Promise<ImageContent[]>;
   importLut(): Promise<{ readonly path: string; readonly name: string } | null>;
   chooseSubtitleFile(): Promise<PickedSubtitleFile | null>;
   chooseTimelineFile(): Promise<string | null>;
@@ -1543,6 +1779,28 @@ export interface DesktopService {
   /** Extrae el primer subtítulo incrustado (prefiere español) sin IA. */
   extractSubtitles(path: string): Promise<ExtractedSubtitles | null>;
   audioPeaks(assetId: string, buckets?: number): Promise<AudioPeaks>;
+  /** Picos de un archivo suelto, sin proyecto abierto (cola de carpeta). */
+  audioPeaksPath(path: string, buckets?: number): Promise<AudioPeaks>;
+  /** Loudness de un archivo ya renderizado (lazo cerrado de entrega). */
+  measureFileLoudness(path: string): Promise<FileLoudness>;
+  /** Fija rutas de FFmpeg/FFprobe sin diálogo. */
+  setToolPaths(input: { ffmpeg?: string; ffprobe?: string }): Promise<void>;
+  getDiarizeProvider(): Promise<DiarizeProviderInfo>;
+  saveDiarizeProvider(input: {
+    kind: string;
+    baseUrl: string;
+    language: string;
+    apiKey?: string;
+  }): Promise<DiarizeProviderInfo>;
+  /** Hablantes por proveedor externo (Deepgram o AssemblyAI). */
+  diarizeAudio(path: string, language?: string): Promise<DiarizeResult>;
+  /** Servidor MCP local para que una IA externa maneje la app. */
+  startMcpServer(): Promise<McpServerInfo>;
+  mcpServerStatus(): Promise<McpServerInfo | null>;
+  mcpRespond(id: string, ok: boolean, text: string): Promise<boolean>;
+  onMcpCall(
+    handler: (payload: { readonly id: string; readonly tool: string; readonly args: unknown }) => void,
+  ): Promise<UnlistenFn>;
   /**
    * Mide el loudness de la mezcla del proyecto guardado (BS.1770-4 / EBU R128)
    * con el grafo de audio real del export, previo a la normalización.
@@ -1608,6 +1866,17 @@ export interface DesktopService {
     fileName: string;
     project: unknown;
   }): Promise<VariantWritten>;
+  /** Escribe un proyecto sin sesión abierta (cola por carpeta). */
+  writeProjectFile(input: {
+    directory: string;
+    fileName: string;
+    project: unknown;
+  }): Promise<VariantWritten>;
+  /** Copia material externo a `media/` de la carpeta de entrega. */
+  copyMediaInto(input: {
+    directory: string;
+    paths: readonly string[];
+  }): Promise<readonly CopiedMedia[]>;
   renderProjectVariant(input: {
     projectPath: string;
     profileId: string;
@@ -1712,6 +1981,9 @@ export interface DesktopService {
   upscaleImage(inputPath: string): Promise<UpscaleResult>;
   denoiseMedia(request: DenoiseRequest): Promise<DenoiseResult>;
   onDenoiseProgress(handler: (event: DenoiseProgress) => void): Promise<UnlistenFn>;
+  /** Aplica la cadena de definición: limpieza, escalado, enfoque, curva y grano. */
+  sharpenMedia(request: SharpenRequest): Promise<SharpenResult>;
+  onSharpenProgress(handler: (event: SharpenProgress) => void): Promise<UnlistenFn>;
   enhanceDialogue(request: DialogueRequest): Promise<DialogueResult>;
   onDialogueProgress(handler: (event: DialogueProgress) => void): Promise<UnlistenFn>;
   saveThumbnail(request: ThumbnailExportRequest): Promise<ThumbnailExportResult>;
@@ -1758,6 +2030,9 @@ export const PROJECT_COMMANDS = {
   importAssets: 'import_assets',
   importMediaPaths: 'import_media_paths',
   listMediaFolder: 'list_media_folder',
+  matchMediaPlan: 'match_media_plan',
+  analyzeImages: 'analyze_images',
+  analyzeMediaFrames: 'analyze_media_frames',
   importLut: 'import_lut',
   chooseSubtitleFile: 'choose_subtitle_file',
   chooseTimelineFile: 'choose_timeline_file',
@@ -1779,6 +2054,15 @@ export const PROJECT_COMMANDS = {
   setMetadata: 'set_metadata',
   extractSubtitles: 'extract_subtitles',
   audioPeaks: 'audio_peaks',
+  audioPeaksPath: 'audio_peaks_path',
+  measureFileLoudness: 'measure_file_loudness',
+  setToolPaths: 'set_tool_paths',
+  getDiarizeProvider: 'get_diarize_provider',
+  saveDiarizeProvider: 'save_diarize_provider',
+  diarizeAudio: 'diarize_audio',
+  startMcpServer: 'start_mcp_server',
+  mcpServerStatus: 'mcp_server_status',
+  mcpRespond: 'mcp_respond',
   analyzeMixLoudness: 'analyze_mix_loudness',
   hardwareEncoders: 'hardware_encoders',
   downloaderStatus: 'downloader_status',
@@ -1831,6 +2115,7 @@ export const PROJECT_COMMANDS = {
   discardAlphaFrames: 'discard_alpha_frames',
   upscaleImage: 'upscale_image',
   denoiseMedia: 'denoise_media',
+  sharpenMedia: 'sharpen_media',
   enhanceDialogue: 'enhance_dialogue',
   saveThumbnail: 'save_thumbnail',
   pickThumbnailFrames: 'pick_thumbnail_frames',
@@ -1859,6 +2144,8 @@ export const PROJECT_COMMANDS = {
   closeMcpSession: 'close_mcp_session',
   mcpSessionStatus: 'mcp_session_status',
   writeProjectVariant: 'write_project_variant',
+  writeProjectFile: 'write_project_file',
+  copyMediaInto: 'copy_media_into',
   renderProjectVariant: 'render_project_variant',
   loadDirectorMemory: 'load_director_memory',
   saveDirectorMemory: 'save_director_memory',
@@ -2130,6 +2417,37 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
           : [],
       };
     },
+    async matchMediaPlan(input) {
+      const raw = (await call(PROJECT_COMMANDS.matchMediaPlan, {
+        sentences: [...input.sentences],
+        images: [...input.images],
+        imageDescriptions: input.imageDescriptions ? [...input.imageDescriptions] : [],
+        approvedCost: input.approvedCost ?? false,
+      })) as { assignments?: unknown; model?: unknown };
+      return {
+        assignments: Array.isArray(raw.assignments)
+          ? raw.assignments.filter(
+              (value): value is number =>
+                typeof value === 'number' && Number.isInteger(value) && value >= 0,
+            )
+          : [],
+        model: typeof raw.model === 'string' ? raw.model : '',
+      };
+    },
+    async analyzeImages(assetIds) {
+      if (assetIds.length === 0) return [];
+      const raw = await call(PROJECT_COMMANDS.analyzeImages, {
+        assetIds: [...assetIds],
+      });
+      return mapImageContents(raw);
+    },
+    async analyzeMediaFrames(assetIds) {
+      if (assetIds.length === 0) return [];
+      const raw = await call(PROJECT_COMMANDS.analyzeMediaFrames, {
+        assetIds: [...assetIds],
+      });
+      return mapImageContents(raw);
+    },
     async listMediaFolder(input) {
       const raw = (await call(PROJECT_COMMANDS.listMediaFolder, {
         folder: input.folder,
@@ -2283,6 +2601,14 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async onDenoiseProgress(handler) {
       return listen<DenoiseProgress>('denoise-progress', (event) => handler(event.payload));
+    },
+    async sharpenMedia(request) {
+      return (await call(PROJECT_COMMANDS.sharpenMedia, {
+        request,
+      })) as SharpenResult;
+    },
+    async onSharpenProgress(handler) {
+      return listen<SharpenProgress>('sharpen-progress', (event) => handler(event.payload));
     },
     async enhanceDialogue(request) {
       return (await call(PROJECT_COMMANDS.enhanceDialogue, {
@@ -2547,6 +2873,46 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
       })) as ExtractedSubtitles | null;
       return raw ?? null;
     },
+    async setToolPaths(input) {
+      await call(PROJECT_COMMANDS.setToolPaths, {
+        ffmpeg: input.ffmpeg,
+        ffprobe: input.ffprobe,
+      });
+    },
+    async getDiarizeProvider() {
+      return (await call(PROJECT_COMMANDS.getDiarizeProvider, {})) as DiarizeProviderInfo;
+    },
+    async saveDiarizeProvider(input) {
+      return (await call(PROJECT_COMMANDS.saveDiarizeProvider, {
+        kind: input.kind,
+        baseUrl: input.baseUrl,
+        language: input.language,
+        apiKey: input.apiKey,
+      })) as DiarizeProviderInfo;
+    },
+    async startMcpServer() {
+      return (await call(PROJECT_COMMANDS.startMcpServer, {})) as McpServerInfo;
+    },
+    async mcpServerStatus() {
+      return (await call(PROJECT_COMMANDS.mcpServerStatus, {})) as McpServerInfo | null;
+    },
+    async mcpRespond(id, ok, text) {
+      return (await call(PROJECT_COMMANDS.mcpRespond, { id, ok, text })) as boolean;
+    },
+    async onMcpCall(handler) {
+      return listen<{ id: string; tool: string; args: unknown }>('mcp-call', (event) =>
+        handler(event.payload),
+      );
+    },
+    async diarizeAudio(path, language) {
+      return (await call(PROJECT_COMMANDS.diarizeAudio, { path, language })) as DiarizeResult;
+    },
+    async audioPeaksPath(path, buckets) {
+      return (await call(PROJECT_COMMANDS.audioPeaksPath, { path, buckets })) as AudioPeaks;
+    },
+    async measureFileLoudness(path) {
+      return (await call(PROJECT_COMMANDS.measureFileLoudness, { path })) as FileLoudness;
+    },
     async audioPeaks(assetId, buckets) {
       return (await call(PROJECT_COMMANDS.audioPeaks, {
         assetId,
@@ -2762,6 +3128,19 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         project: input.project,
       })) as VariantWritten;
     },
+    async writeProjectFile(input) {
+      return (await call(PROJECT_COMMANDS.writeProjectFile, {
+        directory: input.directory,
+        fileName: input.fileName,
+        project: input.project,
+      })) as VariantWritten;
+    },
+    async copyMediaInto(input) {
+      return (await call(PROJECT_COMMANDS.copyMediaInto, {
+        directory: input.directory,
+        paths: input.paths,
+      })) as CopiedMedia[];
+    },
     async renderProjectVariant(input) {
       return (await call(PROJECT_COMMANDS.renderProjectVariant, {
         projectPath: input.projectPath,
@@ -2953,6 +3332,9 @@ function createUnavailableService(): DesktopService {
     importAssets: async () => unavailable(),
     importMediaPaths: async () => unavailable(),
     listMediaFolder: async () => unavailable(),
+    matchMediaPlan: async () => unavailable(),
+    analyzeImages: async () => unavailable(),
+    analyzeMediaFrames: async () => unavailable(),
     importLut: async () => unavailable(),
     chooseSubtitleFile: async () => unavailable(),
     chooseTimelineFile: async () => unavailable(),
@@ -2975,6 +3357,16 @@ function createUnavailableService(): DesktopService {
     setMetadata: async () => unavailable(),
     extractSubtitles: async () => unavailable(),
     audioPeaks: async () => unavailable(),
+    audioPeaksPath: async () => unavailable(),
+    measureFileLoudness: async () => unavailable(),
+    setToolPaths: async () => unavailable(),
+    getDiarizeProvider: async () => unavailable(),
+    saveDiarizeProvider: async () => unavailable(),
+    diarizeAudio: async () => unavailable(),
+    startMcpServer: async () => unavailable(),
+    mcpServerStatus: async () => null,
+    mcpRespond: async () => false,
+    onMcpCall: async () => () => {},
     analyzeMixLoudness: async () => unavailable(),
     onLoudnessAnalysisProgress: async () => () => {},
     hardwareEncoders: async () => unavailable(),
@@ -3036,6 +3428,8 @@ function createUnavailableService(): DesktopService {
     discardAlphaFrames: async () => unavailable(),
     upscaleImage: async () => unavailable(),
     denoiseMedia: async () => unavailable(),
+    sharpenMedia: async () => unavailable(),
+    onSharpenProgress: async () => () => {},
     enhanceDialogue: async () => unavailable(),
     onDialogueProgress: async () => unavailable(),
     onDenoiseProgress: async () => () => {},
@@ -3074,6 +3468,8 @@ function createUnavailableService(): DesktopService {
     closeMcpSession: async () => false,
     mcpSessionStatus: async () => [],
     writeProjectVariant: async () => unavailable(),
+    writeProjectFile: async () => unavailable(),
+    copyMediaInto: async () => unavailable(),
     renderProjectVariant: async () => unavailable(),
     loadDirectorMemory: async () => unavailable(),
     saveDirectorMemory: async () => unavailable(),

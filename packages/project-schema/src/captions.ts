@@ -100,6 +100,8 @@ export const CaptionCueSchema = z
     /** Desplazamiento manual del subtítulo, en píxeles del proyecto. */
     offsetX: z.number().finite().gte(-10_000).lte(10_000).optional(),
     offsetY: z.number().finite().gte(-10_000).lte(10_000).optional(),
+    /** Hablante detectado por el proveedor de diarización (opcional). */
+    speaker: z.string().trim().min(1).max(40).optional(),
   })
   .strict()
   .superRefine((item, ctx) => {

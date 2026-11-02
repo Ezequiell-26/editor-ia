@@ -105,6 +105,7 @@ export interface FakeService extends DesktopService {
     timelineImports: number;
     render: number;
     compressAny: number;
+    sharpenRenders: number;
     destination: string | null;
   };
   emitProgress(event: RenderProgressEvent): void;
@@ -259,6 +260,7 @@ export function createFakeService(): FakeService {
     timelineImports: 0,
     render: 0,
     compressAny: 0,
+    sharpenRenders: 0,
     destination: null as string | null,
   };
 
@@ -356,6 +358,53 @@ export function createFakeService(): FakeService {
     },
     async listMediaFolder() {
       return { directory: '', files: [] };
+    },
+    async matchMediaPlan(input) {
+      return {
+        assignments: input.sentences.map(
+          (_, index) => index % Math.max(1, input.images.length),
+        ),
+        model: 'fake',
+      };
+    },
+    async analyzeImages(assetIds) {
+      // Contenido sintético pero estable: alterna horizontal/vertical y varía
+      // luz y color para que el planificador tenga señales distintas.
+      return assetIds.map((assetId, index) => {
+        const landscape = index % 2 === 0;
+        const temperatures = ['warm', 'cool', 'neutral'] as const;
+        return {
+          assetId,
+          width: landscape ? 1920 : 1080,
+          height: landscape ? 1080 : 1920,
+          aspect: landscape ? 1.778 : 0.563,
+          orientation: landscape ? ('landscape' as const) : ('portrait' as const),
+          lumaMean: 60 + ((index * 37) % 150),
+          lumaStd: 40,
+          saturationMean: 80,
+          colorfulness: 20 + ((index * 11) % 40),
+          dominantHue: (index * 47) % 360,
+          hueConcentration: 0.4,
+          temperature: temperatures[index % 3]!,
+          edgeDensity: 0.1 + ((index * 7) % 30) / 100,
+          sharpness: 0.5,
+          skyBias: 0.1,
+          faceCount: index % 2,
+          faceCenterX: null,
+          faceCenterY: null,
+          faceSize: null,
+          palette: ['#888888'],
+          warnings: [],
+        };
+      });
+    },
+    async analyzeMediaFrames(assetIds) {
+      // El fake marca el cuadro analizado para que el contexto del asistente
+      // pueda distinguir un video muestreado de una imagen.
+      return (await this.analyzeImages(assetIds)).map((content, index) => ({
+        ...content,
+        sampledAtSeconds: 1.5 + index * 0.25,
+      }));
     },
     async importLut() {
       return { path: 'media/luts/fake.cube', name: 'fake.cube' };
@@ -812,6 +861,50 @@ export function createFakeService(): FakeService {
         })),
       };
     },
+    async startMcpServer() {
+      return { url: 'http://127.0.0.1:9999/mcp', token: 'token-de-prueba' };
+    },
+    async mcpServerStatus() {
+      return null;
+    },
+    async mcpRespond() {
+      return true;
+    },
+    async onMcpCall() {
+      return () => {};
+    },
+    async setToolPaths() {},
+    async getDiarizeProvider() {
+      return { kind: 'none', baseUrl: '', language: 'es', hasKey: false };
+    },
+    async saveDiarizeProvider(input) {
+      return {
+        kind: input.kind,
+        baseUrl: input.baseUrl,
+        language: input.language,
+        hasKey: true,
+      };
+    },
+    async diarizeAudio() {
+      return {
+        provider: 'deepgram',
+        segments: [{ start: 0, end: 1.5, text: 'Hola', speaker: '0' }],
+      };
+    },
+    async audioPeaksPath(path, buckets) {
+      return {
+        assetId: path,
+        durationSeconds: 4,
+        buckets: buckets ?? 600,
+        peaks: Array.from({ length: buckets ?? 600 }, (_, index) => ({
+          min: -0.2 - (index % 7) * 0.05,
+          max: 0.3 + (index % 5) * 0.08,
+        })),
+      };
+    },
+    async measureFileLoudness() {
+      return { integratedLufs: -14, truePeakDb: -1, lraLu: 5 };
+    },
     async analyzeMixLoudness() {
       return fakeMixLoudnessReport();
     },
@@ -951,6 +1044,22 @@ export function createFakeService(): FakeService {
     onCompressProgress(_handler: (event: { percent: number }) => void) {
       // El arnés no simula compresiones largas: el progreso no llega a emitirse.
       return Promise.resolve(() => {});
+    },
+    async writeProjectFile(input: { directory: string; fileName: string; project: unknown }) {
+      const project = input.project as { revision?: number };
+      return {
+        path: `${input.directory}\\${input.fileName}`,
+        bytes: 512,
+        copiedAssets: 0,
+        revision: project.revision ?? 0,
+      };
+    },
+    async copyMediaInto(input: { directory: string; paths: readonly string[] }) {
+      return input.paths.map((path) => ({
+        source: path,
+        relativePath: `media/${path.split(/[\\/]/).pop() ?? 'media.mp4'}`,
+        bytes: 1024,
+      }));
     },
     async measureVmaf(original: string, compressed: string) {
       void original;
@@ -1124,6 +1233,27 @@ export function createFakeService(): FakeService {
       };
     },
     async onDenoiseProgress() {
+      return () => {};
+    },
+    async sharpenMedia(request) {
+      calls.sharpenRenders += 1;
+      const extension = request.mode === 'image' ? 'png' : 'mp4';
+      return {
+        path: request.inputPath.replace(/\.[^.]+$/, `-definicion.${extension}`),
+        bytes: 1_800_000,
+        sourceBytes: 2_000_000,
+        filter:
+          'deblock=filter=weak:block=8,unsharp=luma_msize_x=5:luma_msize_y=5:luma_amount=1.20',
+        encoder: 'libx264',
+        width: 3840,
+        height: 2160,
+        sourceWidth: 1920,
+        sourceHeight: 1080,
+        durationSeconds: 12,
+        preset: request.preset ?? null,
+      };
+    },
+    async onSharpenProgress() {
       return () => {};
     },
     async enhanceDialogue(request) {

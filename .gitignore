@@ -49,3 +49,13 @@ apps/desktop/src-tauri/resources/piper/
 
 # Capturas temporales de diagnóstico
 .tmp-*.png
+
+# Estado local de herramientas (no es fuente del proyecto)
+.serena/
+.workbuddy-ai/
+
+# Video de benchmark del harness de LUT (19 MB, se genera aparte)
+apps/desktop/e2e/lut-harness/*.mp4
+
+# Artefactos de Vite (config temporal)
+*.timestamp-*.mjs

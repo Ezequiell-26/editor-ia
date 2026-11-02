@@ -20,6 +20,7 @@ export type ViewId =
   | 'compare'
   | 'compress'
   | 'denoise'
+  | 'sharpen'
   | 'thumbnails'
   | 'localization'
   | 'ai-hub'
@@ -68,6 +69,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'compare', label: 'Comparar', hint: 'Comparador A/B · Línea divisoria interactiva antes y después', group: 'herramientas' },
   { id: 'compress', label: 'Comprimir', hint: 'Compresor inteligente · Reducir tamaño de video sin perder nitidez', group: 'herramientas' },
   { id: 'denoise', label: 'Denoise', hint: 'Reducción de ruido · Limpieza de ruido visual y sonoro en tiempo real', group: 'herramientas' },
+  { id: 'sharpen', label: 'Definición', hint: 'Nitidez perceptual · Máscara de enfoque, curva S, grano y Lanczos 4K', group: 'herramientas' },
   { id: 'thumbnails', label: 'Miniaturas', hint: 'Creador de miniaturas · Diseñar carátulas para YouTube y redes', group: 'herramientas' },
   { id: 'localization', label: 'Localización', hint: 'Subtítulos y traducción · Traducir a 8 idiomas con exportación SRT/VTT', group: 'herramientas' },
   { id: 'ai-hub', label: 'AI Hub', hint: 'Hub de IA · Prompts, briefs creativos y modelos locales con tokens', group: 'herramientas' },
@@ -126,6 +128,7 @@ const HUB_COVERED = new Set<ViewId>([
   'convert',
   'compress',
   'denoise',
+  'sharpen',
   'upscale',
   'compare',
   'background',
@@ -150,6 +153,7 @@ export const PIPELINE_HIDDEN_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'compare',
   'compress',
   'denoise',
+  'sharpen',
   'thumbnails',
   'localization',
   'ai-hub',

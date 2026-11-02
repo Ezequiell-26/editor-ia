@@ -16,11 +16,11 @@ describe('selector de emojis', () => {
     expect(findEmoji('grinning face').some((entry) => entry.emoji === '😀')).toBe(true);
   });
 
-  it('inserta un emoji y lo guarda en recientes', () => {
+  it('inserta un emoji y lo guarda en recientes', async () => {
     const onPick = vi.fn();
     render(<EmojiPickerButton onPick={onPick} />);
     fireEvent.click(screen.getByRole('button', { name: /Insertar emoji/i }));
-    const dialog = screen.getByRole('dialog', { name: /Selector de emojis/i });
+    const dialog = await screen.findByRole('dialog', { name: /Selector de emojis/i });
     fireEvent.change(within(dialog).getByRole('textbox', { name: /Buscar emoji/i }), {
       target: { value: 'rocket' },
     });
@@ -30,13 +30,13 @@ describe('selector de emojis', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: /Insertar emoji/i }));
-    expect(screen.getByRole('button', { name: /Recientes/i })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Recientes/i })).toBeTruthy();
   });
 
-  it('cambia entre estilo Android y abierto', () => {
+  it('cambia entre estilo Android y abierto', async () => {
     render(<EmojiPickerButton onPick={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /Insertar emoji/i }));
-    const open = screen.getByRole('button', { name: /^Abierto$/i });
+    const open = await screen.findByRole('button', { name: /^Abierto$/i });
     fireEvent.click(open);
     expect(open.getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: /^Android$/i }).getAttribute('aria-pressed')).toBe(
@@ -44,10 +44,10 @@ describe('selector de emojis', () => {
     );
   });
 
-  it('cierra con Escape', () => {
+  it('cierra con Escape', async () => {
     render(<EmojiPickerButton onPick={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: /Insertar emoji/i }));
-    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(await screen.findByRole('dialog')).toBeTruthy();
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
   });

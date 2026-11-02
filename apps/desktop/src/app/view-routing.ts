@@ -3,6 +3,7 @@ import type { ViewId } from './navigation';
 /** Modos que viven dentro del Editor y conservan la timeline. */
 export type EditorModeId =
   | 'timeline'
+  | 'brain'
   | 'text-edit'
   | 'multicam'
   | 'mixer'
@@ -27,6 +28,7 @@ const HUB_ALIASES: Readonly<
   convert: { view: 'lab', tab: 'convert' },
   compress: { view: 'lab', tab: 'compress' },
   denoise: { view: 'lab', tab: 'denoise' },
+  sharpen: { view: 'lab', tab: 'sharpen' },
   upscale: { view: 'lab', tab: 'upscale' },
   compare: { view: 'lab', tab: 'compare' },
   background: { view: 'lab', tab: 'background' },

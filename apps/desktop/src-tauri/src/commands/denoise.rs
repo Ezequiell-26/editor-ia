@@ -118,6 +118,11 @@ pub struct DenoiseResult {
 }
 
 /// Construye la cadena de filtros. Es pura para poder testearla sin FFmpeg.
+///
+/// El FFmpeg empaquetado es LGPL y **no trae `hqdn3d`** (tampoco `vaguedenoiser`
+/// ni `owdenoise`), así que el denoise espacial va con `dctdnoiz` (rápido) o
+/// `nlmeans` (calidad), y el temporal con `atadenoise`. Todos verificados contra
+/// el binario que viaja con el instalador.
 pub(crate) fn denoise_filter(
     preset: DenoisePreset,
     strength: u8,
@@ -127,25 +132,27 @@ pub(crate) fn denoise_filter(
     let base = (strength.clamp(1, 100) as f32) / 100.0;
     // Preservar detalle reduce la agresividad; nunca la sube.
     let amount = if preserve_detail { base * 0.72 } else { base };
+    // `atadenoise` solo acepta tamaños de ventana impares entre 3 y 9.
+    let window = (3 + ((amount * 6.0).round() as u32)) | 1;
+    let temporal_stage = if temporal {
+        format!("atadenoise=s={window},")
+    } else {
+        String::new()
+    };
     match preset {
         DenoisePreset::Fast => {
-            let luma = 0.6 + amount * 2.8;
-            let chroma = 0.4 + amount * 2.2;
-            let luma_tmp = if temporal { 1.0 + amount * 4.0 } else { 0.0 };
-            let chroma_tmp = if temporal { 0.8 + amount * 3.0 } else { 0.0 };
-            format!("hqdn3d={luma:.2}:{chroma:.2}:{luma_tmp:.2}:{chroma_tmp:.2}")
+            // dctdnoiz: DCT 8×8, sigma alto = más limpieza.
+            let sigma = 1.5 + amount * 4.5;
+            format!("{temporal_stage}dctdnoiz=sigma={sigma:.2}")
         }
         DenoisePreset::Balanced => {
-            let luma = 1.0 + amount * 4.5;
-            let chroma = 0.8 + amount * 3.5;
-            let luma_tmp = if temporal { 3.0 + amount * 9.0 } else { 0.0 };
-            let chroma_tmp = if temporal { 2.0 + amount * 7.0 } else { 0.0 };
-            format!("hqdn3d={luma:.2}:{chroma:.2}:{luma_tmp:.2}:{chroma_tmp:.2}")
+            let sigma = 2.5 + amount * 7.5;
+            format!("{temporal_stage}dctdnoiz=sigma={sigma:.2}")
         }
         DenoisePreset::Quality => {
             // nlmeans: s = fuerza, p = tamaño de parche, r = ventana de búsqueda.
             let s = 1.0 + amount * 9.0;
-            format!("nlmeans=s={s:.2}:p=7:r=15")
+            format!("{temporal_stage}nlmeans=s={s:.2}:p=7:r=15")
         }
     }
 }
@@ -172,9 +179,12 @@ fn unique_output(dir: &Path, stem: &str, extension: &str) -> PathBuf {
     candidate
 }
 
-fn probe_media(ffprobe: Option<&Path>, path: &Path) -> (Option<f64>, Option<u32>, Option<u32>) {
+fn probe_media(
+    ffprobe: Option<&Path>,
+    path: &Path,
+) -> (Option<f64>, Option<u32>, Option<u32>, Option<f64>) {
     let Some(ffprobe) = ffprobe else {
-        return (None, None, None);
+        return (None, None, None, None);
     };
     let mut command = Command::new(ffprobe);
     command
@@ -184,7 +194,7 @@ fn probe_media(ffprobe: Option<&Path>, path: &Path) -> (Option<f64>, Option<u32>
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=width,height:format=duration",
+            "stream=width,height,r_frame_rate:format=duration",
             "-of",
             "json",
         ])
@@ -194,10 +204,10 @@ fn probe_media(ffprobe: Option<&Path>, path: &Path) -> (Option<f64>, Option<u32>
         .stderr(Stdio::null());
     hide_console(&mut command);
     let Ok(output) = command.output() else {
-        return (None, None, None);
+        return (None, None, None, None);
     };
     let Ok(value) = serde_json::from_slice::<serde_json::Value>(&output.stdout) else {
-        return (None, None, None);
+        return (None, None, None, None);
     };
     let duration = value["format"]["duration"]
         .as_str()
@@ -209,7 +219,21 @@ fn probe_media(ffprobe: Option<&Path>, path: &Path) -> (Option<f64>, Option<u32>
     let height = stream
         .and_then(|item| item["height"].as_u64())
         .and_then(|value| u32::try_from(value).ok());
-    (duration, width, height)
+    let fps = stream
+        .and_then(|item| item["r_frame_rate"].as_str())
+        .and_then(|ratio| {
+            let (num, den) = ratio.split_once('/')?;
+            let den = den.parse::<f64>().ok()?;
+            if den <= 0.0 {
+                return None;
+            }
+            let num = num.parse::<f64>().ok()?;
+            if num <= 0.0 {
+                return None;
+            }
+            Some(num / den)
+        });
+    (duration, width, height, fps)
 }
 
 /// Reduce el ruido de una imagen o video del disco.
@@ -267,9 +291,9 @@ pub async fn denoise_media(
             "ffmpeg no está disponible para reducir ruido",
         ));
     };
-    let (duration, _, _) = probe_media(ffprobe.as_deref(), &input_path);
+    let (duration, width, height, fps) = probe_media(ffprobe.as_deref(), &input_path);
 
-    let mut command = Command::new(ffmpeg);
+    let mut command = Command::new(&ffmpeg);
     command
         .arg("-hide_banner")
         .arg("-y")
@@ -278,17 +302,23 @@ pub async fn denoise_media(
     command.arg("-vf").arg(&filter);
     match mode {
         DenoiseMode::Video => {
+            // El FFmpeg empaquetado no tiene libx264: se elige el primer encoder
+            // H.264 que realmente funcione (NVENC, AMF, QSV u OpenH264).
+            let encoder = crate::commands::sharpen::resolve_encoder(&ffmpeg)?;
             command.args([
                 "-map",
                 "0:v:0",
                 "-map",
                 "0:a?",
-                "-c:v",
-                "libx264",
-                "-preset",
-                "medium",
-                "-crf",
-                "18",
+            ]);
+            command.args(crate::commands::sharpen::video_codec_args(
+                &encoder,
+                18,
+                width.unwrap_or(1920),
+                height.unwrap_or(1080),
+                fps.unwrap_or(30.0),
+            ));
+            command.args([
                 "-c:a",
                 "aac",
                 "-b:a",
@@ -388,7 +418,7 @@ pub async fn denoise_media(
     let bytes = std::fs::metadata(&final_path)
         .map(|meta| meta.len())
         .unwrap_or(0);
-    let (output_duration, width, height) = probe_media(ffprobe.as_deref(), &final_path);
+    let (output_duration, width, height, _) = probe_media(ffprobe.as_deref(), &final_path);
     let _ = app.emit("denoise-progress", serde_json::json!({ "percent": 100.0 }));
     Ok(DenoiseResult {
         path: final_path.to_string_lossy().into_owned(),
@@ -410,11 +440,35 @@ mod tests {
         let soft = denoise_filter(DenoisePreset::Fast, 10, false, false);
         let strong = denoise_filter(DenoisePreset::Fast, 90, false, false);
         let temporal = denoise_filter(DenoisePreset::Fast, 90, true, false);
-        assert!(soft.starts_with("hqdn3d="));
-        assert!(strong.starts_with("hqdn3d="));
+        // El FFmpeg empaquetado no trae hqdn3d: el espacial es dctdnoiz.
+        assert!(soft.starts_with("dctdnoiz=sigma="));
+        assert!(strong.starts_with("dctdnoiz=sigma="));
         assert_ne!(soft, strong);
-        assert!(soft.ends_with(":0.00"));
-        assert!(!temporal.ends_with(":0.00"));
+        assert!(temporal.starts_with("atadenoise=s="));
+        assert!(!soft.contains("hqdn3d"));
+    }
+
+    #[test]
+    fn balanced_adds_the_temporal_stage_before_the_spatial_one() {
+        let balanced = denoise_filter(DenoisePreset::Balanced, 60, true, false);
+        let pos_atadenoise = balanced.find("atadenoise=").expect("etapa temporal");
+        let pos_dct = balanced.find("dctdnoiz=").expect("etapa espacial");
+        // La limpieza temporal va antes: si no, el dctdnoiz fijaría el ruido.
+        assert!(pos_atadenoise < pos_dct);
+    }
+
+    #[test]
+    fn temporal_window_is_always_an_odd_size_within_range() {
+        for strength in [1u8, 25, 50, 75, 100] {
+            let filter = denoise_filter(DenoisePreset::Fast, strength, true, false);
+            let size = filter
+                .split("atadenoise=s=")
+                .nth(1)
+                .and_then(|rest| rest.split(',').next())
+                .and_then(|value| value.parse::<u32>().ok())
+                .expect("ventana parseable");
+            assert!((3..=9).contains(&size) && size % 2 == 1);
+        }
     }
 
     #[test]
@@ -423,6 +477,76 @@ mod tests {
         let gentle = denoise_filter(DenoisePreset::Quality, 80, false, true);
         assert!(normal.starts_with("nlmeans="));
         assert_ne!(normal, gentle);
+    }
+
+    /// Render real con el FFmpeg empaquetado: la cadena no debe nombrar filtros
+    /// que no existen (`hqdn3d` no está en el build LGPL) y el encoder se
+    /// resuelve igual que en Definición. Detrás de `EDITOR_IA_RUN_RENDER_TESTS`.
+    #[test]
+    fn live_chain_renders_without_missing_filters() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("sin EDITOR_IA_RUN_RENDER_TESTS; se omite el render real");
+            return;
+        }
+        let ffmpeg = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("ffmpeg")
+            .join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+        assert!(ffmpeg.is_file(), "falta el FFmpeg de recursos");
+
+        let encoder = crate::commands::sharpen::resolve_encoder(&ffmpeg).expect("encoder H.264 disponible");
+        let output =
+            std::env::temp_dir().join(format!("editoria-denoise-{}.mp4", Uuid::new_v4()));
+        let mut status_ok = true;
+        let mut log = String::new();
+        for preset in [DenoisePreset::Fast, DenoisePreset::Balanced, DenoisePreset::Quality] {
+            let filter = denoise_filter(preset, 55, true, false);
+            let mut command = Command::new(&ffmpeg);
+            command.args([
+                "-hide_banner",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=s=1280x720:r=25:d=0.4",
+                "-vf",
+                &filter,
+                "-map",
+                "0:v:0",
+            ]);
+            command.args(crate::commands::sharpen::video_codec_args(&encoder, 18, 1280, 720, 25.0));
+            command.args(["-an", "-movflags", "+faststart"]);
+            command.arg(&output);
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            hide_console(&mut command);
+            let result = command.output().expect("FFmpeg arrancó");
+            log = String::from_utf8_lossy(&result.stderr).into_owned();
+            status_ok = result.status.success();
+            assert!(
+                status_ok,
+                "el preset {preset:?} falló con encoder {encoder}: {log}"
+            );
+        }
+
+        let info = probe_media(
+            Some(&ffmpeg.with_file_name(if cfg!(windows) {
+                "ffprobe.exe"
+            } else {
+                "ffprobe"
+            })),
+            &output,
+        );
+        assert_eq!(info.1, Some(1280), "ancho inesperado");
+        assert_eq!(info.2, Some(720), "alto inesperado");
+        assert!(
+            std::fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0) > 5_000,
+            "el archivo salió vacío"
+        );
+        let _ = std::fs::remove_file(&output);
+        assert!(status_ok, "log final: {log}");
     }
 
     #[test]

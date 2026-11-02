@@ -9,7 +9,7 @@ import {
   newId,
 } from './project-actions';
 import { prepareAutoEdit, type NarrationCandidate } from './auto-edit';
-import { artifactPaths, flowProviderId, sceneVisualPrompt } from './flow';
+import { artifactPaths, buildFlowArgs, flowProviderId, sceneVisualPrompt } from './flow';
 import { buildProjectMotionPlans } from '../features/motion/plan';
 
 /**
@@ -264,15 +264,19 @@ async function generateSceneMedia(
     }
     log('info', `Flow ${index + 1}/${scenes.length}: ${prompt.slice(0, 110)}`);
     try {
-      const result = await deps.service.callMcpTool(serverId, tool, {
-        prompt,
-        model: options.flowModel,
-        ratio: options.flowRatio,
-        auto_confirm: true,
-        output_folder: outputFolder,
-        response_format: 'detailed',
-        ...(options.flowKind === 'video' ? { duration: options.flowDuration } : {}),
-      });
+      const result = await deps.service.callMcpTool(
+        serverId,
+        tool,
+        buildFlowArgs({
+          prompt,
+          kind: options.flowKind,
+          outputDir: outputFolder,
+          model: options.flowModel,
+          ratio: options.flowRatio,
+          duration: options.flowDuration,
+          credits: true,
+        }),
+      );
       generations += 1;
       if (result.isError) {
         log('warn', `Flow devolvió un error en la escena ${index + 1}; se sigue con los medios existentes.`);

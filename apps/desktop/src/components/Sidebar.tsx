@@ -27,6 +27,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   compare: 'split',
   compress: 'compress',
   denoise: 'denoise',
+  sharpen: 'sharpen',
   thumbnails: 'thumbnails',
   localization: 'globe',
   'ai-hub': 'ai-hub',

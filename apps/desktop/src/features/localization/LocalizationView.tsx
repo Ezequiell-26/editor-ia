@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
+import { AiBrandMark } from '../../components/AiBrandMark';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
+import { detectAiBrand } from '../../services/ai-models';
 import type {
   CloneEngine,
   CloneVoiceResult,
@@ -602,13 +604,17 @@ export function LocalizationView({
       ) : null}
 
       <div className="localization-provider">
-        <Icon name="globe" size={17} />
+        <AiBrandMark
+          brand={provider ? detectAiBrand(provider.baseUrl, provider.model) : 'mock'}
+          size={34}
+          title={provider?.model ?? 'sin modelo'}
+        />
         <div>
           <strong>
             {provider
               ? simulator
                 ? 'Proveedor simulado'
-                : `${provider.model || 'Proveedor'} · ${remote ? 'remoto' : 'local'}`
+                : `${provider.model || 'sin modelo'} · ${remote ? 'remoto' : 'local'}`
               : 'Proveedor no consultado'}
           </strong>
           <span>

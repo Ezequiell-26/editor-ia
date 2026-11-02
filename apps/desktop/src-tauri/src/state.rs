@@ -76,8 +76,30 @@ pub struct Settings {
     pub ffprobe_path: Option<String>,
     pub provider: ProviderSettings,
     pub audio_provider: AudioProviderSettings,
+    pub diarize: DiarizeSettings,
     pub tts_voice: Option<String>,
     pub language: Option<String>,
+}
+
+/// Proveedor de diarización (hablantes). La clave vive en el almacén de Windows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DiarizeSettings {
+    /// `none`, `deepgram` o `assemblyai`.
+    pub kind: String,
+    /// Sólo para proveedores compatibles; vacío usa el endpoint oficial.
+    pub base_url: String,
+    pub language: String,
+}
+
+impl Default for DiarizeSettings {
+    fn default() -> Self {
+        Self {
+            kind: "none".to_owned(),
+            base_url: String::new(),
+            language: "es".to_owned(),
+        }
+    }
 }
 
 impl Settings {
@@ -93,6 +115,12 @@ impl Settings {
         }
         if self.language.is_none() {
             self.language = Some("es".to_owned());
+        }
+        if self.diarize.kind.is_empty() {
+            self.diarize.kind = "none".to_owned();
+        }
+        if self.diarize.language.trim().is_empty() {
+            self.diarize.language = "es".to_owned();
         }
         self
     }

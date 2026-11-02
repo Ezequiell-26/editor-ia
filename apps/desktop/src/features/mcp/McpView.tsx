@@ -14,7 +14,7 @@ import {
   fpsOf,
   totalFrames,
 } from '../../state/project-actions';
-import { artifactPaths } from '../../state/flow';
+import { artifactPaths, buildFlowArgs } from '../../state/flow';
 import { FlowQueueCard } from './FlowQueueCard';
 import { useProjectStore } from '../../state/project-store';
 import type { Asset } from '@editor-ia/project-schema';
@@ -268,6 +268,23 @@ export function McpView() {
     setFormError(null);
   }
 
+  /**
+   * Preset de Google Flow MCP (miyakejima). Es un servidor stdio local: hay que
+   * clonar el repo, correr `npm ci && npm run build` y apuntar a dist/index.js.
+   * La ruta queda como marcador para que se complete sin adivinar el comando.
+   */
+  function newFlowServer(): void {
+    setDraft({
+      name: 'Google Flow MCP',
+      command: 'node',
+      argsText: 'C:////ruta////google-flow-mcp////dist////index.js',
+      envText: '',
+      workingDir: '',
+      enabled: true,
+    });
+    setFormError(null);
+  }
+
   async function save(): Promise<void> {
     if (!draft) return;
     setSaving(true);
@@ -447,15 +464,16 @@ export function McpView() {
           return;
         }
       }
-      const args: Record<string, unknown> = {
+      const args = buildFlowArgs({
         prompt: flowPrompt.trim(),
+        kind: flowKind,
+        outputDir: flowOutputDir,
         model: flowModel,
         ratio: flowRatio,
-        auto_confirm: true,
-        output_folder: flowOutputDir,
-        response_format: 'detailed',
-      };
-      if (flowKind === 'video') args.duration = flowDuration;
+        duration: flowDuration,
+        credits: true,
+        schema: flowTool.inputSchema,
+      });
       const result = await store.service.callMcpTool(selected.id, flowTool.name, args);
       const payload = toolPayload(result.result);
       setFlowPayload(payload);
@@ -671,6 +689,11 @@ export function McpView() {
               }}
             >
               <p className="eyebrow">{draft.id ? 'Editar servidor' : 'Nuevo servidor'}</p>
+              {!draft.id ? (
+                <button type="button" className="small ghost" onClick={newFlowServer}>
+                  Preset: Google Flow
+                </button>
+              ) : null}
               <div className="form-grid">
                 <label className="field">
                   <span>Nombre</span>

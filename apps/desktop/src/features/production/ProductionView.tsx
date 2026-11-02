@@ -14,6 +14,7 @@ import {
 import { useProjectStore } from '../../state/project-store';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import { PublicationReadiness } from './PublicationReadiness';
+import { FolderQueuePanel } from './FolderQueuePanel';
 
 interface ProductionViewProps {
   readonly onNavigate: (id: ViewId) => void;
@@ -565,6 +566,8 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
               </p>
             )}
           </article>
+
+          <FolderQueuePanel />
 
           <PublicationReadiness onNavigate={onNavigate} />
         </div>

@@ -10,6 +10,14 @@ const HANDLE_HIT_RADIUS = 10;
 const HANDLE_DRAW_RADIUS = 4;
 const CURVE_SAMPLES = 48;
 
+/**
+ * Colores de las guías del canvas (WCAG 2.1 SC 1.4.11 >= 3:1 sobre #0a0f1e).
+ * Centro: #6b7480 (4,03:1). Punteadas superior/inferior: #7b8591 (5,10:1).
+ */
+export const CURVE_CANVAS_BG = '#0a0f1e';
+export const GUIDE_CENTER_COLOR = '#6b7480';
+export const GUIDE_BOUNDS_COLOR = '#7b8591';
+
 export type CurveSegment = {
   /** Indice del keyframe de inicio del segmento (el extremo es index + 1). */
   index: number;
@@ -100,14 +108,14 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    ctx.strokeStyle = '#3a3f46';
+    ctx.strokeStyle = GUIDE_CENTER_COLOR;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, h / 2);
     ctx.lineTo(w, h / 2);
     ctx.stroke();
 
-    ctx.strokeStyle = '#565d66';
+    ctx.strokeStyle = GUIDE_BOUNDS_COLOR;
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(0, 0);

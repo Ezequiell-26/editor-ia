@@ -1,21 +1,64 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { NAV_VIEWS, type ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
+import { AiBrandMark } from '../../components/AiBrandMark';
+import {
+  detectAiBrand,
+  endpointLabel,
+  suggestedModels,
+} from '../../services/ai-models';
 import {
   isLocalProviderUrl,
   type AssistantAction,
+  type ImageContent,
   type ProviderInfo,
+  type TranscriptionResult,
 } from '../../services/project-service';
 import { parseProject } from '@editor-ia/project-schema';
+import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
+import {
+  applyProposals,
+  applySafeProposals,
+  brainBrief,
+  planEdits,
+  type EditIntent,
+} from '../../state/brain';
 import { buildFolderTimeline } from '../../state/folder-timeline';
+import { buildNarrationPlan, fallbackAssignments } from '../../state/narration-plan';
+import { buildNarrationTimeline } from '../../state/narration-timeline';
+import {
+  describeForPrompt,
+  planImageAssignments,
+} from '../../state/visual-intelligence';
 import {
   addAsset,
+  addCaptionCue,
+  addClipFromAsset,
   addMotionGraphic,
+  addTranscriptionCues,
+  deleteCaptionCue,
+  deleteClip,
+  deleteTrack,
   fpsOf,
   markAssetReady,
+  secondsToFrames,
+  setClipSpeed,
+  splitClip,
+  totalFrames,
+  updateClip,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { runSilenceCuts } from '../../state/silence-cuts';
+import { autoCleanupSummary, runAutoCleanup } from '../../state/auto-cleanup';
+import { autoPilotSummary, runAutoPilot } from '../../state/auto-pilot';
+import { executeMcpTool } from '../../state/mcp-tools';
+import {
+  applySpeechCuts,
+  cuesForClip,
+  planSpeechCutsFromCues,
+} from '../../state/speech-cuts';
+import { queueDownloadUrl } from '../download/pending';
 import {
   OPERATOR_HELP,
   parseOperatorCommand,
@@ -33,6 +76,16 @@ const GREETING: ChatEntry = {
   text:
     'Hola, soy Olyvia. Puedo controlar la app, montar una carpeta de Descargas con fotos y audio, resumir el proyecto o crear un gráfico. Probá «usar la carpeta video 1 de descargas» o «abrir editor».',
 };
+
+function audioDurationFrames(asset: Asset): number {
+  return 'media' in asset && asset.media && 'durationFrames' in asset.media
+    ? asset.media.durationFrames
+    : 0;
+}
+
+function byLabel(left: Asset, right: Asset): number {
+  return left.label.localeCompare(right.label, 'es', { numeric: true, sensitivity: 'base' });
+}
 
 function motionProps(
   templateId: string,
@@ -90,7 +143,10 @@ export function AssistantDock({
   const [messages, setMessages] = useState<readonly ChatEntry[]>([GREETING]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [busyLabel, setBusyLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Acción destructiva que el modelo propuso y que espera confirmación. */
+  const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [consent, setConsent] = useState(false);
   const [listening, setListening] = useState(false);
@@ -131,6 +187,48 @@ export function AssistantDock({
     provider.kind !== 'mock' &&
     provider.baseUrl.length > 0 &&
     !isLocalProviderUrl(provider.baseUrl);
+
+  // Qué familia de modelo responde: se muestra con su marca de un vistazo.
+  const brand = useMemo(
+    () => (provider ? detectAiBrand(provider.baseUrl, provider.model) : 'mock'),
+    [provider],
+  );
+  const providerLabel = useMemo(
+    () => (provider ? endpointLabel(provider.baseUrl) : 'sin proveedor'),
+    [provider],
+  );
+  const modelChoices = useMemo(
+    () => (provider ? suggestedModels(provider.baseUrl, provider.model) : []),
+    [provider],
+  );
+  const providerStatus: 'local' | 'remote' | 'sim' | 'none' = !provider
+    ? 'none'
+    : provider.kind === 'mock'
+      ? 'sim'
+      : isLocalProviderUrl(provider.baseUrl)
+        ? 'local'
+        : 'remote';
+
+  async function switchModel(model: string): Promise<void> {
+    if (!provider || busy) return;
+    const next = model.trim();
+    if (!next || next === provider.model) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Sin `apiKey`: la clave guardada se conserva en el almacén de Windows.
+      const info = await store.service.saveProvider({
+        kind: provider.kind,
+        baseUrl: provider.baseUrl,
+        model: next,
+      });
+      setProvider(info);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'no se pudo cambiar el modelo');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const mood: PetMood = busy
     ? 'thinking'
@@ -174,7 +272,10 @@ export function AssistantDock({
    */
   async function mountMediaFolder(folder: string): Promise<string> {
     const name = folder.trim();
-    if (!name || /[\\/]/.test(name)) return 'El nombre de la carpeta no es válido.';
+    const isAbsolute = /^[a-zA-Z]:[\\/]/.test(name) || /^\//.test(name);
+    if (!name || (!isAbsolute && /[\\/]/.test(name))) {
+      return 'El nombre de la carpeta no es válido.';
+    }
     const root = window.localStorage.getItem(DOWNLOAD_DIR_KEY) ?? undefined;
     let listing;
     try {
@@ -190,8 +291,11 @@ export function AssistantDock({
     }
     let target = store.getProject();
     if (!target) {
+      const projectName = isAbsolute
+        ? name.split(/[\\/]/).filter(Boolean).pop() || 'Proyecto'
+        : name;
       const created = await store.createProject({
-        name,
+        name: projectName,
         width: 1920,
         height: 1080,
         fpsNum: 30,
@@ -221,21 +325,173 @@ export function AssistantDock({
     if (outcome.assets.length === 0) {
       return outcome.warnings[0] ?? 'No pude importar los archivos de la carpeta.';
     }
-    const images = outcome.assets.filter((asset) => asset.kind === 'image');
-    const videos = outcome.assets.filter((asset) => asset.kind === 'video');
-    const audio = outcome.assets.filter((asset) => asset.kind === 'audio');
-    let next = target;
+    const images = outcome.assets
+      .filter((asset) => asset.kind === 'image')
+      .sort(byLabel);
+    const videos = outcome.assets
+      .filter((asset) => asset.kind === 'video')
+      .sort(byLabel);
+    const audios = outcome.assets
+      .filter((asset) => asset.kind === 'audio')
+      .sort((left, right) => audioDurationFrames(right) - audioDurationFrames(left));
+    const voice = audios[0];
+    const music = audios.slice(1);
+
+    let prepared = target;
     for (const asset of outcome.assets) {
-      next = addAsset(next, asset);
-      next = markAssetReady(next, asset.id, 'allowed');
+      prepared = addAsset(prepared, asset);
+      prepared = markAssetReady(prepared, asset.id, 'allowed');
     }
-    let built;
-    try {
-      built = buildFolderTimeline(next, { images, videos, audio });
-    } catch (cause) {
-      return cause instanceof Error ? cause.message : 'No pude montar la carpeta.';
+
+    let builtProject: ProjectDocument | null = null;
+    let firstClipId: string | null = null;
+    let summary = '';
+    const warnings: string[] = [];
+
+    if (voice && images.length > 0 && audioDurationFrames(voice) > 0) {
+      // La transcripción lee el proyecto desde disco: se aplican los assets y
+      // se guarda antes de pedirla.
+      const assetsApplied = store.update(() => prepared, { history: false });
+      const saved = assetsApplied ? await store.saveNow() : false;
+      if (saved) {
+        try {
+          setBusyLabel('Transcribiendo la voz…');
+          const transcript = await store.service.transcribeAsset(voice.id);
+          const plan = buildNarrationPlan(transcript.segments);
+          if (plan.sentences.length > 0) {
+            const sentenceTexts = plan.sentences.map((sentence) => sentence.text);
+
+            // 1. Medir qué muestra cada imagen. Es local y rápido; si falla, el
+            //    montaje sigue funcionando con el orden de archivos.
+            let contents: ImageContent[] = [];
+            try {
+              setBusyLabel('Mirando el contenido de las imágenes…');
+              contents = await store.service.analyzeImages(images.map((image) => image.id));
+            } catch {
+              contents = [];
+            }
+            const byAsset = new Map(contents.map((item) => [item.assetId, item]));
+            const ordered = images.map((image) => byAsset.get(image.id) ?? null);
+            const measured = ordered.filter((item): item is ImageContent => item !== null);
+            const allMeasured = measured.length === images.length;
+
+            // 2. Plan local por contenido: siempre disponible, sin costo.
+            let assignments: number[] | null = null;
+            let matchedBy = 'el orden de archivos';
+            if (allMeasured && images.length > 1) {
+              const localPlan = planImageAssignments(sentenceTexts, measured);
+              if (localPlan.length === sentenceTexts.length) {
+                assignments = localPlan.map((item) => item.imageIndex);
+                matchedBy = 'el contenido de cada imagen';
+              }
+            }
+
+            // 3. La IA decide con las descripciones delante, no con el nombre.
+            try {
+              setBusyLabel('Pensando el montaje con la IA…');
+              const match = await store.service.matchMediaPlan({
+                sentences: sentenceTexts,
+                images: images.map((image) => image.label),
+                imageDescriptions: ordered.map((item) =>
+                  item ? describeForPrompt(item) : 'sin datos de contenido',
+                ),
+                approvedCost: consent,
+              });
+              const valid =
+                match.assignments.length === plan.sentences.length &&
+                match.assignments.every(
+                  (index) => Number.isInteger(index) && index >= 0 && index < images.length,
+                );
+              // Un plan que repite la misma imagen seguida cuando hay
+              // alternativa se descarta: se ve como un error de montaje.
+              const repeatsBackToBack =
+                images.length > 1 &&
+                match.assignments.some(
+                  (index, position) => position > 0 && index === match.assignments[position - 1],
+                );
+              if (valid && !repeatsBackToBack) {
+                assignments = [...match.assignments];
+                matchedBy = 'la IA con la descripción visual';
+              }
+            } catch {
+              // Sin IA queda el plan por contenido.
+            }
+            if (!assignments) {
+              assignments = fallbackAssignments(plan.sentences.length, images.length);
+              matchedBy = 'el orden de archivos';
+            }
+            // `store.getProject()` puede devolver todavía el proyecto previo a
+            // aplicar los assets (el estado se publica en el próximo render).
+            // Si le faltan los assets que vamos a usar, montamos sobre
+            // `prepared`: si no, los clips quedan apuntando a material
+            // inexistente y el proyecto no valida.
+            const liveProject = store.getProject();
+            const neededAssets = [voice.id, ...images.map((image) => image.id)];
+            const liveHasAssets =
+              liveProject !== null &&
+              neededAssets.every((id) => liveProject.assets.some((asset) => asset.id === id));
+            const live = liveHasAssets ? liveProject : prepared;
+            setBusyLabel('Montando imágenes, voz y subtítulos…');
+            const built = buildNarrationTimeline(
+              live,
+              {
+                images,
+                voice,
+                ...(music.length > 0 ? { music } : {}),
+              },
+              plan,
+              assignments,
+            );
+            builtProject = built.project;
+            firstClipId = built.firstClipId;
+            warnings.push(...built.warnings);
+            const seconds = Math.max(0, plan.end - plan.start).toFixed(1);
+            const imageWord = images.length === 1 ? 'imagen' : 'imágenes';
+            const sentenceWord = plan.sentences.length === 1 ? 'frase' : 'frases';
+            const captionWord = built.captionCount === 1 ? 'subtítulo' : 'subtítulos';
+            summary = `Monté ${images.length} ${imageWord} sobre ${plan.sentences.length} ${sentenceWord} (${seconds}s), con ${built.captionCount} ${captionWord} y audio a −14 LUFS.`;
+            summary += ` Imágenes colocadas por ${matchedBy}.`;
+            if (allMeasured) {
+              const count = measured.length === 1 ? '1 imagen' : `${measured.length} imágenes`;
+              summary += ` Analicé luz, color, encuadre y personas en ${count}.`;
+            }
+            if (music.length > 0) summary += ' Música con ducking.';
+          } else {
+            warnings.push('La voz no tiene palabras reconocibles; usé 3 s por imagen.');
+          }
+        } catch (cause) {
+          warnings.push(
+            cause instanceof Error
+              ? cause.message
+              : 'No pude transcribir la voz; usé 3 s por imagen.',
+          );
+        }
+      } else {
+        warnings.push('No pude guardar el proyecto para transcribir; usé 3 s por imagen.');
+      }
     }
-    const parsed = parseProject(built.project);
+
+    if (!builtProject) {
+      let fallback;
+      try {
+        fallback = buildFolderTimeline(prepared, { images, videos, audio: audios });
+      } catch (cause) {
+        return cause instanceof Error ? cause.message : 'No pude montar la carpeta.';
+      }
+      builtProject = fallback.project;
+      firstClipId = fallback.firstClipId;
+      warnings.push(...fallback.warnings);
+      const parts = [
+        images.length > 0 ? `${images.length} imagen(es)` : null,
+        videos.length > 0 ? `${videos.length} video(s)` : null,
+        audios.length > 0 ? 'audio' : null,
+      ]
+        .filter(Boolean)
+        .join(' + ');
+      summary = `Monté ${parts} de «${name}» en el editor.`;
+    }
+
+    const parsed = parseProject(builtProject);
     if (!parsed.ok) {
       const first = parsed.issues[0];
       return `No pude montar: ${
@@ -243,24 +499,647 @@ export function AssistantDock({
       }.`;
     }
     const applied = store.update(() => parsed.project, {
-      notice: 'Montaje de carpeta aplicado.',
+      notice: 'Montaje aplicado.',
     });
     if (!applied) return 'El proyecto cambió mientras montaba; probá de nuevo.';
-    if (built.firstClipId) store.setSelection({ kind: 'clip', id: built.firstClipId });
+    if (firstClipId) store.setSelection({ kind: 'clip', id: firstClipId });
     onSelect('editor');
-    const parts = [
-      images.length > 0 ? `${images.length} imagen(es)` : null,
-      videos.length > 0 ? `${videos.length} video(s)` : null,
-      audio.length > 0 ? 'audio' : null,
-    ]
-      .filter(Boolean)
-      .join(' + ');
-    const warning = built.warnings[0] ? ` ${built.warnings[0]}` : '';
-    return `Monté ${parts} de «${name}» en el editor.${warning}`;
+    const saved = await store.saveNow();
+    if (!saved) warnings.push('Quedó sin guardar; usá Guardar.');
+    const warning = warnings.length > 0 ? ` ${warnings.slice(0, 2).join(' ')}` : '';
+    return `${summary}${warning}`;
+  }
+
+  /**
+   * Garantiza un proyecto abierto antes de tocar la timeline. Si no hay uno,
+   * crea uno estándar y espera a que el store lo publique.
+   */
+  async function ensureProjectForEdit(): Promise<ProjectDocument | null> {
+    let target = store.getProject();
+    if (target) return target;
+    const created = await store.createProject({
+      name: 'Proyecto del asistente',
+      width: 1920,
+      height: 1080,
+      fpsNum: 30,
+      fpsDen: 1,
+    });
+    if (!created) return null;
+    for (let attempt = 0; attempt < 50 && !target; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      target = store.getProject();
+    }
+    return target;
+  }
+
+  function selectedClipId(): string | null {
+    const selection = store.state.selection;
+    return selection.kind === 'clip' ? selection.id : null;
+  }
+
+  async function importFileFromDisk(path: string): Promise<string> {
+    const clean = path.trim();
+    if (!/^[a-zA-Z]:[\\/]/.test(clean) && !/^\//.test(clean)) {
+      return 'Necesito una ruta absoluta, por ejemplo C:\\Videos\\clip.mp4.';
+    }
+    const project = await ensureProjectForEdit();
+    if (!project) return 'No pude preparar un proyecto para importar.';
+    let outcome;
+    try {
+      outcome = await store.service.importMediaPaths({
+        paths: [clean],
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+        confirmRights: true,
+        provider: 'assistant',
+      });
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : 'No pude importar el archivo.';
+    }
+    const asset = outcome.assets[0];
+    if (!asset) return outcome.warnings[0] ?? 'No pude importar ese archivo.';
+    store.update((current) => {
+      let next = addAsset(current, asset);
+      next = markAssetReady(next, asset.id, 'allowed');
+      return next;
+    }, { notice: `${asset.label} importado a Medios.` });
+    store.setSelection({ kind: 'asset', id: asset.id });
+    return `${asset.label} quedó en Medios. Decime “agregá el clip ${asset.label}” para llevarlo a la timeline.`;
+  }
+
+  async function addClipByLabel(label: string, atPlayhead: boolean): Promise<string> {
+    const project = await ensureProjectForEdit();
+    if (!project) return 'No pude abrir un proyecto para editar.';
+    const wanted = label.trim().toLowerCase();
+    const asset = project.assets.find(
+      (item) =>
+        item.status === 'ready' &&
+        (item.label.toLowerCase() === wanted ||
+          item.label.toLowerCase().includes(wanted) ||
+          wanted.includes(item.label.toLowerCase())),
+    );
+    if (!asset) {
+      const names = project.assets
+        .filter((item) => item.status === 'ready')
+        .slice(0, 5)
+        .map((item) => item.label);
+      return `No encuentro un material que se llame “${label}”.${
+        names.length > 0 ? ` Tengo: ${names.join(', ')}.` : ' No hay material listo en Medios.'
+      }`;
+    }
+    const mediaFrames =
+      'media' in asset && asset.media && 'durationFrames' in asset.media
+        ? asset.media.durationFrames
+        : undefined;
+    let clipId: string | null = null;
+    const ok = store.mutate((current) => {
+      const fps = fpsOf(current);
+      const mediaSeconds = mediaFrames ? mediaFrames / fps : 5;
+      const start = atPlayhead ? store.state.playheadFrame : totalFrames(current);
+      const added = addClipFromAsset(current, asset, {
+        atFrame: start,
+        ...(mediaFrames ? { inFrame: 0, outFrame: mediaFrames } : {}),
+        durationFrames: mediaFrames ?? Math.round(fps * Math.max(1, mediaSeconds)),
+      });
+      clipId = added.clipId;
+      return { project: added.project };
+    }, { notice: `Clip agregado: ${asset.label}.` });
+    if (!ok || !clipId) return 'No pude agregar el clip a la timeline.';
+    store.setSelection({ kind: 'clip', id: clipId });
+    onSelect('editor');
+    return `${asset.label} agregado a la timeline${atPlayhead ? ' en el playhead' : ' al final'}. Podés deshacer.`;
+  }
+
+  async function deleteSelection(): Promise<string> {
+    const selection = store.state.selection;
+    if (selection.kind === 'clip') {
+      let nextDuration = 0;
+      store.update((current) => {
+        const next = deleteClip(current, selection.id);
+        nextDuration = totalFrames(next);
+        return next;
+      }, { notice: 'Clip eliminado.' });
+      store.setSelection({ kind: 'none' });
+      store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+      return 'Clip eliminado. Podés deshacer.';
+    }
+    if (selection.kind === 'cue') {
+      store.update((current) => deleteCaptionCue(current, selection.id), {
+        notice: 'Subtítulo eliminado.',
+      });
+      store.setSelection({ kind: 'none' });
+      return 'Subtítulo eliminado. Podés deshacer.';
+    }
+    if (selection.kind === 'track') {
+      store.update((current) => deleteTrack(current, selection.id), {
+        notice: 'Pista eliminada.',
+      });
+      store.setSelection({ kind: 'none' });
+      return 'Pista eliminada. Podés deshacer.';
+    }
+    return 'No hay nada seleccionado para borrar. Tocá un clip en la timeline y volvé a pedirme.';
+  }
+
+  async function splitSelection(): Promise<string> {
+    const clipId = selectedClipId();
+    if (!clipId) {
+      return 'Elegí un clip en la timeline y volvé a pedirme el corte.';
+    }
+    let rightClipId: string | null = null;
+    const ok = store.mutate((current) => {
+      const split = splitClip(current, clipId, store.state.playheadFrame);
+      if (!split) {
+        throw new Error('el playhead no está dentro del clip seleccionado');
+      }
+      rightClipId = split.rightClipId;
+      return { project: split.project };
+    }, { notice: 'Clip cortado en el playhead.' });
+    if (!ok || !rightClipId) {
+      return 'El playhead no está dentro del clip seleccionado.';
+    }
+    store.setSelection({ kind: 'clip', id: rightClipId });
+    return 'Corté el clip en el playhead. Podés deshacer.';
+  }
+
+  function goTo(seconds: number): string {
+    const project = store.state.project;
+    const fps = project ? fpsOf(project) : 30;
+    store.setPlayhead(Math.max(0, Math.round(seconds * fps)));
+    if (store.state.project) onSelect('editor');
+    return `Playhead en ${seconds.toFixed(1)} s.`;
+  }
+
+  async function addCaptionNow(text: string, seconds: number): Promise<string> {
+    const project = await ensureProjectForEdit();
+    if (!project) return 'No pude abrir un proyecto para el subtítulo.';
+    const clean = text.trim();
+    if (!clean) return 'El subtítulo está vacío.';
+    let cueId: string | null = null;
+    const ok = store.mutate((current) => {
+      const fps = fpsOf(current);
+      const added = addCaptionCue(current, {
+        text: clean,
+        startFrame: store.state.playheadFrame,
+        durationFrames: Math.max(1, Math.round(seconds * fps)),
+      });
+      cueId = added.cueId;
+      return { project: added.project };
+    }, { notice: 'Subtítulo agregado.' });
+    if (!ok || !cueId) return 'No pude agregar el subtítulo (¿la pista está bloqueada?).';
+    store.setSelection({ kind: 'cue', id: cueId });
+    onSelect('editor');
+    return `Subtítulo agregado en el playhead (${seconds.toFixed(1)} s). Podés deshacer.`;
+  }
+
+  async function changeSpeed(speed: number): Promise<string> {
+    const clipId = selectedClipId();
+    if (!clipId) return 'Elegí un clip para cambiar la velocidad.';
+    try {
+      store.update((current) => setClipSpeed(current, clipId, speed), {
+        notice: `Velocidad ${speed.toFixed(2)}x.`,
+      });
+      onSelect('editor');
+      return `Velocidad del clip en ${speed.toFixed(2)}x. Podés deshacer.`;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : 'No pude cambiar la velocidad.';
+    }
+  }
+
+  async function changeGain(db: number): Promise<string> {
+    const clipId = selectedClipId();
+    if (!clipId) return 'Elegí un clip para cambiar el volumen.';
+    const current = store.state.project?.timeline.clips.find((clip) => clip.id === clipId);
+    const existing =
+      current && 'audio' in current && current.audio ? current.audio : undefined;
+    try {
+      store.update((currentProject) =>
+        updateClip(currentProject, clipId, {
+          audio: { ...(existing ?? {}), gainDb: db },
+        }),
+      { notice: `Ganancia ${db > 0 ? '+' : ''}${db} dB.` });
+      onSelect('editor');
+      return `Volumen del clip en ${db > 0 ? '+' : ''}${db} dB. Podés deshacer.`;
+    } catch (cause) {
+      return cause instanceof Error ? cause.message : 'No pude cambiar el volumen.';
+    }
+  }
+
+  function setClipMuted(muted: boolean): string {
+    const clipId = selectedClipId();
+    if (!clipId) return 'Elegí un clip para silenciar o reactivar.';
+    const current = store.state.project?.timeline.clips.find((clip) => clip.id === clipId);
+    const existing = current && 'audio' in current && current.audio ? current.audio : undefined;
+    const ok = store.update((currentProject) =>
+      updateClip(currentProject, clipId, {
+        audio: { ...(existing ?? {}), muted },
+      }),
+    { notice: muted ? 'Clip silenciado.' : 'Audio del clip reactivado.' });
+    if (!ok) return 'No pude cambiar el audio del clip.';
+    onSelect('editor');
+    return muted ? 'Clip silenciado. Podés deshacer.' : 'Audio del clip reactivado.';
+  }
+
+  /**
+   * Corta los silencios medidos por la app.
+   *
+   * El asistente no decide qué es silencio: pide el corte y el motor de
+   * `state/silence-cuts` mide los picos, arma el plan y aplica con ripple. La
+   * guardia del 80 % y las pistas bloqueadas se respetan igual que en la UI.
+   */
+  async function cutSilences(action: {
+    readonly scope: 'selection' | 'project';
+    readonly thresholdDb: number;
+    readonly minSilenceSeconds: number;
+    readonly paddingSeconds: number;
+  }): Promise<string> {
+    const project = store.state.project;
+    if (!project) return 'Abrí o creá un proyecto para cortar silencios.';
+    const selection = store.state.selection;
+    const selected = action.scope === 'selection' && selection.kind === 'clip';
+    // Sin clip seleccionado el pedido cae al proyecto completo, igual que el
+    // menú: se avisa en la respuesta para que no parezca que tocó otra cosa.
+    const fallback = action.scope === 'selection' && !selected;
+    const clipIds = selected ? [selection.id] : undefined;
+    const result = await runSilenceCuts(
+      project,
+      (assetId) => store.service.audioPeaks(assetId),
+      {
+        clipIds,
+        thresholdDb: action.thresholdDb,
+        minSilenceSeconds: action.minSilenceSeconds,
+        paddingSeconds: action.paddingSeconds,
+      },
+    );
+    if (result.candidates === 0) {
+      return 'No hay clips con audio a 1× en pistas desbloqueadas para analizar.';
+    }
+    if (result.clips === 0) {
+      return result.skipped === result.candidates
+        ? 'No pude medir los picos de esos clips: el material no tiene audio analizable.'
+        : 'No encontré silencios que superen el mínimo con ese umbral.';
+    }
+    const ok = store.update(() => result.project, {
+      notice: `Silencios recortados en ${result.clips} clip(s): ${result.removedSeconds.toFixed(2)} s menos.`,
+    });
+    if (!ok) return 'El corte no dejó el proyecto en un estado válido; no se aplicó.';
+    onSelect('editor');
+    const prefix = fallback
+      ? 'No había un clip seleccionado: corté los silencios de todo el proyecto. '
+      : '';
+    return `${prefix}Recorté ${result.cuts} silencio(s) en ${result.clips} clip(s): ${result.removedSeconds.toFixed(2)} s menos. Podés deshacer con Ctrl+Z.`;
+  }
+
+  /**
+   * Subtítulos automáticos desde la voz.
+   *
+   * La IA no inventa el texto: transcribe con Whisper local y el planificador
+   * de `state/caption-planner` parte cada segmento en cues de dos líneas con
+   * los tiempos de palabra. Un segmento de 8 segundos no es un subtítulo.
+   */
+  async function autoSubtitles(action: {
+    readonly scope: 'selection' | 'project';
+  }): Promise<string> {
+    const MAX_CLIPS = 12;
+    const project = store.state.project;
+    if (!project) return 'Abrí o creá un proyecto para generar subtítulos.';
+    const selection = store.state.selection;
+    const selected = action.scope === 'selection' && selection.kind === 'clip';
+    const fallback = action.scope === 'selection' && !selected;
+    const clipIds = selected ? [selection.id] : undefined;
+    const candidates = project.timeline.clips.filter((clip) => {
+      if (clipIds && !clipIds.includes(clip.id)) return false;
+      if (clip.kind !== 'video' && clip.kind !== 'audio') return false;
+      if (clip.source.type !== 'asset') return false;
+      const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+      return track?.locked !== true;
+    });
+    if (candidates.length === 0) {
+      return 'No hay clips con audio en pistas desbloqueadas para transcribir.';
+    }
+    // El transcriptor lee el archivo desde disco: el proyecto tiene que estar
+    // guardado, igual que en el botón del Inspector.
+    const saved = await store.saveNow();
+    if (!saved) {
+      return 'No pude guardar el proyecto: la transcripción lee el archivo desde disco.';
+    }
+    const cache = new Map<string, TranscriptionResult | null>();
+    const transcripts: { clipId: string; segments: TranscriptionResult['segments'] }[] = [];
+    let model = '';
+    let firstError = '';
+    for (const clip of candidates.slice(0, MAX_CLIPS)) {
+      if (clip.source.type !== 'asset') continue;
+      const assetId = clip.source.assetId;
+      let transcription = cache.get(assetId);
+      if (transcription === undefined) {
+        try {
+          transcription = await store.service.transcribeAsset(
+            assetId,
+            project.language,
+            'small',
+          );
+          model = transcription.model;
+        } catch (error) {
+          transcription = null;
+          if (!firstError) {
+            firstError = error instanceof Error ? error.message : 'error desconocido';
+          }
+        }
+        cache.set(assetId, transcription);
+      }
+      if (transcription) {
+        transcripts.push({ clipId: clip.id, segments: transcription.segments });
+      }
+    }
+    if (transcripts.length === 0) {
+      return `No pude transcribir el material${firstError ? `: ${firstError}` : '.'}`;
+    }
+    let added = 0;
+    let overCps = 0;
+    let split = 0;
+    let worstCps = 0;
+    const ok = store.update(
+      (current) => {
+        let next = current;
+        for (const item of transcripts) {
+          const result = addTranscriptionCues(next, item.clipId, item.segments, true);
+          next = result.project;
+          added += result.added;
+          overCps += result.overCps;
+          split += result.splitSegments;
+          worstCps = Math.max(worstCps, result.maxCps);
+        }
+        return next;
+      },
+      { notice: `Subtítulos generados: ${added} cue(s).` },
+    );
+    if (!ok) {
+      return 'Los subtítulos no dejaron el proyecto en un estado válido; no se aplicaron.';
+    }
+    onSelect('editor');
+    const prefix = fallback ? 'No había un clip seleccionado: subtitulé todo el proyecto. ' : '';
+    const capped =
+      candidates.length > MAX_CLIPS
+        ? ` Para no bloquear el chat transcribí ${MAX_CLIPS} de ${candidates.length} clips; repetí el comando para el resto.`
+        : '';
+    const warning =
+      overCps > 0
+        ? ` ${overCps} cue(s) superan la velocidad de lectura cómoda (máx. ${worstCps.toFixed(1)} car/s): acortá el texto de esos tramos.`
+        : '';
+    return `${prefix}Generé ${added} subtítulo(s) en ${transcripts.length} clip(s) con Whisper ${model}. ${split} segmento(s) se partieron para entrar en dos líneas.${warning}${capped} Podés deshacer con Ctrl+Z.`;
+  }
+
+  /**
+   * Corta el aire entre frases usando los subtítulos.
+   *
+   * Si el clip no tiene subtítulos, los genera primero (misma transcripción
+   * local que `auto_subtitles`) y después corta: sin tiempos de palabra no hay
+   * forma honesta de saber dónde termina una frase. Todo va en un solo paso de
+   * deshacer.
+   */
+  async function cutVoicePauses(action: {
+    readonly minPauseSeconds: number;
+    readonly paddingSeconds: number;
+    readonly scope: 'selection' | 'project';
+  }): Promise<string> {
+    const project = store.state.project;
+    if (!project) return 'Abrí o creá un proyecto para cortar pausas.';
+    const selection = store.state.selection;
+    const selected = action.scope === 'selection' && selection.kind === 'clip';
+    const fallback = action.scope === 'selection' && !selected;
+    const clipIds = selected ? [selection.id] : undefined;
+    const candidates = project.timeline.clips
+      .filter((clip) => {
+        if (clipIds && !clipIds.includes(clip.id)) return false;
+        if (clip.kind !== 'video' && clip.kind !== 'audio') return false;
+        if (clip.source.type !== 'asset') return false;
+        const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+        return track?.locked !== true;
+      })
+      .sort((a, b) => a.startFrame - b.startFrame);
+    if (candidates.length === 0) {
+      return 'No hay clips con audio en pistas desbloqueadas para analizar.';
+    }
+
+    const missing = candidates.filter((clip) => cuesForClip(project, clip.id).length === 0);
+    const transcripts: { clipId: string; segments: TranscriptionResult['segments'] }[] = [];
+    if (missing.length > 0) {
+      const saved = await store.saveNow();
+      if (!saved) {
+        return 'No pude guardar el proyecto: la transcripción lee el archivo desde disco.';
+      }
+      const cache = new Map<string, TranscriptionResult | null>();
+      let firstError = '';
+      for (const clip of missing.slice(0, 12)) {
+        if (clip.source.type !== 'asset') continue;
+        const assetId = clip.source.assetId;
+        let transcription = cache.get(assetId);
+        if (transcription === undefined) {
+          try {
+            transcription = await store.service.transcribeAsset(assetId, project.language, 'small');
+          } catch (error) {
+            transcription = null;
+            if (!firstError) {
+              firstError = error instanceof Error ? error.message : 'error desconocido';
+            }
+          }
+          cache.set(assetId, transcription);
+        }
+        if (transcription) {
+          transcripts.push({ clipId: clip.id, segments: transcription.segments });
+        }
+      }
+      if (transcripts.length === 0) {
+        return `No pude transcribir el material para medir las pausas${firstError ? `: ${firstError}` : '.'}`;
+      }
+    }
+
+    let pauses = 0;
+    let removed = 0;
+    let touched = 0;
+    let subtitles = 0;
+    const ok = store.update(
+      (current) => {
+        let next = current;
+        for (const item of transcripts) {
+          const result = addTranscriptionCues(next, item.clipId, item.segments, true);
+          next = result.project;
+          subtitles += result.added;
+        }
+        for (const clip of candidates) {
+          const live = next.timeline.clips.find((item) => item.id === clip.id);
+          if (!live) continue;
+          const plan = planSpeechCutsFromCues(
+            cuesForClip(next, clip.id),
+            live,
+            fpsOf(next),
+            {
+              minPauseSeconds: action.minPauseSeconds,
+              paddingSeconds: action.paddingSeconds,
+            },
+          );
+          if (!plan || plan.excessive) continue;
+          const after = applySpeechCuts(next, clip.id, plan);
+          if (after === next) continue;
+          touched += 1;
+          pauses += plan.pauses;
+          removed += plan.removedSeconds;
+          next = after;
+        }
+        return next;
+      },
+      { notice: `Pausas recortadas: ${pauses} en ${touched} clip(s).` },
+    );
+    if (!ok) return 'El corte no dejó el proyecto en un estado válido; no se aplicó.';
+    if (touched === 0) {
+      return 'No encontré pausas entre frases con ese mínimo. Probá con una pausa mínima más chica.';
+    }
+    onSelect('editor');
+    const prefix = fallback ? 'No había un clip seleccionado: analicé todo el proyecto. ' : '';
+    const generated =
+      subtitles > 0 ? ` Generé ${subtitles} subtítulo(s) para medir las frases.` : '';
+    return `${prefix}Recorté ${pauses} pausa(s) en ${touched} clip(s): ${removed.toFixed(2)} s menos.${generated} Podés deshacer con Ctrl+Z.`;
+  }
+
+  /**
+   * Limpieza completa en un paso: silencios, pausas, ruido, volumen y zoom.
+   * El reporte vuelve medido para que la respuesta diga qué se hizo y cuánto.
+   */
+  async function autoCleanup(action: {
+    readonly denoise: 'off' | 'light' | 'medium' | 'strong';
+    readonly levelAudio: boolean;
+    readonly zoomCuts: boolean;
+    readonly cutSilences: boolean;
+    readonly cutPauses: boolean;
+    readonly targetLufs: number;
+  }): Promise<string> {
+    const project = store.state.project;
+    if (!project) return 'Abrí o creá un proyecto para limpiarlo.';
+    const report = await runAutoCleanup(
+      project,
+      (assetId) => store.service.audioPeaks(assetId),
+      {
+        denoise: action.denoise,
+        levelAudio: action.levelAudio,
+        zoomCuts: action.zoomCuts,
+        cutSilences: action.cutSilences,
+        cutPauses: action.cutPauses,
+        targetLufs: action.targetLufs,
+      },
+    );
+    if (report.project === project) return 'No había nada que limpiar en el proyecto.';
+    const ok = store.update(() => report.project, {
+      notice: `Limpieza automática: ${autoCleanupSummary(report)}`,
+    });
+    if (!ok) return 'La limpieza no dejó el proyecto en un estado válido; no se aplicó.';
+    onSelect('editor');
+    return `Limpieza automática: ${autoCleanupSummary(report)} Podés deshacer con Ctrl+Z.`;
+  }
+
+  /**
+   * Piloto automático completo: mide, limpia, exporta y verifica. La entrega
+   * sale a `<raíz del proyecto>\entregas`, igual que desde el menú.
+   */
+  async function autoPilot(): Promise<string> {
+    const project = store.state.project;
+    const opened = store.state.opened;
+    if (!project) return 'Abrí o creá un proyecto para usar el piloto automático.';
+    if (!opened) return 'Guardá el proyecto antes de usar el piloto automático.';
+    const saved = await store.saveNow();
+    if (!saved) return 'No pude guardar el proyecto: el piloto necesita el archivo en disco.';
+    const report = await runAutoPilot({
+      project,
+      service: store.service,
+      options: { outputDir: `${opened.root.replace(/[\\/]+$/, '')}\\entregas` },
+    });
+    const unchanged = store.state.project === project;
+    if (unchanged) store.update(() => report.project);
+    onSelect('editor');
+    return `Piloto automático: ${autoPilotSummary(report)} → ${report.videoPath}`;
+  }
+
+  async function createProjectNamed(name: string): Promise<string> {
+    const clean = name.trim().slice(0, 60);
+    if (!clean) return 'Decime cómo se llama el proyecto.';
+    const created = await store.createProject({
+      name: clean,
+      width: 1920,
+      height: 1080,
+      fpsNum: 30,
+      fpsDen: 1,
+    });
+    if (!created) return 'No pude crear el proyecto.';
+    onSelect('editor');
+    return `Proyecto «${clean}» creado (1920×1080 a 30 fps).`;
+  }
+
+  /**
+   * Puente MCP: una IA externa manda un comando, se ejecuta con el mismo
+   * operador que el chat y la respuesta vuelve por el canal pendiente.
+   */
+  useEffect(() => {
+    let dispose: (() => void) | null = null;
+    void store.service
+      .onMcpCall((payload) => {
+        void (async () => {
+          try {
+            const reply = await executeMcpTool(payload.tool, payload.args, {
+              store,
+              selectView: (view) => onSelect(view as Parameters<typeof onSelect>[0]),
+              runCommand: runLocalCommand,
+            });
+            append({ role: 'assistant', text: `[MCP] ${payload.tool}: ${reply}` });
+            await store.service.mcpRespond(payload.id, true, reply);
+          } catch (error) {
+            await store.service.mcpRespond(
+              payload.id,
+              false,
+              error instanceof Error ? error.message : 'la herramienta falló',
+            );
+          }
+        })();
+      })
+      .then((unlisten) => {
+        dispose = unlisten;
+      })
+      .catch(() => {});
+    return () => dispose?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store]);
+
+  async function runLocalCommand(text: string): Promise<string> {
+    const action = parseOperatorCommand(text, NAV_VIEWS);
+    if (action.kind === 'unknown') {
+      return 'No reconocí ese comando. Probá «cortá los silencios», «limpiá el video», «piloto automático» o «subtitulá el clip».';
+    }
+    return executeOperator(action);
+  }
+
+  /** Arranca el servidor MCP y devuelve la configuración para el cliente. */
+  async function startMcp(): Promise<string> {
+    const info = await store.service.startMcpServer();
+    const config = {
+      mcpServers: {
+        olyvia: {
+          type: 'http',
+          url: info.url,
+          headers: { Authorization: `Bearer ${info.token}` },
+        },
+      },
+    };
+    return [
+      `Servidor MCP escuchando en ${info.url}`,
+      'Pegá este bloque en Claude Desktop (claude_desktop_config.json) o en Cursor:',
+      '```json',
+      JSON.stringify(config, null, 2),
+      '```',
+      'Herramientas: run_command (lenguaje natural) y app_status.',
+    ].join('\n');
   }
 
   async function executeOperator(action: Exclude<OperatorAction, { kind: 'unknown' }>): Promise<string> {
     switch (action.kind) {
+      case 'brain':
+        return brainEdit(action.mode);
       case 'navigate':
         return navigate(action.view, action.label);
       case 'media_folder':
@@ -292,6 +1171,42 @@ export function AssistantDock({
         window.localStorage.setItem('editoria.factory.brief', action.topic);
         onSelect('factory');
         return `Brief «${action.topic}» enviado a Fábrica.`;
+      case 'new_project':
+        return createProjectNamed(action.name);
+      case 'import_file':
+        return importFileFromDisk(action.path);
+      case 'download_url':
+        queueDownloadUrl(action.url);
+        onSelect('download');
+        return `Envié la URL a Descargar. Revisá el formato y confirmá el pedido.`;
+      case 'add_clip':
+        return addClipByLabel(action.asset, action.atPlayhead);
+      case 'delete_selected':
+        return deleteSelection();
+      case 'split_at_playhead':
+        return splitSelection();
+      case 'goto':
+        return goTo(action.seconds);
+      case 'add_caption':
+        return addCaptionNow(action.text, action.seconds);
+      case 'set_speed':
+        return changeSpeed(action.speed);
+      case 'set_gain':
+        return changeGain(action.db);
+      case 'mute_clip':
+        return setClipMuted(action.muted);
+      case 'cut_silences':
+        return cutSilences(action);
+      case 'auto_subtitles':
+        return autoSubtitles(action);
+      case 'cut_voice_pauses':
+        return cutVoicePauses(action);
+      case 'auto_cleanup':
+        return autoCleanup(action);
+      case 'auto_pilot':
+        return autoPilot();
+      case 'mcp_server':
+        return startMcp();
       case 'help':
         return OPERATOR_HELP;
       case 'motion': {
@@ -323,9 +1238,96 @@ export function AssistantDock({
     }
   }
 
+  /**
+   * Delega la edición al cerebro: la app mide y corta, el asistente sólo pide.
+   * Es la diferencia entre "la IA adivina el corte" y "la IA pide el corte".
+   */
+  function brainEdit(mode: 'safe' | 'all' | 'report'): string {
+    const project = store.state.project;
+    if (!project) return 'No hay un proyecto abierto para analizar.';
+    const plan = planEdits(project, { intent: assistantIntent() });
+    if (mode === 'report') return brainBrief(plan);
+    const outcome =
+      mode === 'all'
+        ? applyProposals(project, plan.proposals)
+        : applySafeProposals(project, plan);
+    if (outcome.applied.length > 0) store.update(() => outcome.project);
+    if (outcome.applied.length === 0) {
+      return `${outcome.summary} El cerebro no encontró nada que aplicar (salud ${plan.score.now}/100).`;
+    }
+    return `${outcome.summary} Salud ${plan.score.now} → ${plan.score.potential}/100.`;
+  }
+
   async function runAssistantAction(action: AssistantAction): Promise<string | null> {
+    if (action.kind === 'brain') {
+      return brainEdit(action.mode);
+    }
     if (action.kind === 'media_folder') {
       return mountMediaFolder(action.folder);
+    }
+    if (action.kind === 'new_project') {
+      return createProjectNamed(action.name);
+    }
+    if (action.kind === 'import_file') {
+      return importFileFromDisk(action.path);
+    }
+    if (action.kind === 'download_url') {
+      queueDownloadUrl(action.url);
+      onSelect('download');
+      return 'Envié la URL a Descargar.';
+    }
+    if (action.kind === 'add_clip') {
+      return addClipByLabel(action.asset, action.atPlayhead);
+    }
+    if (action.kind === 'delete_selected') {
+      // Borrar lo que pidió un modelo no se ejecuta solo: espera confirmación.
+      const selection = store.state.selection;
+      const target =
+        selection.kind === 'clip'
+          ? 'el clip seleccionado'
+          : selection.kind === 'cue'
+            ? 'el subtítulo seleccionado'
+            : selection.kind === 'track'
+              ? 'la pista seleccionada'
+              : null;
+      if (!target) {
+        return 'No hay nada seleccionado para borrar.';
+      }
+      setPendingDelete(target);
+      return `Quiero borrar ${target}. Confirmá abajo para que se ejecute; podés deshacer después.`;
+    }
+    if (action.kind === 'split_at_playhead') {
+      return splitSelection();
+    }
+    if (action.kind === 'goto') {
+      return goTo(action.seconds);
+    }
+    if (action.kind === 'add_caption') {
+      return addCaptionNow(action.text, action.seconds);
+    }
+    if (action.kind === 'set_speed') {
+      return changeSpeed(action.speed);
+    }
+    if (action.kind === 'set_gain') {
+      return changeGain(action.db);
+    }
+    if (action.kind === 'mute_clip') {
+      return setClipMuted(action.muted);
+    }
+    if (action.kind === 'cut_silences') {
+      return cutSilences(action);
+    }
+    if (action.kind === 'auto_subtitles') {
+      return autoSubtitles(action);
+    }
+    if (action.kind === 'cut_voice_pauses') {
+      return cutVoicePauses(action);
+    }
+    if (action.kind === 'auto_cleanup') {
+      return autoCleanup(action);
+    }
+    if (action.kind === 'auto_pilot') {
+      return autoPilot();
     }
     if (action.kind === 'navigate') {
       navigate(action.view);
@@ -381,6 +1383,14 @@ export function AssistantDock({
     return null;
   }
 
+  /** El formato del primer perfil de entrega decide el ritmo que se propone. */
+  function assistantIntent(): EditIntent {
+    const aspect = store.state.project?.renderProfiles[0]?.aspectRatio;
+    if (aspect === '9:16') return 'short';
+    if (aspect === '1:1') return 'reel';
+    return 'tighten';
+  }
+
   async function send(): Promise<void> {
     const text = input.trim();
     if (!text || busy) return;
@@ -394,6 +1404,8 @@ export function AssistantDock({
 
     const local = parseOperatorCommand(text, NAV_VIEWS);
     if (local.kind !== 'unknown') {
+      const longRunning = local.kind === 'media_folder';
+      if (longRunning) setBusy(true);
       try {
         const reply = await executeOperator(local);
         append({ role: 'assistant', text: reply });
@@ -402,6 +1414,11 @@ export function AssistantDock({
           role: 'assistant',
           text: cause instanceof Error ? cause.message : 'No pude ejecutar el comando.',
         });
+      } finally {
+        if (longRunning) {
+          setBusy(false);
+          setBusyLabel(null);
+        }
       }
       flashReply();
       return;
@@ -416,6 +1433,9 @@ export function AssistantDock({
             playheadFrame: store.state.playheadFrame,
             fps: Number(fpsOf(store.state.project).toFixed(2)),
             view: activeId,
+            // El cerebro mide la timeline y entrega el brief listo: el modelo
+            // elige entre propuestas concretas en vez de inventar cortes.
+            brain: brainBrief(planEdits(store.state.project, { intent: assistantIntent() })),
           }
         : { view: activeId };
       const history = [...messages, { role: 'user' as const, text }]
@@ -435,6 +1455,21 @@ export function AssistantDock({
       setError(cause instanceof Error ? cause.message : 'no se pudo contactar al asistente');
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function confirmPendingDelete(): Promise<void> {
+    const target = pendingDelete;
+    setPendingDelete(null);
+    if (!target) return;
+    try {
+      append({ role: 'assistant', text: await deleteSelection() });
+      flashReply();
+    } catch (cause) {
+      append({
+        role: 'assistant',
+        text: cause instanceof Error ? cause.message : 'No pude borrar la selección.',
+      });
     }
   }
 
@@ -461,7 +1496,7 @@ export function AssistantDock({
                   {provider
                     ? provider.kind === 'mock'
                       ? 'Modo simulado · sin red'
-                      : `${provider.model || 'Proveedor'} · ${provider.baseUrl}`
+                      : providerLabel
                     : 'Proveedor no consultado'}
                 </span>
               </div>
@@ -476,19 +1511,91 @@ export function AssistantDock({
             </button>
           </header>
 
+          <div className="assistant-model-bar">
+            <AiBrandMark
+              brand={brand}
+              size={26}
+              title={`Modelo en uso: ${provider?.model || 'sin modelo'}`}
+            />
+            <div className="assistant-model-info">
+              {modelChoices.length > 1 ? (
+                <select
+                  className="assistant-model-select"
+                  value={provider?.model ?? ''}
+                  aria-label="Modelo en uso"
+                  disabled={busy || !provider}
+                  onChange={(event) => void switchModel(event.target.value)}
+                >
+                  {modelChoices.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <strong>{provider?.model || 'sin modelo'}</strong>
+              )}
+              <span>{providerLabel}</span>
+            </div>
+            <span
+              className={`assistant-model-chip ${providerStatus}`}
+              title={
+                providerStatus === 'sim'
+                  ? 'El proveedor simulado no hace red'
+                  : providerStatus === 'local'
+                    ? 'Corre en esta máquina'
+                    : 'Llamada a un servicio remoto: puede gastar cuota'
+              }
+            >
+              {providerStatus === 'sim'
+                ? 'simulado'
+                : providerStatus === 'local'
+                  ? 'local'
+                  : providerStatus === 'remote'
+                    ? 'remoto'
+                    : '—'}
+            </span>
+          </div>
+
           <div className="assistant-log" role="log" aria-live="polite" ref={logRef}>
             {messages.map((entry, index) => (
               <p key={`${entry.role}-${index}`} className={`assistant-message ${entry.role}`}>
                 {entry.text}
               </p>
             ))}
-            {busy ? <p className="assistant-message assistant">Pensando…</p> : null}
+            {busy ? (
+              <p className="assistant-message assistant">{busyLabel ?? 'Pensando…'}</p>
+            ) : null}
           </div>
 
           {error ? (
             <p className="assistant-error" role="alert">
               {error}
             </p>
+          ) : null}
+
+          {pendingDelete ? (
+            <div className="assistant-confirm" role="alertdialog" aria-label="Confirmar borrado">
+              <p>
+                La IA quiere borrar {pendingDelete}. ¿Lo ejecuto?
+              </p>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void confirmPendingDelete()}
+                >
+                  Sí, borrar
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={() => setPendingDelete(null)}
+                >
+                  No, cancelar
+                </button>
+              </div>
+            </div>
           ) : null}
 
           <div className="assistant-quick" role="group" aria-label="Acciones rápidas">
@@ -539,10 +1646,13 @@ export function AssistantDock({
           </form>
 
           <footer className="assistant-foot">
+            <span className="assistant-foot-model">
+              <AiBrandMark brand={brand} size={13} />
+              <span>{provider?.model || 'sin modelo'}</span>
+            </span>
             <button type="button" className="link" onClick={() => onSelect('settings')}>
               Configurar proveedor
             </button>
-            <span>Atajos locales sin tokens</span>
           </footer>
         </section>
       ) : null}

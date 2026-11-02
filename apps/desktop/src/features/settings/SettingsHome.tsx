@@ -5,6 +5,12 @@ import type {
   SystemInfo,
 } from '../../services/project-service';
 import { providerUrlProblem } from '../../services/project-service';
+import {
+  AI_PROVIDERS,
+  detectAiBrand,
+  suggestedModels,
+} from '../../services/ai-models';
+import { AiBrandMark } from '../../components/AiBrandMark';
 import { Icon, type IconName } from '../../components/Icon';
 import { useProjectStore } from '../../state/project-store';
 import { AudioProviderCard } from './AudioProviderCard';
@@ -326,6 +332,28 @@ export function SettingsHome({
             Compatible con la API de chat de OpenAI: OpenAI, un endpoint local (Ollama, LM Studio,
             vLLM) o cualquier servicio con el mismo contrato. El proveedor simulado no hace red.
           </p>
+          <div className="ai-provider-grid" role="group" aria-label="Proveedores conocidos">
+            {AI_PROVIDERS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={`ai-provider-card${detectAiBrand(baseUrl, model) === preset.brand ? ' active' : ''}${
+                  baseUrl && preset.baseUrl === baseUrl ? ' current' : ''
+                }`}
+                disabled={busy}
+                title={preset.note}
+                onClick={() => {
+                  setKind(preset.id === 'mock' ? 'mock' : 'openai-compatible');
+                  setBaseUrl(preset.baseUrl);
+                  setModel(preset.model);
+                }}
+              >
+                <AiBrandMark brand={preset.brand} size={22} title={preset.label} />
+                <span className="ai-provider-name">{preset.label}</span>
+                <span className="ai-provider-tag">{preset.local ? 'local' : 'nube'}</span>
+              </button>
+            ))}
+          </div>
           <div className="form-grid">
             <label className="field">
               <span>Tipo</span>
@@ -345,14 +373,27 @@ export function SettingsHome({
               />
             </label>
             <label className="field">
-              <span>Modelo</span>
+              <span className="ai-model-label">
+                <AiBrandMark
+                  brand={detectAiBrand(baseUrl, model)}
+                  size={16}
+                  title={model || 'sin modelo'}
+                />
+                Modelo
+              </span>
               <input
                 value={model}
                 onChange={(event) => setModel(event.target.value)}
                 placeholder="llama3.1"
                 disabled={kind === 'mock'}
                 autoComplete="off"
+                list="ai-model-options"
               />
+              <datalist id="ai-model-options">
+                {suggestedModels(baseUrl, model).map((option) => (
+                  <option key={option} value={option} />
+                ))}
+              </datalist>
             </label>
             <label className="field">
               <span>Clave API {provider?.hasKey ? '(ya guardada)' : '(opcional en local)'}</span>

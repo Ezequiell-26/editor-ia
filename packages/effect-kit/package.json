@@ -1,0 +1,18 @@
+{
+  "name": "@editor-ia/effect-kit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Motor de efectos declarativo de Olyvia: manifiestos, parámetros tipados, stack ordenado por clip, pipeline GPU multipaso y compilación a FFmpeg.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "MIT",
+  "dependencies": {}
+}

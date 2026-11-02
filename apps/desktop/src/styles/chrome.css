@@ -3493,6 +3493,113 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Definición (nitidez perceptual)                                     */
+/* ------------------------------------------------------------------ */
+
+.clarity-view {
+  min-width: 0;
+}
+
+.clarity-stages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.clarity-stage {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-panel);
+}
+
+.clarity-stage.active {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-panel));
+}
+
+.clarity-stage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.clarity-stage-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.clarity-stage-head h3 {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.clarity-stage-head p {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.clarity-pill {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-empty);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.clarity-pill.on {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.clarity-stage-body {
+  display: grid;
+  gap: 8px;
+}
+
+.clarity-stage-body .field {
+  min-width: 0;
+}
+
+.clarity-stage-why {
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+}
+
+.clarity-chain code {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--color-accent);
+}
+
+@media (max-width: 860px) {
+  .clarity-stages {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Thumbnail Studio                                                    */
 /* ------------------------------------------------------------------ */
 

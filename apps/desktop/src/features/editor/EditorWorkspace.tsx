@@ -41,6 +41,8 @@ const loadMotion = () =>
   import('../motion/MotionView').then((module) => ({ default: module.MotionView }));
 const loadVisuals = () =>
   import('../visuals/VisualsView').then((module) => ({ default: module.VisualsView }));
+const loadBrain = () =>
+  import('../brain/BrainPanel').then((module) => ({ default: module.BrainPanel }));
 
 const EditorAssets = lazy(loadAssets);
 const Inspector = lazy(loadInspector);
@@ -52,6 +54,7 @@ const MixerView = lazy(loadMixer);
 const VfxView = lazy(loadVfx);
 const MotionView = lazy(loadMotion);
 const VisualsView = lazy(loadVisuals);
+const BrainPanel = lazy(loadBrain);
 
 type EditorMode = EditorModeId;
 
@@ -61,6 +64,7 @@ const EDITOR_MODES: readonly {
   readonly hint: string;
 }[] = [
   { id: 'timeline', label: 'Edición', hint: 'Timeline, preview e inspector' },
+  { id: 'brain', label: 'Cerebro', hint: 'Mide la timeline y propone cortes con motivo' },
   { id: 'text-edit', label: 'Texto', hint: 'Transcribir y cortar desde las frases' },
   { id: 'multicam', label: 'Multicámara', hint: 'Sincronizar cámaras y cambiar de ángulo' },
   { id: 'mixer', label: 'Mezcla', hint: 'Ganancia, paneo y EQ por pista' },
@@ -292,6 +296,8 @@ export function EditorWorkspace({
       <MotionView onNavigate={navigateFromMode} />
     ) : mode === 'visuals' ? (
       <VisualsView onNavigate={navigateFromMode} />
+    ) : mode === 'brain' ? (
+      <BrainPanel />
     ) : null;
 
   return (

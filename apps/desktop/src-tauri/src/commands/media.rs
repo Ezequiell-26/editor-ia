@@ -820,6 +820,15 @@ pub fn list_media_folder(
     folder: String,
     root: Option<String>,
 ) -> Result<MediaFolderListing, ProjectError> {
+    let trimmed = folder.trim().trim_matches(['"', '\'', '“', '”', '«', '»']);
+    let direct_path = PathBuf::from(trimmed);
+    if direct_path.is_dir() {
+        let listing = media_folder_listing(direct_path);
+        if !listing.files.is_empty() {
+            return Ok(listing);
+        }
+    }
+
     let name = sanitize_media_folder_name(&folder).ok_or_else(|| {
         ProjectError::message(
             ProjectErrorCode::InvalidProject,
@@ -937,5 +946,19 @@ mod tests {
             asset["rights"]["provenance"]["provider"],
             "google-flow-image"
         );
+    }
+
+    #[test]
+    fn list_media_folder_accepts_existing_absolute_dir() {
+        let root =
+            std::env::temp_dir().join(format!("olyvia-abs-folder-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("sample.mp4"), b"test").unwrap();
+
+        let listing = media_folder_listing(root.clone());
+        assert_eq!(listing.files.len(), 1);
+        assert_eq!(listing.files[0].name, "sample.mp4");
+        assert_eq!(listing.files[0].kind, "video");
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

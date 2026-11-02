@@ -166,6 +166,78 @@ function cpuFps(fps: number): number {
   return Number.isFinite(fps) && fps > 0 ? fps : 30;
 }
 
+export interface AutoCutOptions {
+  /** Plano mínimo antes de volver a cambiar de cámara (1,2 s). */
+  readonly minShotSeconds?: number;
+  /** Debajo de este nivel se considera silencio y no se cambia (0,08). */
+  readonly threshold?: number;
+  /** Cuánto más fuerte tiene que sonar otra cámara para entrar (1,25). */
+  readonly hysteresis?: number;
+  readonly startCamera?: number;
+}
+
+/**
+ * Corte automático por actividad de voz.
+ *
+ * Compara las envolventes de audio de las cámaras en el tiempo del programa y
+ * elige la que suena. Dos guardias evitan el efecto «tembleque»: un plano
+ * mínimo y una histéresis, así una cámara no entra por un pico de una décima.
+ * En silencio se queda la cámara actual: cortar a un plano mudo no aporta.
+ */
+export function autoCutByActivity(
+  cameras: readonly MulticamCamera[],
+  envelopes: readonly (AudioEnvelope | null)[],
+  fps: number,
+  options: AutoCutOptions = {},
+): MulticamCut[] {
+  if (cameras.length === 0 || fps <= 0) return [];
+  const total = programDurationFrames(cameras);
+  if (total <= 0) return [];
+  const minShotFrames = Math.max(1, Math.round((options.minShotSeconds ?? 1.2) * fps));
+  const threshold = options.threshold ?? 0.08;
+  const hysteresis = options.hysteresis ?? 1.25;
+  const start = Math.min(cameras.length - 1, Math.max(0, options.startCamera ?? 0));
+
+  const levelAt = (index: number, frame: number): number => {
+    const envelope = envelopes[index];
+    const camera = cameras[index];
+    if (!envelope || !camera || envelope.values.length === 0 || envelope.stepSeconds <= 0) {
+      return 0;
+    }
+    const seconds = (frame - camera.offsetFrames) / fps;
+    if (seconds < 0 || seconds > envelope.durationSeconds) return 0;
+    const position = Math.min(
+      envelope.values.length - 1,
+      Math.round(seconds / envelope.stepSeconds),
+    );
+    return envelope.values[position] ?? 0;
+  };
+
+  const cuts: MulticamCut[] = [{ frame: 0, cameraIndex: start }];
+  let current = start;
+  let lastSwitch = 0;
+  const step = Math.max(1, Math.round(fps * 0.1));
+  for (let frame = step; frame < total; frame += step) {
+    let best = current;
+    let bestLevel = levelAt(current, frame);
+    for (let index = 0; index < cameras.length; index += 1) {
+      const level = levelAt(index, frame);
+      if (level > bestLevel) {
+        best = index;
+        bestLevel = level;
+      }
+    }
+    if (best === current) continue;
+    if (bestLevel < threshold) continue;
+    if (bestLevel < levelAt(current, frame) * hysteresis) continue;
+    if (frame - lastSwitch < minShotFrames) continue;
+    cuts.push({ frame, cameraIndex: best });
+    current = best;
+    lastSwitch = frame;
+  }
+  return normalizeCuts(cuts, total, cameras.length);
+}
+
 export interface AudioEnvelope {
   readonly durationSeconds: number;
   readonly stepSeconds: number;

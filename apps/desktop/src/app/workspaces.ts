@@ -62,6 +62,7 @@ const PRIMARY_WORKSPACE: Readonly<Partial<Record<ViewId, WorkspaceId>>> = {
   convert: 'studio',
   compress: 'studio',
   denoise: 'studio',
+  sharpen: 'studio',
   background: 'studio',
   upscale: 'studio',
   compare: 'studio',

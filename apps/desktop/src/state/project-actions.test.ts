@@ -1792,6 +1792,49 @@ describe('velocidad y efectos de clip', () => {
     validated(result.project);
   });
 
+  it('parte un segmento largo en subtítulos legibles', () => {
+    const project = base();
+    const audio = audioAsset(300);
+    const added = addClipFromAsset(addAsset(project, audio), audio, {
+      atFrame: 0,
+      durationFrames: 300,
+    });
+    const text =
+      'Hoy vamos a ver tres ejercicios para mejorar la sentadilla sin dolor de rodilla y cómo progresar cada semana';
+    const words = text.split(' ').map((word, index) => ({
+      start: index * 0.4,
+      end: index * 0.4 + 0.35,
+      word,
+    }));
+    const result = addTranscriptionCues(added.project, added.clipId, [
+      { start: 0, end: words.length * 0.4, text, words },
+    ]);
+    expect(result.added).toBeGreaterThan(1);
+    expect(result.splitSegments).toBe(1);
+    const cues = result.project.captions.cues.filter((cue) => cue.trackId);
+    for (const cue of cues) {
+      expect(cue.text.split('\n').length).toBeLessThanOrEqual(2);
+      expect([...cue.text.replace(/\n/g, ' ')].length).toBeLessThanOrEqual(84);
+    }
+    expect(cues.map((cue) => cue.text.replace(/\n/g, ' ')).join(' ')).toBe(text);
+    validated(result.project);
+  });
+
+  it('sube los subtítulos en un proyecto vertical', () => {
+    const project = base();
+    project.video = { width: 1080, height: 1920, frameRate: { num: 30, den: 1 } };
+    const audio = audioAsset(120);
+    const added = addClipFromAsset(addAsset(project, audio), audio, {
+      atFrame: 0,
+      durationFrames: 90,
+    });
+    const result = addTranscriptionCues(added.project, added.clipId, [
+      { start: 0, end: 1, text: 'Hola' },
+    ]);
+    const cue = result.project.captions.cues.find((item) => item.text === 'Hola');
+    expect(cue?.offsetY).toBe(-154);
+  });
+
   it('divide un clip en varios cortes de escena', () => {
     const project = base();
     const asset = videoAsset(300);
@@ -2169,7 +2212,8 @@ describe('capas de ajuste', () => {
     const right = after.timeline.clips.find((item) => item.id === split!.rightClipId);
     expect(left?.durationFrames).toBe(30);
     expect(right?.startFrame).toBe(30);
-    expect(right && 'effects' in right ? right.effects?.contrast : undefined).toBe(1.3);
+    const rightEffects = right && 'effects' in right ? right.effects : undefined;
+    expect(rightEffects && 'contrast' in rightEffects ? rightEffects.contrast : undefined).toBe(1.3);
   });
 
   it('rechaza una pista que no sea de ajustes', () => {

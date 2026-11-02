@@ -7,6 +7,8 @@ import { fpsOf, setMaskKeyframe, updateClip } from '../../state/project-actions'
 import { useProjectStore } from '../../state/project-store';
 import { maskFromFaceTrack, polygonAroundCenter } from './face-mask';
 import { ChromaPreview, sampleBackgroundColor, type ChromaSettings } from './ChromaPreview';
+import { EffectStudio } from './EffectStudio';
+import type { EffectStack } from '@editor-ia/effect-kit';
 
 export interface VfxViewProps {
   readonly onNavigate: (view: ViewId) => void;
@@ -183,6 +185,12 @@ export function VfxView({ onNavigate }: VfxViewProps) {
         effects: { ...current.effects, ...patch } as ClipEffects,
       }),
     );
+  }
+
+  const effectStack: EffectStack = (effects.stack ?? []) as EffectStack;
+
+  function setEffectStack(next: EffectStack): void {
+    patchEffects({ stack: next });
   }
 
   function patchMask(next: ClipMask | undefined): void {
@@ -747,6 +755,17 @@ export function VfxView({ onNavigate }: VfxViewProps) {
               </article>
             </div>
           </div>
+
+          {clip ? (
+            <EffectStudio
+              stack={effectStack}
+              onChange={setEffectStack}
+              mediaEl={mediaEl}
+              localFrame={localFrame}
+              frameRate={fps}
+              clipLabel={asset?.label ?? clip.label ?? 'Clip'}
+            />
+          ) : null}
 
           {notice ? <p className="vfx-status">{notice}</p> : null}
           {error ? <p className="vfx-status error">{error}</p> : null}

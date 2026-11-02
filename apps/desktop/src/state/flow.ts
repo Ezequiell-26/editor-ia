@@ -60,3 +60,71 @@ export function sceneVisualPrompt(scene: {
 export function flowProviderId(kind: 'image' | 'video'): string {
   return kind === 'video' ? 'google-flow-video' : 'google-flow-image';
 }
+
+
+/**
+ * Argumentos para un servidor MCP de Flow.
+ *
+ * Hay al menos dos familias en circulación: la que usa `ratio`, `output_folder`,
+ * `auto_confirm` y `duration`, y la de `google-flow-mcp` (miyakejima), que usa
+ * `aspectRatio`, `outputDirectory`, `confirmCreditSpend` y `durationSeconds`.
+ * Si conocemos el schema de la herramienta, mandamos exactamente lo que declara;
+ * si no, mandamos el superconjunto: los servidores con zod ignoran las claves
+ * que no conocen, así que la llamada funciona en ambos.
+ */
+export interface FlowArgsInput {
+  readonly prompt: string;
+  readonly kind: 'image' | 'video';
+  readonly outputDir: string;
+  readonly model?: string | undefined;
+  readonly ratio?: string | undefined;
+  readonly duration?: string | undefined;
+  readonly credits?: boolean | undefined;
+  /** `inputSchema` de la herramienta MCP, si se conoce. */
+  readonly schema?: unknown;
+}
+
+function declaredProperties(schema: unknown): Set<string> | null {
+  if (!schema || typeof schema !== 'object') return null;
+  const properties = (schema as { properties?: unknown }).properties;
+  if (!properties || typeof properties !== 'object') return null;
+  const keys = Object.keys(properties as Record<string, unknown>);
+  return keys.length > 0 ? new Set(keys) : null;
+}
+
+function secondsOf(duration: string | undefined): number | undefined {
+  if (!duration) return undefined;
+  const match = /([0-9]+(?:\.[0-9]+)?)/.exec(duration);
+  if (!match) return undefined;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+export function buildFlowArgs(input: FlowArgsInput): Record<string, unknown> {
+  const declared = declaredProperties(input.schema);
+  const all: Record<string, unknown> = { prompt: input.prompt };
+  if (input.model) all.model = input.model;
+  if (input.ratio) {
+    all.aspectRatio = input.ratio;
+    all.ratio = input.ratio;
+  }
+  all.outputDirectory = input.outputDir;
+  all.output_folder = input.outputDir;
+  if (input.credits !== false) {
+    all.confirmCreditSpend = true;
+    all.auto_confirm = true;
+  }
+  all.outputs = 1;
+  all.response_format = 'detailed';
+  if (input.kind === 'video') {
+    const seconds = secondsOf(input.duration);
+    if (seconds !== undefined) all.durationSeconds = seconds;
+    if (input.duration) all.duration = input.duration;
+  }
+  if (!declared) return all;
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(all)) {
+    if (declared.has(key)) filtered[key] = value;
+  }
+  return filtered;
+}

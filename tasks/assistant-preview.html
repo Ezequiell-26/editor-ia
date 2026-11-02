@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Asistente Olyvia - Preview Chat Profesional</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    /* === Panel Principal === */
+    .assistant-panel {
+      width: 420px;
+      height: 600px;
+      background: #ffffff;
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Header */
+    .assistant-head {
+      display: flex;
+      align-items: center;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid #e5e7eb;
+      gap: 12px;
+    }
+
+    .assistant-identity {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+    }
+
+    /* === PetCompanion (Pou Mini) === */
+    .pet-avatar {
+      position: relative;
+      width: 52px;
+      height: 52px;
+      display: inline-block;
+    }
+
+    .pet-stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pet-photo {
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: drop-shadow(0 2px 8px rgba(31, 155, 255, 0.3));
+      transition: transform 0.3s ease;
+    }
+
+    .pet-aura {
+      position: absolute;
+      inset: -4px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6 0%, #1F5EFF 50%, #2f9bff 100%);
+      opacity: 0.15;
+      animation: pulse 2s ease-in-out infinite;
+      pointer-events: none;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 0.15; }
+      50% { transform: scale(1.1); opacity: 0.25; }
+    }
+
+    /* Estados del pet */
+    .pet-avatar.is-listening .pet-stage {
+      animation: bounce 0.6s ease;
+    }
+
+    .pet-avatar.is-thinking .pet-stage {
+      animation: think 1.2s ease-in-out infinite;
+    }
+
+    .pet-avatar.is-replying .pet-stage {
+      animation: reply 0.8s ease;
+    }
+
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+
+    @keyframes think {
+      0%, 100% { transform: rotate(0deg); }
+      25% { transform: rotate(-5deg); }
+      75% { transform: rotate(5deg); }
+    }
+
+    @keyframes reply {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+
+    /* SVG facial overlay */
+    .pet-face {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+    }
+
+    .pet-gaze {
+      transform-origin: center;
+      transition: transform 0.15s ease-out;
+    }
+
+    .pet-lids path {
+      fill: none;
+      stroke: #ffffff;
+      stroke-width: 18;
+      stroke-linecap: round;
+      opacity: 0.05;
+    }
+
+    .pet-dots {
+      position: absolute;
+      bottom: -8px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: flex;
+      gap: 3px;
+    }
+
+    .pet-dots i {
+      width: 4px;
+      height: 4px;
+      background: radial-gradient(circle, #3b82f6 0%, transparent 70%);
+      border-radius: 50%;
+      animation: dot-bounce 1.5s ease-in-out infinite;
+    }
+
+    .pet-dots i:nth-child(2) { animation-delay: 0.2s; }
+    .pet-dots i:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dot-bounce {
+      0%, 100% { opacity: 0.3; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.3); }
+    }
+
+    /* Text label */
+    .assistant-identity div {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .assistant-identity strong {
+      font-size: 14px;
+      font-weight: 600;
+      color: #111827;
+    }
+
+    .assistant-identity span {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 2px;
+    }
+
+    /* Botón cerrar */
+    button.icon-button {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    }
+
+    button.icon-button:hover {
+      background: #f3f4f6;
+    }
+
+    button.icon-button svg {
+      width: 16px;
+      height: 16px;
+      fill: #6b7280;
+    }
+
+    /* Modelo bar */
+    .assistant-model-bar {
+      display: flex;
+      align-items: center;
+      padding: 12px 16px;
+      gap: 10px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    .ai-brand-mark {
+      width: 26px;
+      height: 26px;
+      background: linear-gradient(135deg, #3b82f6 0%, #1F5EFF 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .ai-brand-mark::before {
+      content: '';
+      width: 14px;
+      height: 14px;
+      background: white;
+      border-radius: 50%;
+    }
+
+    .assistant-model-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .assistant-model-info strong {
+      font-size: 13px;
+      color: #111827;
+      font-weight: 500;
+    }
+
+    .assistant-model-info > span:last-child {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    .assistant-model-chip {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: #dbeafe;
+      color: #1F5EFF;
+    }
+
+    /* Log de mensajes */
+    .assistant-log {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .assistant-message {
+      padding: 12px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      line-height: 1.5;
+      animation: message-in 0.3s ease-out;
+    }
+
+    @keyframes message-in {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .assistant-message.user {
+      background: linear-gradient(135deg, #1F5EFF 0%, #3b82f6 100%);
+      color: white;
+      align-self: flex-end;
+      max-width: 85%;
+      box-shadow: 0 2px 8px rgba(31, 155, 255, 0.2);
+    }
+
+    .assistant-message.assistant {
+      background: #f9fafb;
+      color: #1f2937;
+      align-self: flex-start;
+      max-width: 85%;
+      border: 1px solid #e5e7eb;
+    }
+
+    /* Acciones rápidas */
+    .assistant-quick {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid #f3f4f6;
+      flex-wrap: wrap;
+    }
+
+    .assistant-quick button {
+      background: #f3f4f6;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: #374151;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex: 1;
+      min-width: 70px;
+    }
+
+    .assistant-quick button:hover {
+      background: #e5e7eb;
+      transform: translateY(-1px);
+    }
+
+    /* Checkbox consentimiento */
+    .assistant-consent {
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #fffbeb;
+      border-top: 1px solid #f3f4f6;
+    }
+
+    .assistant-consent input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: #1F5EFF;
+      cursor: pointer;
+    }
+
+    .assistant-consent span {
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    /* Formulario de entrada */
+    .assistant-composer {
+      display: flex;
+      gap: 8px;
+      padding: 16px;
+      background: #ffffff;
+      border-top: 1px solid #f3f4f6;
+    }
+
+    .assistant-composer textarea {
+      flex: 1;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      resize: none;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      max-height: 120px;
+    }
+
+    .assistant-composer textarea:focus {
+      border-color: #1F5EFF;
+      box-shadow: 0 0 0 3px rgba(31, 155, 255, 0.1);
+    }
+
+    .assistant-composer button {
+      background: linear-gradient(135deg, #1F5EFF 0%, #3b82f6 100%);
+      border: none;
+      border-radius: 10px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      flex-shrink: 0;
+    }
+
+    .assistant-composer button:hover:not(:disabled) {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(31, 155, 255, 0.4);
+    }
+
+    .assistant-composer button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .assistant-composer button svg {
+      width: 20px;
+      height: 20px;
+      fill: white;
+    }
+
+    /* Footer */
+    .assistant-foot {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 16px;
+      border-top: 1px solid #f3f4f6;
+      background: #f9fafb;
+    }
+
+    .assistant-foot-model {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #6b7280;
+    }
+
+    .assistant-foot-model .ai-brand-mark {
+      width: 18px;
+      height: 18px;
+    }
+
+    .assistant-foot button {
+      background: transparent;
+      border: none;
+      color: #1F5EFF;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      text-decoration: underline;
+    }
+
+    /* Demo controls */
+    .demo-controls {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      z-index: 1000;
+    }
+
+    .demo-controls h3 {
+      font-size: 14px;
+      margin-bottom: 12px;
+      color: #111827;
+    }
+
+    .demo-controls label {
+      display: block;
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #6b7280;
+    }
+
+    .demo-controls select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 12px;
+      background: white;
+    }
+
+    .demo-mood-label {
+      font-size: 11px;
+      color: #9ca3af;
+      text-align: center;
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Panel del Asistente -->
+  <section class="assistant-panel" id="panel">
+    <header class="assistant-head">
+      <div class="assistant-identity">
+        <span class="pet-avatar is-awake" id="petAvatar">
+          <span class="pet-aura"></span>
+          <span class="pet-stage" id="petStage">
+            <svg class="pet-photo" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid slice">
+              <!-- Cuerpo Pou mini -->
+              <circle cx="50" cy="50" r="48" fill="#ffffff"/>
+              <circle cx="50" cy="50" r="45" fill="#f0f9ff"/>
+              <!-- Ojos base -->
+              <ellipse cx="35" cy="45" rx="8" ry="10" fill="#ffffff"/>
+              <ellipse cx="65" cy="45" rx="8" ry="10" fill="#ffffff"/>
+              <circle cx="35" cy="45" r="6" fill="#2f9bff"/>
+              <circle cx="65" cy="45" r="6" fill="#2f9bff"/>
+              <circle cx="35" cy="43" r="2" fill="#ffffff"/>
+              <circle cx="65" cy="43" r="2" fill="#ffffff"/>
+              <!-- Boca -->
+              <path d="M 40 60 Q 50 66 60 60" stroke="#1F5EFF" stroke-width="2" fill="none"/>
+            </svg>
+            <svg class="pet-face" viewBox="0 0 100 100" focusable="false" preserveAspectRatio="none">
+              <defs>
+                <radialGradient id="pet-iris" cx="46%" cy="38%" r="62%">
+                  <stop offset="0%" stopColor="#ffffff"/>
+                  <stop offset="42%" stopColor="#e4fcff"/>
+                  <stop offset="76%" stopColor="#6fe7ff"/>
+                  <stop offset="100%" stopColor="#2f9bff"/>
+                </radialGradient>
+              </defs>
+              <g class="pet-lids">
+                <path d="M 25 48 Q 35 56 45 48"/>
+                <path d="M 55 44 Q 65 52 75 44"/>
+              </g>
+              <g class="pet-look">
+                <g class="pet-gaze" id="petGaze">
+                  <circle cx="35" cy="45" r="6" fill="url(#pet-iris)"/>
+                  <circle cx="65" cy="45" r="6" fill="url(#pet-iris)"/>
+                </g>
+              </g>
+            </svg>
+            <span class="pet-dots">
+              <i></i><i></i><i></i>
+            </span>
+          </span>
+        </span>
+        <div>
+          <strong>Olyvia Assistant</strong>
+          <span id="providerLabel">Local · sin red</span>
+        </div>
+      </div>
+      <button class="icon-button" title="Cerrar asistente">
+        <svg viewBox="0 0 16 16"><path d="M4 4l8 8m0-8l-8 8"/></svg>
+      </button>
+    </header>
+
+    <div class="assistant-model-bar">
+      <div class="ai-brand-mark"></div>
+      <div class="assistant-model-info">
+        <strong>GPT-OSS-20B-Preview</strong>
+        <span>http://127.0.0.1:31415/v1</span>
+      </div>
+      <span class="assistant-model-chip" id="modelChip">local</span>
+    </div>
+
+    <div class="assistant-log" role="log" aria-live="polite" id="messageLog">
+      <p class="assistant-message assistant">
+        Hola, soy Olyvia. Puedo controlar la app, montar una carpeta de Descargas con fotos y audio, resumir el proyecto o crear un gráfico. Probá «usar la carpeta video 1 de descargas» o «abrir editor».
+      </p>
+    </div>
+
+    <div class="assistant-quick" role="group" aria-label="Acciones rápidas">
+      <button onclick="sendMessage('abrir editor')">Editor</button>
+      <button onclick="sendMessage('estado')">Estado</button>
+      <button onclick="sendMessage('guardar')">Guardar</button>
+      <button onclick="sendMessage('exportar')">Exportar</button>
+    </div>
+
+    <label class="assistant-consent">
+      <input type="checkbox" id="consentCheckbox" onchange="changeMood(this.checked ? 'listening' : 'awake')">
+      <span>Permitir llamada remota (puede consumir cuota)</span>
+    </label>
+
+    <form class="assistant-composer" onsubmit="handleFormSubmit(event)">
+      <textarea 
+        id="inputText" 
+        placeholder="Pedile algo a Olyvia…"
+        rows="2"
+        onfocus="changeMood('listening')"
+        onblur="changeMood(currentMood)"
+      ></textarea>
+      <button type="submit" id="sendButton" disabled>
+        <svg viewBox="0 0 16 16"><path d="M2 8l12-6v12L2 8z"/></svg>
+      </button>
+    </form>
+
+    <footer class="assistant-foot">
+      <span class="assistant-foot-model">
+        <div class="ai-brand-mark"></div>
+        <span>GPT-OSS-20B-Preview</span>
+      </span>
+      <button onclick="alert('Configurar proveedor abierto en Ajustes → Inteligencia artificial')">
+        Configurar proveedor
+      </button>
+    </footer>
+  </section>
+
+  <!-- Controles de demo -->
+  <div class="demo-controls">
+    <h3>Demo de Estados</h3>
+    <label for="moodSelect">Cambiar estado:</label>
+    <select id="moodSelect" onchange="changeMood(this.value)">
+      <option value="awake">😴 Awake (normal)</option>
+      <option value="listening">👂 Listening (escuchando)</option>
+      <option value="thinking">🤔 Thinking (pensando)</option>
+      <option value="replying">💬 Replying (respondiendo)</option>
+    </select>
+    <div class="demo-mood-label" id="currentMood">Estado actual: awake</div>
+  </div>
+
+  <script>
+    const avatar = document.getElementById('petAvatar');
+    const stage = document.getElementById('petStage');
+    const gaze = document.getElementById('petGaze');
+    const log = document.getElementById('messageLog');
+    const input = document.getElementById('inputText');
+    const sendBtn = document.getElementById('sendButton');
+    let currentMood = 'awake';
+
+    // === Tracking del mouse para los ojos ===
+    document.addEventListener('pointermove', (event) => {
+      if (!avatar) return;
+      const rect = avatar.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height * 0.52;
+      const lookX = Math.max(-1, Math.min(1, (event.clientX - centerX) / 260));
+      const lookY = Math.max(-1, Math.min(1, (event.clientY - centerY) / 260));
+      
+      // Rotación limitada del iris
+      const rotateX = lookY * 10; // hasta ±10 grados vertical
+      const rotateY = lookX * 10; // hasta ±10 grados horizontal
+      
+      gaze.style.transform = `rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+    });
+
+    // === Manejo de estados ===
+    function changeMood(mood) {
+      currentMood = mood;
+      avatar.className = `pet-avatar is-${mood}`;
+      document.getElementById('currentMood').textContent = `Estado actual: ${mood}`;
+    }
+
+    // === Enviar mensaje ===
+    function sendMessage(text) {
+      appendMessage('user', text);
+      changeMood('thinking');
+      setTimeout(() => {
+        const responses = [
+          '¡Claro! Abriendo el editor ahora mismo.',
+          'El proyecto tiene 3 clips, playhead en 120fps, 30 fps.',
+          'Proyecto guardado correctamente.',
+          'Abrí el diálogo de exportación.'
+        ];
+        const reply = responses[Math.floor(Math.random() * responses.length)];
+        changeMood('replying');
+        setTimeout(() => appendMessage('assistant', reply), 800);
+      }, 1200);
+    }
+
+    function appendMessage(role, text) {
+      const p = document.createElement('p');
+      p.className = `assistant-message ${role}`;
+      p.textContent = text;
+      log.appendChild(p);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function handleFormSubmit(e) {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (text) {
+        sendMessage(text);
+        input.value = '';
+        sendBtn.disabled = true;
+      }
+    }
+
+    // === Auto-disable send button ===
+    input.addEventListener('input', () => {
+      sendBtn.disabled = !input.value.trim();
+    });
+
+    // === Iniciar con eyes tracking active ===
+    console.log('Asistente Olyvia cargado ✅');
+    console.log('Los ojos seguirán tu movimiento 🐾');
+  </script>
+</body>
+</html>

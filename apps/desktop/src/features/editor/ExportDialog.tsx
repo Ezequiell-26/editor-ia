@@ -34,6 +34,7 @@ import { useDialogFocus } from '../../hooks/useDialogFocus';
 import { recordDirectorOutcome } from '../../state/editor-memory';
 import { evaluateProjectQuality } from '../../state/quality';
 import { buildProjectMotionPlans } from '../motion/plan';
+import { chooseExportProfile } from '../../state/render-profile';
 import { hasEmoji } from '../emoji/emoji';
 import { gpuRecommendation } from './gpu-policy';
 
@@ -190,8 +191,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     setIncludeCaptions((project?.captions.cues.length ?? 0) > 0);
     setUseGpu(false);
     const profiles = project?.renderProfiles ?? [];
-    const preferred =
-      profiles.find((profile) => profile.name.startsWith('Formato del proyecto')) ?? profiles[0];
+    const preferred = project ? chooseExportProfile(project) : profiles[0];
     setProfileId(preferred?.id ?? '');
     setBatchProfiles(new Set(profiles.map((profile) => profile.id)));
     setBatchResults([]);

@@ -403,10 +403,103 @@ pub async fn analyze_mix_loudness(
     report
 }
 
+/// Loudness medido sobre un archivo ya renderizado.
+///
+/// `analyze_mix_loudness` mide la mezcla del proyecto abierto; este comando mide
+/// el MP4 que salió del render. Es lo que permite el lazo cerrado: comparar el
+/// resultado con el objetivo y corregir el master antes de volver a exportar.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileLoudness {
+    pub integrated_lufs: f64,
+    pub true_peak_db: f64,
+    pub lra_lu: f64,
+}
+
+/// Extrae el bloque JSON que imprime `loudnorm=print_format=json`.
+fn parse_loudnorm_json(stderr: &str) -> Option<FileLoudness> {
+    let start = stderr.rfind('{')?;
+    let end = stderr[start..].find('}')? + start;
+    let value: serde_json::Value = serde_json::from_str(&stderr[start..=end]).ok()?;
+    let number = |key: &str| {
+        value
+            .get(key)
+            .and_then(|item| item.as_str())
+            .and_then(|text| text.parse::<f64>().ok())
+    };
+    Some(FileLoudness {
+        integrated_lufs: floor_lufs(number("input_i")?),
+        true_peak_db: floor_db(number("input_tp")?),
+        lra_lu: number("input_lra").unwrap_or(0.0),
+    })
+}
+
+#[tauri::command]
+pub async fn measure_file_loudness(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<FileLoudness, ProjectError> {
+    let settings = state.settings_snapshot()?;
+    let (ffmpeg, _, _) = resolve_tools(&settings);
+    let Some(ffmpeg) = ffmpeg else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "FFmpeg es necesario para medir el loudness",
+        ));
+    };
+    let source = PathBuf::from(path.trim());
+    if !source.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            "el archivo no existe",
+        ));
+    }
+    let output = std::process::Command::new(&ffmpeg)
+        .args(["-hide_banner", "-nostats", "-i"])
+        .arg(&source)
+        .args(["-af", "loudnorm=print_format=json", "-f", "null", "-"])
+        .output()
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no pude medir el loudness del archivo: {error}"),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "FFmpeg no pudo medir el archivo",
+        ));
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    parse_loudnorm_json(&stderr).ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el loudness del archivo no se pudo leer",
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[test]
+    fn parses_the_loudnorm_json_block() {
+        let stderr = "ffmpeg version 9\n{\n    \"input_i\" : \"-17.32\",\n    \"input_tp\" : \"-1.20\",\n    \"input_lra\" : \"5.40\",\n    \"input_thresh\" : \"-27.50\"\n}\ntrailing";
+        let parsed = parse_loudnorm_json(stderr).expect("json");
+        assert!((parsed.integrated_lufs + 17.32).abs() < 1e-6);
+        assert!((parsed.true_peak_db + 1.20).abs() < 1e-6);
+        assert!((parsed.lra_lu - 5.40).abs() < 1e-6);
+        assert!(parse_loudnorm_json("sin json").is_none());
+        // `-inf` no es serializable: cae al piso de la escala EBU.
+        assert_eq!(
+            parse_loudnorm_json("{\"input_i\":\"-inf\",\"input_tp\":\"-1.0\"}")
+                .map(|value| value.integrated_lufs),
+            Some(LUFS_FLOOR)
+        );
+    }
 
     /// Seno estereo de 997 Hz a −23 dBFS: la señal de alineación de BS.1770-4,
     /// que debe medir −23 LUFS integrados.

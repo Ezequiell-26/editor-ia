@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
 import type { AudioPeaks } from '../services/project-service';
 import type { Clip } from '@editor-ia/project-schema';
+import { addAsset, addClipFromAsset, ensureDelivery } from './project-actions';
+import { readyAsset } from '../test/fake-service';
 import {
   applySilenceCuts,
   detectSilences,
   planSilenceCuts,
+  runSilenceCuts,
+  silenceCutCandidates,
 } from './silence-cuts';
 
 const FPS = 30;
+const NOW = '2026-11-02T00:00:00.000Z';
 
 function peaksWithPattern(
   pattern: readonly ('voz' | 'silencio')[],
@@ -125,5 +131,80 @@ describe('applySilenceCuts', () => {
     };
     // Devuelve la MISMA referencia: nada fue modificado.
     expect(applySilenceCuts(proyecto, 'clip-1', excessive)).toBe(proyecto);
+  });
+});
+
+function projectWithNarration(count = 1): {
+  project: ProjectDocument;
+  assetId: string;
+  clipIds: string[];
+  trackId: string;
+} {
+  const asset = readyAsset({
+    kind: 'audio',
+    label: 'Narración',
+    source: { type: 'local', path: 'media/narracion.wav' },
+    media: { sampleRate: 48_000, channels: 1, durationFrames: 300 },
+  });
+  let project = addAsset(ensureDelivery(createEmptyProject('Silencios', NOW)), asset);
+  const clipIds: string[] = [];
+  let trackId = '';
+  for (let index = 0; index < count; index += 1) {
+    const added = addClipFromAsset(project, asset, {
+      atFrame: index * 400,
+      durationFrames: 300,
+    });
+    project = added.project;
+    clipIds.push(added.clipId);
+    trackId = added.trackId;
+  }
+  return { project, assetId: asset.id, clipIds, trackId };
+}
+
+describe('runSilenceCuts', () => {
+  it('corta los silencios y devuelve el conteo medido', async () => {
+    const { project } = projectWithNarration();
+    const result = await runSilenceCuts(project, async () => peaksWithPattern(NARRATION));
+    expect(result.candidates).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(result.clips).toBe(1);
+    expect(result.cuts).toBe(2);
+    expect(result.removedSeconds).toBeGreaterThan(3);
+    expect(result.removedSeconds).toBeLessThan(4);
+    // Dividido en 5 piezas y eliminadas las 2 de silencio.
+    expect(result.project.timeline.clips).toHaveLength(3);
+  });
+
+  it('sin picos medibles no toca el proyecto', async () => {
+    const { project } = projectWithNarration();
+    const result = await runSilenceCuts(project, async () => {
+      throw new Error('sin picos');
+    });
+    expect(result.skipped).toBe(1);
+    expect(result.clips).toBe(0);
+    expect(result.project).toBe(project);
+  });
+
+  it('respeta el alcance por clip y las pistas bloqueadas', async () => {
+    const { project, clipIds, trackId } = projectWithNarration(2);
+    const soloUno = await runSilenceCuts(project, async () => peaksWithPattern(NARRATION), {
+      clipIds: [clipIds[0]!],
+    });
+    expect(soloUno.candidates).toBe(1);
+    expect(soloUno.clips).toBe(1);
+
+    const locked: ProjectDocument = {
+      ...project,
+      timeline: {
+        ...project.timeline,
+        tracks: project.timeline.tracks.map((track) =>
+          track.id === trackId ? { ...track, locked: true } : track,
+        ),
+      },
+    };
+    expect(silenceCutCandidates(locked)).toHaveLength(0);
+    const sinCandidatos = await runSilenceCuts(locked, async () => peaksWithPattern(NARRATION));
+    expect(sinCandidatos.candidates).toBe(0);
+    expect(sinCandidatos.project).toBe(locked);
   });
 });

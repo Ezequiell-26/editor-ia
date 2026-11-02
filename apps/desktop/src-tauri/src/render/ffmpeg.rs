@@ -18,6 +18,7 @@ use serde_json::Value;
 
 use crate::media::resolve_inside_root;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
+use crate::render::effect_recipes::{find as find_recipe, ParamKind, Recipe};
 use crate::render::subtitles::{build_ass, CaptionInput};
 
 #[derive(Debug, Clone)]
@@ -862,6 +863,244 @@ pub(crate) fn apply_glow_to_chain(chain: String, label: &str, effects: &Value) -
          [{label}base][{label}blur]blend=all_mode=screen:all_opacity={intensity:.4}[{label}blended];\
          [{label}blended][{label}amask]alphamerge,format=rgba[{label}]"
     )
+}
+
+/// Número con hasta cuatro decimales y sin ceros de cola. `-0` se normaliza a
+/// `0` porque FFmpeg rechaza algunos valores negativos cero en expresiones.
+fn trim_number(value: f64) -> String {
+    if !value.is_finite() {
+        return "0".to_owned();
+    }
+    let mut text = format!("{value:.4}");
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+    }
+    if text == "-0" {
+        return "0".to_owned();
+    }
+    text
+}
+
+/// Formatea un parámetro del stack según el tipo declarado en el manifiesto.
+/// `axis` sirve para `{color.r}` y `{vec2.x}`.
+fn format_recipe_value(kind: ParamKind, value: Option<&Value>, axis: Option<&str>) -> String {
+    match kind {
+        ParamKind::Float => trim_number(value.and_then(Value::as_f64).unwrap_or(0.0)),
+        ParamKind::Int | ParamKind::Enum => {
+            let number = value.and_then(Value::as_f64).unwrap_or(0.0);
+            format!("{}", number.round() as i64)
+        }
+        ParamKind::Bool => {
+            if value.and_then(Value::as_bool).unwrap_or(false) {
+                "1".to_owned()
+            } else {
+                "0".to_owned()
+            }
+        }
+        ParamKind::Color => {
+            let raw = value.and_then(Value::as_str).unwrap_or("#000000");
+            let clean = raw.trim_start_matches('#');
+            match axis {
+                Some("r") | Some("g") | Some("b") => {
+                    let channel = match axis {
+                        Some("r") => 0,
+                        Some("g") => 1,
+                        _ => 2,
+                    };
+                    let start = channel * 2;
+                    let part = clean.get(start..start + 2).unwrap_or("00");
+                    let value = u8::from_str_radix(part, 16).unwrap_or(0) as f64 / 255.0;
+                    trim_number(value)
+                }
+                _ => format!("0x{clean}"),
+            }
+        }
+        ParamKind::Vec2 => {
+            let array = value.and_then(Value::as_array);
+            let x = array
+                .and_then(|items| items.first())
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let y = array
+                .and_then(|items| items.get(1))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            match axis {
+                Some("x") => trim_number(x),
+                Some("y") => trim_number(y),
+                _ => format!("{}:{}", trim_number(x), trim_number(y)),
+            }
+        }
+    }
+}
+
+/// Sustituye `{param}` y `{param.x}` / `{param.r}` en una plantilla de filtro.
+fn fill_recipe_template(template: &str, recipe: &Recipe, params: &Value) -> String {
+    let chars: Vec<char> = template.chars().collect();
+    let mut out = String::with_capacity(template.len() + 16);
+    let mut index = 0;
+    while index < chars.len() {
+        if chars[index] == '{' {
+            if let Some(offset) = chars[index..].iter().position(|character| *character == '}') {
+                let token: String = chars[index + 1..index + offset].iter().collect();
+                let (id, axis) = match token.split_once('.') {
+                    Some((id, axis)) => (id, Some(axis)),
+                    None => (token.as_str(), None),
+                };
+                if let Some(param) = recipe.params.iter().find(|param| param.id == id) {
+                    let value = params.get(id);
+                    out.push_str(&format_recipe_value(param.kind, value, axis));
+                    index += offset + 1;
+                    continue;
+                }
+            }
+        }
+        out.push(chars[index]);
+        index += 1;
+    }
+    out
+}
+
+/// Rellena una plantilla de audio.
+///
+/// Además de los `{param}` de siempre, resuelve dos macros que el catálogo usa
+/// porque no conoce el perfil ni puede dividir:
+/// - `%RATE%` → frecuencia de muestreo del perfil.
+/// - `%INV:<param>%` → inverso del parámetro. `asetrate` cambia el tono y la
+///   duración; `atempo` con el inverso devuelve el clip a su largo original.
+fn fill_audio_template(template: &str, recipe: &Recipe, params: &Value, audio_rate: u32) -> String {
+    let filled = fill_recipe_template(template, recipe, params);
+    let with_rate = filled.replace("%RATE%", &audio_rate.to_string());
+    let mut out = String::with_capacity(with_rate.len());
+    let mut rest = with_rate.as_str();
+    while let Some(start) = rest.find("%INV:") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 5..];
+        match after.find('%') {
+            Some(end) => {
+                let id = &after[..end];
+                let value = params.get(id).and_then(Value::as_f64).unwrap_or(1.0);
+                let inverse = if value.abs() < f64::EPSILON {
+                    1.0
+                } else {
+                    1.0 / value
+                };
+                out.push_str(&trim_number(inverse));
+                rest = &after[end + 1..];
+            }
+            None => {
+                out.push_str("%INV:");
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Agrega la cadena de audio del clip a la lista de filtros.
+///
+/// El stack de audio vive en `clip.effects.audioStack`, separado del stack de
+/// video. Cada instancia aporta uno o más filtros; un efecto de video que se
+/// cuele en la lista se saltea porque su `audio_chain` está vacía.
+pub(crate) fn apply_audio_effect_stack(
+    filters: &mut Vec<String>,
+    effects: &Value,
+    audio_rate: u32,
+) {
+    let Some(stack) = effects.get("audioStack").and_then(Value::as_array) else {
+        return;
+    };
+    let empty = Value::Object(serde_json::Map::new());
+    for instance in stack {
+        if !instance
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let Some(effect_id) = instance.get("effectId").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(recipe) = find_recipe(effect_id) else {
+            continue;
+        };
+        if recipe.audio_chain.is_empty() {
+            continue;
+        }
+        let params = instance.get("params").unwrap_or(&empty);
+        for template in recipe.audio_chain {
+            let filled = fill_audio_template(template, recipe, params, audio_rate);
+            if !filled.is_empty() {
+                filters.push(filled);
+            }
+        }
+    }
+}
+
+/// Aplica el stack declarativo del clip sobre la cola de su cadena.
+///
+/// Cada paso termina en `[label]`, así el siguiente puede volver a recortar la
+/// etiqueta y encadenarse. Un efecto sin receta en la tabla generada se saltea:
+/// el preview lo muestra y el export no inventa un filtro que no existe.
+pub(crate) fn apply_effect_stack(chain: String, label: &str, effects: &Value) -> String {
+    let Some(stack) = effects.get("stack").and_then(Value::as_array) else {
+        return chain;
+    };
+    if stack.is_empty() {
+        return chain;
+    }
+    let output = format!("[{label}]");
+    let empty = Value::Object(serde_json::Map::new());
+    let mut chain = chain;
+
+    for (index, instance) in stack.iter().enumerate() {
+        if !instance
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        let Some(effect_id) = instance.get("effectId").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(recipe) = find_recipe(effect_id) else {
+            continue;
+        };
+        let params = instance.get("params").unwrap_or(&empty);
+        let mut body = String::new();
+        if !recipe.chain.is_empty() {
+            let filters: Vec<String> = recipe
+                .chain
+                .iter()
+                .map(|template| fill_recipe_template(template, recipe, params))
+                .collect();
+            body.push_str(&filters.join(","));
+        }
+        if let Some(graph) = recipe.graph {
+            let token = format!("{label}_{index}");
+            let filled = fill_recipe_template(graph, recipe, params).replace("%A%", &token);
+            if !body.is_empty() {
+                body.push(',');
+            }
+            body.push_str(&filled);
+        }
+        if body.is_empty() {
+            continue;
+        }
+        let Some(prefix) = chain.strip_suffix(&output).map(str::to_owned) else {
+            break;
+        };
+        chain = format!("{prefix},{body}{output}");
+    }
+    chain
 }
 
 fn motion_blur_weights(frames: usize, intensity: f64) -> String {
@@ -2771,6 +3010,7 @@ fn audio_filter(
     speed_den: u32,
     track_gain_db: f64,
     track: &Value,
+    effects: &Value,
 ) -> String {
     let lead = lead_seconds.max(0.0);
     let gain_db = number(audio, "gainDb").unwrap_or(0.0).clamp(-60.0, 12.0);
@@ -2880,6 +3120,11 @@ fn audio_filter(
         ),
         _ => {}
     }
+
+    // Cadena declarativa de audio del clip. Va después de los presets de voz
+    // (que son un atajo del mismo tipo de procesamiento) y antes del fader:
+    // el stack es un insert, la ganancia es el control de mezcla.
+    apply_audio_effect_stack(&mut filters, effects, profile.audio_rate);
 
     let gain_keyframes = audio["gainKeyframes"]
         .as_array()
@@ -3541,6 +3786,8 @@ pub(crate) fn build_plan_range(
         let position = filters.len() - 1;
         let chain = filters[position].clone();
         filters[position] = apply_glow_to_chain(chain, &format!("v{index}"), &clip["effects"]);
+        let chain = filters[position].clone();
+        filters[position] = apply_effect_stack(chain, &format!("v{index}"), &clip["effects"]);
         let transform = &clip["transform"];
         let offset_x = offset_expression(clip, "offsetX", start_seconds, project_fps)
             .unwrap_or_else(|| {
@@ -3639,6 +3886,7 @@ pub(crate) fn build_plan_range(
                 speed_den,
                 track_gain,
                 &track,
+                &clip["effects"],
             );
             filters.push(chain.clone());
             audio_filters.push(chain);
@@ -3779,6 +4027,7 @@ pub(crate) fn build_plan_range(
             speed_den,
             track_gain,
             &track,
+            &clip["effects"],
         );
         filters.push(chain.clone());
         audio_filters.push(chain);
@@ -4460,6 +4709,67 @@ mod tests {
             "speedCurve": { "points": points, "opticalFlow": false }
         });
         assert_eq!(curve_optical_flow_fps(&disabled, &profile()), None);
+    }
+
+    #[test]
+    fn effect_stack_reaches_the_filter_chain_in_order() {
+        let effects = serde_json::json!({
+            "stack": [
+                { "id": "a", "effectId": "color.exposure", "enabled": true, "params": { "exposure": 0.5 } },
+                { "id": "b", "effectId": "light.vignette", "enabled": true, "params": { "angle": 0.785 } }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]scale=1920:1080[v0]".to_owned(), "v0", &effects);
+        assert!(chain.contains("eq=brightness=0.5"));
+        assert!(chain.contains("vignette=angle=0.785"));
+        // El orden importa: exposición antes que viñeta.
+        let exposure = chain.find("eq=brightness").unwrap_or(usize::MAX);
+        let vignette = chain.find("vignette=angle").unwrap_or(0);
+        assert!(exposure < vignette);
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_skips_disabled_and_unknown_effects() {
+        let effects = serde_json::json!({
+            "stack": [
+                { "id": "a", "effectId": "color.exposure", "enabled": false, "params": { "exposure": 1 } },
+                { "id": "b", "effectId": "inventado.que.no.existe", "enabled": true, "params": {} },
+                { "id": "c", "effectId": "color.contrast", "enabled": true, "params": { "contrast": 1.4 } }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("brightness"));
+        assert!(chain.contains("eq=contrast=1.4"));
+    }
+
+    #[test]
+    fn effect_stack_expands_graphs_with_a_unique_token() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "color.duotone",
+                    "enabled": true,
+                    "params": { "shadow": "#1b2a4a", "highlight": "#ffd166", "amount": 1 }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(chain.contains("split=2[v0_0s][v0_0h]"));
+        assert!(!chain.contains("%A%"));
+        assert!(chain.contains("colorchannelmixer=rr=0.1059"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_leaves_the_chain_untouched_without_a_stack() {
+        let chain = "[0:v]null[v0]".to_owned();
+        assert_eq!(apply_effect_stack(chain.clone(), "v0", &serde_json::json!({})), chain);
+        assert_eq!(
+            apply_effect_stack(chain.clone(), "v0", &serde_json::json!({ "stack": [] })),
+            chain
+        );
     }
 
     fn profile() -> Profile {
@@ -5805,6 +6115,7 @@ mod tests {
             1,
             0.0,
             &serde_json::json!({}),
+            &serde_json::json!({}),
         );
         assert!(filter.contains("highpass=f=80.0"));
         assert!(filter.contains("lowpass=f=12000.0"));
@@ -5849,6 +6160,7 @@ mod tests {
             1,
             0.0,
             &track,
+            &serde_json::json!({}),
         );
         assert!(integrated.contains("equalizer=f=120.0"));
         assert!(integrated.contains("pan=stereo|c0=1.0000*c0|c1=0.5000*c1"));
@@ -5890,6 +6202,7 @@ mod tests {
             1,
             0.0,
             &track,
+            &serde_json::json!({}),
         );
         assert!(
             chain.contains("pan=stereo|c0=0.5000*c0|c1=1.0000*c1"),
@@ -5914,6 +6227,7 @@ mod tests {
             1,
             1,
             0.0,
+            &serde_json::json!({}),
             &serde_json::json!({}),
         );
         assert!(centered.contains("pan=stereo|c0=1.0000*c0|c1=0.7500*c1"));
@@ -6106,6 +6420,7 @@ mod tests {
             1,
             0.0,
             &serde_json::json!({}),
+            &serde_json::json!({}),
         );
         assert!(deep.contains("asetrate="));
         let echo = audio_filter(
@@ -6120,6 +6435,7 @@ mod tests {
             1,
             1,
             0.0,
+            &serde_json::json!({}),
             &serde_json::json!({}),
         );
         assert!(echo.contains("aecho="));
@@ -6136,8 +6452,138 @@ mod tests {
             1,
             0.0,
             &serde_json::json!({}),
+            &serde_json::json!({}),
         );
         assert!(radio.contains("lowpass=f=3200"));
+    }
+
+    #[test]
+    fn audio_stack_reaches_the_audio_chain() {
+        let effects = serde_json::json!({
+            "audioStack": [
+                {
+                    "id": "tel",
+                    "effectId": "audio.telephone",
+                    "enabled": true,
+                    "params": { "low": 350.0, "high": 3200.0 }
+                },
+                {
+                    "id": "deep",
+                    "effectId": "audio.voice_deep",
+                    "enabled": true,
+                    "params": { "pitch": 0.8 }
+                },
+                {
+                    "id": "off",
+                    "effectId": "audio.muffled",
+                    "enabled": false,
+                    "params": { "cutoff": 800.0, "level": 0.0 }
+                },
+                {
+                    "id": "video",
+                    "effectId": "color.exposure",
+                    "enabled": true,
+                    "params": { "exposure": 0.2 }
+                }
+            ]
+        });
+        let audio = serde_json::json!({ "gainDb": -3.0 });
+        let chain = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            1.0,
+            0.0,
+            0.0,
+            &audio,
+            false,
+            1,
+            1,
+            0.0,
+            &serde_json::json!({}),
+            &effects,
+        );
+        assert!(chain.contains("highpass=f=350"), "{chain}");
+        assert!(chain.contains("lowpass=f=3200"), "{chain}");
+        assert!(chain.contains("asetrate=48000*0.8"), "{chain}");
+        assert!(chain.contains("atempo=1.25"), "{chain}");
+        assert!(!chain.contains("lowpass=f=800"), "apagado: {chain}");
+        assert!(!chain.contains("eq=brightness"), "efecto de video: {chain}");
+        let stack_at = chain.find("highpass=f=350").expect("stack");
+        let fader_at = chain.find("volume=-3.00dB").expect("fader");
+        assert!(
+            stack_at < fader_at,
+            "el stack es un insert y va antes del fader: {chain}"
+        );
+    }
+
+    #[test]
+    fn audio_stack_without_instances_leaves_the_chain_untouched() {
+        let mut filters = vec!["aformat=sample_fmts=fltp".to_owned()];
+        apply_audio_effect_stack(&mut filters, &serde_json::json!({}), 48_000);
+        apply_audio_effect_stack(&mut filters, &serde_json::json!({ "audioStack": [] }), 48_000);
+        assert_eq!(filters, vec!["aformat=sample_fmts=fltp".to_owned()]);
+    }
+
+    /// Render real de la cadena de audio con un stack: un tono de 6 kHz debe
+    /// caer al menos 20 dB después de `audio.muffled`.
+    ///
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test live_audio_stack -- --ignored`
+    #[test]
+    #[ignore]
+    fn live_audio_stack_muffles_a_high_tone() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("live_audio_stack omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+        let effects = serde_json::json!({
+            "audioStack": [{
+                "id": "muffled",
+                "effectId": "audio.muffled",
+                "enabled": true,
+                "params": { "cutoff": 800.0, "level": 0.0 }
+            }]
+        });
+        let mut filters = vec![
+            "aformat=sample_fmts=fltp:channel_layouts=stereo".to_owned(),
+        ];
+        apply_audio_effect_stack(&mut filters, &effects, 48_000);
+        let chain = filters.join(",");
+        let mean_db = |filter: &str| -> f64 {
+            let output = std::process::Command::new(&ffmpeg)
+                .args([
+                    "-hide_banner",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "sine=frequency=6000:sample_rate=48000:duration=0.3",
+                    "-af",
+                    &format!("{filter},volumedetect"),
+                    "-f",
+                    "null",
+                    "-",
+                ])
+                .output()
+                .expect("ffmpeg volumedetect");
+            let text = String::from_utf8_lossy(&output.stderr);
+            let line = text
+                .lines()
+                .find(|line| line.contains("mean_volume:"))
+                .expect("mean_volume");
+            line.split(':')
+                .nth(1)
+                .and_then(|value| value.trim().strip_suffix(" dB"))
+                .and_then(|value| value.parse::<f64>().ok())
+                .expect("dB")
+        };
+        let before = mean_db("anull");
+        let after = mean_db(&chain);
+        assert!(
+            before - after > 20.0,
+            "amortiguado: {before} dB → {after} dB con {chain}"
+        );
     }
 
     #[test]
@@ -6502,6 +6948,7 @@ mod tests {
             1,
             0.0,
             &serde_json::json!({}),
+            &serde_json::json!({}),
         );
         assert!(audio.contains("areverse"));
     }
@@ -6672,6 +7119,7 @@ mod tests {
             1,
             0.0,
             &serde_json::json!({}),
+            &clip["effects"],
         );
         assert!(audio.contains("volume=volume='pow(10,"));
         assert!(audio.contains("eval=frame"));
@@ -10488,6 +10936,7 @@ mod tests {
             1,
             3.0,
             &track,
+            &serde_json::json!({}),
         );
         assert!(
             chain.contains("volume=volume='pow(10,(") && chain.contains(")/20)':eval=frame"),
@@ -10526,6 +10975,7 @@ mod tests {
             1,
             3.0,
             &serde_json::json!({ "gainDb": 3.0 }),
+            &serde_json::json!({}),
         );
         assert!(
             chain.contains("volume=3.00dB"),
@@ -10560,6 +11010,7 @@ mod tests {
             1,
             0.0,
             &track,
+            &serde_json::json!({}),
         );
         assert!(
             !chain.contains("pan=stereo|c0="),
@@ -10628,6 +11079,7 @@ mod tests {
             1,
             0.0,
             &track,
+            &serde_json::json!({}),
         );
         let left = expresion_canal(&chain, "tpl0");
         let right = expresion_canal(&chain, "tpr0");
@@ -10667,6 +11119,7 @@ mod tests {
             1,
             0.0,
             &track,
+            &serde_json::json!({}),
         );
         let right = expresion_canal(&chain, "tpr0");
         // La Bézier se emite como 16 tramos lineales anidados (el mismo enfoque

@@ -5,6 +5,7 @@ import { useProjectStore } from '../../state/project-store';
 import { LottiePreview } from './LottiePreview';
 import {
   createLottieRasterizer,
+  extractLottieZip,
   LOTTIE_MAX_FILE_BYTES,
   LOTTIE_MAX_FRAMES,
   LottieParseError,
@@ -12,6 +13,7 @@ import {
   planLottieExport,
   type LottieDocument,
 } from './lottie';
+
 
 const BATCH_SIZE = 8;
 
@@ -29,6 +31,18 @@ async function readFileText(file: File): Promise<string> {
     reader.readAsText(file);
   });
 }
+
+/** Lee el archivo como ArrayBuffer binario (para el ZIP .lottie). */
+async function readFileArrayBuffer(file: File): Promise<ArrayBuffer> {
+  if (typeof file.arrayBuffer === 'function') return file.arrayBuffer();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as ArrayBuffer);
+    reader.onerror = () => reject(new Error('no se pudo leer el archivo'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 
 export function LottiePanel({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
@@ -67,7 +81,15 @@ export function LottiePanel({ onNavigate }: { readonly onNavigate: (id: ViewId) 
       return;
     }
     try {
-      const parsed = parseLottieDocument(JSON.parse(await readFileText(file)) as unknown);
+      const isZip = file.name.toLowerCase().endsWith('.lottie');
+      let json: string;
+      if (isZip) {
+        const buffer = await readFileArrayBuffer(file);
+        json = await extractLottieZip(buffer);
+      } else {
+        json = await readFileText(file);
+      }
+      const parsed = parseLottieDocument(JSON.parse(json) as unknown);
       setDoc(parsed);
       setFileName(file.name);
       setFpsValue(Math.max(1, Math.min(60, Math.round(projectFps))));
@@ -81,6 +103,7 @@ export function LottiePanel({ onNavigate }: { readonly onNavigate: (id: ViewId) 
       );
     }
   }
+
 
   async function convert(): Promise<void> {
     if (!project) {
@@ -153,21 +176,21 @@ export function LottiePanel({ onNavigate }: { readonly onNavigate: (id: ViewId) 
       <div className="production-card-head">
         <div>
           <p className="eyebrow">Archivo</p>
-          <h3>Lottie (.json)</h3>
+          <h3>Lottie (.json / .lottie)</h3>
         </div>
         <span className="fine-print">Motor local · VP9 con alfa</span>
       </div>
       <p className="fine-print">
         Importá una animación Lottie y convertila en un video con transparencia real para la
         timeline. Se rasteriza en la app con lottie-web (MIT) y FFmpeg lo codifica; no se sube
-        nada a ningún lado.
+        nada a ningún lado. Acepta `.json` y el formato binario `.lottie` (ZIP).
       </p>
       <label className="lottie-file">
         <span>Archivo Lottie</span>
         <input
           type="file"
-          accept=".json,application/json"
-          aria-label="Archivo Lottie"
+          accept=".json,.lottie,application/json,application/zip"
+          aria-label="Archivo Lottie (.json o .lottie)"
           disabled={busy}
           onChange={(event) => void loadFile(event.target.files?.[0])}
         />

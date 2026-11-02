@@ -29,6 +29,7 @@ describe('rutas canónicas', () => {
       'convert',
       'compress',
       'denoise',
+      'sharpen',
       'upscale',
       'compare',
       'background',

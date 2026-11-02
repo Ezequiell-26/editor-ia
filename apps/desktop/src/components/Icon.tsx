@@ -77,6 +77,7 @@ export type IconName =
   | 'convert'
   | 'compress'
   | 'denoise'
+  | 'sharpen'
   | 'thumbnails'
   | 'ai-hub'
   | 'motion'
@@ -513,6 +514,12 @@ const paths: Record<IconName, ReactNode> = {
     <>
       <path d="M3 12h3l2-5 3 10 3-7 2 4 2-2h3" />
       <path d="m18 4 1 2 2 1-2 1-1 2-1-2-2-1 2-1z" />
+    </>
+  ),
+  sharpen: (
+    <>
+      <path d="M12 3.5 14 9l5.5 2-5.5 2-2 5.5-2-5.5L4.5 11 10 9z" />
+      <path d="M18.5 3.5 19.5 6l2.5 1-2.5 1-1 2.5-1-2.5L15 7l2.5-1z" />
     </>
   ),
   thumbnails: (

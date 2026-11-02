@@ -41,6 +41,12 @@ import {
 } from '@editor-ia/project-schema';
 import { friendlyAssetLabel } from './asset-labels';
 import { AUDIO_PRESETS, type AudioPresetId } from './audio-presets';
+import {
+  captionCharsPerLineForProject,
+  captionOffsetYForProject,
+  planCaptionCues,
+  type CaptionPlannerOptions,
+} from './caption-planner';
 import { aspectRatioOf, evenDimension, retimeProject, validFpsRange } from './video-format';
 
 /**
@@ -2261,6 +2267,100 @@ export function pasteClip(
 }
 
 /**
+ * Ajusta los subtítulos cuando se elimina un tramo de la timeline.
+ *
+ * `rippleDeleteClip` corre los clips de la pista, pero los subtítulos viven en
+ * su propia pista y quedarían corridos respecto de la voz. Este helper cierra
+ * ese hueco: mueve los cues posteriores y recorta los que cruzan el tramo.
+ */
+export function removeCaptionRange(
+  project: ProjectDocument,
+  startFrame: number,
+  endFrame: number,
+): ProjectDocument {
+  const start = Math.round(startFrame);
+  const end = Math.round(endFrame);
+  if (end <= start) return project;
+  const next = cloneProject(project);
+  const delta = end - start;
+  const cues: CaptionCue[] = [];
+  for (const cue of next.captions.cues) {
+    if (cue.endFrame <= start) {
+      cues.push(cue);
+      continue;
+    }
+    if (cue.startFrame >= end) {
+      cue.startFrame -= delta;
+      cue.endFrame -= delta;
+      cues.push(cue);
+      continue;
+    }
+    // Cue completamente dentro del tramo eliminado: desaparece con él.
+    if (cue.startFrame >= start && cue.endFrame <= end) continue;
+    const newStart = cue.startFrame < start ? cue.startFrame : start;
+    const newEnd = cue.endFrame > end ? cue.endFrame - delta : start;
+    if (newEnd - newStart < 2) continue;
+    cue.startFrame = newStart;
+    cue.endFrame = newEnd;
+    if (cue.words) {
+      cue.words = cue.words
+        .filter((word) => !(word.startFrame >= start && word.endFrame <= end))
+        .map((word) =>
+          word.startFrame >= end
+            ? {
+                ...word,
+                startFrame: word.startFrame - delta,
+                endFrame: word.endFrame - delta,
+              }
+            : word,
+        )
+        .filter(
+          (word) =>
+            word.endFrame > word.startFrame &&
+            word.startFrame >= cue.startFrame &&
+            word.endFrame <= cue.endFrame,
+        );
+    }
+    cues.push(cue);
+  }
+  next.captions.cues = cues;
+  touch(next);
+  return next;
+}
+
+/**
+ * Recorta el inicio de la timeline: mueve todo a la izquierda y elimina el
+ * aire inicial. Es una operación global —clips, subtítulos y marcadores— porque
+ * recortar sólo una pista desincroniza el resto.
+ */
+export function trimTimelineStart(
+  project: ProjectDocument,
+  frames: number,
+): { project: ProjectDocument; trimmed: number } {
+  const amount = Math.max(0, Math.round(frames));
+  if (amount === 0) return { project, trimmed: 0 };
+  const next = cloneProject(project);
+  let trimmed = 0;
+  for (const clip of next.timeline.clips) {
+    const before = clip.startFrame;
+    clip.startFrame = Math.max(0, clip.startFrame - amount);
+    if (clip.startFrame !== before) trimmed += 1;
+  }
+  next.captions.cues = next.captions.cues
+    .map((cue) => ({
+      ...cue,
+      startFrame: Math.max(0, cue.startFrame - amount),
+      endFrame: Math.max(0, cue.endFrame - amount),
+    }))
+    .filter((cue) => cue.endFrame > cue.startFrame);
+  for (const marker of next.markers) {
+    marker.frame = Math.max(0, marker.frame - amount);
+  }
+  touch(next);
+  return { project: next, trimmed };
+}
+
+/**
  * Removes a clip and closes the gap it leaves on its own track. Other tracks
  * keep their timing.
  */
@@ -3830,7 +3930,15 @@ export function addTranscriptionCues(
     words?: readonly { start: number; end: number; word: string }[];
   }[],
   replaceExisting = true,
-): { project: ProjectDocument; added: number; skipped: number } {
+  options: CaptionPlannerOptions & { readonly safeArea?: boolean | undefined } = {},
+): {
+  project: ProjectDocument;
+  added: number;
+  skipped: number;
+  overCps: number;
+  maxCps: number;
+  splitSegments: number;
+} {
   const clip = project.timeline.clips.find((item) => item.id === clipId);
   if (!clip) {
     throw new ProjectActionError('el clip no está en la timeline');
@@ -3849,35 +3957,44 @@ export function addTranscriptionCues(
       (cue) => !(cue.trackId === setup.trackId && cue.startFrame < clipEnd && cue.endFrame > clipStart),
     );
   }
+
+  // El segmento del transcriptor no es un subtítulo: se parte en cues que
+  // entran en dos líneas y duran lo que se pueden leer. Los tiempos salen de
+  // las palabras cuando el modelo las devuelve.
+  const plan = planCaptionCues(segments, {
+    maxCharsPerLine: options.maxCharsPerLine ?? captionCharsPerLineForProject(next),
+    maxLines: options.maxLines,
+    maxDurationSeconds: options.maxDurationSeconds,
+    minDurationSeconds: options.minDurationSeconds,
+    maxCps: options.maxCps,
+  });
+  const offsetY = options.safeArea === false ? 0 : captionOffsetYForProject(next);
+
   let added = 0;
   let skipped = 0;
-  for (const segment of segments) {
-    const text = segment.text.replace(/\s+/g, ' ').trim().slice(0, 500);
-    const startFrame = Math.max(clipStart, clipStart + Math.round(segment.start * fps));
-    const endFrame = Math.min(clipEnd, clipStart + Math.round(segment.end * fps));
+  for (const cue of plan.cues) {
+    const text = cue.text.replace(/\s+/g, ' ').trim().slice(0, 500);
+    const startFrame = Math.max(clipStart, clipStart + Math.round(cue.startSeconds * fps));
+    const endFrame = Math.min(clipEnd, clipStart + Math.round(cue.endSeconds * fps));
     if (!text || endFrame <= startFrame) {
       skipped += 1;
       continue;
     }
     const overlaps = next.captions.cues.some(
-      (cue) =>
-        cue.trackId === setup.trackId &&
-        cue.startFrame < endFrame &&
-        cue.endFrame > startFrame,
+      (existing) =>
+        existing.trackId === setup.trackId &&
+        existing.startFrame < endFrame &&
+        existing.endFrame > startFrame,
     );
     if (overlaps) {
       skipped += 1;
       continue;
     }
     const words =
-      'words' in segment && Array.isArray(segment.words)
-        ? segment.words
-            .filter(
-              (word: { start: number; end: number; word: string }) =>
-                word.word.trim() && word.end > word.start,
-            )
-            .map((word: { start: number; end: number; word: string }) => ({
-              text: word.word.trim().slice(0, 200),
+      cue.words && cue.words.length > 0
+        ? cue.words
+            .map((word) => ({
+              text: word.text.slice(0, 200),
               startFrame: Math.max(
                 startFrame,
                 clipStart + Math.round(word.start * fps),
@@ -3887,10 +4004,7 @@ export function addTranscriptionCues(
                 clipStart + Math.round(word.end * fps),
               ),
             }))
-            .filter(
-              (word: { startFrame: number; endFrame: number }) =>
-                word.endFrame > word.startFrame,
-            )
+            .filter((word) => word.text && word.endFrame > word.startFrame)
         : undefined;
     next.captions.cues.push({
       id: newId(),
@@ -3901,11 +4015,19 @@ export function addTranscriptionCues(
       startFrame,
       endFrame,
       ...(words && words.length > 0 ? { words } : {}),
+      ...(offsetY !== 0 ? { offsetY } : {}),
     });
     added += 1;
   }
   touch(next);
-  return { project: next, added, skipped };
+  return {
+    project: next,
+    added,
+    skipped,
+    overCps: plan.overCps,
+    maxCps: plan.maxCps,
+    splitSegments: plan.splitSegments,
+  };
 }
 
 /** Insert already-timed cues, used by the automatic director. */

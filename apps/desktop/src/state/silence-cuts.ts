@@ -1,6 +1,6 @@
 import type { AudioPeaks } from '../services/project-service';
 import type { Clip, ProjectDocument } from '@editor-ia/project-schema';
-import { fpsOf, rippleDeleteClip, splitClipAtFrames } from './project-actions';
+import { fpsOf, removeCaptionRange, rippleDeleteClip, splitClipAtFrames } from './project-actions';
 
 /**
  * "Cortar silencios" automáticos (paridad CapCut): detecta los tramos de
@@ -147,15 +147,27 @@ export function planSilenceCuts(
 }
 
 /**
- * Ejecuta el plan: divide el clip en los bordes de cada silencio y elimina con
- * ripple los tramos que caen dentro de ellos. Respeta las reglas del repo
- * (pistas bloqueadas, clips compuestos) a través de las acciones existentes.
+ * Plan mínimo para cortar tramos: lo comparten el detector de silencios y el
+ * de pausas de voz. `cutFrames` son frames absolutos de timeline; `spans` son
+ * los tramos que se eliminan con ripple.
+ */
+export interface CutSpanPlan {
+  readonly cutFrames: readonly number[];
+  readonly spans: readonly { readonly startFrame: number; readonly endFrame: number }[];
+  readonly removedSeconds: number;
+  readonly excessive: boolean;
+}
+
+/**
+ * Ejecuta el plan: divide el clip en los bordes de cada tramo y elimina con
+ * ripple los que caen dentro de ellos. Respeta las reglas del repo (pistas
+ * bloqueadas, clips compuestos) a través de las acciones existentes.
  * Devuelve el proyecto sin tocar si el plan está vacío o es excesivo.
  */
-export function applySilenceCuts(
+export function applyCutSpans(
   project: ProjectDocument,
   clipId: string,
-  plan: SilenceCutPlan,
+  plan: CutSpanPlan,
 ): ProjectDocument {
   if (plan.excessive || plan.spans.length === 0 || plan.cutFrames.length === 0) {
     return project;
@@ -166,17 +178,35 @@ export function applySilenceCuts(
   const pieces = split.project.timeline.clips.filter((clip) =>
     split.clipIds.includes(clip.id),
   );
-  let next = split.project;
-  for (const piece of pieces) {
+  // Qué piezas caen dentro de un tramo se decide con las coordenadas del plan
+  // (las originales). Al borrar, cada ripple corre a las siguientes: `shift`
+  // lleva esa cuenta para recortar los subtítulos en la posición correcta.
+  const doomed = pieces.filter((piece) => {
     const center = piece.startFrame + piece.durationFrames / 2;
-    const insideSilence = plan.spans.some(
-      (span) => center >= span.startFrame && center <= span.endFrame,
-    );
-    if (insideSilence) {
-      next = rippleDeleteClip(next, piece.id);
-    }
+    return plan.spans.some((span) => center >= span.startFrame && center <= span.endFrame);
+  });
+  let next = split.project;
+  let shift = 0;
+  for (const piece of doomed) {
+    const start = piece.startFrame - shift;
+    const end = start + piece.durationFrames;
+    next = rippleDeleteClip(next, piece.id);
+    next = removeCaptionRange(next, start, end);
+    shift += piece.durationFrames;
   }
   return next;
+}
+
+/**
+ * Ejecuta el plan de silencios. Se mantiene el nombre porque es el que usa la
+ * UI; la implementación es la misma que la de cualquier otro corte por tramos.
+ */
+export function applySilenceCuts(
+  project: ProjectDocument,
+  clipId: string,
+  plan: SilenceCutPlan,
+): ProjectDocument {
+  return applyCutSpans(project, clipId, plan);
 }
 
 /** Conveniencia para la UI: fps del proyecto + plan en una llamada. */
@@ -189,4 +219,125 @@ export function planSilenceCutsForProject(
   const clip = project.timeline.clips.find((item) => item.id === clipId);
   if (!clip) return null;
   return planSilenceCuts(clip, peaks, fpsOf(project), options);
+}
+
+/** Factor de velocidad del clip; 1 cuando no declara `speed`. */
+function speedFactorOf(clip: Clip): number {
+  const speed = 'speed' in clip ? clip.speed : undefined;
+  if (!speed) return 1;
+  return speed.num / Math.max(1, speed.den);
+}
+
+/**
+ * Clips que el motor puede cortar sin inventar frames.
+ *
+ * Excluye lo que el mapeo de silencios no puede representar: clips sin asset
+ * (compuestos, gráficos), pistas bloqueadas y clips a velocidad distinta de 1×
+ * (los picos miden el asset, no el tiempo estirado).
+ */
+export function silenceCutCandidates(
+  project: ProjectDocument,
+  clipIds?: readonly string[],
+): Clip[] {
+  if (!(fpsOf(project) > 0)) return [];
+  const wanted = clipIds ? new Set(clipIds) : null;
+  return project.timeline.clips.filter((clip) => {
+    if (wanted && !wanted.has(clip.id)) return false;
+    if (clip.kind !== 'video' && clip.kind !== 'audio') return false;
+    if (clip.source.type !== 'asset') return false;
+    if (Math.abs(speedFactorOf(clip) - 1) > 0.001) return false;
+    const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+    if (track?.locked === true) return false;
+    return true;
+  });
+}
+
+export interface SilenceCutTarget {
+  readonly clipId: string;
+  readonly peaks: AudioPeaks;
+}
+
+export interface SilenceCutOutcome {
+  readonly project: ProjectDocument;
+  readonly clips: number;
+  readonly cuts: number;
+  readonly removedSeconds: number;
+}
+
+/**
+ * Aplica el corte sobre varios clips, rearmando el plan contra el proyecto
+ * vigente en cada paso: el ripple de un clip corre a los siguientes de la
+ * misma pista y un plan viejo cortaría en frames equivocados.
+ *
+ * Un plan excesivo (>80 % del clip) se saltea en lugar de destruir la toma.
+ */
+export function applySilenceCutsToTargets(
+  project: ProjectDocument,
+  targets: readonly SilenceCutTarget[],
+  options: SilenceCutOptions = {},
+): SilenceCutOutcome {
+  let next = project;
+  let clips = 0;
+  let cuts = 0;
+  let removedSeconds = 0;
+  for (const target of targets) {
+    const fresh = planSilenceCutsForProject(next, target.clipId, target.peaks, options);
+    if (!fresh || fresh.excessive) continue;
+    const after = applySilenceCuts(next, target.clipId, fresh);
+    if (after === next) continue;
+    clips += 1;
+    cuts += fresh.spans.length;
+    removedSeconds += fresh.removedSeconds;
+    next = after;
+  }
+  return { project: next, clips, cuts, removedSeconds };
+}
+
+export interface SilenceCutRunOptions extends SilenceCutOptions {
+  /** Si se omite, se analizan todos los clips con audio del proyecto. */
+  readonly clipIds?: readonly string[] | undefined;
+}
+
+export interface SilenceCutRunResult extends SilenceCutOutcome {
+  /** Clips que el motor podía cortar antes de pedir picos. */
+  readonly candidates: number;
+  /** Clips descartados porque el asset no tenía picos medibles. */
+  readonly skipped: number;
+}
+
+/**
+ * Orquesta el corte completo: elige candidatos, pide los picos al servicio con
+ * caché por asset y aplica en lote. Es el camino que comparten la UI y la IA,
+ * para que un comando del asistente y un clic del menú hagan exactamente lo
+ * mismo.
+ */
+export async function runSilenceCuts(
+  project: ProjectDocument,
+  fetchPeaks: (assetId: string) => Promise<AudioPeaks>,
+  options: SilenceCutRunOptions = {},
+): Promise<SilenceCutRunResult> {
+  const candidates = silenceCutCandidates(project, options.clipIds);
+  const cache = new Map<string, AudioPeaks | null>();
+  const targets: SilenceCutTarget[] = [];
+  let skipped = 0;
+  for (const clip of candidates) {
+    if (clip.source.type !== 'asset') continue;
+    const assetId = clip.source.assetId;
+    let peaks = cache.get(assetId);
+    if (peaks === undefined) {
+      try {
+        peaks = await fetchPeaks(assetId);
+      } catch {
+        peaks = null;
+      }
+      cache.set(assetId, peaks);
+    }
+    if (!peaks) {
+      skipped += 1;
+      continue;
+    }
+    targets.push({ clipId: clip.id, peaks });
+  }
+  const applied = applySilenceCutsToTargets(project, targets, options);
+  return { ...applied, candidates: candidates.length, skipped };
 }

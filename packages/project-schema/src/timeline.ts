@@ -410,6 +410,52 @@ export const ClipCurvesSchema = z
   });
 export type ClipCurves = z.infer<typeof ClipCurvesSchema>;
 
+/**
+ * Un valor de parámetro de efecto ya normalizado: número, booleano, color
+ * `#rrggbb` o par `[x, y]`. El manifiesto del efecto define el tipo real; acá
+ * sólo se acota lo que el documento puede contener.
+ */
+export const EffectParamValueSchema = z.union([
+  z.number(),
+  z.boolean(),
+  z.string().max(64),
+  z.tuple([z.number(), z.number()]),
+]);
+export type EffectParamValue = z.infer<typeof EffectParamValueSchema>;
+
+export const EFFECT_EASINGS = [
+  'linear',
+  'hold',
+  'ease-in',
+  'ease-out',
+  'ease-in-out',
+] as const;
+
+export const EffectKeyframeSchema = z
+  .object({
+    frame: z.number().int().gte(0).lte(1_000_000),
+    value: z.number(),
+    easing: z.enum(EFFECT_EASINGS).optional(),
+  })
+  .strict();
+export type EffectKeyframe = z.infer<typeof EffectKeyframeSchema>;
+
+/**
+ * Instancia de efecto aplicada a un clip. `params` guarda sólo lo tocado; el
+ * resto se resuelve contra los defaults del manifiesto al leer el proyecto, así
+ * un efecto puede ganar parámetros sin invalidar documentos guardados.
+ */
+export const EffectInstanceSchema = z
+  .object({
+    id: z.string().min(1).max(120),
+    effectId: z.string().min(1).max(80),
+    enabled: z.boolean(),
+    params: z.record(EffectParamValueSchema),
+    keyframes: z.record(z.array(EffectKeyframeSchema).min(2).max(64)).optional(),
+  })
+  .strict();
+export type EffectInstance = z.infer<typeof EffectInstanceSchema>;
+
 export const ClipEffectsSchema = z
   .object({
     brightness: z.number().gte(-1).lte(1).optional(),
@@ -551,6 +597,31 @@ export const ClipEffectsSchema = z
     lutIntensity: z.number().gte(0).lte(1).optional(),
     fadeInFrames: DurationSchema.optional(),
     fadeOutFrames: DurationSchema.optional(),
+    /**
+     * Stack ordenado de efectos declarativos (ver `@editor-ia/effect-kit`).
+     * Convive con los campos planos de arriba: los efectos nuevos entran acá,
+     * los viejos siguen funcionando y el render aplica primero el stack y
+     * después el grade plano, en ese orden.
+     */
+    stack: z.array(EffectInstanceSchema).max(32).optional(),
+    /**
+     * Stack de efectos de audio del clip (espacio, textura, transmisión,
+     * utilería y voz). Va aparte de `stack` porque entra en la cadena de audio
+     * del render, no en la de video: un mismo clip puede tener un look de video
+     * y una cadena de voz sin que uno consuma el tope del otro.
+     */
+    audioStack: z.array(EffectInstanceSchema).max(32).optional(),
+  })
+  .strict();
+
+/**
+ * Efectos de un clip de audio: sólo la cadena de audio. Un clip de audio no
+ * tiene imagen que etalonar, así que aceptar `brightness` o `vignette` sería
+ * guardar datos que el render ignora.
+ */
+export const AudioClipEffectsSchema = z
+  .object({
+    audioStack: z.array(EffectInstanceSchema).max(32).optional(),
   })
   .strict();
 
@@ -860,6 +931,8 @@ const AudioClipSchema = z
     source: WindowedAssetSourceSchema,
     speed: FrameRateSchema.optional(),
     reverse: z.boolean().optional(),
+    /** Cadena de audio declarativa (voz, espacio, textura). */
+    effects: AudioClipEffectsSchema.optional(),
   })
   .strict();
 

@@ -367,3 +367,126 @@ describe('efectos de clip', () => {
     ).toBe(false);
   });
 });
+
+describe('stack de efectos declarativo', () => {
+  const instance = {
+    id: 'blur.gaussian-1',
+    effectId: 'blur.gaussian',
+    enabled: true,
+    params: { radius: 8 },
+  };
+
+  it('acepta un stack ordenado con parámetros tipados', () => {
+    const parsed = ClipSchema.safeParse(
+      imageClip({
+        stack: [
+          instance,
+          {
+            id: 'color.duotone-2',
+            effectId: 'color.duotone',
+            enabled: false,
+            params: { shadow: '#1b2a4a', highlight: '#ffd166', amount: 1 },
+          },
+          {
+            id: 'impact.shake-3',
+            effectId: 'impact.shake',
+            enabled: true,
+            params: { amount: 8, speed: 8 },
+            keyframes: { amount: [{ frame: 0, value: 0 }, { frame: 24, value: 12 }] },
+          },
+        ],
+      }),
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it('exige id, efecto y estado en cada instancia', () => {
+    expect(
+      ClipSchema.safeParse(imageClip({ stack: [{ effectId: 'blur.gaussian', params: {} }] }))
+        .success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(imageClip({ stack: [{ ...instance, effectId: '' }] })).success,
+    ).toBe(false);
+  });
+
+  it('rechaza parámetros que no son escalares ni pares', () => {
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ stack: [{ ...instance, params: { radius: { anidado: true } } }] }),
+      ).success,
+    ).toBe(false);
+    expect(
+      ClipSchema.safeParse(
+        imageClip({ stack: [{ ...instance, params: { radius: [1, 2, 3] } }] }),
+      ).success,
+    ).toBe(false);
+  });
+
+  it('limita el stack a 32 efectos', () => {
+    const many = Array.from({ length: 33 }, (_, index) => ({
+      ...instance,
+      id: `blur-${index}`,
+    }));
+    expect(ClipSchema.safeParse(imageClip({ stack: many })).success).toBe(false);
+    expect(ClipSchema.safeParse(imageClip({ stack: many.slice(0, 32) })).success).toBe(true);
+  });
+});
+
+describe('stack de efectos de audio', () => {
+  const voice = {
+    id: 'audio.voice_deep-1',
+    effectId: 'audio.voice_deep',
+    enabled: true,
+    params: { pitch: 0.8 },
+  };
+
+  function audioClip(effects: unknown) {
+    return {
+      id: ID,
+      trackId: TRACK,
+      kind: 'audio',
+      source: { type: 'asset', assetId: ASSET, inFrame: 0, outFrame: 90 },
+      startFrame: 0,
+      durationFrames: 90,
+      effects,
+    };
+  }
+
+  it('un clip de audio guarda su cadena de audio', () => {
+    const parsed = ClipSchema.safeParse(
+      audioClip({
+        audioStack: [
+          voice,
+          {
+            id: 'audio.telephone-2',
+            effectId: 'audio.telephone',
+            enabled: false,
+            params: { low: 350, high: 3200 },
+          },
+        ],
+      }),
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it('un clip de audio sigue rechazando ajustes de imagen', () => {
+    expect(ClipSchema.safeParse(audioClip({ brightness: 0.2 })).success).toBe(false);
+    expect(ClipSchema.safeParse(audioClip({ audioStack: [voice], vignette: 0.4 })).success).toBe(
+      false,
+    );
+  });
+
+  it('un clip de video puede llevar stack de video y de audio a la vez', () => {
+    const parsed = ClipSchema.safeParse(
+      imageClip({ stack: [{ ...voice, effectId: 'color.exposure' }], audioStack: [voice] }),
+    );
+    expect(parsed.success).toBe(true);
+  });
+
+  it('limita la cadena de audio a 32 efectos', () => {
+    const many = Array.from({ length: 33 }, (_, index) => ({ ...voice, id: `voice-${index}` }));
+    expect(ClipSchema.safeParse(audioClip({ audioStack: many })).success).toBe(false);
+    expect(ClipSchema.safeParse(audioClip({ audioStack: many.slice(0, 32) })).success).toBe(true);
+  });
+});

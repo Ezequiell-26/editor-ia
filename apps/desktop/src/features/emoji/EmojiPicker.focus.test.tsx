@@ -9,13 +9,13 @@ afterEach(() => {
 });
 
 describe('selector de emojis · trampa de foco', () => {
-  it('al abrir enfoca la búsqueda, el Tab no abandona el diálogo y Escape devuelve el foco al disparador', () => {
+  it('al abrir enfoca la búsqueda, el Tab no abandona el diálogo y Escape devuelve el foco al disparador', async () => {
     const { getByRole } = render(<EmojiPickerButton onPick={vi.fn()} />);
     const disparador = getByRole('button', { name: /Insertar emoji/i });
     disparador.focus();
     fireEvent.click(disparador);
 
-    const dialogo = screen.getByRole('dialog', { name: /Selector de emojis/i });
+    const dialogo = await screen.findByRole('dialog', { name: /Selector de emojis/i });
     const busqueda = within(dialogo).getByRole('textbox', { name: /Buscar emoji/i });
     // El hook enfoca el primer control del panel: la búsqueda.
     expect(document.activeElement).toBe(busqueda);
@@ -38,14 +38,14 @@ describe('selector de emojis · trampa de foco', () => {
     expect(document.activeElement).toBe(disparador);
   });
 
-  it('al elegir un emoji cierra el diálogo y devuelve el foco al disparador', () => {
+  it('al elegir un emoji cierra el diálogo y devuelve el foco al disparador', async () => {
     const onPick = vi.fn();
     const { getByRole } = render(<EmojiPickerButton onPick={onPick} />);
     const disparador = getByRole('button', { name: /Insertar emoji/i });
     disparador.focus();
     fireEvent.click(disparador);
 
-    const dialogo = screen.getByRole('dialog', { name: /Selector de emojis/i });
+    const dialogo = await screen.findByRole('dialog', { name: /Selector de emojis/i });
     fireEvent.change(within(dialogo).getByRole('textbox', { name: /Buscar emoji/i }), {
       target: { value: 'rocket' },
     });

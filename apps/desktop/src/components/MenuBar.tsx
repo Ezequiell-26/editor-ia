@@ -6,6 +6,12 @@ import { CURRENT_APP_VERSION } from '../app/version';
 import { detectNativeRuntime } from '../services/project-service';
 import { useAppearance } from '../state/AppearanceProvider';
 import { deleteCaptionCue, deleteClip, duplicateClip, splitClip, totalFrames } from '../state/project-actions';
+import { runSilenceCuts } from '../state/silence-cuts';
+import { autoCleanupSummary, runAutoCleanup } from '../state/auto-cleanup';
+import { autoPilotSummary, runAutoPilot } from '../state/auto-pilot';
+import { ReviewDialog } from '../features/editor/ReviewDialog';
+import { CriticDialog } from '../features/editor/CriticDialog';
+import { applyProjectTitleCard } from '../state/auto-title';
 import { useProjectStore } from '../state/project-store';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
@@ -45,7 +51,7 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
   const store = useProjectStore();
   const { appearance, update, reset } = useAppearance();
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
-  const [modal, setModal] = useState<'shortcuts' | 'about' | null>(null);
+  const [modal, setModal] = useState<'shortcuts' | 'about' | 'review' | 'critic' | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [configDir, setConfigDir] = useState<string | null>(null);
   const [menuTabIndex, setMenuTabIndex] = useState(0);
@@ -70,7 +76,41 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
   });
 
   const project = store.state.project;
+  const opened = store.state.opened;
   const selection = store.state.selection;
+  // Entrega automática: mientras está activa, cada 10 minutos revisa si el
+  // proyecto cambió y, si cambió, vuelve a limpiar y exportar sin intervención.
+  const [unattended, setUnattended] = useState(
+    () => window.localStorage.getItem('olyvia.pilot.unattended') === '1',
+  );
+  useEffect(() => {
+    if (!unattended) return;
+    const timer = window.setInterval(() => {
+      const current = store.state.project;
+      const currentOpened = store.state.opened;
+      if (!current || !currentOpened) return;
+      const last = Number(window.localStorage.getItem('olyvia.pilot.revision') ?? '-1');
+      if (current.revision <= last) return;
+      window.localStorage.setItem('olyvia.pilot.revision', String(current.revision));
+      void (async () => {
+        const saved = await store.saveNow();
+        if (!saved) return;
+        try {
+          const report = await runAutoPilot({
+            project: current,
+            service: store.service,
+            options: {
+              outputDir: `${currentOpened.root.replace(/[\\/]+$/, '')}\\entregas`,
+            },
+          });
+          store.setNotice(`Entrega automática: ${autoPilotSummary(report)}`);
+        } catch {
+          // En modo desatendido no se interrumpe: el aviso manual explica los errores.
+        }
+      })();
+    }, 10 * 60 * 1000);
+    return () => window.clearInterval(timer);
+  }, [unattended, store]);
   const clipId = selection.kind === 'clip' ? selection.id : null;
   const cueId = selection.kind === 'cue' ? selection.id : null;
   const hasClip = Boolean(project?.timeline.clips.length);
@@ -174,6 +214,92 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
       return { project: copy.project, clipId: copy.clipId };
     });
     if (result) store.setSelection({ kind: 'clip', id: result.clipId });
+  }
+
+  /**
+   * Corte automático de silencios desde el menú: mismos valores por defecto y
+   * mismo motor que la sección del Inspector y el asistente. Si hay un clip
+   * seleccionado opera sobre él; si no, sobre todo el proyecto.
+   */
+  async function cutSilences(): Promise<void> {
+    if (!project) return;
+    const current = store.state.selection;
+    const clipIds = current.kind === 'clip' ? [current.id] : undefined;
+    const result = await runSilenceCuts(
+      project,
+      (assetId) => store.service.audioPeaks(assetId),
+      { clipIds },
+    );
+    if (result.clips === 0) {
+      store.setNotice(
+        result.candidates === 0
+          ? 'No hay clips con audio a 1× en pistas desbloqueadas para analizar.'
+          : result.skipped === result.candidates
+            ? 'No pude medir los picos de esos clips: el material no tiene audio analizable.'
+            : 'No encontré silencios con los valores por defecto.',
+      );
+      return;
+    }
+    store.update(() => result.project, {
+      notice: `Silencios recortados en ${result.clips} clip(s): ${result.removedSeconds.toFixed(2)} s menos. Ctrl+Z para deshacer.`,
+    });
+  }
+
+  /**
+   * Limpieza completa del proyecto en un clic: silencios, pausas (si hay
+   * subtítulos), ruido, nivelado y zoom. Un solo paso de deshacer.
+   */
+  async function autoCleanupProject(): Promise<void> {
+    if (!project) return;
+    const report = await runAutoCleanup(project, (assetId) =>
+      store.service.audioPeaks(assetId),
+    );
+    if (report.project === project) {
+      store.setNotice('No había nada que limpiar.');
+      return;
+    }
+    store.update(() => report.project, {
+      notice: `Limpieza automática: ${autoCleanupSummary(report)}`,
+    });
+  }
+
+  /**
+   * Piloto automático: mide el material, limpia con esos valores, exporta y
+   * verifica el MP4. Escribe en `<raíz del proyecto>\entregas`.
+   */
+  async function runPilot(): Promise<void> {
+    const project = store.state.project;
+    const opened = store.state.opened;
+    if (!project) return;
+    if (!opened) {
+      store.setNotice('Guardá el proyecto antes de usar el piloto automático.');
+      return;
+    }
+    const saved = await store.saveNow();
+    if (!saved) {
+      store.setNotice('No pude guardar el proyecto; el piloto necesita el archivo en disco.');
+      return;
+    }
+    store.setNotice('Piloto automático en marcha: mide, limpia y exporta. Puede tardar.');
+    try {
+      const report = await runAutoPilot({
+        project: store.state.project ?? project,
+        service: store.service,
+        options: { outputDir: `${opened.root.replace(/[\\/]+$/, '')}\\entregas` },
+      });
+      // Si el usuario editó mientras renderizaba, no se pisa su trabajo: la
+      // entrega corresponde al estado anterior y se avisa.
+      const unchanged = store.state.project === project;
+      if (unchanged) {
+        store.update(() => report.project);
+      }
+      const suffix = unchanged ? '' : ' (la entrega corresponde al estado previo a tus últimos cambios)';
+      store.setNotice(`Piloto automático: ${autoPilotSummary(report)} → ${report.videoPath}${suffix}`);
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'el piloto automático no pudo completar la entrega',
+      );
+    }
   }
 
   function deleteSelected(): void {
@@ -330,6 +456,60 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
           shortcut: 'S',
           disabled: !clipId,
           action: splitSelected,
+        },
+        {
+          kind: 'item',
+          label: 'Cortar silencios automáticamente',
+          disabled: !project,
+          action: () => void cutSilences(),
+        },
+        {
+          kind: 'item',
+          label: 'Limpieza automática del proyecto',
+          disabled: !project,
+          action: () => void autoCleanupProject(),
+        },
+        {
+          kind: 'item',
+          label: 'Agregar tarjeta de título',
+          disabled: !project,
+          action: () => {
+            if (!project) return;
+            const next = applyProjectTitleCard(project);
+            if (!next) return;
+            store.update(() => next, { notice: 'Tarjeta de título agregada al inicio.' });
+          },
+        },
+        {
+          kind: 'item',
+          label: 'Criticar edición…',
+          disabled: !project,
+          action: () => setModal('critic'),
+        },
+        {
+          kind: 'item',
+          label: 'Revisar automatización…',
+          disabled: !project,
+          action: () => setModal('review'),
+        },
+        {
+          kind: 'item',
+          label: 'Piloto automático: limpiar y exportar',
+          disabled: !project || !opened,
+          action: () => void runPilot(),
+        },
+        {
+          kind: 'item',
+          label: 'Entrega automática cada 10 min',
+          checked: unattended,
+          disabled: !opened,
+          action: () => {
+            setUnattended((value) => {
+              const nextValue = !value;
+              window.localStorage.setItem('olyvia.pilot.unattended', nextValue ? '1' : '0');
+              return nextValue;
+            });
+          },
         },
         {
           kind: 'item',
@@ -651,10 +831,26 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
             ref={dialogRef}
             role="dialog"
             aria-modal="true"
-            aria-label={modal === 'shortcuts' ? 'Atajos de teclado' : 'Acerca de Olyvia'}
+            aria-label={
+              modal === 'shortcuts'
+                ? 'Atajos de teclado'
+                : modal === 'review'
+                  ? 'Revisar automatización'
+                  : modal === 'critic'
+                    ? 'Criticar edición'
+                    : 'Acerca de Olyvia'
+            }
           >
             <header>
-              <h2>{modal === 'shortcuts' ? 'Atajos de teclado' : 'Acerca de Olyvia'}</h2>
+              <h2>
+                {modal === 'shortcuts'
+                  ? 'Atajos de teclado'
+                  : modal === 'review'
+                    ? 'Revisar automatización'
+                    : modal === 'critic'
+                      ? 'Criticar edición'
+                      : 'Acerca de Olyvia'}
+              </h2>
               <button
                 type="button"
                 className="icon-button"
@@ -665,7 +861,11 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
                 <Icon name="close" size={16} />
               </button>
             </header>
-            {modal === 'shortcuts' ? (
+            {modal === 'critic' ? (
+              <CriticDialog onClose={() => setModal(null)} />
+            ) : modal === 'review' ? (
+              <ReviewDialog onClose={() => setModal(null)} />
+            ) : modal === 'shortcuts' ? (
               <div className="shortcut-grid">
                 {[
                   ['Ctrl+O', 'Abrir proyecto'],

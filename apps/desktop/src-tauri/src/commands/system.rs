@@ -421,3 +421,41 @@ mod tests {
         assert!(validate_external_url("not a url").is_err());
     }
 }
+
+
+/// Fija las rutas de FFmpeg/FFprobe sin pasar por el diálogo del sistema.
+///
+/// Lo usa el servidor MCP para dejar la app configurada desde fuera. Valida que
+/// el archivo exista: una ruta inventada rompería todos los renders.
+#[tauri::command]
+pub fn set_tool_paths(
+    state: tauri::State<'_, crate::state::AppState>,
+    ffmpeg: Option<String>,
+    ffprobe: Option<String>,
+) -> Result<(), crate::projects::service::ProjectError> {
+    use crate::projects::service::{ProjectError, ProjectErrorCode};
+    let mut settings = state.settings.lock().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "el estado interno no está disponible")
+    })?;
+    if let Some(path) = ffmpeg {
+        let candidate = std::path::PathBuf::from(path.trim());
+        if !candidate.is_file() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "la ruta de FFmpeg no existe",
+            ));
+        }
+        settings.ffmpeg_path = Some(candidate.to_string_lossy().to_string());
+    }
+    if let Some(path) = ffprobe {
+        let candidate = std::path::PathBuf::from(path.trim());
+        if !candidate.is_file() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "la ruta de FFprobe no existe",
+            ));
+        }
+        settings.ffprobe_path = Some(candidate.to_string_lossy().to_string());
+    }
+    state.save_settings(&settings)
+}

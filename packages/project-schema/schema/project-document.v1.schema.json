@@ -537,6 +537,108 @@
         },
         "fadeOutFrames": {
           "$ref": "#/properties/look/properties/fadeInFrames"
+        },
+        "stack": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "effectId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "params": {
+                "type": "object",
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "string",
+                      "maxLength": 64
+                    },
+                    {
+                      "type": "array",
+                      "minItems": 2,
+                      "maxItems": 2,
+                      "items": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              "keyframes": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "frame": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000000
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "easing": {
+                        "type": "string",
+                        "enum": [
+                          "linear",
+                          "hold",
+                          "ease-in",
+                          "ease-out",
+                          "ease-in-out"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "frame",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "minItems": 2,
+                  "maxItems": 64
+                }
+              }
+            },
+            "required": [
+              "id",
+              "effectId",
+              "enabled",
+              "params"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 32
+        },
+        "audioStack": {
+          "type": "array",
+          "items": {
+            "$ref": "#/properties/look/properties/stack/items"
+          },
+          "maxItems": 32
         }
       },
       "additionalProperties": false
@@ -2034,6 +2136,19 @@
                   },
                   "reverse": {
                     "type": "boolean"
+                  },
+                  "effects": {
+                    "type": "object",
+                    "properties": {
+                      "audioStack": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/properties/look/properties/stack/items"
+                        },
+                        "maxItems": 32
+                      }
+                    },
+                    "additionalProperties": false
                   }
                 },
                 "required": [
@@ -2666,6 +2781,11 @@
                 "type": "number",
                 "minimum": -10000,
                 "maximum": 10000
+              },
+              "speaker": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
               }
             },
             "required": [

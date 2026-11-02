@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Scene } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
+import { AiBrandMark } from '../../components/AiBrandMark';
 import type {
   GenerateScriptRequest,
   ProviderInfo,
@@ -8,6 +9,7 @@ import type {
   VoiceInfo,
 } from '../../services/project-service';
 import { isLocalProviderUrl } from '../../services/project-service';
+import { detectAiBrand, endpointLabel } from '../../services/ai-models';
 import {
   addGeneratedNarration,
   addScene,
@@ -528,22 +530,29 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
       </ViewToolbar>
 
       <div className="script-provider">
-        <div>
-          <span className="eyebrow">Proveedor</span>
-          <p>
-            {provider
-              ? provider.kind === 'mock'
-                ? 'Simulado · sin red y sin cuota'
-                : `${provider.model || 'sin modelo'} · ${provider.baseUrl || 'sin URL'}`
-              : 'Sin configurar'}
-          </p>
-          <p className="fine-print">
-            {provider?.hasKey
-              ? 'La clave está guardada en el Administrador de credenciales de Windows.'
-              : provider?.kind === 'mock'
-                ? 'El proveedor simulado genera un esqueleto honesto, no texto de un modelo.'
-                : 'Sin clave guardada. Los endpoints locales pueden no necesitarla.'}
-          </p>
+        <div className="script-provider-main">
+          <AiBrandMark
+            brand={provider ? detectAiBrand(provider.baseUrl, provider.model) : 'mock'}
+            size={30}
+            title={provider?.model ?? 'sin modelo'}
+          />
+          <div>
+            <span className="eyebrow">Proveedor</span>
+            <p>
+              {provider
+                ? provider.kind === 'mock'
+                  ? 'Simulado · sin red y sin cuota'
+                  : `${provider.model || 'sin modelo'} · ${endpointLabel(provider.baseUrl)}`
+                : 'Sin configurar'}
+            </p>
+            <p className="fine-print">
+              {provider?.hasKey
+                ? 'La clave está guardada en el Administrador de credenciales de Windows.'
+                : provider?.kind === 'mock'
+                  ? 'El proveedor simulado genera un esqueleto honesto, no texto de un modelo.'
+                  : 'Sin clave guardada. Los endpoints locales pueden no necesitarla.'}
+            </p>
+          </div>
         </div>
         <div className="actions compact">
           <button type="button" className="small" onClick={() => onNavigate('settings')}>

@@ -11,6 +11,9 @@ const CompressView = lazy(() =>
 const DenoiseView = lazy(() =>
   import('../denoise/DenoiseView').then((module) => ({ default: module.DenoiseView })),
 );
+const SharpenView = lazy(() =>
+  import('../sharpen/SharpenView').then((module) => ({ default: module.SharpenView })),
+);
 const UpscaleView = lazy(() =>
   import('../ai/UpscaleView').then((module) => ({ default: module.UpscaleView })),
 );
@@ -23,19 +26,27 @@ const RemoveBackgroundView = lazy(() =>
   })),
 );
 
-type LabTab = 'convert' | 'compress' | 'denoise' | 'upscale' | 'compare' | 'background';
+type LabTab =
+  | 'convert'
+  | 'compress'
+  | 'denoise'
+  | 'sharpen'
+  | 'upscale'
+  | 'compare'
+  | 'background';
 
 const TABS: readonly (HubTab & { id: LabTab })[] = [
   { id: 'convert', label: 'Convertir', hint: 'Transcodificar video, imagen y audio', icon: 'convert' },
   { id: 'compress', label: 'Comprimir', hint: 'Reducir peso sin perder nitidez', icon: 'compress' },
   { id: 'denoise', label: 'Denoise', hint: 'Limpiar ruido visual y sonoro', icon: 'denoise' },
+  { id: 'sharpen', label: 'Definición', hint: 'Enfoque, curva S, grano y 4K', icon: 'sharpen' },
   { id: 'upscale', label: 'Upscale', hint: 'Super-resolución local a 4K', icon: 'upscale' },
   { id: 'compare', label: 'Comparar', hint: 'Antes y después con línea divisoria', icon: 'split' },
   { id: 'background', label: 'Fondo', hint: 'Recorte de silueta con IA local', icon: 'background' },
 ];
 
 /**
- * Laboratorio de medios: seis utilidades que antes competían en el rail viven
+ * Laboratorio de medios: siete utilidades que antes competían en el rail viven
  * en una sola pantalla. Las pestañas visitadas se conservan montadas.
  */
 export function MediaLabView({
@@ -77,6 +88,7 @@ export function MediaLabView({
       id === 'convert' ||
       id === 'compress' ||
       id === 'denoise' ||
+      id === 'sharpen' ||
       id === 'upscale' ||
       id === 'compare' ||
       id === 'background'
@@ -113,6 +125,13 @@ export function MediaLabView({
         <div className="hub-panel" role="tabpanel" hidden={active !== 'denoise'}>
           <Suspense fallback={null}>
             <DenoiseView onNavigate={route} />
+          </Suspense>
+        </div>
+      ) : null}
+      {visited.has('sharpen') ? (
+        <div className="hub-panel" role="tabpanel" hidden={active !== 'sharpen'}>
+          <Suspense fallback={null}>
+            <SharpenView onNavigate={route} />
           </Suspense>
         </div>
       ) : null}

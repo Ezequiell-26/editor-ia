@@ -85,19 +85,21 @@ describe('shell de Olyvia', () => {
       ].map((button) => button.getAttribute('aria-label')),
     ).toEqual([
       'Inicio',
+      'Proyectos',
+      'Guion',
+      'Medios',
+      'Producción',
+      'Editor',
       'Descargar',
       'Creador',
-      'Proyectos',
-      'Editor',
       'Laboratorio',
-      'Producción',
       'Aprender',
       'Ajustes',
     ]);
     expect(
       within(navigation).getByRole('button', { name: /Más herramientas/i }),
     ).toBeTruthy();
-    expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(1);
+    expect(navigation.querySelectorAll('.nav-separator')).toHaveLength(3);
     expect(
       within(navigation).getByRole('button', { name: /Inicio/ }).getAttribute('aria-current'),
     ).toBe('page');
