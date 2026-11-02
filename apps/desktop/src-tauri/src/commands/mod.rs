@@ -107,10 +107,10 @@ impl OmittedClips {
     }
 }
 
+pub mod agent;
 pub mod analysis;
 pub mod assistant;
 pub mod audio;
-pub mod agent;
 pub mod audio_providers;
 pub mod automation;
 pub mod background;
@@ -118,14 +118,11 @@ pub mod best_frame;
 pub mod capabilities;
 pub mod color_lut;
 pub mod convert;
+pub mod creator;
 pub mod denoise;
 pub mod dialogue;
-pub mod creator;
 pub mod diarize;
 pub mod downloader;
-pub mod piper;
-pub mod pipeline_profile;
-pub mod youtube_analytics;
 pub mod downloader_bridge;
 pub mod dubbing;
 pub mod edl;
@@ -149,6 +146,8 @@ pub mod motion_ai;
 pub mod narration;
 pub mod otio;
 pub mod package;
+pub mod pipeline_profile;
+pub mod piper;
 pub mod preview_frame;
 pub mod projects;
 pub mod providers;
@@ -166,3 +165,4 @@ pub mod upscale;
 pub mod variants;
 pub mod visuals;
 pub mod voice_clone;
+pub mod youtube_analytics;

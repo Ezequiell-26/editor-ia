@@ -1283,7 +1283,9 @@ rl.on('line', (line) => {
         let failure = probe_blocking(&server, &BTreeMap::new()).expect_err("debe fallar");
         assert!(
             failure.message.contains("terminó sin responder")
-                || failure.message.contains("cerró la entrada antes de responder"),
+                || failure
+                    .message
+                    .contains("cerró la entrada antes de responder"),
             "mensaje: {}",
             failure.message
         );

@@ -22,7 +22,7 @@
     "effects:codegen": "node --experimental-strip-types packages/effect-kit/scripts/generate-recipes.ts",
     "loop:preflight": "node scripts/loop-preflight.mjs",
     "loop:record": "node scripts/loop-record.mjs",
-    "verify": "npm run typecheck && npm run test && npm run test:extension && npm run test:web-tts",
+    "verify": "npm run typecheck && npm run test:serial && npm run test:extension && npm run test:web-tts",
     "dev": "npm --workspace @editor-ia/desktop run dev",
     "build": "npm --workspace @editor-ia/desktop run build",
     "setup:ffmpeg": "node scripts/setup-ffmpeg-dev.mjs --runtime",

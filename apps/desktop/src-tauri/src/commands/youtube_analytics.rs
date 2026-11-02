@@ -198,13 +198,7 @@ fn provider_error(message: &str) -> ProjectError {
     ProjectError::message(ProjectErrorCode::Io, message)
 }
 
-fn emit_progress(
-    app: Option<&AppHandle>,
-    stage: &str,
-    current: u32,
-    total: u32,
-    message: &str,
-) {
+fn emit_progress(app: Option<&AppHandle>, stage: &str, current: u32, total: u32, message: &str) {
     let Some(app) = app else {
         return;
     };
@@ -291,7 +285,11 @@ fn best_thumbnail(value: &serde_json::Value) -> Option<String> {
             continue;
         };
         let width = parse_u64(&thumb["width"]).unwrap_or(0);
-        if best.as_ref().map(|(known, _)| width > *known).unwrap_or(true) {
+        if best
+            .as_ref()
+            .map(|(known, _)| width > *known)
+            .unwrap_or(true)
+        {
             best = Some((width, url.to_owned()));
         }
     }
@@ -302,7 +300,12 @@ fn normalize_date(value: &str) -> Option<String> {
     if value.len() != 8 || !value.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
-    Some(format!("{}-{}-{}", &value[0..4], &value[4..6], &value[6..8]))
+    Some(format!(
+        "{}-{}-{}",
+        &value[0..4],
+        &value[4..6],
+        &value[6..8]
+    ))
 }
 
 fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
@@ -330,7 +333,13 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 fn weekday_name(epoch: i64) -> String {
     const NAMES: [&str; 7] = [
-        "lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo",
+        "lunes",
+        "martes",
+        "miércoles",
+        "jueves",
+        "viernes",
+        "sábado",
+        "domingo",
     ];
     let days = epoch.div_euclid(86_400);
     let index = (days + 3).rem_euclid(7) as usize;
@@ -361,11 +370,7 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
-fn run_engine(
-    engine: &Path,
-    args: &[String],
-    target: &str,
-) -> Result<Vec<u8>, String> {
+fn run_engine(engine: &Path, args: &[String], target: &str) -> Result<Vec<u8>, String> {
     let mut command = Command::new(engine);
     command.args(args).arg(target);
     command
@@ -399,9 +404,7 @@ fn base_args() -> Vec<String> {
     ]
 }
 
-fn parse_listing(
-    payload: &serde_json::Value,
-) -> (Vec<RawVideo>, Option<u64>, Option<u64>) {
+fn parse_listing(payload: &serde_json::Value) -> (Vec<RawVideo>, Option<u64>, Option<u64>) {
     let mut videos = Vec::new();
     for entry in payload
         .get("entries")
@@ -480,9 +483,11 @@ fn title_flags(title: &str) -> Vec<String> {
     if title.contains('|') || title.contains(" vs ") || title.contains(" / ") {
         flags.push("comparación/lista".to_owned());
     }
-    if ["mejor", "peor", "nunca", "secreto", "error", "todo", "nadie", "jamás"]
-        .iter()
-        .any(|word| lower.contains(word))
+    if [
+        "mejor", "peor", "nunca", "secreto", "error", "todo", "nadie", "jamás",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
     {
         flags.push("curiosidad".to_owned());
     }
@@ -499,11 +504,11 @@ fn word_tokens(text: &str) -> Vec<String> {
 
 fn stopwords() -> HashSet<&'static str> {
     [
-        "para", "pero", "porque", "como", "cuando", "donde", "sobre", "entre", "desde",
-        "hasta", "también", "tambien", "muy", "más", "mas", "este", "esta", "esto",
-        "estos", "estas", "the", "and", "that", "this", "with", "from", "have", "your",
-        "you", "about", "they", "their", "what", "when", "where", "will", "would",
-        "there", "here", "http", "https", "www", "com", "video", "videos", "youtube",
+        "para", "pero", "porque", "como", "cuando", "donde", "sobre", "entre", "desde", "hasta",
+        "también", "tambien", "muy", "más", "mas", "este", "esta", "esto", "estos", "estas", "the",
+        "and", "that", "this", "with", "from", "have", "your", "you", "about", "they", "their",
+        "what", "when", "where", "will", "would", "there", "here", "http", "https", "www", "com",
+        "video", "videos", "youtube",
     ]
     .into_iter()
     .collect()
@@ -532,15 +537,55 @@ fn keyword_counts(texts: &[String], limit: usize) -> Vec<KeywordCount> {
 fn sentiment(comment: &str) -> i32 {
     let words = word_tokens(comment);
     let positive = [
-        "buen", "buena", "excelente", "increíble", "increible", "gracias", "genial",
-        "perfecto", "útil", "util", "aprendí", "aprendi", "gran", "encanta", "encantó",
-        "love", "great", "awesome", "thanks", "helpful", "best", "amazing", "nice",
-        "excellent", "cool", "brilliant",
+        "buen",
+        "buena",
+        "excelente",
+        "increíble",
+        "increible",
+        "gracias",
+        "genial",
+        "perfecto",
+        "útil",
+        "util",
+        "aprendí",
+        "aprendi",
+        "gran",
+        "encanta",
+        "encantó",
+        "love",
+        "great",
+        "awesome",
+        "thanks",
+        "helpful",
+        "best",
+        "amazing",
+        "nice",
+        "excellent",
+        "cool",
+        "brilliant",
     ];
     let negative = [
-        "malo", "mala", "aburrido", "error", "confuso", "pésimo", "pesimo", "horrible",
-        "odio", "decepcion", "decepción", "bad", "boring", "wrong", "confusing", "hate",
-        "terrible", "worst", "useless", "trash", "scam",
+        "malo",
+        "mala",
+        "aburrido",
+        "error",
+        "confuso",
+        "pésimo",
+        "pesimo",
+        "horrible",
+        "odio",
+        "decepcion",
+        "decepción",
+        "bad",
+        "boring",
+        "wrong",
+        "confusing",
+        "hate",
+        "terrible",
+        "worst",
+        "useless",
+        "trash",
+        "scam",
     ];
     let mut score = 0;
     for word in words {
@@ -554,10 +599,7 @@ fn sentiment(comment: &str) -> i32 {
     score
 }
 
-fn analyze_comments(
-    comments: &[RawComment],
-    comment_video_titles: &[String],
-) -> CommentAnalysis {
+fn analyze_comments(comments: &[RawComment], comment_video_titles: &[String]) -> CommentAnalysis {
     if comments.is_empty() {
         return CommentAnalysis::default();
     }
@@ -615,8 +657,7 @@ fn thumbnail_from_bytes(bytes: &[u8]) -> Option<ThumbnailStats> {
         let [r, g, b, _] = rgba.0;
         let max = f64::from(r.max(g).max(b));
         let min = f64::from(r.min(g).min(b));
-        let luma = (0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b))
-            / 255.0;
+        let luma = (0.2126 * f64::from(r) + 0.7152 * f64::from(g) + 0.0722 * f64::from(b)) / 255.0;
         let saturation = if max > 0.0 { (max - min) / max } else { 0.0 };
         luma_sum += luma;
         sat_sum += saturation;
@@ -670,10 +711,7 @@ fn download_thumbnail(url: &str) -> Option<ThumbnailStats> {
         .user_agent("Olyvia/0.1 channel-analyzer")
         .build()
         .ok()?;
-    for candidate in [
-        url.to_owned(),
-        url.replace("maxresdefault", "hqdefault"),
-    ] {
+    for candidate in [url.to_owned(), url.replace("maxresdefault", "hqdefault")] {
         let Ok(response) = client.get(&candidate).send() else {
             continue;
         };
@@ -703,19 +741,14 @@ fn fetch_detail(engine: &Path, video: &RawVideo) -> Result<RawVideo, String> {
     Ok(parse_detail(&value, video))
 }
 
-fn fetch_comments(
-    engine: &Path,
-    video: &RawVideo,
-) -> Result<Vec<RawComment>, String> {
+fn fetch_comments(engine: &Path, video: &RawVideo) -> Result<Vec<RawComment>, String> {
     let mut args = base_args();
     args.extend([
         "--skip-download".into(),
         "--write-comments".into(),
         "--dump-single-json".into(),
         "--extractor-args".into(),
-        format!(
-            "youtube:comment_sort=top;max_comments={MAX_COMMENTS_PER_VIDEO}"
-        ),
+        format!("youtube:comment_sort=top;max_comments={MAX_COMMENTS_PER_VIDEO}"),
     ]);
     let url = format!("https://www.youtube.com/watch?v={}", video.id);
     let bytes = run_engine(engine, &args, &url)?;
@@ -795,8 +828,7 @@ pub(crate) fn score_videos(videos: &mut [ChannelVideo], now: i64) {
             0.0
         };
         video.score =
-            ((part_views * 45.0 + part_engagement * 35.0 + recency * 20.0) * 10.0).round()
-                / 10.0;
+            ((part_views * 45.0 + part_engagement * 35.0 + recency * 20.0) * 10.0).round() / 10.0;
     }
 }
 
@@ -844,16 +876,16 @@ fn build_reasons(
                 ));
             }
         }
-        reasons.push(format!("Miniatura {}×{}", thumbnail.width, thumbnail.height));
+        reasons.push(format!(
+            "Miniatura {}×{}",
+            thumbnail.width, thumbnail.height
+        ));
     }
     if !video.title_flags.is_empty() {
         reasons.push(format!("Título con {}", video.title_flags.join(", ")));
     }
     if video.duration_seconds >= 60.0 {
-        reasons.push(format!(
-            "Duración {:.0} min",
-            video.duration_seconds / 60.0
-        ));
+        reasons.push(format!("Duración {:.0} min", video.duration_seconds / 60.0));
     }
     if best && reasons.is_empty() {
         reasons.push("Mayor score combinado de vistas/día, engagement y recencia".to_owned());
@@ -965,7 +997,10 @@ fn analyze_channel_blocking(
             "details",
             index as u32 + 1,
             selected.len() as u32,
-            &format!("Leyendo “{}”…", video.title.chars().take(60).collect::<String>()),
+            &format!(
+                "Leyendo “{}”…",
+                video.title.chars().take(60).collect::<String>()
+            ),
         );
         match fetch_detail(&engine, video) {
             Ok(detail) => details.push(detail),
@@ -1036,27 +1071,14 @@ fn analyze_channel_blocking(
     videos.sort_by(|a, b| b.score.total_cmp(&a.score));
 
     let median_views = median(videos.iter().map(|video| video.views as f64).collect());
-    let median_duration = median(
-        videos
-            .iter()
-            .map(|video| video.duration_seconds)
-            .collect(),
-    );
-    let median_views_per_day = median(
-        videos
-            .iter()
-            .map(|video| video.views_per_day)
-            .collect(),
-    );
+    let median_duration = median(videos.iter().map(|video| video.duration_seconds).collect());
+    let median_views_per_day = median(videos.iter().map(|video| video.views_per_day).collect());
     let average_engagement = videos
         .iter()
         .map(|video| video.engagement_rate)
         .sum::<f64>()
         / videos.len() as f64;
-    let dated: Vec<i64> = details
-        .iter()
-        .filter_map(|video| video.timestamp)
-        .collect();
+    let dated: Vec<i64> = details.iter().filter_map(|video| video.timestamp).collect();
     let uploads_per_week = if dated.len() >= 2 {
         let min = *dated.iter().min().unwrap_or(&0);
         let max = *dated.iter().max().unwrap_or(&0);
@@ -1086,26 +1108,28 @@ fn analyze_channel_blocking(
     let title_count = titles.len().max(1) as f64;
     let pct = |count: usize| round1(count as f64 / title_count * 100.0);
     let title_patterns = TitlePatterns {
-        numbers_percent: pct(titles.iter().filter(|title| title.chars().any(|ch| ch.is_ascii_digit())).count()),
-        questions_percent: pct(titles.iter().filter(|title| title.contains('?') || title.contains('¿')).count()),
-        how_to_percent: pct(
-            titles
-                .iter()
-                .filter(|title| {
-                    let lower = title.to_lowercase();
-                    lower.starts_with("cómo")
-                        || lower.starts_with("como ")
-                        || lower.starts_with("how to")
-                        || lower.contains("tutorial")
-                })
-                .count(),
-        ),
-        lists_percent: pct(
-            titles
-                .iter()
-                .filter(|title| title.contains('|') || title.contains(" vs ") || title.contains(" / "))
-                .count(),
-        ),
+        numbers_percent: pct(titles
+            .iter()
+            .filter(|title| title.chars().any(|ch| ch.is_ascii_digit()))
+            .count()),
+        questions_percent: pct(titles
+            .iter()
+            .filter(|title| title.contains('?') || title.contains('¿'))
+            .count()),
+        how_to_percent: pct(titles
+            .iter()
+            .filter(|title| {
+                let lower = title.to_lowercase();
+                lower.starts_with("cómo")
+                    || lower.starts_with("como ")
+                    || lower.starts_with("how to")
+                    || lower.contains("tutorial")
+            })
+            .count()),
+        lists_percent: pct(titles
+            .iter()
+            .filter(|title| title.contains('|') || title.contains(" vs ") || title.contains(" / "))
+            .count()),
     };
     let common_title_words = keyword_counts(&titles, 8);
     let thumbnail_samples: Vec<&ThumbnailStats> = videos
@@ -1118,13 +1142,28 @@ fn analyze_channel_blocking(
         let count = thumbnail_samples.len() as f64;
         Some(ThumbnailAverages {
             brightness: round1(
-                thumbnail_samples.iter().map(|item| item.brightness).sum::<f64>() / count * 100.0,
+                thumbnail_samples
+                    .iter()
+                    .map(|item| item.brightness)
+                    .sum::<f64>()
+                    / count
+                    * 100.0,
             ),
             saturation: round1(
-                thumbnail_samples.iter().map(|item| item.saturation).sum::<f64>() / count * 100.0,
+                thumbnail_samples
+                    .iter()
+                    .map(|item| item.saturation)
+                    .sum::<f64>()
+                    / count
+                    * 100.0,
             ),
             contrast: round1(
-                thumbnail_samples.iter().map(|item| item.contrast).sum::<f64>() / count * 100.0,
+                thumbnail_samples
+                    .iter()
+                    .map(|item| item.contrast)
+                    .sum::<f64>()
+                    / count
+                    * 100.0,
             ),
             samples: thumbnail_samples.len() as u32,
         })
@@ -1343,9 +1382,7 @@ pub async fn analyze_youtube_channel(
         analyze_channel_blocking(Some(&app), &config_dir, request)
     })
     .await
-    .map_err(|error| {
-        provider_error(&format!("el analizador de canales falló: {error}"))
-    })?
+    .map_err(|error| provider_error(&format!("el analizador de canales falló: {error}")))?
 }
 
 #[cfg(test)]
@@ -1449,8 +1486,8 @@ mod live_tests {
             eprintln!("live_channel_analysis omitido: definí EDITOR_IA_RUN_NETWORK_TESTS=1");
             return;
         }
-        let config = PathBuf::from(std::env::var("APPDATA").expect("APPDATA"))
-            .join("com.editoria.desktop");
+        let config =
+            PathBuf::from(std::env::var("APPDATA").expect("APPDATA")).join("com.editoria.desktop");
         let report = analyze_channel_blocking(
             None,
             &config,
@@ -1474,7 +1511,12 @@ mod live_tests {
             report.analyzed_videos,
             report.best_video_id,
             report.videos[0].score,
-            report.insights.comments.as_ref().map(|c| c.analyzed).unwrap_or(0)
+            report
+                .insights
+                .comments
+                .as_ref()
+                .map(|c| c.analyzed)
+                .unwrap_or(0)
         );
     }
 }

@@ -43,7 +43,10 @@ impl PiperAssets {
 /// de desarrollo. Devuelve `None` si el instalador no incluyó la voz.
 pub fn resolve_assets(app: &AppHandle) -> Option<PiperAssets> {
     let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(path) = app.path().resolve("piper", tauri::path::BaseDirectory::Resource) {
+    if let Ok(path) = app
+        .path()
+        .resolve("piper", tauri::path::BaseDirectory::Resource)
+    {
         candidates.push(path);
     }
     candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/piper"));
@@ -81,11 +84,7 @@ fn clean_script(text: &str) -> Result<String, ProjectError> {
 
 /// Sintetiza el guion en un WAV. Bloqueante: se llama desde el mismo worker
 /// de descarga para que Piper y FFmpeg no compitan por la UI.
-pub fn synthesize(
-    assets: &PiperAssets,
-    script: &str,
-    output: &Path,
-) -> Result<(), ProjectError> {
+pub fn synthesize(assets: &PiperAssets, script: &str, output: &Path) -> Result<(), ProjectError> {
     let text = clean_script(script)?;
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|_| {
@@ -108,10 +107,7 @@ pub fn synthesize(
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    command.env(
-        "ESPEAK_DATA_PATH",
-        assets.root.join("espeak-ng-data"),
-    );
+    command.env("ESPEAK_DATA_PATH", assets.root.join("espeak-ng-data"));
     hide_console(&mut command);
     let mut child = command.spawn().map_err(|_| {
         ProjectError::message(
@@ -136,10 +132,15 @@ pub fn synthesize(
             .unwrap_or("Piper no pudo sintetizar la voz");
         return Err(ProjectError::message(
             ProjectErrorCode::Io,
-            &format!("voz IA local falló: {}", last.chars().take(300).collect::<String>()),
+            &format!(
+                "voz IA local falló: {}",
+                last.chars().take(300).collect::<String>()
+            ),
         ));
     }
-    let bytes = std::fs::metadata(output).map(|meta| meta.len()).unwrap_or(0);
+    let bytes = std::fs::metadata(output)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
     if bytes <= 44 {
         return Err(ProjectError::message(
             ProjectErrorCode::Io,
@@ -183,9 +184,14 @@ mod tests {
         }
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/piper");
         let assets = PiperAssets::from_root(&root).expect("voz");
-        let output = std::env::temp_dir().join(format!("olyvia-piper-{}.wav", uuid::Uuid::new_v4()));
-        synthesize(&assets, "Hola, esta es una prueba local de Olyvia.", &output)
-            .expect("Piper debería sintetizar");
+        let output =
+            std::env::temp_dir().join(format!("olyvia-piper-{}.wav", uuid::Uuid::new_v4()));
+        synthesize(
+            &assets,
+            "Hola, esta es una prueba local de Olyvia.",
+            &output,
+        )
+        .expect("Piper debería sintetizar");
         let bytes = std::fs::read(&output).unwrap();
         assert!(bytes.len() > 44);
         assert_eq!(&bytes[0..4], b"RIFF");

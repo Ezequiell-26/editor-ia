@@ -98,7 +98,8 @@ pub async fn save_diarize_provider(
         _ => "none",
     };
     let base_url = base_url.trim().trim_end_matches('/').to_owned();
-    if !base_url.is_empty() && !(base_url.starts_with("https://") || base_url.starts_with("http://"))
+    if !base_url.is_empty()
+        && !(base_url.starts_with("https://") || base_url.starts_with("http://"))
     {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,

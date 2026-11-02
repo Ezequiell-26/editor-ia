@@ -618,10 +618,7 @@ pub async fn extract_subtitles(
     }
     let value: serde_json::Value =
         serde_json::from_slice(&probed.stdout).unwrap_or_else(|_| serde_json::json!({}));
-    let streams = value["streams"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
+    let streams = value["streams"].as_array().cloned().unwrap_or_default();
     if streams.is_empty() {
         return Ok(None);
     }
@@ -640,12 +637,11 @@ pub async fn extract_subtitles(
     let language = stream["tags"]["language"]
         .as_str()
         .map(|value| value.to_owned());
-    let title = stream["tags"]["title"].as_str().map(|value| value.to_owned());
+    let title = stream["tags"]["title"]
+        .as_str()
+        .map(|value| value.to_owned());
 
-    let temp = std::env::temp_dir().join(format!(
-        "editoria-subs-{}.srt",
-        Uuid::new_v4()
-    ));
+    let temp = std::env::temp_dir().join(format!("editoria-subs-{}.srt", Uuid::new_v4()));
     let mut command = Command::new(&ffmpeg);
     command
         .args(["-hide_banner", "-v", "error", "-y", "-i"])
@@ -667,7 +663,10 @@ pub async fn extract_subtitles(
     if !output.status.success() {
         let _ = std::fs::remove_file(&temp);
         let detail = String::from_utf8_lossy(&output.stderr);
-        let last = detail.lines().last().unwrap_or("FFmpeg no pudo extraer los subtítulos");
+        let last = detail
+            .lines()
+            .last()
+            .unwrap_or("FFmpeg no pudo extraer los subtítulos");
         return Err(ProjectError::message(
             ProjectErrorCode::Io,
             &format!("no se pudieron extraer los subtítulos: {last}"),

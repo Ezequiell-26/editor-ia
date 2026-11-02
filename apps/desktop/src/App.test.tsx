@@ -974,6 +974,8 @@ describe('shell de Olyvia', () => {
     service.current = seededOpened;
     render(<App service={service} />);
     await createProject('Obra cortes');
+    // Abrir el Inspector del proyecto, no el Inspector del clip que quedó seleccionado.
+    fireEvent.keyDown(document, { key: 'Escape' });
     fireEvent.click(
       await screen.findByRole('button', { name: 'Cortar clips en marcadores' }),
     );

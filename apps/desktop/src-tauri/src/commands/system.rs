@@ -422,7 +422,6 @@ mod tests {
     }
 }
 
-
 /// Fija las rutas de FFmpeg/FFprobe sin pasar por el diálogo del sistema.
 ///
 /// Lo usa el servidor MCP para dejar la app configurada desde fuera. Valida que

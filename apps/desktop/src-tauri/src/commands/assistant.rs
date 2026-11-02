@@ -220,7 +220,10 @@ fn clean_action(value: Option<&Value>) -> Option<Value> {
         }
         "add_clip" => {
             let asset = clean_name(value, "asset", 120)?;
-            let at_playhead = value.get("atPlayhead").and_then(Value::as_bool).unwrap_or(false);
+            let at_playhead = value
+                .get("atPlayhead")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             Some(json!({ "kind": "add_clip", "asset": asset, "atPlayhead": at_playhead }))
         }
         "goto" => {
@@ -670,9 +673,7 @@ pub async fn match_media_plan(
     let sentences: Vec<String> = request
         .sentences
         .iter()
-        .map(|text| -> String {
-            text.trim().chars().take(MAX_MATCH_TEXT_CHARS).collect()
-        })
+        .map(|text| -> String { text.trim().chars().take(MAX_MATCH_TEXT_CHARS).collect() })
         .filter(|text| !text.is_empty())
         .collect();
     let images: Vec<String> = request
@@ -752,7 +753,10 @@ pub async fn match_media_plan(
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|_| {
-            ProjectError::message(ProjectErrorCode::ProviderUnavailable, "no se pudo preparar la conexión")
+            ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "no se pudo preparar la conexión",
+            )
         })?;
     let mut call = client
         .post(chat_endpoint(&provider.base_url))
@@ -774,7 +778,10 @@ pub async fn match_media_plan(
     if !response.status().is_success() {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderRejected,
-            &format!("la IA rechazó el emparejamiento (HTTP {})", response.status().as_u16()),
+            &format!(
+                "la IA rechazó el emparejamiento (HTTP {})",
+                response.status().as_u16()
+            ),
         ));
     }
     let payload: Value = response.json().await.map_err(|_| {
@@ -836,7 +843,9 @@ mod tests {
     #[test]
     fn editing_actions_validate_their_bounds() {
         assert_eq!(
-            clean_action(Some(&json!({ "kind": "new_project", "name": "  Reel de mayo  " }))),
+            clean_action(Some(
+                &json!({ "kind": "new_project", "name": "  Reel de mayo  " })
+            )),
             Some(json!({ "kind": "new_project", "name": "Reel de mayo" }))
         );
         assert!(clean_action(Some(&json!({ "kind": "new_project", "name": "   " }))).is_none());
@@ -892,7 +901,10 @@ mod tests {
             "seconds": 0.1
         })))
         .expect("subtítulo válido");
-        assert_eq!(caption["seconds"], 3.0, "un subtítulo de 0,1 s se lleva al mínimo");
+        assert_eq!(
+            caption["seconds"], 3.0,
+            "un subtítulo de 0,1 s se lleva al mínimo"
+        );
 
         assert_eq!(
             clean_action(Some(&json!({ "kind": "set_speed", "speed": 2 }))),
@@ -942,17 +954,22 @@ mod tests {
         // Un umbral imposible o un alcance desconocido caen a los valores por
         // defecto: el corte sigue siendo útil y acotado por la guardia del 80 %.
         assert_eq!(
-            clean_action(Some(&json!({ "kind": "cut_silences", "thresholdDb": 5, "scope": "otro" })))
-                .unwrap()["thresholdDb"],
+            clean_action(Some(
+                &json!({ "kind": "cut_silences", "thresholdDb": 5, "scope": "otro" })
+            ))
+            .unwrap()["thresholdDb"],
             json!(-45.0)
         );
         assert_eq!(
-            clean_action(Some(&json!({ "kind": "cut_silences", "scope": "otro" }))).unwrap()["scope"],
+            clean_action(Some(&json!({ "kind": "cut_silences", "scope": "otro" }))).unwrap()
+                ["scope"],
             json!("selection")
         );
 
         assert_eq!(
-            clean_action(Some(&json!({ "kind": "auto_subtitles", "scope": "project" }))),
+            clean_action(Some(
+                &json!({ "kind": "auto_subtitles", "scope": "project" })
+            )),
             Some(json!({ "kind": "auto_subtitles", "scope": "project" }))
         );
         assert_eq!(
@@ -1027,7 +1044,14 @@ mod tests {
 
     #[test]
     fn navigation_accepts_the_full_surface_of_the_app() {
-        for view in ["sharpen", "lab", "creator", "mixer", "text-edit", "auto-edit"] {
+        for view in [
+            "sharpen",
+            "lab",
+            "creator",
+            "mixer",
+            "text-edit",
+            "auto-edit",
+        ] {
             assert_eq!(
                 clean_action(Some(&json!({ "kind": "navigate", "view": view }))),
                 Some(json!({ "kind": "navigate", "view": view }))
@@ -1050,7 +1074,9 @@ mod tests {
     #[test]
     fn media_folder_action_only_accepts_a_folder_name() {
         assert_eq!(
-            clean_action(Some(&json!({ "kind": "media_folder", "folder": " video 1 " }))),
+            clean_action(Some(
+                &json!({ "kind": "media_folder", "folder": " video 1 " })
+            )),
             Some(json!({ "kind": "media_folder", "folder": "video 1" }))
         );
         assert!(clean_action(Some(&json!({

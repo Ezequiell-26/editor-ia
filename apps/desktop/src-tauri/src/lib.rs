@@ -13,10 +13,8 @@ pub mod projects;
 pub mod render;
 pub mod state;
 
-static QUIT_REQUESTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
-static BACKGROUND_START: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static BACKGROUND_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(windows)]
 fn claim_single_instance() -> bool {
@@ -253,14 +251,7 @@ pub fn run() {
                     .body("Notificación de prueba desde el descargador.")
                     .show();
                 let marker = std::env::temp_dir().join("olyvia-notification-test.txt");
-                let _ = std::fs::write(
-                    marker,
-                    if result.is_ok() {
-                        "ok"
-                    } else {
-                        "error"
-                    },
-                );
+                let _ = std::fs::write(marker, if result.is_ok() { "ok" } else { "error" });
             }
 
             // Iniciar puente de descarga si está disponible

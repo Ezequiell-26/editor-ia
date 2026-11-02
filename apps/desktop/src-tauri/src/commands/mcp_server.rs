@@ -248,10 +248,7 @@ async fn run_tool(app: &AppHandle, tool: &str, args: &Value) -> Value {
     if let Ok(mut map) = pending().lock() {
         map.insert(id.clone(), sender);
     }
-    let emitted = app.emit(
-        "mcp-call",
-        json!({ "id": id, "tool": tool, "args": args }),
-    );
+    let emitted = app.emit("mcp-call", json!({ "id": id, "tool": tool, "args": args }));
     if emitted.is_err() {
         if let Ok(mut map) = pending().lock() {
             map.remove(&id);
@@ -354,7 +351,12 @@ async fn serve(mut stream: tokio::net::TcpStream, app: AppHandle, token: String)
                     break;
                 }
                 if buffer.len() > MAX_HEADER_BYTES {
-                    write_response(&mut stream, 431, "{\"error\":\"headers demasiado grandes\"}").await;
+                    write_response(
+                        &mut stream,
+                        431,
+                        "{\"error\":\"headers demasiado grandes\"}",
+                    )
+                    .await;
                     return;
                 }
             }

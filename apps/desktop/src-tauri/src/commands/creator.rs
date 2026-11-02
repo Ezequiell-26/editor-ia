@@ -1074,7 +1074,10 @@ fn safe_name(raw: &str) -> String {
         .chars()
         .map(|character| {
             if character.is_control()
-                || matches!(character, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')
+                || matches!(
+                    character,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                )
             {
                 '_'
             } else {
@@ -1083,7 +1086,11 @@ fn safe_name(raw: &str) -> String {
         })
         .collect();
     value = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    let value = value.trim_matches([' ', '.']).chars().take(60).collect::<String>();
+    let value = value
+        .trim_matches([' ', '.'])
+        .chars()
+        .take(60)
+        .collect::<String>();
     if value.is_empty() {
         "capitulo".to_owned()
     } else {
@@ -1505,13 +1512,11 @@ mod tests {
             total += info.duration;
         }
         assert!((total - 6.0).abs() < 0.6, "duración total {total}");
-        assert!(
-            Path::new(&parts[1].path)
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .contains("Cierre_ preguntas")
-        );
+        assert!(Path::new(&parts[1].path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .contains("Cierre_ preguntas"));
 
         // Subtítulos quemados: filtro subtitles real sobre un frame claro.
         let srt = "1\n00:00:00,200 --> 00:00:05,500\nSubtítulo de prueba\n";

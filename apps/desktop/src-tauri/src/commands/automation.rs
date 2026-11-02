@@ -77,7 +77,6 @@ fn extract_urls(text: &str) -> Vec<String> {
     urls
 }
 
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SourceChecksum {
@@ -104,7 +103,10 @@ fn checksum_from_headers(headers: &reqwest::header::HeaderMap) -> SourceChecksum
     let mut md5 = None;
     let mut sha256 = None;
     let mut source = String::new();
-    if let Some(value) = headers.get("content-md5").and_then(|value| value.to_str().ok()) {
+    if let Some(value) = headers
+        .get("content-md5")
+        .and_then(|value| value.to_str().ok())
+    {
         md5 = base64_to_hex(value, 16);
         if md5.is_some() {
             source = "Content-MD5".to_owned();
@@ -141,7 +143,10 @@ fn checksum_from_headers(headers: &reqwest::header::HeaderMap) -> SourceChecksum
             }
         }
     }
-    if let Some(value) = headers.get("x-goog-hash").and_then(|value| value.to_str().ok()) {
+    if let Some(value) = headers
+        .get("x-goog-hash")
+        .and_then(|value| value.to_str().ok())
+    {
         for part in value.split(',') {
             if let Some(raw) = part.trim().strip_prefix("md5=") {
                 if md5.is_none() {
@@ -283,9 +288,10 @@ pub(crate) fn parse_feed(xml: &str, limit: usize) -> Vec<RssItem> {
     };
     let limit = limit.clamp(1, MAX_RSS_ITEMS);
     let mut items = Vec::new();
-    for node in document.descendants().filter(|node| {
-        node.is_element() && matches!(node.tag_name().name(), "item" | "entry")
-    }) {
+    for node in document
+        .descendants()
+        .filter(|node| node.is_element() && matches!(node.tag_name().name(), "item" | "entry"))
+    {
         let Some(link) = entry_link(node) else {
             continue;
         };
@@ -401,7 +407,10 @@ mod tests {
         let urls = extract_urls(
             "# lista\nhttps://youtu.be/uno\n\n  https://example.com/dos, \nno es url\nhttps://youtu.be/uno\n",
         );
-        assert_eq!(urls, vec!["https://youtu.be/uno", "https://example.com/dos"]);
+        assert_eq!(
+            urls,
+            vec!["https://youtu.be/uno", "https://example.com/dos"]
+        );
         assert!(extract_urls("solo texto").is_empty());
     }
 
@@ -481,8 +490,8 @@ mod tests {
         if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
             return;
         }
-        let items = fetch_rss_feed("https://hnrss.org/frontpage".to_owned(), Some(5))
-            .expect("feed real");
+        let items =
+            fetch_rss_feed("https://hnrss.org/frontpage".to_owned(), Some(5)).expect("feed real");
         assert!(!items.is_empty());
         assert!(items.iter().all(|item| item.link.starts_with("http")));
         eprintln!("RSS real: {} entradas", items.len());

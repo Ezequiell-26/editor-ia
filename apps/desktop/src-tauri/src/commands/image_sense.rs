@@ -20,9 +20,9 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::commands::face;
+use crate::commands::hide_console;
 use crate::commands::models::{is_model_downloaded, model_by_id, model_file};
 use crate::commands::system::resolve_tools;
-use crate::commands::{hide_console};
 use crate::media::resolve_inside_root;
 use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -101,7 +101,11 @@ fn rgb_to_hsv(r: u8, g: u8, b: u8) -> (f64, f64, f64) {
         60.0 * (((rf - gf) / delta) + 4.0)
     };
     let hue = if hue < 0.0 { hue + 360.0 } else { hue };
-    let saturation = if max <= f64::EPSILON { 0.0 } else { delta / max };
+    let saturation = if max <= f64::EPSILON {
+        0.0
+    } else {
+        delta / max
+    };
     (hue, saturation, max)
 }
 
@@ -207,8 +211,7 @@ fn palette_of(rgb: &RgbImage) -> Vec<String> {
         entry.2 += pixel[2] as u64;
         entry.3 += 1;
     }
-    let mut ranked: Vec<((u8, u8, u8), (u64, u64, u64, u64))> =
-        buckets.into_iter().collect();
+    let mut ranked: Vec<((u8, u8, u8), (u64, u64, u64, u64))> = buckets.into_iter().collect();
     ranked.sort_by(|a, b| b.1 .3.cmp(&a.1 .3));
     ranked
         .into_iter()
@@ -263,7 +266,8 @@ fn temperature_of(dominant_hue: f64, concentration: f64, warm_bias: f64) -> &'st
 }
 
 fn measure(asset_id: &str, path: &Path, model_path: Option<&Path>) -> Result<ImageContent, String> {
-    let decoded = image::open(path).map_err(|error| format!("no se pudo leer la imagen: {error}"))?;
+    let decoded =
+        image::open(path).map_err(|error| format!("no se pudo leer la imagen: {error}"))?;
     let (width, height) = decoded.dimensions();
     if width == 0 || height == 0 {
         return Err("la imagen no tiene dimensiones válidas".to_owned());
@@ -358,12 +362,9 @@ fn measure(asset_id: &str, path: &Path, model_path: Option<&Path>) -> Result<Ima
                 let big = decoded.resize(FACE_SIZE, FACE_SIZE, FilterType::Triangle);
                 let big_gray = big.to_luma8();
                 match face::detect_largest_face(detector.as_mut(), &big_gray) {
-                    Some((x, y, size)) => (
-                        1,
-                        Some(clamp01(x)),
-                        Some(clamp01(y)),
-                        Some(clamp01(size)),
-                    ),
+                    Some((x, y, size)) => {
+                        (1, Some(clamp01(x)), Some(clamp01(y)), Some(clamp01(size)))
+                    }
                     None => (0, None, None, None),
                 }
             }
@@ -427,7 +428,11 @@ pub async fn analyze_images(
 
     let model_path: Option<PathBuf> = model_by_id("seeta-face")
         .filter(|spec| is_model_downloaded(&state, spec))
-        .and_then(|spec| spec.files.first().map(|file| model_file(&state, spec, file)));
+        .and_then(|spec| {
+            spec.files
+                .first()
+                .map(|file| model_file(&state, spec, file))
+        });
 
     let mut jobs: Vec<(String, PathBuf)> = Vec::new();
     for asset_id in &asset_ids {
@@ -567,7 +572,11 @@ pub async fn analyze_media_frames(
 
     let face_model: Option<PathBuf> = model_by_id("seeta-face")
         .filter(|spec| is_model_downloaded(&state, spec))
-        .and_then(|spec| spec.files.first().map(|file| model_file(&state, spec, file)));
+        .and_then(|spec| {
+            spec.files
+                .first()
+                .map(|file| model_file(&state, spec, file))
+        });
 
     let mut jobs: Vec<(String, PathBuf, Option<f64>)> = Vec::new();
     for asset_id in &asset_ids {
@@ -606,15 +615,12 @@ pub async fn analyze_media_frames(
         for (asset_id, path, at_seconds) in jobs {
             let content = match at_seconds {
                 Some(at) => {
-                    let sample = std::env::temp_dir().join(format!(
-                        "editoria-frame-{}.png",
-                        uuid::Uuid::new_v4()
-                    ));
+                    let sample = std::env::temp_dir()
+                        .join(format!("editoria-frame-{}.png", uuid::Uuid::new_v4()));
                     if sample_video_frame(&ffmpeg_for_jobs, &path, at, &sample).is_err() {
                         continue;
                     }
-                    let measured =
-                        measure(&asset_id, &sample, face_model.as_deref()).ok();
+                    let measured = measure(&asset_id, &sample, face_model.as_deref()).ok();
                     let _ = std::fs::remove_file(&sample);
                     measured.map(|mut content| {
                         content.sampled_at_seconds = Some((at * 1000.0).round() / 1000.0);

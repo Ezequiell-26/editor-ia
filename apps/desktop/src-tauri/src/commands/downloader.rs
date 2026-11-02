@@ -1942,19 +1942,11 @@ pub(crate) fn youtube_video_id(raw: &str) -> Option<String> {
         candidate = path.split(['?', '#', '/']).next();
     } else if host == "youtube.com" || host.ends_with(".youtube.com") {
         if let Some(query) = path.strip_prefix("watch?") {
-            candidate = query
-                .split('&')
-                .find_map(|pair| pair.strip_prefix("v="));
+            candidate = query.split('&').find_map(|pair| pair.strip_prefix("v="));
         } else {
-            candidate = path
-                .split('/')
-                .find(|part| {
-                    !part.is_empty()
-                        && !matches!(
-                            *part,
-                            "shorts" | "embed" | "live" | "v" | "e"
-                        )
-                });
+            candidate = path.split('/').find(|part| {
+                !part.is_empty() && !matches!(*part, "shorts" | "embed" | "live" | "v" | "e")
+            });
         }
     }
     let id = candidate?.trim();
@@ -2021,9 +2013,7 @@ pub async fn list_audio_tracks(
             .map_err(|_| provider_error("yt-dlp devolvió un análisis de audio ilegible."))?;
         let tracks = parse_audio_tracks(&value);
         if tracks.is_empty() {
-            return Err(invalid_error(
-                "La URL no ofrece pistas de audio separadas.",
-            ));
+            return Err(invalid_error("La URL no ofrece pistas de audio separadas."));
         }
         Ok(tracks)
     })
@@ -2087,8 +2077,7 @@ fn fetch_sponsor_segments(
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|_| provider_error("No se pudo iniciar la consulta a SponsorBlock."))?;
-    let categories_json =
-        serde_json::to_string(categories).unwrap_or_else(|_| "[]".to_owned());
+    let categories_json = serde_json::to_string(categories).unwrap_or_else(|_| "[]".to_owned());
     let response = client
         .get("https://sponsor.ajay.app/api/skipSegments")
         .query(&[
@@ -2125,8 +2114,7 @@ pub async fn sponsorblock_preview(
     let video_id = youtube_video_id(&url).ok_or_else(|| {
         invalid_error("Solo los enlaces de YouTube tienen segmentos de SponsorBlock.")
     })?;
-    let categories =
-        sponsorblock_category_list(categories.as_deref()).map_err(invalid_error)?;
+    let categories = sponsorblock_category_list(categories.as_deref()).map_err(invalid_error)?;
     tauri::async_runtime::spawn_blocking(move || fetch_sponsor_segments(&video_id, &categories))
         .await
         .map_err(|_| provider_error("La consulta a SponsorBlock se interrumpió."))?
@@ -2457,11 +2445,7 @@ fn process_video(
     if color.is_hdr() {
         // El look manual y el pipeline cierran en yuv420p: sin tonemap, un
         // fuente HDR se vería lavada. Se convierte antes de cualquier efecto.
-        filter = filter.replacen(
-            "[0:v]",
-            &format!("[0:v]{HDR_TONEMAP},"),
-            1,
-        );
+        filter = filter.replacen("[0:v]", &format!("[0:v]{HDR_TONEMAP},"), 1);
     }
     let mut extras = Vec::new();
     if color.is_hdr() {
@@ -2687,8 +2671,7 @@ fn compress_video(
     let preserve_hdr = color.is_hdr() && hdr_mode == "preserve";
     if preserve_hdr && codec != "h265" && codec != "av1" {
         return Err(
-            "Conservar HDR requiere H.265 o AV1: H.264 descarta la transferencia HDR."
-                .to_owned(),
+            "Conservar HDR requiere H.265 o AV1: H.264 descarta la transferencia HDR.".to_owned(),
         );
     }
     // Medición sintética 1080p/5 s: medium 4,75 s · fast 4,35 s · faster
@@ -2759,8 +2742,9 @@ fn compress_video(
         let total_kbps = (target_size_mb as f64 * 8.0 * 1_000_000.0 / 1000.0) / duration;
         let video_kbps = total_kbps - audio_kbps;
         if video_kbps < 120.0 {
-            let minimum_mb =
-                ((120.0 + audio_kbps) * duration / 8.0 / 1_000.0).ceil().max(1.0);
+            let minimum_mb = ((120.0 + audio_kbps) * duration / 8.0 / 1_000.0)
+                .ceil()
+                .max(1.0);
             return Err(format!(
                 "El tamaño objetivo ({target_size_mb} MB) es demasiado chico para {duration:.0} s. \
                  Elegí al menos {minimum_mb:.0} MB."
@@ -2852,7 +2836,9 @@ fn apply_metadata_cover(
         .unwrap_or_else(|| "media".to_owned());
     let temp = path.with_file_name(format!("{stem}.meta.{extension}"));
     let mut command = Command::new(ffmpeg);
-    command.args(["-hide_banner", "-v", "error", "-y", "-i"]).arg(path);
+    command
+        .args(["-hide_banner", "-v", "error", "-y", "-i"])
+        .arg(path);
     let embed_cover = cover.is_some() && !matches!(extension.as_str(), "webm");
     if let Some(cover) = cover.filter(|_| embed_cover) {
         command.arg("-i").arg(cover);
@@ -2873,11 +2859,7 @@ fn apply_metadata_cover(
     } else {
         command.args(["-map", "0", "-c", "copy"]);
     }
-    for (key, value) in [
-        ("title", title),
-        ("artist", artist),
-        ("comment", comment),
-    ] {
+    for (key, value) in [("title", title), ("artist", artist), ("comment", comment)] {
         if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
             command.args(["-metadata", &format!("{key}={value}")]);
         }
@@ -2897,7 +2879,14 @@ fn apply_metadata_cover(
     if !output.status.success() {
         let _ = std::fs::remove_file(&temp);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr.chars().rev().take(2_000).collect::<String>().chars().rev().collect();
+        let tail: String = stderr
+            .chars()
+            .rev()
+            .take(2_000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
         return Err(tail);
     }
     std::fs::remove_file(path)
@@ -2939,33 +2928,46 @@ fn mute_audio_segments(
         .map(|value| value.to_string_lossy().into_owned())
         .unwrap_or_else(|| "video".to_owned());
     let temp = path.with_file_name(format!("{stem}.muted.{extension}"));
-    let audio_codec = if extension == "webm" { "libopus" } else { "aac" };
+    let audio_codec = if extension == "webm" {
+        "libopus"
+    } else {
+        "aac"
+    };
     let mut command = Command::new(ffmpeg);
     command
         .args(["-hide_banner", "-v", "error", "-y", "-i"])
         .arg(path)
         .args(["-map", "0:v:0", "-map", "0:a:0?", "-c:v", "copy"])
         .args(["-c:a", audio_codec, "-b:a", "160k"])
-        .args([
-            "-af",
-            &format!("volume=enable='{ranges}':volume=0"),
-        ]);
+        .args(["-af", &format!("volume=enable='{ranges}':volume=0")]);
     if extension == "mp4" || extension == "mov" {
         command.args(["-movflags", "+faststart"]);
     }
-    command.arg(&temp).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+    command
+        .arg(&temp)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
     crate::commands::hide_console(&mut command);
-    let output = command.output().map_err(|_| "No se pudo ejecutar FFmpeg.".to_owned())?;
+    let output = command
+        .output()
+        .map_err(|_| "No se pudo ejecutar FFmpeg.".to_owned())?;
     if !output.status.success() {
         let _ = std::fs::remove_file(&temp);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr.chars().rev().take(2_000).collect::<String>().chars().rev().collect();
+        let tail: String = stderr
+            .chars()
+            .rev()
+            .take(2_000)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
         return Err(tail);
     }
     std::fs::remove_file(path)
         .map_err(|_| "No se pudo reemplazar el video original.".to_owned())?;
-    std::fs::rename(&temp, path)
-        .map_err(|_| "No se pudo mover el video silenciado.".to_owned())?;
+    std::fs::rename(&temp, path).map_err(|_| "No se pudo mover el video silenciado.".to_owned())?;
     Ok(())
 }
 
@@ -3080,8 +3082,9 @@ pub(crate) fn download_blocking(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        Some(value) => sponsorblock_category_list(Some(value))
-            .map_err(|message| invalid_error(&message))?,
+        Some(value) => {
+            sponsorblock_category_list(Some(value)).map_err(|message| invalid_error(&message))?
+        }
         None => Vec::new(),
     };
     sponsorblock_mark.retain(|category| {
@@ -3095,8 +3098,9 @@ pub(crate) fn download_blocking(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        Some(value) => sponsorblock_category_list(Some(value))
-            .map_err(|message| invalid_error(&message))?,
+        Some(value) => {
+            sponsorblock_category_list(Some(value)).map_err(|message| invalid_error(&message))?
+        }
         None => Vec::new(),
     };
     let cookies_from_browser = cookies_browser(request.cookies_from_browser.as_deref())?;
@@ -3380,10 +3384,7 @@ pub(crate) fn download_blocking(
         command.arg("-f").arg(selector);
         command.args(["--merge-output-format", format, "--remux-video", format]);
     } else if kind == "audio" {
-        command.args([
-            "-f",
-            audio_format_id.as_deref().unwrap_or("bestaudio/best"),
-        ]);
+        command.args(["-f", audio_format_id.as_deref().unwrap_or("bestaudio/best")]);
     }
     if let Some(cookies) = cookies {
         command.arg("--cookies").arg(cookies);
@@ -3634,7 +3635,8 @@ pub(crate) fn download_blocking(
     }
 
     if !sponsorblock_mute.is_empty() {
-        if let (Some(ffmpeg), Some(video_id)) = (ffmpeg.as_deref(), youtube_video_id(&request.url)) {
+        if let (Some(ffmpeg), Some(video_id)) = (ffmpeg.as_deref(), youtube_video_id(&request.url))
+        {
             progress("compressing", None, "Silenciando tramos de SponsorBlock…");
             match fetch_sponsor_segments(&video_id, &sponsorblock_mute) {
                 Ok(segments) if !segments.is_empty() => {
@@ -3798,7 +3800,10 @@ fn parse_audio_tracks(value: &Value) -> Vec<AudioTrack> {
         let Some(format_id) = format["format_id"].as_str() else {
             continue;
         };
-        if tracks.iter().any(|track: &AudioTrack| track.format_id == format_id) {
+        if tracks
+            .iter()
+            .any(|track: &AudioTrack| track.format_id == format_id)
+        {
             continue;
         }
         tracks.push(AudioTrack {
@@ -3837,13 +3842,10 @@ fn audio_language(value: Option<&str>) -> Result<Option<String>, String> {
     if lower == "all" {
         return Ok(Some(lower));
     }
-    let valid = lower
-        .split('-')
-        .enumerate()
-        .all(|(index, part)| {
-            let expected = if index == 0 { 2..=3 } else { 2..=2 };
-            expected.contains(&part.len()) && part.chars().all(|ch| ch.is_ascii_alphabetic())
-        });
+    let valid = lower.split('-').enumerate().all(|(index, part)| {
+        let expected = if index == 0 { 2..=3 } else { 2..=2 };
+        expected.contains(&part.len()) && part.chars().all(|ch| ch.is_ascii_alphabetic())
+    });
     if !valid || lower.split('-').count() > 2 {
         return Err("El idioma de audio debe ser un código como es, en, pt-BR o all.".to_owned());
     }
@@ -4105,9 +4107,18 @@ pub async fn download_media(
         ..request
     };
     request.cookies_file = None;
-    let metadata_title = request.metadata_title.as_deref().map(|value| value.chars().take(200).collect::<String>());
-    let metadata_artist = request.metadata_artist.as_deref().map(|value| value.chars().take(200).collect::<String>());
-    let metadata_comment = request.metadata_comment.as_deref().map(|value| value.chars().take(500).collect::<String>());
+    let metadata_title = request
+        .metadata_title
+        .as_deref()
+        .map(|value| value.chars().take(200).collect::<String>());
+    let metadata_artist = request
+        .metadata_artist
+        .as_deref()
+        .map(|value| value.chars().take(200).collect::<String>());
+    let metadata_comment = request
+        .metadata_comment
+        .as_deref()
+        .map(|value| value.chars().take(500).collect::<String>());
     let cover_path = request
         .cover_path
         .as_deref()
@@ -4115,9 +4126,15 @@ pub async fn download_media(
         .filter(|value| !value.is_empty())
         .map(PathBuf::from);
     if let Some(cover) = cover_path.as_ref() {
-        let extension = cover.extension().and_then(|value| value.to_str()).unwrap_or("");
-        if !cover.is_file() || !IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str()) {
-            return Err(invalid_error("La carátula elegida no es una imagen válida."));
+        let extension = cover
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("");
+        if !cover.is_file() || !IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+        {
+            return Err(invalid_error(
+                "La carátula elegida no es una imagen válida.",
+            ));
         }
     }
     let hash_files = request.hash_files.unwrap_or(false);
@@ -4127,10 +4144,7 @@ pub async fn download_media(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        Some(value)
-            if value.len() == 64
-                && value.chars().all(|ch| ch.is_ascii_hexdigit()) =>
-        {
+        Some(value) if value.len() == 64 && value.chars().all(|ch| ch.is_ascii_hexdigit()) => {
             Some(value.to_ascii_lowercase())
         }
         Some(_) => {
@@ -4145,7 +4159,13 @@ pub async fn download_media(
     let progress_app = app.clone();
     let progress_run = run_id.clone();
     let progress = move |stage: &str, percent: Option<f64>, message: &str| {
-        emit_progress(&progress_app, &progress_run, stage, percent, message.to_owned());
+        emit_progress(
+            &progress_app,
+            &progress_run,
+            stage,
+            percent,
+            message.to_owned(),
+        );
     };
     let blocking_result = tauri::async_runtime::spawn_blocking(move || {
         download_blocking(
@@ -4203,9 +4223,10 @@ pub async fn download_media(
                         file.bytes = metadata.len();
                     }
                 }
-                Err(message) => outcome
-                    .warnings
-                    .push(format!("No se pudieron escribir metadatos en {}: {message}", file.name)),
+                Err(message) => outcome.warnings.push(format!(
+                    "No se pudieron escribir metadatos en {}: {message}",
+                    file.name
+                )),
             }
         }
     }
@@ -4346,7 +4367,10 @@ mod tests {
     #[test]
     fn audio_language_accepts_iso_and_all() {
         assert_eq!(audio_language(Some("ES")).unwrap().as_deref(), Some("es"));
-        assert_eq!(audio_language(Some("pt-BR")).unwrap().as_deref(), Some("pt-br"));
+        assert_eq!(
+            audio_language(Some("pt-BR")).unwrap().as_deref(),
+            Some("pt-br")
+        );
         assert_eq!(audio_language(Some("all")).unwrap().as_deref(), Some("all"));
         assert!(audio_language(Some("es; rm")).is_err());
         assert!(audio_language(Some("english")).is_err());
@@ -4355,8 +4379,14 @@ mod tests {
 
     #[test]
     fn playlist_items_validate_ranges_and_lists() {
-        assert_eq!(playlist_items(Some("1-10")).unwrap().as_deref(), Some("1-10"));
-        assert_eq!(playlist_items(Some("1,3,5")).unwrap().as_deref(), Some("1,3,5"));
+        assert_eq!(
+            playlist_items(Some("1-10")).unwrap().as_deref(),
+            Some("1-10")
+        );
+        assert_eq!(
+            playlist_items(Some("1,3,5")).unwrap().as_deref(),
+            Some("1,3,5")
+        );
         assert!(playlist_items(Some("1; rm -rf")).is_err());
         assert!(playlist_items(None).unwrap().is_none());
     }
@@ -5539,7 +5569,16 @@ mod tests {
 
     fn mean_volume(ffmpeg: &Path, path: &Path, at: f64) -> f64 {
         let output = Command::new(ffmpeg)
-            .args(["-hide_banner", "-v", "info", "-ss", &format!("{at:.2}"), "-t", "0.5", "-i"])
+            .args([
+                "-hide_banner",
+                "-v",
+                "info",
+                "-ss",
+                &format!("{at:.2}"),
+                "-t",
+                "0.5",
+                "-i",
+            ])
             .arg(path)
             .args(["-af", "volumedetect", "-f", "null", "-"])
             .output()
@@ -5567,13 +5606,37 @@ mod tests {
         let video = root.join("meta.mp4");
         let cover = root.join("cover.jpg");
         assert!(Command::new(&ffmpeg)
-            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=30:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p"])
+            .args([
+                "-hide_banner",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30:duration=1",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p"
+            ])
             .arg(&video)
             .status()
             .unwrap()
             .success());
         assert!(Command::new(&ffmpeg)
-            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:size=128x128:duration=1", "-frames:v", "1"])
+            .args([
+                "-hide_banner",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=red:size=128x128:duration=1",
+                "-frames:v",
+                "1"
+            ])
             .arg(&cover)
             .status()
             .unwrap()
@@ -5589,16 +5652,23 @@ mod tests {
         .unwrap();
         let probe = Command::new(&ffprobe)
             .args([
-                "-v", "error", "-show_entries",
+                "-v",
+                "error",
+                "-show_entries",
                 "stream=codec_name,codec_type:stream_disposition=attached_pic",
-                "-show_entries", "format_tags=title,artist,comment",
-                "-of", "json",
+                "-show_entries",
+                "format_tags=title,artist,comment",
+                "-of",
+                "json",
             ])
             .arg(&video)
             .output()
             .unwrap();
         let value: Value = serde_json::from_slice(&probe.stdout).unwrap();
-        assert_eq!(value["format"]["tags"]["title"].as_str(), Some("Título de prueba"));
+        assert_eq!(
+            value["format"]["tags"]["title"].as_str(),
+            Some("Título de prueba")
+        );
         assert_eq!(value["format"]["tags"]["artist"].as_str(), Some("Olyvia"));
         let streams = value["streams"].as_array().unwrap();
         assert!(streams.iter().any(|stream| {
@@ -5620,10 +5690,27 @@ mod tests {
         let input = root.join("mute.mp4");
         let status = Command::new(&ffmpeg)
             .args([
-                "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i",
-                "testsrc2=size=320x180:rate=30:duration=6", "-f", "lavfi", "-i",
-                "sine=frequency=440:duration=6", "-c:v", "libx264", "-preset", "ultrafast",
-                "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest",
+                "-hide_banner",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30:duration=6",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=6",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-shortest",
             ])
             .arg(&input)
             .status()
@@ -5646,10 +5733,25 @@ mod tests {
         let webm = root.join("mute.webm");
         let status = Command::new(&ffmpeg)
             .args([
-                "-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i",
-                "testsrc2=size=320x180:rate=30:duration=4", "-f", "lavfi", "-i",
-                "sine=frequency=440:duration=4", "-c:v", "libvpx-vp9", "-b:v", "200k",
-                "-c:a", "libopus", "-shortest",
+                "-hide_banner",
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc2=size=320x180:rate=30:duration=4",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=4",
+                "-c:v",
+                "libvpx-vp9",
+                "-b:v",
+                "200k",
+                "-c:a",
+                "libopus",
+                "-shortest",
             ])
             .arg(&webm)
             .status()
@@ -5947,10 +6049,7 @@ mod tests {
             .unwrap();
         let value: Value = serde_json::from_slice(&probe.stdout).unwrap();
         assert_eq!(value["streams"][0]["codec_name"].as_str(), Some("hevc"));
-        assert_eq!(
-            value["streams"][0]["pix_fmt"].as_str(),
-            Some("yuv420p10le")
-        );
+        assert_eq!(value["streams"][0]["pix_fmt"].as_str(), Some("yuv420p10le"));
         assert_eq!(
             value["streams"][0]["color_transfer"].as_str(),
             Some("arib-std-b67")
@@ -5988,10 +6087,7 @@ mod tests {
             .unwrap();
         let value: Value = serde_json::from_slice(&probe.stdout).unwrap();
         assert_eq!(value["streams"][0]["codec_name"].as_str(), Some("av1"));
-        assert_eq!(
-            value["streams"][0]["pix_fmt"].as_str(),
-            Some("yuv420p10le")
-        );
+        assert_eq!(value["streams"][0]["pix_fmt"].as_str(), Some("yuv420p10le"));
         assert_eq!(
             value["streams"][0]["color_transfer"].as_str(),
             Some("arib-std-b67")

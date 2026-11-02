@@ -147,8 +147,8 @@ pub(crate) fn clarity_filters(config: &ClarityConfig, source_height: u32) -> Vec
     }
 
     // 2. Escalado Lanczos3. El ancho se deriva del alto para no deformar.
-    let needs_scale = config.target_height > 0
-        && (source_height == 0 || config.target_height != source_height);
+    let needs_scale =
+        config.target_height > 0 && (source_height == 0 || config.target_height != source_height);
     if needs_scale {
         if config.high_precision {
             // 16 bits por canal durante el remuestreo: menos cuantización en
@@ -379,7 +379,9 @@ pub(crate) fn video_codec_args(
         // a los cuadros por segundo. 0,22 bit/píxel da una entrega casi sin
         // pérdida visible a 1080p y 4K.
         let pixels = f64::from(width.max(1)) * f64::from(height.max(1));
-        let bitrate = (pixels * fps * 0.22).round().clamp(2_000_000.0, 120_000_000.0) as u64;
+        let bitrate = (pixels * fps * 0.22)
+            .round()
+            .clamp(2_000_000.0, 120_000_000.0) as u64;
         args.extend([
             "-b:v".to_owned(),
             bitrate.to_string(),
@@ -723,7 +725,10 @@ mod tests {
         assert!(denoise < unsharp);
         assert!(unsharp < curves);
         assert!(curves < grain);
-        assert_eq!(chain.last().map(String::as_str), Some("noise=alls=3:allf=t+u"));
+        assert_eq!(
+            chain.last().map(String::as_str),
+            Some("noise=alls=3:allf=t+u")
+        );
     }
 
     #[test]
@@ -918,7 +923,11 @@ mod tests {
         let ffmpeg = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("resources")
             .join("ffmpeg")
-            .join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+            .join(if cfg!(windows) {
+                "ffmpeg.exe"
+            } else {
+                "ffmpeg"
+            });
         assert!(ffmpeg.is_file(), "falta el FFmpeg de recursos");
 
         let config = ClarityConfig {
@@ -934,7 +943,8 @@ mod tests {
         };
         let filter = clarity_filters(&config, 1080).join(",");
         let encoder = resolve_encoder(&ffmpeg).expect("encoder H.264 disponible");
-        let output = std::env::temp_dir().join(format!("editoria-definicion-{}.mp4", Uuid::new_v4()));
+        let output =
+            std::env::temp_dir().join(format!("editoria-definicion-{}.mp4", Uuid::new_v4()));
 
         let mut command = Command::new(&ffmpeg);
         command.args([
@@ -973,7 +983,10 @@ mod tests {
         assert_eq!(info.width, Some(3840), "ancho inesperado");
         assert_eq!(info.height, Some(2160), "alto inesperado");
         assert!(
-            std::fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0) > 10_000,
+            std::fs::metadata(&output)
+                .map(|meta| meta.len())
+                .unwrap_or(0)
+                > 10_000,
             "el archivo salió vacío"
         );
         let _ = std::fs::remove_file(&output);

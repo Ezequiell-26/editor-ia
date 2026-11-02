@@ -524,4 +524,3 @@ pub static RECIPES: &[Recipe] = &[
 pub fn find(id: &str) -> Option<&'static Recipe> {
     RECIPES.iter().find(|recipe| recipe.id == id)
 }
-

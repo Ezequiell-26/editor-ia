@@ -946,7 +946,10 @@ fn fill_recipe_template(template: &str, recipe: &Recipe, params: &Value) -> Stri
     let mut index = 0;
     while index < chars.len() {
         if chars[index] == '{' {
-            if let Some(offset) = chars[index..].iter().position(|character| *character == '}') {
+            if let Some(offset) = chars[index..]
+                .iter()
+                .position(|character| *character == '}')
+            {
                 let token: String = chars[index + 1..index + offset].iter().collect();
                 let (id, axis) = match token.split_once('.') {
                     Some((id, axis)) => (id, Some(axis)),
@@ -4765,7 +4768,10 @@ mod tests {
     #[test]
     fn effect_stack_leaves_the_chain_untouched_without_a_stack() {
         let chain = "[0:v]null[v0]".to_owned();
-        assert_eq!(apply_effect_stack(chain.clone(), "v0", &serde_json::json!({})), chain);
+        assert_eq!(
+            apply_effect_stack(chain.clone(), "v0", &serde_json::json!({})),
+            chain
+        );
         assert_eq!(
             apply_effect_stack(chain.clone(), "v0", &serde_json::json!({ "stack": [] })),
             chain
@@ -6521,7 +6527,11 @@ mod tests {
     fn audio_stack_without_instances_leaves_the_chain_untouched() {
         let mut filters = vec!["aformat=sample_fmts=fltp".to_owned()];
         apply_audio_effect_stack(&mut filters, &serde_json::json!({}), 48_000);
-        apply_audio_effect_stack(&mut filters, &serde_json::json!({ "audioStack": [] }), 48_000);
+        apply_audio_effect_stack(
+            &mut filters,
+            &serde_json::json!({ "audioStack": [] }),
+            48_000,
+        );
         assert_eq!(filters, vec!["aformat=sample_fmts=fltp".to_owned()]);
     }
 
@@ -6546,9 +6556,7 @@ mod tests {
                 "params": { "cutoff": 800.0, "level": 0.0 }
             }]
         });
-        let mut filters = vec![
-            "aformat=sample_fmts=fltp:channel_layouts=stereo".to_owned(),
-        ];
+        let mut filters = vec!["aformat=sample_fmts=fltp:channel_layouts=stereo".to_owned()];
         apply_audio_effect_stack(&mut filters, &effects, 48_000);
         let chain = filters.join(",");
         let mean_db = |filter: &str| -> f64 {

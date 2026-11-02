@@ -714,16 +714,13 @@ const MEDIA_FOLDER_IMAGE_EXTENSIONS: [&str; 9] = [
 ];
 const MEDIA_FOLDER_AUDIO_EXTENSIONS: [&str; 7] =
     ["mp3", "wav", "m4a", "aac", "flac", "ogg", "opus"];
-const MEDIA_FOLDER_VIDEO_EXTENSIONS: [&str; 7] =
-    ["mp4", "mov", "mkv", "webm", "m4v", "avi", "mts"];
+const MEDIA_FOLDER_VIDEO_EXTENSIONS: [&str; 7] = ["mp4", "mov", "mkv", "webm", "m4v", "avi", "mts"];
 const MEDIA_FOLDER_MAX_FILES: usize = 300;
 
 /// El modelo solo manda un nombre de carpeta, nunca una ruta: se rechazan
 /// separadores, `..`, unidades y caracteres reservados de Windows.
 pub fn sanitize_media_folder_name(folder: &str) -> Option<String> {
-    let name = folder
-        .trim()
-        .trim_matches(['"', '\'', '“', '”', '«', '»']);
+    let name = folder.trim().trim_matches(['"', '\'', '“', '”', '«', '»']);
     if name.is_empty() || name.chars().count() > 120 {
         return None;
     }
@@ -797,11 +794,7 @@ pub fn collect_media_folder_files(directory: &std::path::Path) -> Vec<MediaFolde
             });
         }
     }
-    files.sort_by(|left, right| {
-        left.name
-            .to_lowercase()
-            .cmp(&right.name.to_lowercase())
-    });
+    files.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
     files
 }
 
@@ -871,7 +864,8 @@ pub fn list_media_folder(
             }
         }
     }
-    let message = format!("No encontré la carpeta «{name}» con imágenes, audio o video en Descargas.");
+    let message =
+        format!("No encontré la carpeta «{name}» con imágenes, audio o video en Descargas.");
     Err(ProjectError::message(ProjectErrorCode::Io, &message))
 }
 
@@ -950,8 +944,7 @@ mod tests {
 
     #[test]
     fn list_media_folder_accepts_existing_absolute_dir() {
-        let root =
-            std::env::temp_dir().join(format!("olyvia-abs-folder-{}", uuid::Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!("olyvia-abs-folder-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("sample.mp4"), b"test").unwrap();
 

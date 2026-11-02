@@ -305,12 +305,7 @@ pub async fn denoise_media(
             // El FFmpeg empaquetado no tiene libx264: se elige el primer encoder
             // H.264 que realmente funcione (NVENC, AMF, QSV u OpenH264).
             let encoder = crate::commands::sharpen::resolve_encoder(&ffmpeg)?;
-            command.args([
-                "-map",
-                "0:v:0",
-                "-map",
-                "0:a?",
-            ]);
+            command.args(["-map", "0:v:0", "-map", "0:a?"]);
             command.args(crate::commands::sharpen::video_codec_args(
                 &encoder,
                 18,
@@ -318,14 +313,7 @@ pub async fn denoise_media(
                 height.unwrap_or(1080),
                 fps.unwrap_or(30.0),
             ));
-            command.args([
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-movflags",
-                "+faststart",
-            ]);
+            command.args(["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]);
         }
         DenoiseMode::Image => {
             command.args(["-frames:v", "1", "-update", "1"]);
@@ -491,15 +479,23 @@ mod tests {
         let ffmpeg = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("resources")
             .join("ffmpeg")
-            .join(if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" });
+            .join(if cfg!(windows) {
+                "ffmpeg.exe"
+            } else {
+                "ffmpeg"
+            });
         assert!(ffmpeg.is_file(), "falta el FFmpeg de recursos");
 
-        let encoder = crate::commands::sharpen::resolve_encoder(&ffmpeg).expect("encoder H.264 disponible");
-        let output =
-            std::env::temp_dir().join(format!("editoria-denoise-{}.mp4", Uuid::new_v4()));
+        let encoder =
+            crate::commands::sharpen::resolve_encoder(&ffmpeg).expect("encoder H.264 disponible");
+        let output = std::env::temp_dir().join(format!("editoria-denoise-{}.mp4", Uuid::new_v4()));
         let mut status_ok = true;
         let mut log = String::new();
-        for preset in [DenoisePreset::Fast, DenoisePreset::Balanced, DenoisePreset::Quality] {
+        for preset in [
+            DenoisePreset::Fast,
+            DenoisePreset::Balanced,
+            DenoisePreset::Quality,
+        ] {
             let filter = denoise_filter(preset, 55, true, false);
             let mut command = Command::new(&ffmpeg);
             command.args([
@@ -514,7 +510,9 @@ mod tests {
                 "-map",
                 "0:v:0",
             ]);
-            command.args(crate::commands::sharpen::video_codec_args(&encoder, 18, 1280, 720, 25.0));
+            command.args(crate::commands::sharpen::video_codec_args(
+                &encoder, 18, 1280, 720, 25.0,
+            ));
             command.args(["-an", "-movflags", "+faststart"]);
             command.arg(&output);
             command
@@ -542,7 +540,10 @@ mod tests {
         assert_eq!(info.1, Some(1280), "ancho inesperado");
         assert_eq!(info.2, Some(720), "alto inesperado");
         assert!(
-            std::fs::metadata(&output).map(|meta| meta.len()).unwrap_or(0) > 5_000,
+            std::fs::metadata(&output)
+                .map(|meta| meta.len())
+                .unwrap_or(0)
+                > 5_000,
             "el archivo salió vacío"
         );
         let _ = std::fs::remove_file(&output);

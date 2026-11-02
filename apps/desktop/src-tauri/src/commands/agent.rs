@@ -65,16 +65,7 @@ pub fn install_watchdog() -> Result<WatchdogStatus, ProjectError> {
     let exe = exe.to_string_lossy().into_owned();
     let action = format!("\"{exe}\" --background");
     let logon = run_schtasks(&[
-        "/Create",
-        "/TN",
-        LOGON_TASK,
-        "/TR",
-        &action,
-        "/SC",
-        "ONLOGON",
-        "/RL",
-        "LIMITED",
-        "/F",
+        "/Create", "/TN", LOGON_TASK, "/TR", &action, "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
     ]);
     let watchdog = run_schtasks(&[
         "/Create",

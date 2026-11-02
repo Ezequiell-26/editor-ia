@@ -704,15 +704,7 @@ fn run_job(
         let piper = crate::commands::piper::resolve_assets(&app);
         let watermark = crate::commands::piper::resolve_watermark(&app);
         let outcome = download_blocking(
-            &progress,
-            &engine,
-            &cache_dir,
-            request,
-            ffmpeg,
-            ffprobe,
-            None,
-            piper,
-            watermark,
+            &progress, &engine, &cache_dir, request, ffmpeg, ffprobe, None, piper, watermark,
         )?;
         let platform_dir = downloads_dir.join(platform);
         let destination_dir = outcome

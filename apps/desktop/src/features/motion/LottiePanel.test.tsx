@@ -57,7 +57,7 @@ async function createProject(): Promise<void> {
 
 async function openMotion(): Promise<HTMLElement> {
   nav('Motion');
-  return screen.findByRole('heading', { name: /^Lottie \(\.json\)$/ }, { timeout: 10_000 });
+  return screen.findByRole('heading', { name: /^Lottie \(\.json \/ \.lottie\)$/ }, { timeout: 10_000 });
 }
 
 afterEach(() => {
