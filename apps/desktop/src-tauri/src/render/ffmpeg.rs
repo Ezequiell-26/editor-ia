@@ -8249,7 +8249,7 @@ mod tests {
                     "-i".into(),
                     "sine=frequency=440:sample_rate=48000".into(),
                     "-t".into(),
-                    "2".into(),
+                    "2.5".into(),
                     path_to_string(&audio_path),
                 ],
                 &audio_path,
@@ -8275,13 +8275,13 @@ mod tests {
                 ],
                 "clips": [
                     { "id": "44444444-4444-4444-8444-444444444444", "trackId": "11111111-1111-4111-8111-111111111111", "kind": "video", "label": "Toma", "startFrame": 15, "durationFrames": 60, "source": { "type": "asset", "assetId": "55555555-5555-4555-8555-555555555555", "inFrame": 0, "outFrame": 60 }, "motion": { "type": "zoom-in", "intensity": 0.15 }, "reverse": true, "transitionIn": { "type": "dissolve", "frames": 6 }, "transform": { "keyframes": [{ "frame": 0, "scale": 1.0, "offsetX": 0, "rotationDeg": 0, "opacity": 0.2, "easing": "ease-in" }, { "frame": 30, "scale": 1.25, "offsetX": 20, "rotationDeg": 3, "opacity": 0.6, "easing": "ease-out" }, { "frame": 59, "scale": 1.05, "offsetX": -10, "rotationDeg": 0, "opacity": 1.0 }] }, "effects": { "fadeInFrames": 6, "fadeOutFrames": 6, "lutFile": "media/identity.cube", "lift": { "r": 0.05, "g": 0, "b": 0.08 }, "gamma": { "r": 0.1, "g": 0, "b": -0.05 }, "gain": { "r": 0.08, "g": 0, "b": -0.03 }, "hsl": { "hue": 8, "saturation": 0.1, "intensity": 0.04, "colors": ["r", "y"] }, "colorMatch": { "r": 1.08, "g": 1.0, "b": 0.96, "strength": 0.7 }, "shadows": 0.1, "highlights": -0.1, "fade": 0.05 }, "chromaKey": { "color": "#00ff00", "similarity": 0.2, "blend": 0.1 }, "mask": { "shape": "ellipse", "x": 0, "y": 0, "width": 0.82, "height": 0.92, "rotationDeg": 25, "feather": 0.18, "invert": false, "keyframes": [{ "frame": 0, "x": -0.15 }, { "frame": 30, "x": 0 }, { "frame": 59, "x": 0.15 }] }, "animationIn": { "type": "slide-down", "durationFrames": 12 }, "animationOut": { "type": "fade", "durationFrames": 12 }, "blendMode": "screen" },
-                    { "id": "66666666-6666-4666-8666-666666666666", "trackId": "22222222-2222-4222-8222-222222222222", "kind": "audio", "label": "Voz", "startFrame": 0, "durationFrames": 60, "reverse": true, "source": { "type": "asset", "assetId": "77777777-7777-4777-8777-777777777777", "inFrame": 0, "outFrame": 60 }, "audio": { "gainDb": -3, "highPassHz": 80, "lowPassHz": 12000, "eqMidDb": 3, "compressor": true, "deesser": true, "gateDb": -38, "denoise": 0.1, "voiceEffect": "radio", "gainKeyframes": [{ "frame": 0, "gainDb": -3, "easing": "ease-in" }, { "frame": 30, "gainDb": -12 }, { "frame": 59, "gainDb": -3 }] } },
+                    { "id": "66666666-6666-4666-8666-666666666666", "trackId": "22222222-2222-4222-8222-222222222222", "kind": "audio", "label": "Voz", "startFrame": 0, "durationFrames": 75, "reverse": true, "source": { "type": "asset", "assetId": "77777777-7777-4777-8777-777777777777", "inFrame": 0, "outFrame": 75 }, "audio": { "gainDb": -3, "highPassHz": 80, "lowPassHz": 12000, "eqMidDb": 3, "compressor": true, "deesser": true, "gateDb": -38, "denoise": 0.1, "voiceEffect": "radio", "gainKeyframes": [{ "frame": 0, "gainDb": -3, "easing": "ease-in" }, { "frame": 30, "gainDb": -12 }, { "frame": 59, "gainDb": -3 }] } },
                     { "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "trackId": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "kind": "adjustment", "label": "Look del tramo", "startFrame": 0, "durationFrames": 75, "source": { "type": "adjustment" }, "effects": { "contrast": 1.08, "curvePreset": "contrast-soft", "lutFile": "media/identity.cube" } }
                 ]
             },
             "assets": [
                 { "id": "55555555-5555-4555-8555-555555555555", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/video.mp4" }, "media": { "durationFrames": 60 } },
-                { "id": "77777777-7777-4777-8777-777777777777", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/audio.wav" }, "media": { "durationFrames": 60 } }
+                { "id": "77777777-7777-4777-8777-777777777777", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/audio.wav" }, "media": { "durationFrames": 75 } }
             ],
             "captions": {
                 "styles": [{ "id": "88888888-8888-4888-8888-888888888888", "name": "Principal", "fontFamily": "Arial", "fontSizePx": 30, "color": "#ffffff", "outlineColor": "#000000", "position": "bottom", "bold": true, "borderStyle": "outline", "depth3d": 5, "depthColor": "#f43f5e" }],
@@ -8712,9 +8712,12 @@ mod tests {
         })
         .expect("el plan con glow debería construirse");
         assert!(
-            plan.args
-                .iter()
-                .any(|arg| arg.contains("split=2[v1base][v1glow]")),
+            plan.args.iter().any(|arg| {
+                arg.contains("split=3[")
+                    && arg.contains("alphaextract")
+                    && arg.contains("alphamerge")
+                    && arg.contains("blend=all_mode=screen")
+            }),
             "el plan debe incluir la rama de glow"
         );
         assert!(
