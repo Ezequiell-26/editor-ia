@@ -80,6 +80,8 @@ export interface FlowArgsInput {
   readonly ratio?: string | undefined;
   readonly duration?: string | undefined;
   readonly credits?: boolean | undefined;
+  /** Cuenta de Google Flow a usar; si falta, el servidor usa la predeterminada. */
+  readonly accountId?: string | undefined;
   /** `inputSchema` de la herramienta MCP, si se conoce. */
   readonly schema?: unknown;
 }
@@ -103,6 +105,7 @@ function secondsOf(duration: string | undefined): number | undefined {
 export function buildFlowArgs(input: FlowArgsInput): Record<string, unknown> {
   const declared = declaredProperties(input.schema);
   const all: Record<string, unknown> = { prompt: input.prompt };
+  if (input.accountId) all.accountId = input.accountId;
   if (input.model) all.model = input.model;
   if (input.ratio) {
     all.aspectRatio = input.ratio;
@@ -127,4 +130,32 @@ export function buildFlowArgs(input: FlowArgsInput): Record<string, unknown> {
     if (declared.has(key)) filtered[key] = value;
   }
   return filtered;
+}
+
+
+/**
+ * Extrae mensaje y código de un fallo de Flow.
+ *
+ * El servidor devuelve `{ error: { code, message } }` dentro del contenido; si
+ * viene texto suelto, se usa como mensaje. El código es lo que permite decidir
+ * si el fallo es de créditos y conviene rotar de cuenta.
+ */
+export function flowFailure(value: unknown): { message: string; code: string | null } {
+  const payload = toolPayload(value);
+  if (typeof payload === 'string') return { message: payload, code: null };
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    const error = record.error;
+    if (error && typeof error === 'object') {
+      const entry = error as Record<string, unknown>;
+      return {
+        message: typeof entry.message === 'string' ? entry.message : 'Flow devolvió un error',
+        code: typeof entry.code === 'string' ? entry.code : null,
+      };
+    }
+    if (typeof record.message === 'string') {
+      return { message: record.message, code: null };
+    }
+  }
+  return { message: 'Flow devolvió un error', code: null };
 }

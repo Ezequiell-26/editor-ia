@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildFlowArgs } from './flow';
+import { buildFlowArgs, flowFailure } from './flow';
 
 const FLOW_MCP_SCHEMA = {
   type: 'object',
@@ -95,6 +95,28 @@ describe('buildFlowArgs', () => {
     expect(args.auto_confirm).toBe(true);
     expect(args.durationSeconds).toBe(6);
     expect(args.duration).toBe('6s');
+  });
+
+  it('manda accountId cuando el schema lo declara', () => {
+    const args = buildFlowArgs({
+      prompt: 'Un faro',
+      kind: 'image',
+      outputDir: 'C:////media',
+      accountId: 'cuenta-2',
+      schema: FLOW_MCP_SCHEMA,
+    });
+    expect(args.accountId).toBe('cuenta-2');
+  });
+
+  it('extrae código y mensaje de un fallo', () => {
+    expect(
+      flowFailure({ content: [{ type: 'text', text: JSON.stringify({ error: { code: 'insufficient_credits', message: 'sin créditos' } }) }] }),
+    ).toEqual({ code: 'insufficient_credits', message: 'sin créditos' });
+    expect(flowFailure({ content: [{ type: 'text', text: 'texto suelto' }] })).toEqual({
+      code: null,
+      message: 'texto suelto',
+    });
+    expect(flowFailure(null)).toEqual({ code: null, message: 'Flow devolvió un error' });
   });
 
   it('sin créditos no manda ninguna de las dos banderas', () => {

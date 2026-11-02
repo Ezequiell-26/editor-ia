@@ -9,7 +9,8 @@ import {
   newId,
 } from './project-actions';
 import { prepareAutoEdit, type NarrationCandidate } from './auto-edit';
-import { artifactPaths, buildFlowArgs, flowProviderId, sceneVisualPrompt } from './flow';
+import { artifactPaths, buildFlowArgs, flowFailure, flowProviderId, sceneVisualPrompt, toolPayload } from './flow';
+import { generateWithRotation, parseFlowAccounts, type FlowAccount } from './flow-accounts';
 import { buildProjectMotionPlans } from '../features/motion/plan';
 
 /**
@@ -255,6 +256,21 @@ async function generateSceneMedia(
     );
   }
 
+  // Cuentas disponibles: si una se queda sin créditos, la fábrica sigue con la
+  // siguiente en vez de perder la escena.
+  let accounts: FlowAccount[] = [];
+  let activeAccountId: string | null = null;
+  try {
+    const listed = await deps.service.callMcpTool(serverId, 'flow_list_accounts', {});
+    if (!listed.isError) {
+      const snapshot = parseFlowAccounts(toolPayload(listed.result));
+      accounts = snapshot.accounts.filter((account) => account.connected);
+      activeAccountId = snapshot.defaultAccountId ?? accounts[0]?.id ?? null;
+    }
+  } catch {
+    // Servidor sin listado de cuentas: se usa la predeterminada.
+  }
+
   for (const [index, scene] of scenes.entries()) {
     if (deps.shouldCancel?.()) break;
     const prompt = sceneVisualPrompt(scene);
@@ -264,20 +280,41 @@ async function generateSceneMedia(
     }
     log('info', `Flow ${index + 1}/${scenes.length}: ${prompt.slice(0, 110)}`);
     try {
-      const result = await deps.service.callMcpTool(
-        serverId,
-        tool,
-        buildFlowArgs({
-          prompt,
-          kind: options.flowKind,
-          outputDir: outputFolder,
-          model: options.flowModel,
-          ratio: options.flowRatio,
-          duration: options.flowDuration,
-          credits: true,
-        }),
-      );
+      const callWith = async (accountId: string) => {
+        const response = await deps.service.callMcpTool(
+          serverId,
+          tool,
+          buildFlowArgs({
+            prompt,
+            kind: options.flowKind,
+            outputDir: outputFolder,
+            model: options.flowModel,
+            ratio: options.flowRatio,
+            duration: options.flowDuration,
+            credits: true,
+            accountId: accountId || undefined,
+          }),
+        );
+        if (!response.isError) return { ok: true as const, value: response };
+        const failure = flowFailure(response.result);
+        return { ok: false as const, message: failure.message, code: failure.code };
+      };
+      const rotation =
+        accounts.length > 1
+          ? await generateWithRotation(accounts, activeAccountId, callWith)
+          : await (async () => {
+              const single = await callWith(activeAccountId ?? '');
+              return single.ok
+                ? { value: single.value, accountId: activeAccountId, failures: [] }
+                : { value: null, accountId: null, failures: [single] };
+            })();
+      if (rotation.accountId) activeAccountId = rotation.accountId;
+      const result = rotation.value;
       generations += 1;
+      if (!result) {
+        log('warn', `Flow no pudo generar la escena ${index + 1} con ninguna cuenta.`);
+        continue;
+      }
       if (result.isError) {
         log('warn', `Flow devolvió un error en la escena ${index + 1}; se sigue con los medios existentes.`);
         continue;

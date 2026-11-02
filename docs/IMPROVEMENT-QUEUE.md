@@ -73,6 +73,20 @@ Referencia: auditoría de `CutWire-Studios/Drift` en `docs/DRIFT-PARITY.md`.
   de `LottiePanel` vienen del WIP previo en `motion/`, comprobado con `git
   stash`; la de `EmojiPicker.focus` pasa al reintentar).
 
+## Cuentas múltiples de Google Flow (2026-11-02)
+
+- `[done]` **Rotación** — `state/flow-accounts.ts`: lee `flow_list_accounts`, normaliza las cuentas
+  conectadas y rota **sólo ante fallos de créditos** (texto o código). Un error de UI, red o
+  política no rota: cambiar de cuenta no lo arregla.
+- `[done]` **Panel Flow** — selector de cuenta y casilla «Si se agotan los créditos, probar con otra
+  cuenta» (activa por defecto). Al generar, prueba la elegida y sigue con las demás; informa qué
+  cuenta usó y qué falló en cada una.
+- `[done]` **Fábrica** — la generación por escena usa la misma rotación y recuerda la última cuenta
+  que funcionó, para no volver a la agotada en la escena siguiente.
+- `[pending]` **Cola continua** (`FlowQueueProvider`) sigue usando la cuenta predeterminada.
+- **Verificación**: `flow-accounts.test` **12** (parseo, detección de créditos, orden, rotación,
+  corte ante errores ajenos); `flow.test` **6**. Typecheck verde.
+
 ## Integración Google Flow MCP (miyakejima) (2026-11-02)
 
 - `[done]` **Preset** — MCP → «Agregar servidor» → «Preset: Google Flow»: precarga `node` +

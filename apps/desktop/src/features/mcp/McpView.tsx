@@ -14,7 +14,8 @@ import {
   fpsOf,
   totalFrames,
 } from '../../state/project-actions';
-import { artifactPaths, buildFlowArgs } from '../../state/flow';
+import { artifactPaths, buildFlowArgs, flowFailure } from '../../state/flow';
+import { generateWithRotation, parseFlowAccounts, type FlowAccount } from '../../state/flow-accounts';
 import { FlowQueueCard } from './FlowQueueCard';
 import { useProjectStore } from '../../state/project-store';
 import type { Asset } from '@editor-ia/project-schema';
@@ -198,6 +199,9 @@ export function McpView() {
   const [flowCredits, setFlowCredits] = useState(false);
   const [flowRights, setFlowRights] = useState(false);
   const [flowBusy, setFlowBusy] = useState(false);
+  const [flowAccounts, setFlowAccounts] = useState<readonly FlowAccount[]>([]);
+  const [flowAccountId, setFlowAccountId] = useState('');
+  const [flowRotate, setFlowRotate] = useState(true);
   const [flowError, setFlowError] = useState<string | null>(null);
   const [flowPayload, setFlowPayload] = useState<unknown>(null);
   const [flowPaths, setFlowPaths] = useState<string[]>([]);
@@ -337,6 +341,41 @@ export function McpView() {
     }
   }
 
+  /**
+   * Carga las cuentas del servidor Flow. El MCP las expone con
+   * `flow_list_accounts`; si el servidor no la tiene (otra familia), queda vacío
+   * y el panel usa la cuenta predeterminada.
+   */
+  useEffect(() => {
+    const serverId = selected?.id;
+    if (!serverId || !isFlowServer) {
+      setFlowAccounts([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await store.service.callMcpTool(serverId, 'flow_list_accounts', {});
+        if (cancelled || result.isError) return;
+        const snapshot = parseFlowAccounts(toolPayload(result.result));
+        setFlowAccounts(snapshot.accounts);
+        setFlowAccountId(
+          (current) =>
+            current ||
+            snapshot.defaultAccountId ||
+            snapshot.accounts.find((account) => account.connected)?.id ||
+            '',
+        );
+      } catch {
+        // Servidor sin listado de cuentas: se usa la predeterminada.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.id, isFlowServer]);
+
   async function remove(id: string): Promise<void> {
     setBusyId(id);
     setError(null);
@@ -464,17 +503,45 @@ export function McpView() {
           return;
         }
       }
-      const args = buildFlowArgs({
-        prompt: flowPrompt.trim(),
-        kind: flowKind,
-        outputDir: flowOutputDir,
-        model: flowModel,
-        ratio: flowRatio,
-        duration: flowDuration,
-        credits: true,
-        schema: flowTool.inputSchema,
-      });
-      const result = await store.service.callMcpTool(selected.id, flowTool.name, args);
+      const callWith = async (accountId: string) => {
+        const args = buildFlowArgs({
+          prompt: flowPrompt.trim(),
+          kind: flowKind,
+          outputDir: flowOutputDir,
+          model: flowModel,
+          ratio: flowRatio,
+          duration: flowDuration,
+          credits: true,
+          accountId: accountId || undefined,
+          schema: flowTool.inputSchema,
+        });
+        const response = await store.service.callMcpTool(selected.id, flowTool.name, args);
+        if (!response.isError) return { ok: true as const, value: response };
+        const failure = flowFailure(response.result);
+        return { ok: false as const, message: failure.message, code: failure.code };
+      };
+
+      const connected = flowAccounts.filter((account) => account.connected);
+      let result;
+      if (flowRotate && connected.length > 1) {
+        const rotation = await generateWithRotation(connected, flowAccountId || null, callWith);
+        if (!rotation.value) {
+          const detail = rotation.failures
+            .map((failure) => `${failure.credit ? 'sin créditos' : 'error'}: ${failure.message}`)
+            .join(' · ');
+          setFlowError(`Ninguna cuenta pudo generar. ${detail}`);
+          return;
+        }
+        setFlowAccountId(rotation.accountId ?? flowAccountId);
+        result = rotation.value;
+      } else {
+        const single = await callWith(flowAccountId);
+        if (!single.ok) {
+          setFlowError(single.message);
+          return;
+        }
+        result = single.value;
+      }
       const payload = toolPayload(result.result);
       setFlowPayload(payload);
       const paths = artifactPaths(result.result);
@@ -861,6 +928,33 @@ export function McpView() {
                       maxLength={4_000}
                     />
                   </label>
+                  {flowAccounts.length > 0 ? (
+                    <div className="form-grid flow-fields">
+                      <label className="field">
+                        <span>Cuenta</span>
+                        <select
+                          value={flowAccountId}
+                          onChange={(event) => setFlowAccountId(event.target.value)}
+                        >
+                          {flowAccounts
+                            .filter((account) => account.connected)
+                            .map((account) => (
+                              <option key={account.id} value={account.id}>
+                                {account.label}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={flowRotate}
+                          onChange={(event) => setFlowRotate(event.target.checked)}
+                        />
+                        <span>Si se agotan los créditos, probar con otra cuenta</span>
+                      </label>
+                    </div>
+                  ) : null}
                   <div className="form-grid flow-fields">
                     <label className="field">
                       <span>Modelo</span>
