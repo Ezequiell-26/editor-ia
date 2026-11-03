@@ -69,6 +69,39 @@ La IA es opcional: podés trabajar con herramientas locales y conectar proveedor
 - **Exportación verificable:** los resultados se comprueban antes de considerarse terminados.
 - **Derechos y procedencia:** el proyecto registra información de licencias y procedencia de los medios utilizados.
 
+## Requisitos reales: qué es nativo y qué no
+
+**Local-first no significa «sin instalar nada».** Olyvia corre en tu equipo y no
+manda proyectos, medios ni claves a la nube, pero varias capacidades dependen de
+software del sistema o de motores externos:
+
+- **La app de escritorio es el requisito para el trabajo real.** Sólo la versión
+  nativa puede abrir diálogos, leer/escribir proyectos, importar medios,
+  ejecutar FFmpeg y hablar con procesos MCP.
+- **El navegador (`localhost:3000`) es una demostración de interfaz**: no hay
+  sistema de archivos ni backend, así que crear/guardar/importar/exportar, la IA
+  real y la transcripción no funcionan ahí; la app lo avisa con un banner de
+  **modo navegador** en lugar de simular éxito.
+- **FFmpeg/FFprobe** (medición, previews, render y herramientas) y **yt-dlp**
+  (vista Descargar, verificado por SHA-256) se eligen en **Ajustes → Herramientas**.
+- **IA de texto**: requiere un proveedor OpenAI-compatible (OpenAI, Ollama, LM
+  Studio, vLLM, llama.cpp…) configurado en **Ajustes → IA**. «Probar conexión»
+  hace `GET {base}/models` con timeout y devuelve estado, HTTP, latencia y
+  modelo contrastado con la lista del proveedor.
+- **Transcripción (Faster-Whisper) no viene empaquetada**: hace falta un Python
+  3.9+ con `python -m pip install faster-whisper` (o `EDITORIA_WHISPER_PYTHON`);
+  la app verifica el `import` real y explica el motivo si falta.
+- **Modelos on-device** (Quitar fondo / Upscale): pesos descargados y
+  `onnxruntime.dll` junto al ejecutable (o `ORT_DYLIB_PATH`).
+- **MCP**: cliente stdio local y servidor HTTP local; servidores Node requieren
+  Node/npx. No hay MCP remoto, OAuth ni `resources/*`.
+- **Clonación de voz, lip-sync y Flow** dependen de motores o sesiones externas;
+  la app explica qué falta y no finge la integración.
+
+El detalle está en [`docs/TUTORIAL.md`](docs/TUTORIAL.md) (§1 y §21) y en la
+[auditoría funcional](docs/APP-FEATURE-AUDIT.md); los pendientes medidos, en
+[`docs/FOLLOW-UPS.md`](docs/FOLLOW-UPS.md).
+
 ## Instalación
 
 ### Requisitos
