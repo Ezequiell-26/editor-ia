@@ -536,6 +536,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
               <button
                 type="button"
                 className="start-action-card start-action-card--open"
+                aria-label="Abrir proyecto"
                 onClick={() => void handleOpenProject()}
                 disabled={busy}
               >
@@ -554,7 +555,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
               <div className="start-section-header">
                 <span className="start-section-title">Plantillas de Redes (1 Clic)</span>
               </div>
-              <div className="start-templates-list">
+              <div className="start-templates-list" role="group" aria-label="Plantillas de Redes (1 clic)">
                 {QUICK_TEMPLATES.map((tpl) => (
                   <button
                     key={tpl.id}

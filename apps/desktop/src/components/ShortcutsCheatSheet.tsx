@@ -189,7 +189,7 @@ export function ShortcutsCheatSheet({ open, onClose, onOpenSettings }: Shortcuts
 
   // Lista unificada de todos los atajos
   const allItems = useMemo(() => {
-    const regularItems = (Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[]).map((id) => {
+    const regularItems: ExtraShortcutItem[] = (Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[]).map((id) => {
       const binding = shortcutsMap[id] || DEFAULT_SHORTCUTS[id];
       const label = SHORTCUT_LABELS[id] || id;
       const rawCategory = SHORTCUT_CATEGORIES[id] || 'General';

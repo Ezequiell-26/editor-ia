@@ -125,10 +125,10 @@ describe('shell de Olyvia', () => {
   it('abre en Inicio con la preparación y la extensión listas para configurar', async () => {
     renderApp();
     const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('Preparación del estudio'));
+    await waitFor(() => expect(main.textContent).toContain('Estudio Web'));
     expect(main.textContent).toContain('Extensión de Chrome / Edge');
-    expect(main.textContent).toContain('Motor de descargas');
-    expect(main.textContent).toContain('FFmpeg');
+    expect(main.textContent).toContain('Motor de Medios & Descargas');
+    expect(main.textContent).toContain('Canvas 2D + Web Audio Activo');
     expect(main.textContent).toContain('Todas las herramientas');
     expect(within(main).getAllByRole('button', { name: /YouTube/i }).length).toBeGreaterThan(0);
     expect(within(main).getAllByRole('button', { name: /Automático/i }).length).toBeGreaterThan(0);
@@ -337,7 +337,7 @@ describe('shell de Olyvia', () => {
   it('redirige un deep link de modo del editor al editor canónico', async () => {
     renderAppAt('?view=mixer');
     const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('No hay proyecto abierto'));
+    await waitFor(() => expect(within(main).getByRole('heading', { name: /Estudio de Edici.n de Video/ })).toBeTruthy());
     const rail = screen.getByRole('navigation', { name: /vistas/i });
     expect(
       within(rail).getByRole('button', { name: 'Editor' }).getAttribute('aria-current'),
@@ -721,7 +721,9 @@ describe('shell de Olyvia', () => {
     service.current = seededOpened;
     render(<App service={service} />);
     await createProject('Obra scopes CORS');
-    const media = document.querySelector('.preview-media');
+    const media =
+      document.querySelector('.preview-simulated-video img') ??
+      document.querySelector('video.preview-media, img.preview-media');
     expect(media?.getAttribute('crossorigin')).toBe('anonymous');
   });
 

@@ -183,7 +183,10 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
       </div>
 
       {!store.service.available ? (
-        <p className="notice notice-warning">{store.service.unavailableReason}</p>
+        <p className="notice notice-warning" role="status">
+          {store.service.unavailableReason ||
+            'Abr? la app de escritorio de Olyvia para crear, abrir y guardar proyectos.'}
+        </p>
       ) : null}
 
       {project ? (

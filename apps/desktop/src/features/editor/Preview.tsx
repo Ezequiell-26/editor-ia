@@ -535,6 +535,7 @@ function VideoLayer({
       >
         <img
           src={isImageSrc ? url : '/editor_preview.jpg'}
+          crossOrigin="anonymous"
           alt={clip.label}
           style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }}
         />

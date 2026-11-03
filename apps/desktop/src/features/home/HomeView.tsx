@@ -273,7 +273,7 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             <Icon name="plus" size={15} />
             <span>Nuevo</span>
           </button>
-          <button type="button" className="ghost icon-text" onClick={() => void openProject()}>
+          <button type="button" className="ghost icon-text" aria-label="Abrir proyecto" onClick={() => void openProject()}>
             <Icon name="projects" size={15} />
             <span>Abrir...</span>
           </button>

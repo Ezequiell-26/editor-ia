@@ -41,9 +41,10 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     expect(screen.getByRole('button', { name: /Abrir proyecto/i })).toBeTruthy();
 
     // Plantillas rápidas 1-clic
-    expect(screen.getByRole('button', { name: /TikTok \/ Reels/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /YouTube 60fps/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Instagram Feed/i })).toBeTruthy();
+    const templates = within(screen.getByRole('group', { name: /Plantillas de Redes/i }));
+    expect(templates.getByRole('button', { name: /TikTok \/ Reels/i })).toBeTruthy();
+    expect(templates.getByRole('button', { name: /YouTube 60fps/i })).toBeTruthy();
+    expect(templates.getByRole('button', { name: /Instagram Feed/i })).toBeTruthy();
 
     // Atajos de herramientas rápidas
     expect(screen.getByRole('button', { name: /Director IA/i })).toBeTruthy();
@@ -57,7 +58,9 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
   it('crea un proyecto al instante con 1-clic usando una plantilla rápida', async () => {
     const { onEnterApp } = renderStartScreen();
 
-    const tiktokBtn = screen.getByRole('button', { name: /TikTok \/ Reels/i });
+    const tiktokBtn = within(
+      screen.getByRole('group', { name: /Plantillas de Redes/i }),
+    ).getByRole('button', { name: /TikTok \/ Reels/i });
     fireEvent.click(tiktokBtn);
 
     await waitFor(

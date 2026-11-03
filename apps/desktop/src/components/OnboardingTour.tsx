@@ -17,7 +17,7 @@ export interface TourStep {
   readonly proTip?: string;
 }
 
-export const TOUR_STEPS: readonly TourStep[] = [
+export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
   {
     id: 'welcome',
     targetSelector: '[data-tour="brand"]',
