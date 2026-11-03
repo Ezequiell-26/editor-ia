@@ -236,6 +236,79 @@ export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'):
   };
 }
 
+export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtítulos y Música', isVertical = true): ProjectDocument {
+  const base = createEmptyProject(title, NOW);
+  base.video = {
+    width: isVertical ? 1080 : 1920,
+    height: isVertical ? 1920 : 1080,
+    frameRate: { num: 30, den: 1 },
+    backgroundColor: '#0b0e13',
+  };
+  const videoAsset = readyAsset({
+    id: '11111111-1111-4111-8111-111111111111',
+    label: 'Toma principal (1080p)',
+    kind: 'video',
+    source: { type: 'local', path: 'media/toma-principal.mp4' },
+    media: { width: isVertical ? 1080 : 1920, height: isVertical ? 1920 : 1080, durationFrames: 600, frameRate: { num: 30, den: 1 } },
+  });
+  const brollAsset = readyAsset({
+    id: '22222222-2222-4222-8222-222222222222',
+    label: 'B-Roll cinemático',
+    kind: 'video',
+    source: { type: 'local', path: 'media/broll.mp4' },
+    media: { width: isVertical ? 1080 : 1920, height: isVertical ? 1920 : 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } },
+  });
+  const audioAsset = unverifiedAudioAsset();
+  base.assets = [videoAsset, brollAsset, audioAsset];
+
+  const trackV1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const trackV2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const trackA1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  base.timeline.tracks = [
+    { id: trackV1, kind: 'video', label: 'V1 · Video Principal', order: 0, muted: false, hidden: false, locked: false },
+    { id: trackV2, kind: 'video', label: 'V2 · B-Roll / Inserción', order: 1, muted: false, hidden: false, locked: false },
+    { id: trackA1, kind: 'audio', label: 'A1 · Locución IA', order: 2, muted: false, hidden: false, locked: false },
+  ];
+  base.timeline.clips = [
+    {
+      id: 'clip-v1-1',
+      trackId: trackV1,
+      label: 'Toma Principal · Presentación',
+      startFrame: 0,
+      durationFrames: 300,
+      kind: 'video',
+      source: { type: 'asset', assetId: videoAsset.id, inFrame: 0, outFrame: 300 },
+    },
+    {
+      id: 'clip-v2-1',
+      trackId: trackV2,
+      label: 'B-Roll · Escena Dinámica',
+      startFrame: 120,
+      durationFrames: 180,
+      kind: 'video',
+      source: { type: 'asset', assetId: brollAsset.id, inFrame: 0, outFrame: 180 },
+    },
+    {
+      id: 'clip-a1-1',
+      trackId: trackA1,
+      label: 'Locución · Narración IA',
+      startFrame: 15,
+      durationFrames: 285,
+      kind: 'audio',
+      source: { type: 'asset', assetId: audioAsset.id, inFrame: 0, outFrame: 285 },
+    },
+  ];
+  base.captions = {
+    styles: [],
+    cues: [
+      { id: 'cue-1', trackId: trackA1, language: 'es', startFrame: 15, endFrame: 100, text: '¡Bienvenido a Olyvia Video Editor!' },
+      { id: 'cue-2', trackId: trackA1, language: 'es', startFrame: 105, endFrame: 200, text: 'Edición multi-pista y subtítulos con IA' },
+      { id: 'cue-3', trackId: trackA1, language: 'es', startFrame: 205, endFrame: 300, text: 'Exporta tus videos en segundos con IA' },
+    ],
+  };
+  return ensureDelivery(base);
+}
+
 export function createFakeService(): FakeService {
   let current: OpenedProject | null = null;
   let saveFailure: string | null = null;
@@ -288,14 +361,23 @@ export function createFakeService(): FakeService {
     },
     async openProject() {
       calls.open += 1;
-      const project = ensureDelivery(createEmptyProject('Proyecto abierto', NOW));
-      current = opened(project);
+      const project = createDemoProject('🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música', true);
+      current = opened(project, 'demo-reels-subtitulos.editoria.json');
       service.current = current;
       return current;
     },
     async openProjectAt(path: string) {
       calls.open += 1;
-      const project = ensureDelivery(createEmptyProject('Proyecto reciente', NOW));
+      const lower = path.toLowerCase();
+      const isVertical = lower.includes('reels') || lower.includes('vertical') || lower.includes('9-16');
+      const title = isVertical
+        ? '🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música'
+        : lower.includes('youtube') || lower.includes('tutorial')
+          ? '🎬 Demo: Tutorial YouTube 16:9 con Locución IA'
+          : lower.includes('podcast') || lower.includes('multicam')
+            ? '🎙️ Demo: Podcast & Multicámara con Mezcla de Audio'
+            : (path.split(/[\\/]/).pop()?.replace('.editoria.json', '') ?? 'Proyecto');
+      const project = createDemoProject(title, isVertical);
       current = { ...opened(project, path.split(/[\\/]/).pop() ?? 'proyecto.editoria.json'), path };
       service.current = current;
       return current;
@@ -305,7 +387,9 @@ export function createFakeService(): FakeService {
         current = service.current;
       }
       if (!current) {
-        throw new Error('no hay un proyecto para adoptar');
+        const project = createDemoProject('🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música', true);
+        current = opened(project, 'demo-reels-subtitulos.editoria.json');
+        service.current = current;
       }
       return current;
     },
@@ -1730,7 +1814,10 @@ export function createFakeService(): FakeService {
       return () => finishedHandlers.delete(handler);
     },
     mediaUrl(_root, relative) {
-      return `asset://local/${relative}`;
+      if (relative.endsWith('.wav') || relative.endsWith('.mp3') || relative.endsWith('.aac') || relative.endsWith('.ogg')) {
+        return 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      }
+      return '/editor_preview.jpg';
     },
     joinPath(root, relative) {
       return `${root}\\${relative.replace(/\//g, '\\')}`;

@@ -1,0 +1,8 @@
+{
+  "name": "Olyvia - AI Video Editor",
+  "description": "Full-featured AI-assisted video editor with timeline, script-to-video, audio mixer, effects, subtitles, and smart export.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

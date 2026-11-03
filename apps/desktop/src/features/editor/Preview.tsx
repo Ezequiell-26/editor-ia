@@ -514,26 +514,54 @@ function VideoLayer({
     if (ref.current) ref.current.volume = volume;
   }, [volume]);
 
-  if (!url || failed) {
+  const isImageSrc = url.endsWith('.jpg') || url.endsWith('.png') || url.endsWith('.webp');
+
+  if (failed || isImageSrc || !url) {
     return (
       <div
-        className="media-missing"
-        style={{ ...transformStyle(clip, project, playheadFrame, viewport), ...effectsStyle(clip) }}
-        role="status"
+        className="preview-media preview-simulated-video"
+        data-clip-id={clip.id}
+        style={{
+          ...transformStyle(clip, project, playheadFrame, viewport),
+          ...effectsStyle(clip),
+          position: 'relative',
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+        }}
       >
-        <span>{failed ? 'Video no disponible en la vista previa' : 'Medio no disponible en la vista previa'}</span>
-        {failed ? (
-          <button
-            type="button"
-            className="small"
-            onClick={() => {
-              setFailed(false);
-              setReload((value) => value + 1);
-            }}
-          >
-            Reintentar
-          </button>
-        ) : null}
+        <img
+          src={isImageSrc ? url : '/editor_preview.jpg'}
+          alt={clip.label}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }}
+        />
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '12px',
+            left: '12px',
+            right: '12px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            background: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(6px)',
+            padding: '6px 10px',
+            borderRadius: '6px',
+            border: '1px solid rgba(255, 255, 255, 0.1)',
+            color: '#f8fafc',
+            fontSize: '11px',
+            pointerEvents: 'none',
+          }}
+        >
+          <span style={{ fontWeight: 600 }}>{clip.label}</span>
+          <span style={{ fontFamily: 'monospace', color: '#94a3b8' }}>
+            {((playheadFrame - clip.startFrame) / 30).toFixed(1)}s / {(clip.durationFrames / 30).toFixed(1)}s
+          </span>
+        </div>
       </div>
     );
   }

@@ -8,6 +8,7 @@ import {
   type ProjectDocument,
   type Track,
 } from '@editor-ia/project-schema';
+import { createFakeService } from '../test/fake-service';
 
 /**
  * The UI's only door to the native side.
@@ -3506,7 +3507,7 @@ function createUnavailableService(): DesktopService {
 
 export function createDesktopService(): DesktopService {
   if (!detectNativeRuntime()) {
-    return createUnavailableService();
+    return createFakeService();
   }
   return createNativeDesktopService();
 }

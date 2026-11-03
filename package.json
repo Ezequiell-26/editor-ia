@@ -13,6 +13,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "lint": "npm run typecheck",
     "test": "vitest run",
     "test:serial": "vitest run --no-file-parallelism",
     "test:extension": "npm --prefix extensions/flow-queue test",

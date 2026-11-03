@@ -504,6 +504,22 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             <div className="start-actions-group">
               <button
                 type="button"
+                className="start-action-card start-action-card--demo"
+                onClick={() => void handleOpenRecent(recents[0] ?? { path: 'demo://reels-vertical', label: 'demo-reels-subtitulos.editoria.json', name: '🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música', openedAt: new Date().toISOString() })}
+                disabled={busy}
+                title="Abre instantáneamente un proyecto de prueba completo con video, audio y subtítulos"
+              >
+                <div className="start-action-icon">
+                  <Icon name="sparkles" size={18} />
+                </div>
+                <div className="start-action-text">
+                  <strong className="start-action-title">Probar Demo (1 clic)</strong>
+                  <span className="start-action-desc">Video, música y subtítulos listos</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
                 className="start-action-card start-action-card--create"
                 onClick={() => setShowCreateModal(true)}
                 disabled={busy}
@@ -513,7 +529,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                 </div>
                 <div className="start-action-text">
                   <strong className="start-action-title">Crear proyecto</strong>
-                  <span className="start-action-desc">Nuevo video con IA</span>
+                  <span className="start-action-desc">Personalizar formato y fps</span>
                 </div>
               </button>
 
@@ -527,8 +543,8 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                   <Icon name="folder" size={16} />
                 </div>
                 <div className="start-action-text">
-                  <strong className="start-action-title">Abrir proyecto</strong>
-                  <span className="start-action-desc">Archivo .editoria</span>
+                  <strong className="start-action-title">Abrir archivo</strong>
+                  <span className="start-action-desc">Cargar proyecto .editoria</span>
                 </div>
               </button>
             </div>
@@ -536,7 +552,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             {/* 1-Click Templates */}
             <div className="start-pane-section">
               <div className="start-section-header">
-                <span className="start-section-title">Plantillas Rápidas</span>
+                <span className="start-section-title">Plantillas de Redes (1 Clic)</span>
               </div>
               <div className="start-templates-list">
                 {QUICK_TEMPLATES.map((tpl) => (
@@ -564,7 +580,7 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             {/* Quick AI Tools */}
             <div className="start-pane-section">
               <div className="start-section-header">
-                <span className="start-section-title">Herramientas IA Rápidas</span>
+                <span className="start-section-title">Herramientas de IA Integradas</span>
               </div>
               <div className="start-tools-chips">
                 {QUICK_AI_TOOLS.map((tool) => (
@@ -588,16 +604,30 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             {/* Status note */}
             <div className="start-privacy-note">
               <span className="start-privacy-dot" />
-              <span>100% Offline · FFmpeg 9</span>
+              <span>Olyvia Video Studio · Local & Privado</span>
             </div>
           </aside>
 
           {/* Right Column: Recent Projects Manager */}
           <main className="start-right-pane">
+            <div className="start-welcome-banner">
+              <div className="start-welcome-eyebrow">ESTUDIO DE CREACIÓN AUDIOVISUAL</div>
+              <h1 className="start-welcome-title">Olyvia · Editor de Video con Inteligencia Artificial</h1>
+              <p className="start-welcome-desc">
+                Edita videos con timeline multi-pista, generación de guiones con IA, locución en audio y corte automático de silencios. Ideal para creadores de YouTube, TikTok y cine.
+              </p>
+              <div className="start-welcome-features">
+                <span className="start-feature-chip">🎬 Edición Multi-Pista</span>
+                <span className="start-feature-chip">✨ Subtítulos & Auto-Corte</span>
+                <span className="start-feature-chip">🎙️ Voces & Locución IA</span>
+                <span className="start-feature-chip">📱 Formatos 9:16 y 16:9</span>
+              </div>
+            </div>
+
             {/* Toolbar */}
             <div className="start-recents-toolbar">
               <div className="start-toolbar-left">
-                <h2 className="start-section-title">Proyectos recientes</h2>
+                <h2 className="start-section-title">Proyectos de muestra y recientes</h2>
                 {recents.length > 0 && (
                   <span className="start-count-chip">{recents.length}</span>
                 )}

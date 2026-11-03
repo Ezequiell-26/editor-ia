@@ -18,15 +18,36 @@ function storage(): Storage | null {
   }
 }
 
+export const INITIAL_DEMO_PROJECTS: readonly RecentProject[] = [
+  {
+    path: 'demo://reels-vertical',
+    label: 'reels-tiktok-9-16.editoria.json',
+    name: '🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música',
+    openedAt: new Date().toISOString(),
+  },
+  {
+    path: 'demo://youtube-tutorial',
+    label: 'tutorial-youtube-16-9.editoria.json',
+    name: '🎬 Demo: Tutorial YouTube 16:9 con Locución IA',
+    openedAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    path: 'demo://podcast-multicam',
+    label: 'podcast-multicam-audio.editoria.json',
+    name: '🎙️ Demo: Podcast & Multicámara con Mezcla de Audio',
+    openedAt: new Date(Date.now() - 86400000).toISOString(),
+  },
+];
+
 export function loadRecents(): RecentProject[] {
   const store = storage();
-  if (!store) return [];
+  if (!store) return [...INITIAL_DEMO_PROJECTS];
   try {
     const raw = store.getItem(KEY);
-    if (!raw) return [];
+    if (!raw) return [...INITIAL_DEMO_PROJECTS];
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+    if (!Array.isArray(parsed) || parsed.length === 0) return [...INITIAL_DEMO_PROJECTS];
+    const loaded = parsed
       .filter((item): item is RecentProject => {
         if (!item || typeof item !== 'object') return false;
         const record = item as Record<string, unknown>;
@@ -38,8 +59,9 @@ export function loadRecents(): RecentProject[] {
         );
       })
       .slice(0, MAX);
+    return loaded.length > 0 ? loaded : [...INITIAL_DEMO_PROJECTS];
   } catch {
-    return [];
+    return [...INITIAL_DEMO_PROJECTS];
   }
 }
 

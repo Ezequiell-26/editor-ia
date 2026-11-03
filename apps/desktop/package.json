@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Olyvia desktop: Tauri 2, React 19, timeline, media import, AI script, local narration and verified FFmpeg export.",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "test": "vitest run",
@@ -27,7 +27,8 @@
     "minisearch": "^7.2.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "subsrt": "^1.1.1"
+    "subsrt": "^1.1.1",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

@@ -67,18 +67,20 @@
   color: #919296;
 }
 
-/* ─── Compact DaVinci Project Manager Window ─── */
+/* ─── Expanded DaVinci Project Manager Window ─── */
 .start-window {
   position: relative;
   z-index: 10;
   display: flex;
   flex-direction: column;
-  width: 900px;
-  height: 580px;
+  width: min(1280px, 96vw);
+  height: min(840px, 94vh);
   max-width: 100vw;
   max-height: 100vh;
-  background: #1a1a1d;
-  border: 1px solid #333438;
+  background: #14161d;
+  border: 1px solid #2d3340;
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.06);
   overflow: hidden;
 }
 
@@ -212,75 +214,100 @@
 
 /* ─── Left Column (Actions, Templates, AI Tools) ─── */
 .start-left-pane {
-  width: 250px;
-  background: #202124;
-  border-right: 1px solid #333438;
+  width: 320px;
+  background: #191c24;
+  border-right: 1px solid #282d3b;
   display: flex;
   flex-direction: column;
-  padding: 10px;
-  gap: 10px;
+  padding: 14px;
+  gap: 14px;
   flex-shrink: 0;
   overflow-y: auto;
 }
 
 .start-actions-group {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .start-action-card {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px;
-  background: #28292d;
-  border: 1px solid #3a3b3f;
-  border-radius: 2px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: #222631;
+  border: 1px solid #313847;
+  border-radius: 8px;
   cursor: pointer;
   text-align: left;
-  transition: background 0.1s ease, border-color 0.1s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+
+.start-action-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.start-action-card--demo {
+  background: linear-gradient(135deg, rgba(72, 129, 194, 0.22) 0%, rgba(125, 211, 192, 0.14) 100%);
+  border-color: rgba(125, 211, 192, 0.45);
+}
+
+.start-action-card--demo:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(72, 129, 194, 0.32) 0%, rgba(125, 211, 192, 0.24) 100%);
+  border-color: #7dd3c0;
+}
+
+.start-action-card--demo .start-action-icon {
+  color: #7dd3c0;
 }
 
 .start-action-card--create {
-  background: #28333e;
-  border-color: #3a4a58;
+  background: #1f2532;
+  border-color: #2e3a4d;
 }
 
 .start-action-card--create:hover:not(:disabled) {
-  background: #303e4e;
+  background: #273142;
   border-color: #4881c2;
 }
 
 .start-action-card--open:hover:not(:disabled) {
-  background: #333438;
-  border-color: #48494d;
+  background: #272b37;
+  border-color: #3d4658;
 }
 
 .start-action-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
   color: #4881c2;
+  flex-shrink: 0;
 }
 
 .start-action-card--open .start-action-icon {
-  color: #919296;
+  color: #94a3b8;
 }
 
 .start-action-text {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
 }
 
 .start-action-title {
   font-family: var(--font-ui, sans-serif);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
-  color: #d8d9dc;
+  color: #f8fafc;
 }
 
 .start-action-desc {
-  font-size: 9.5px;
-  color: #919296;
+  font-size: 11.5px;
+  color: #94a3b8;
 }
 
 .start-pane-section {
@@ -308,83 +335,86 @@
 .start-templates-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
 
 .start-template-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 25px;
-  padding: 0 6px;
-  background: #232427;
-  border: 1px solid #333438;
-  border-radius: 2px;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  background: #1e222d;
+  border: 1px solid #2d3546;
+  border-radius: 6px;
   cursor: pointer;
   text-align: left;
-  transition: border-color 0.1s ease, background 0.1s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
 .start-template-row:hover:not(:disabled) {
-  border-color: #4881c2;
-  background: #28292d;
+  border-color: #3b82f6;
+  background: #252b38;
+  transform: translateX(2px);
 }
 
 .start-tpl-ratio {
   display: grid;
   place-items: center;
-  width: 16px;
-  max-height: 18px;
-  border: 1px solid #4881c2;
-  color: #4881c2;
+  width: 20px;
+  max-height: 20px;
+  border: 1px solid #3b82f6;
+  color: #60a5fa;
+  border-radius: 3px;
   flex-shrink: 0;
 }
 
 .start-tpl-name {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
-  color: #d8d9dc;
+  color: #f1f5f9;
   flex: 1;
 }
 
 .start-tpl-badge {
   font-family: var(--font-mono, monospace);
-  font-size: 8.5px;
-  color: #6e6f72;
+  font-size: 10.5px;
+  color: #94a3b8;
 }
 
 /* Quick AI Tools Chips in Left Pane */
 .start-tools-chips {
   display: grid;
-  /* Una sola columna: con dos, cada chip quedaba en ~90 px y el nombre se
-   * cortaba ("Direc…", "Locuc…", "Ups…"). */
   grid-template-columns: 1fr;
-  gap: 3px;
+  gap: 6px;
 }
 
 .start-tool-chip {
   display: flex;
   align-items: center;
-  gap: 5px;
-  height: 25px;
-  padding: 0 6px;
-  background: #232427;
-  border: 1px solid #333438;
-  border-radius: 2px;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  background: #1e222d;
+  border: 1px solid #2d3546;
+  border-radius: 6px;
   cursor: pointer;
   text-align: left;
-  color: #919296;
-  transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
+  color: #cbd5e1;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
 .start-tool-chip:hover:not(:disabled) {
-  color: #d8d9dc;
+  border-color: #3b82f6;
+  background: #252b38;
+  color: #ffffff;
+  transform: translateX(2px);
 }
 
 .start-tool-name {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
-  color: #d8d9dc;
+  color: #f1f5f9;
   flex: 1;
   min-width: 0;
   white-space: nowrap;
@@ -394,8 +424,8 @@
 
 .start-tool-tag {
   font-family: var(--font-mono, monospace);
-  font-size: 7.5px;
-  color: #6e6f72;
+  font-size: 9.5px;
+  color: #94a3b8;
 }
 
 .start-left-spacer {
@@ -425,14 +455,66 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #1a1a1d;
+  background: #14171f;
+}
+
+/* ─── Welcome Banner ─── */
+.start-welcome-banner {
+  padding: 22px 26px;
+  background: linear-gradient(180deg, #1b202c 0%, #151821 100%);
+  border-bottom: 1px solid #282e3c;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.start-welcome-eyebrow {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: #7dd3c0;
+  font-weight: 600;
+}
+
+.start-welcome-title {
+  font-size: 21px;
+  font-weight: 700;
+  color: #f8fafc;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.start-welcome-desc {
+  font-size: 13.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 760px;
+}
+
+.start-welcome-features {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.start-feature-chip {
+  font-size: 12px;
+  font-weight: 500;
+  color: #cbd5e1;
+  background: #202634;
+  border: 1px solid #2f384c;
+  padding: 4px 10px;
+  border-radius: 6px;
 }
 
 .start-recents-toolbar {
-  height: 36px;
-  padding: 0 12px;
-  background: #1e1f22;
-  border-bottom: 1px solid #333438;
+  height: 40px;
+  padding: 0 16px;
+  background: #181b23;
+  border-bottom: 1px solid #282e3c;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -550,8 +632,8 @@
 
 .start-projects-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
   align-content: start;
 }
 
@@ -559,18 +641,21 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  background: #232427;
-  border: 1px solid #333438;
+  background: #1e222d;
+  border: 1px solid #2d3546;
+  border-radius: 8px;
   cursor: pointer;
   text-align: left;
   padding: 0;
   overflow: hidden;
-  transition: border-color 0.1s ease, background 0.1s ease;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .start-project-card:hover {
-  border-color: #4881c2;
-  background: #28292d;
+  border-color: #3b82f6;
+  background: #252b38;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
 }
 
 .start-thumb-box {
@@ -677,28 +762,31 @@
 
 .start-thumb-badge {
   position: absolute;
-  bottom: 3px;
-  right: 4px;
-  padding: 1px 3px;
-  background: #1e1f22;
-  border: 1px solid #333438;
+  bottom: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
   font-family: var(--font-mono, monospace);
-  font-size: 8px;
-  color: #919296;
+  font-size: 10px;
+  font-weight: 500;
+  color: #e2e8f0;
 }
 
 .start-project-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
+  gap: 4px;
+  padding: 10px 12px;
 }
 
 .start-project-name {
   font-family: var(--font-ui, sans-serif);
-  font-size: 11px;
+  font-size: 13.5px;
   font-weight: 600;
-  color: #d8d9dc;
+  color: #f8fafc;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -708,22 +796,22 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 4px;
+  gap: 8px;
 }
 
 .start-project-time {
-  font-size: 9.5px;
-  color: #919296;
+  font-size: 11px;
+  color: #94a3b8;
 }
 
 .start-project-path {
   font-family: var(--font-mono, monospace);
-  font-size: 8px;
-  color: #6e6f72;
+  font-size: 10px;
+  color: #64748b;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 70px;
+  max-width: 130px;
 }
 
 .start-card-delete {

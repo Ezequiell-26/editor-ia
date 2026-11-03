@@ -258,15 +258,45 @@ export function EditorWorkspace({
 
   if (!project) {
     return (
-      <section className="view">
-        <p className="empty-state">
-          No hay proyecto abierto. Creá o abrí un proyecto para editar. La timeline no inventa
-          pistas ni clips: aparece vacía hasta que montás un medio.
-        </p>
-        <div className="actions">
-          <button type="button" className="primary" onClick={() => onNavigate('projects')}>
-            Ir a Proyectos
-          </button>
+      <section className="view editor-empty-view">
+        <div className="editor-empty-card">
+          <div className="editor-empty-icon" aria-hidden="true">
+            🎬
+          </div>
+          <h2 className="editor-empty-title">Estudio de Edición de Video</h2>
+          <p className="editor-empty-desc">
+            Para comenzar a cortar y componer, abre un proyecto de demostración con video, música y subtítulos listos, o crea un nuevo proyecto en blanco.
+          </p>
+          <div className="editor-empty-actions">
+            <button
+              type="button"
+              className="primary icon-text"
+              onClick={() => void store.openProjectAt('demo://reels-vertical')}
+            >
+              <span>🌟 Probar Demo (Reels 9:16)</span>
+            </button>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => void store.openProjectAt('demo://youtube-tutorial')}
+            >
+              <span>🎬 Probar Demo (YouTube 16:9)</span>
+            </button>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => onNavigate('projects')}
+            >
+              <span>➕ Nuevo proyecto</span>
+            </button>
+            <button
+              type="button"
+              className="ghost icon-text"
+              onClick={() => onNavigate('home')}
+            >
+              <span>🏠 Volver a Inicio</span>
+            </button>
+          </div>
         </div>
       </section>
     );

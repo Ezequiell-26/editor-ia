@@ -13130,3 +13130,50 @@ textarea::placeholder {
 .review-dialog footer .fine-print {
   margin-right: auto;
 }
+
+/* ─── Editor Empty State ─── */
+.editor-empty-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 70vh;
+  padding: 40px 20px;
+}
+
+.editor-empty-card {
+  max-width: 580px;
+  width: 100%;
+  text-align: center;
+  padding: 40px 32px;
+  background: #181b22;
+  border: 1px solid #2d3340;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.editor-empty-icon {
+  font-size: 44px;
+  margin-bottom: 14px;
+}
+
+.editor-empty-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f8fafc;
+  margin-bottom: 10px;
+}
+
+.editor-empty-desc {
+  font-size: 13.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.editor-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+

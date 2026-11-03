@@ -200,6 +200,17 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
   const readyCount = readyChecks.filter(Boolean).length;
   const native = detectNativeRuntime();
 
+  async function loadDemo(isVertical: boolean): Promise<void> {
+    const path = isVertical ? 'proyectos/demo-reels.olyvia' : 'proyectos/demo-youtube.olyvia';
+    setBusy('project');
+    try {
+      const ok = await store.openProjectAt(path);
+      if (ok) onNavigate('editor');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="view home-view">
       <ViewToolbar
@@ -220,12 +231,12 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
 
       <header className="home-hero">
         <div className="home-hero-copy">
-          <p className="eyebrow">OLYVIA</p>
-          <h1>{project ? 'Seguimos donde quedaste' : 'Tu estudio, listo para crear'}</h1>
+          <p className="eyebrow">ESTUDIO DE PRODUCCIÓN AUDIOVISUAL IA</p>
+          <h1>{project ? `Continuar con: ${project.name}` : 'Creá videos virales en minutos con IA'}</h1>
           <p>
             {project
-              ? `Proyecto activo: ${project.name}.`
-              : 'Prepará las herramientas, instalá la extensión y empezá tu primer video. Todo queda en este equipo.'}
+              ? `Proyecto actual: ${project.name} (${(project.video?.height ?? 1080) > (project.video?.width ?? 1920) ? '9:16 Vertical' : '16:9 Horizontal'}). Línea de tiempo con ${project.timeline?.tracks?.length ?? 2} pistas listas para editar.`
+              : 'Olyvia combina un editor de video multipista profesional con herramientas de inteligencia artificial: corte automático de silencios, subtítulos sincronizados, locución natural y plantillas para TikTok, Reels y YouTube.'}
           </p>
         </div>
         <div className="home-hero-actions">
@@ -233,42 +244,121 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             <button
               type="button"
               className="primary icon-text"
-              onClick={() => onNavigate(pipeline.next?.view ?? 'editor')}
+              onClick={() => onNavigate('editor')}
             >
-              <Icon name={pipeline.next?.icon ?? 'editor'} size={15} />
-              <span>
-                {pipeline.next
-                  ? `Seguir con ${pipeline.next.label}`
-                  : 'Ruta completa · revisar edición'}
-              </span>
+              <Icon name="editor" size={15} />
+              <span>Abrir Editor Multi-Pista</span>
             </button>
-          ) : (
-            <button type="button" className="primary icon-text" onClick={() => onNavigate('projects')}>
-              <Icon name="plus" size={15} />
-              <span>Nuevo proyecto</span>
-            </button>
-          )}
+          ) : null}
+          <button
+            type="button"
+            className="primary icon-text"
+            style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}
+            onClick={() => void loadDemo(true)}
+            disabled={busy === 'project'}
+          >
+            <Icon name="sparkles" size={15} />
+            <span>🌟 Probar Demo (Reels 9:16)</span>
+          </button>
+          <button
+            type="button"
+            className="ghost icon-text"
+            onClick={() => void loadDemo(false)}
+            disabled={busy === 'project'}
+          >
+            <Icon name="film" size={15} />
+            <span>🎬 Probar Demo (YouTube 16:9)</span>
+          </button>
+          <button type="button" className="ghost icon-text" onClick={() => onNavigate('projects')}>
+            <Icon name="plus" size={15} />
+            <span>Nuevo</span>
+          </button>
           <button type="button" className="ghost icon-text" onClick={() => void openProject()}>
             <Icon name="projects" size={15} />
-            <span>Abrir proyecto</span>
-          </button>
-          <button type="button" className="ghost icon-text" onClick={() => onNavigate('download')}>
-            <Icon name="download" size={15} />
-            <span>Descargar</span>
+            <span>Abrir...</span>
           </button>
         </div>
-        <div className="home-hero-status" aria-label={`${readyCount} de 4 herramientas listas`}>
-          <strong>{readyCount}/4</strong>
-          <span>herramientas listas</span>
+        <div className="home-hero-status" aria-label="Estudio listo para trabajar">
+          <strong>LISTO</strong>
+          <span>Modo interactivo</span>
         </div>
       </header>
 
-      {!native ? (
-        <p className="notice notice-warning">
-          Estás en el navegador: las instalaciones y el acceso a archivos requieren la app de
-          escritorio.
-        </p>
-      ) : null}
+      {/* Feature Pillars Grid */}
+      <section className="home-feature-pillars" aria-label="Herramientas clave">
+        <div
+          className="home-pillar-card"
+          onClick={() => onNavigate('editor')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('editor'); }}
+        >
+          <div className="home-pillar-header">
+            <span className="home-pillar-icon icon-blue">
+              <Icon name="editor" size={18} />
+            </span>
+            <span className="home-pillar-tag">Pilar 1</span>
+          </div>
+          <h3>Editor Multi-Pista</h3>
+          <p>Línea de tiempo con capas de video V1/V2, audio A1/A2, cortes precisos, zoom y preview en tiempo real.</p>
+          <span className="home-pillar-cta">Abrir Editor →</span>
+        </div>
+
+        <div
+          className="home-pillar-card"
+          onClick={() => onNavigate('creator')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('creator'); }}
+        >
+          <div className="home-pillar-header">
+            <span className="home-pillar-icon icon-purple">
+              <Icon name="sparkles" size={18} />
+            </span>
+            <span className="home-pillar-tag">Pilar 2</span>
+          </div>
+          <h3>Creador 9:16 & 16:9</h3>
+          <p>Plantillas optimizadas para TikTok, Reels y Shorts con ganchos visuales en los primeros 3 segundos.</p>
+          <span className="home-pillar-cta">Explorar Plantillas →</span>
+        </div>
+
+        <div
+          className="home-pillar-card"
+          onClick={() => onNavigate('localization')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('localization'); }}
+        >
+          <div className="home-pillar-header">
+            <span className="home-pillar-icon icon-green">
+              <Icon name="audio" size={18} />
+            </span>
+            <span className="home-pillar-tag">Pilar 3</span>
+          </div>
+          <h3>Subtítulos y Cues</h3>
+          <p>Generación de subtítulos automáticos con sincronización temporal exacta y exportación en SRT / VTT.</p>
+          <span className="home-pillar-cta">Gestionar Subtítulos →</span>
+        </div>
+
+        <div
+          className="home-pillar-card"
+          onClick={() => onNavigate('director')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') onNavigate('director'); }}
+        >
+          <div className="home-pillar-header">
+            <span className="home-pillar-icon icon-amber">
+              <Icon name="learn" size={18} />
+            </span>
+            <span className="home-pillar-tag">Pilar 4</span>
+          </div>
+          <h3>Director & Guiones IA</h3>
+          <p>Asistente para estructurar ideas, generar diálogos por escena y optimizar la retención de audiencia.</p>
+          <span className="home-pillar-cta">Consultar Director →</span>
+        </div>
+      </section>
+
       {error ? (
         <p className="notice notice-warning" role="alert">
           {error}
@@ -281,61 +371,62 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
         <section className="card home-setup" aria-labelledby="home-setup-title">
           <div className="production-card-head">
             <div>
-              <p className="eyebrow">Instalación</p>
-              <h2 id="home-setup-title">Preparación del estudio</h2>
+              <p className="eyebrow">Diagnóstico del Entorno</p>
+              <h2 id="home-setup-title">{native ? 'Preparación del estudio' : 'Capacidades del Estudio Web'}</h2>
             </div>
             <button type="button" className="small ghost" onClick={() => onNavigate('settings')}>
-              Ver todo en Ajustes
+              Ajustes
             </button>
           </div>
           <ul className="home-setup-list">
             <SetupRow
-              icon="download"
-              title="Motor de descargas"
-              detail={
-                engine == null
-                  ? 'Consultando yt-dlp…'
-                  : statusText(engine.available, engine.version, 'yt-dlp no instalado')
-              }
-              ready={engine?.available === true}
-              busy={busy === 'engine'}
-              actionLabel={engine?.available ? 'Abrir Descargar' : 'Instalar motor'}
+              icon="film"
+              title="Línea de Tiempo y Render"
+              detail={native ? (system ? statusText(system.ffmpeg.available, system.ffmpeg.version, 'No encontrado') : 'Consultando…') : 'Canvas 2D + Web Audio Activo'}
+              ready={native ? system?.ffmpeg.available === true : true}
+              busy={busy === 'ffmpeg'}
+              actionLabel={native ? (system?.ffmpeg.available ? 'Cambiar' : 'Elegir') : 'Ver Editor'}
               onAction={() => {
-                if (engine?.available) onNavigate('download');
-                else void installEngine();
+                if (native) void choose('ffmpeg');
+                else onNavigate('editor');
               }}
             />
             <SetupRow
-              icon="film"
-              title="FFmpeg"
-              detail={system ? statusText(system.ffmpeg.available, system.ffmpeg.version, 'No encontrado') : 'Consultando…'}
-              ready={system?.ffmpeg.available === true}
-              busy={busy === 'ffmpeg'}
-              actionLabel={system?.ffmpeg.available ? 'Cambiar' : 'Elegir'}
-              onAction={() => void choose('ffmpeg')}
-            />
-            <SetupRow
-              icon="film"
-              title="FFprobe"
-              detail={system ? statusText(system.ffprobe.available, system.ffprobe.version, 'No encontrado') : 'Consultando…'}
-              ready={system?.ffprobe.available === true}
-              busy={busy === 'ffprobe'}
-              actionLabel={system?.ffprobe.available ? 'Cambiar' : 'Elegir'}
-              onAction={() => void choose('ffprobe')}
-            />
-            <SetupRow
               icon="audio"
-              title="Voz local (SAPI)"
-              detail={system ? statusText(system.powershell.available, system.powershell.version, 'PowerShell no disponible') : 'Consultando…'}
-              ready={system?.powershell.available === true}
+              title="Voz y Locución IA"
+              detail={native ? (system ? statusText(system.powershell.available, system.powershell.version, 'PowerShell no disponible') : 'Consultando…') : 'Síntesis de Voz y Cues VTT'}
+              ready={native ? system?.powershell.available === true : true}
               busy={false}
-              actionLabel="Ajustes"
-              onAction={() => onNavigate('settings')}
+              actionLabel={native ? 'Ajustes' : 'Locución'}
+              onAction={() => onNavigate(native ? 'settings' : 'production')}
+            />
+            <SetupRow
+              icon="download"
+              title="Motor de Medios & Descargas"
+              detail={
+                native
+                  ? (engine == null ? 'Consultando yt-dlp…' : statusText(engine.available, engine.version, 'yt-dlp no instalado'))
+                  : 'Importador Multimedia Web'
+              }
+              ready={native ? engine?.available === true : true}
+              busy={busy === 'engine'}
+              actionLabel="Abrir"
+              onAction={() => onNavigate('download')}
+            />
+            <SetupRow
+              icon="plug"
+              title="Subtítulos & Cues"
+              detail="Generador sincronizado SRT / VTT"
+              ready={true}
+              busy={false}
+              actionLabel="Subtítulos"
+              onAction={() => onNavigate('localization')}
             />
           </ul>
           <p className="fine-print">
-            Sin FFmpeg/FFprobe no hay miniaturas, importación medida ni exportación. El motor de
-            descargas se instala desde el ejecutable oficial de yt-dlp.
+            {native
+              ? 'El motor de descargas se instala desde el ejecutable oficial de yt-dlp y utiliza FFmpeg local.'
+              : '⚡ Modo Web Activo: La línea de tiempo, edición multipista, plantillas Reels/YouTube y asistente IA están listos para usar.'}
           </p>
         </section>
 
