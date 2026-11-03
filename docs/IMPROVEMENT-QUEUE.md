@@ -39,11 +39,13 @@ Detalle completo en `docs/PREMIUM-REDESIGN-RESULT.md`; contrato visual en
   Verificación: typecheck 0, build 0, suite serial **1869 passed / 3 skipped**,
   e2e **21 passed / 1 skipped**, 33/33 vistas sin overflow a 1440/1280 y 0
   errores de consola. Capturas en `.tmp-redesign/polish/`.
-- `[next]` Verificación en runtime nativo (checklist en `FOLLOW-UPS.md`):
-  `test_provider` contra Ollama real, transcripción con faster-whisper,
-  TTS/FFmpeg/MCP nativos.
-- `[next]` Reemplazar la build instalada por la nueva (`target-polish/`,
-  firmada local) cuando el usuario cierre la app en uso.
+- `[done]` **Publicación e instalación (pedido del usuario)**: push de la ola a
+  https://github.com/Ezequiell-26/editor-ia (`main` = `8c4851c`, merge del README
+  remoto resuelto conservando «Requisitos reales» y capturas nuevas) y rebuild
+  nativo con polish (`target-polish`, NSIS firmado) instalado en la PC con la
+  app abierta (0.2.0, exe 38.971.360 B). La verificación visual nativa
+  post-instalación queda para el agente de QA; el runtime de IA/transcripción
+  nativo sigue en el checklist de `FOLLOW-UPS.md`.
 
 ## Estado verificado en código (2026-10-28 18:49, última vuelta)
 

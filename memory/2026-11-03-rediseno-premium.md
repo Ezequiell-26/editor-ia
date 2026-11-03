@@ -82,6 +82,20 @@ customizable/fluido, estudiando repos MIT. Se implementó (`docs/PREMIUM-POLISH-
   `.tmp-redesign/polish/final-views-1440|1280/` y `shots/final3-*`.
 - Rebuild nativo en `target-polish/` (para no bloquear el exe en uso).
 
+## Publicación e instalación (pedido explícito del usuario)
+
+- Push a https://github.com/Ezequiell-26/editor-ia: `main` en `8c4851c`
+  (`4b8bf08` feat + merge `3b614bc` del README remoto + `fa34229`/`8c4851c`
+  docs). Conflicto del README resuelto a favor de la presentación nueva del
+  remoto, reinsertando «Requisitos reales» y capturas del rediseño; árbol limpio.
+- Rebuild nativo con polish en `apps/desktop/src-tauri/target-polish` (para no
+  bloquear el exe en uso): exe 38.971.360 B + NSIS firmado 158,53 MiB.
+- Instalación silenciosa del NSIS (se cerró la app instalada vieja, PID 11680),
+  exit 0; instalado `C:\Users\ofici\AppData\Local\Olyvia\editor-ia-desktop.exe`
+  (0.2.0) y abierto (PID 30196). La verificación visual nativa post-instalación
+  queda en manos de QA; el runtime de IA/transcripción nativo sigue en el
+  checklist de `FOLLOW-UPS.md`.
+
 ## Límites y próximo paso
 
 - Runtime nativo no ejercitado end-to-end (Ollama real, faster-whisper, TTS,

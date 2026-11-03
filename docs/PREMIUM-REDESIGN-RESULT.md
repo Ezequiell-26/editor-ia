@@ -170,7 +170,33 @@ Ver `docs/PREMIUM-POLISH-SPEC.md`. Implementado y verificado:
    `resolve-theme.css` (sin consumidores en TSX) y reducción fina de
    `components.css` (201) ahora que las capas legacy están neutralizadas.
 
-## 6. Alcance del worktree
+## 7. Artefactos, publicación e instalación (2026-11-03)
+
+- **Repositorio publicado**: `main` subido a
+  https://github.com/Ezequiell-26/editor-ia en `8c4851c` (commits de la ola:
+  `4b8bf08 feat: rediseno premium…`, merge `3b614bc` del README remoto,
+  `fa34229 docs: requisitos reales…`, `8c4851c docs: capturas nuevas…`).
+  Antes del push: `git fetch` + merge de `origin/main` (`81bc927`) resolviendo
+  el conflicto del README a favor de la presentación nueva del remoto y
+  reinsertando la sección «Requisitos reales» + capturas del rediseño. Árbol
+  limpio y `ls-remote` coincide.
+- **Rebuild nativo con la ola polish** (para no bloquear el exe en uso):
+  `CARGO_TARGET_DIR=apps/desktop/src-tauri/target-polish` →
+  `.../target-polish/release/editor-ia-desktop.exe` (38.971.360 B, 19:53:28) y
+  NSIS firmado `.../target-polish/release/bundle/nsis/Olyvia_0.2.0_x64-setup.exe`
+  (158,53 MiB). Sólo warnings de Rust previos y «No signature found» al
+  timestampear DLLs de terceros; exe e instalador firmados correctamente.
+- **Instalación en la PC** (pedido explícito del usuario): se cerró la app
+  instalada anterior (PID 11680), `Olyvia_0.2.0_x64-setup.exe /S` → exit 0;
+  exe instalado en `C:\Users\ofici\AppData\Local\Olyvia\editor-ia-desktop.exe`
+  (0.2.0, 38.971.360 B, 19:53:28) y app abierta (PID 30196, ~39,5 MB). La app
+  anterior en uso no se había inspeccionado/cerrado hasta que el usuario pidió
+  instalar; después de instalar no se modificó nada más fuera del repo.
+- **Límite**: la verificación visual/nativa de esta build la hace el agente de
+  QA con captura de ventana (PrintWindow) contra la instalación; el runtime
+  nativo de IA/transcripción sigue sujeto al checklist de `FOLLOW-UPS.md`.
+
+## 8. Alcance del worktree
 
 `git status`: 72 archivos modificados + 32 nuevos; **HEAD sin commits**, sin
 push. Todo el trabajo es del feature (rediseño, honestidad funcional, docs,
