@@ -67,6 +67,22 @@ struct ReservedOutput {
     metadata: Option<(PathBuf, std::fs::File)>,
 }
 
+/// ¿Las dos rutas apuntan al mismo archivo?
+///
+/// El destino puede no existir todavía: en ese caso no hay nada que pisar. Se
+/// comparan rutas canónicas para que `C:\x\a.mp4` y `c:\x\.\a.mp4` cuenten como
+/// el mismo archivo en Windows.
+fn same_file_path(source: &Path, target: &Path) -> Result<bool, ProjectError> {
+    let left = source.canonicalize().map_err(|_| {
+        ProjectError::message(ProjectErrorCode::NotFound, "el archivo de origen no existe")
+    })?;
+    let right = match target.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return Ok(false),
+    };
+    Ok(left == right)
+}
+
 /// Reserva el destino mediante create_new para evitar carreras entre exportaciones.
 fn reserve_output_path(
     source: &Path,
@@ -348,6 +364,18 @@ pub async fn remux(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_when_the_output_is_the_source() {
+        let dir = std::env::temp_dir().join("lossless-same-file-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let source = dir.join("origen.mp4");
+        std::fs::write(&source, b"x").expect("escribir el archivo de prueba");
+        assert!(same_file_path(&source, &source).unwrap_or(false));
+        // Un destino que todavía no existe no puede ser el mismo archivo.
+        assert!(!same_file_path(&source, &dir.join("todavia-no-existe.mp4")).unwrap_or(true));
+        let _ = std::fs::remove_file(&source);
+    }
 
     #[test]
     fn accepts_a_forward_range() {
