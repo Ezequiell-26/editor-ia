@@ -1061,6 +1061,17 @@
   box-shadow: var(--shadow-pop);
 }
 
+/* El menú se dibuja en un portal con coordenadas de viewport: el sidebar tiene
+ * `overflow-y: auto`, así que un menú posicionado adentro se recortaba a los
+ * 40 px del rail y se veía como una caja vacía. */
+.profile-popover.portaled {
+  position: fixed;
+  z-index: 950;
+  width: min(286px, calc(100vw - 16px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+
 .profile-popover-head {
   display: flex;
   align-items: center;

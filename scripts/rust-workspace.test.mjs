@@ -76,7 +76,12 @@ describe('crate editor-ia-desktop', () => {
     const source = readFileSync(desktopManifest, 'utf8');
     expect(source.match(/^name\s*=\s*"([^"]+)"/m)[1]).toBe('editor-ia-desktop');
     expect(source).toMatch(/^edition\s*=\s*"2\d{3}"/m);
-    expect(source.match(/^version\s*=\s*"([^"]+)"/m)[1]).toBe('0.1.0');
+    // La versión del crate tiene que seguir a la del paquete: Tauri toma la de
+    // `tauri.conf.json` para el instalador y el crate la reporta en runtime.
+    // Comparar contra un literal rompía en cada release.
+    const manifestVersion = source.match(/^version\s*=\s*"([^"]+)"/m)[1];
+    const packageVersion = JSON.parse(read('apps/desktop/package.json')).version;
+    expect(manifestVersion).toBe(packageVersion);
     const dependencies = tableBody(source, 'dependencies') ?? [];
     // El puente Tauri, el diálogo nativo, el render, las credenciales y las
     // mediciones de medios son las únicas razones para estas crates.

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ViewId } from '../app/navigation';
 import {
   DEFAULT_PROFILE,
@@ -10,6 +11,15 @@ import {
 } from '../state/profile';
 import { Icon } from './Icon';
 
+const POPOVER_WIDTH = 286;
+const VIEWPORT_MARGIN = 8;
+const GAP = 7;
+
+interface Anchor {
+  readonly left: number;
+  readonly bottom: number;
+}
+
 export function ProfileMenu({ onSelect }: { readonly onSelect: (id: ViewId) => void }) {
   const [profile, setProfile] = useState<LocalProfile>(loadProfile);
   const [open, setOpen] = useState(false);
@@ -17,16 +27,52 @@ export function ProfileMenu({ onSelect }: { readonly onSelect: (id: ViewId) => v
   const [draft, setDraft] = useState({ name: profile.name, role: profile.role });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [anchor, setAnchor] = useState<Anchor | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+
+  /**
+   * Calcula dónde va el menú.
+   *
+   * El sidebar tiene `overflow-y: auto`, así que un menú posicionado dentro se
+   * recorta a los 40 px del rail. Se dibuja en un portal y se ancla al botón con
+   * coordenadas de viewport: así se ve completo aunque el rail recorte.
+   */
+  const place = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const trigger = rootRef.current?.querySelector('.profile-trigger');
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const width = Math.min(POPOVER_WIDTH, window.innerWidth - VIEWPORT_MARGIN * 2);
+    const left = Math.min(
+      Math.max(VIEWPORT_MARGIN, rect.left),
+      Math.max(VIEWPORT_MARGIN, window.innerWidth - width - VIEWPORT_MARGIN),
+    );
+    const bottom = Math.max(VIEWPORT_MARGIN, window.innerHeight - rect.top + GAP);
+    setAnchor({ left, bottom });
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    place();
+    window.addEventListener('resize', place);
+    // `capture` incluye el scroll del propio sidebar.
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open, place]);
 
   useEffect(() => {
     if (!open) return;
     function onPointerDown(event: PointerEvent): void {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
-        setEditing(false);
-      }
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (popoverRef.current?.contains(target)) return;
+      setOpen(false);
+      setEditing(false);
     }
     function onKeyDown(event: KeyboardEvent): void {
       if (event.key === 'Escape') {
@@ -104,8 +150,15 @@ export function ProfileMenu({ onSelect }: { readonly onSelect: (id: ViewId) => v
         <Icon name="chevron" size={12} className="profile-chevron" />
       </button>
 
-      {open ? (
-        <div className="profile-popover" role="menu" aria-label="Menú de perfil">
+      {open && anchor && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={popoverRef}
+              className="profile-popover portaled"
+              role="menu"
+              aria-label="Menú de perfil"
+              style={{ left: anchor.left, bottom: anchor.bottom }}
+            >
           <header className="profile-popover-head">
             <span className="profile-avatar large" aria-hidden="true">
               {profile.avatar ? (
@@ -202,8 +255,10 @@ export function ProfileMenu({ onSelect }: { readonly onSelect: (id: ViewId) => v
             </div>
           )}
           <p className="profile-local-note">Perfil local · no se sube a ningún servidor</p>
-        </div>
-      ) : null}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
