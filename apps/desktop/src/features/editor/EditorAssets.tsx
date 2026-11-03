@@ -525,7 +525,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
       : STICKER_LIBRARY.filter((item) => item.category === stickerCategory);
 
   return (
-    <aside className="asset-rail" aria-label="Herramientas y biblioteca del editor">
+    <aside className="asset-rail" data-tour="assets" aria-label="Herramientas y biblioteca del editor">
       {/* Pestañas de categoría estilo CapCut */}
       <div className="rail-tabs" role="tablist" aria-label="Herramientas de edición">
         {RAIL_VIEWS.map((item) => (

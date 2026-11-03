@@ -1660,6 +1660,7 @@ export function AssistantDock({
       <button
         type="button"
         className="assistant-launcher"
+        data-tour="ai-dock"
         aria-label={open ? 'Cerrar asistente Olyvia' : 'Abrir asistente Olyvia'}
         aria-expanded={open}
         aria-controls="olyvia-assistant-panel"

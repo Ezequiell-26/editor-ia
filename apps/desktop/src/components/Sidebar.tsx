@@ -108,6 +108,7 @@ export function Sidebar({
             <li>
               <button
                 type="button"
+                data-tour={view.id === 'assets' ? 'assets' : view.id === 'ai-hub' ? 'ai-tools' : view.id === 'editor' ? 'editor-nav' : undefined}
                 aria-current={view.id === activeId ? 'page' : undefined}
                 aria-label={view.label}
                 data-tooltip={`${view.label} · ${view.hint}`}

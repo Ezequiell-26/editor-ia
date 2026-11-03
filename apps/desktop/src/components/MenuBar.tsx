@@ -45,9 +45,18 @@ interface MenuBarProps {
   readonly views?: readonly NavView[];
   readonly onSelect: (id: ViewId) => void;
   readonly onOpenStart?: () => void;
+  readonly onOpenShortcuts?: () => void;
+  readonly onOpenTour?: () => void;
 }
 
-export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: MenuBarProps) {
+export function MenuBar({
+  activeId,
+  views = NAV_VIEWS,
+  onSelect,
+  onOpenStart,
+  onOpenShortcuts,
+  onOpenTour,
+}: MenuBarProps) {
   const store = useProjectStore();
   const { appearance, update, reset } = useAppearance();
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
@@ -611,13 +620,25 @@ export function MenuBar({ activeId, views = NAV_VIEWS, onSelect, onOpenStart }: 
       entries: [
         {
           kind: 'item',
-          label: 'Tutorial completo',
-          action: () => onSelect('learn'),
+          label: 'Tour interactivo de Olyvia',
+          action: () => {
+            if (onOpenTour) onOpenTour();
+            else onSelect('learn');
+          },
         },
         {
           kind: 'item',
           label: 'Atajos de teclado',
-          action: () => setModal('shortcuts'),
+          shortcut: 'Shift+?',
+          action: () => {
+            if (onOpenShortcuts) onOpenShortcuts();
+            else setModal('shortcuts');
+          },
+        },
+        {
+          kind: 'item',
+          label: 'Tutorial completo',
+          action: () => onSelect('learn'),
         },
         {
           kind: 'item',

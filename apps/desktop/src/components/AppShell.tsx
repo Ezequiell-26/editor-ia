@@ -20,6 +20,8 @@ interface AppShellProps {
   readonly onSelect: (id: ViewId) => void;
   readonly onReturnToStart?: () => void;
   readonly onOpenPalette?: () => void;
+  readonly onOpenShortcuts?: () => void;
+  readonly onOpenTour?: () => void;
   readonly content: ReactNode;
   readonly flush?: boolean;
 }
@@ -31,6 +33,8 @@ export function AppShell({
   onSelect,
   onReturnToStart,
   onOpenPalette,
+  onOpenShortcuts,
+  onOpenTour,
   content,
   flush = false,
 }: AppShellProps) {
@@ -73,7 +77,7 @@ export function AppShell({
   return (
     <div className={`app-shell${immersive ? ' editor-immersive' : ''}`}>
       <header className="topbar">
-        <div className="topbar-brand" title="Olyvia">
+        <div className="topbar-brand" title="Olyvia" data-tour="brand">
           <img src="/olyvia-mark.png" alt="" />
           <span>Olyvia</span>
         </div>
@@ -94,6 +98,8 @@ export function AppShell({
           views={views}
           onSelect={onSelect}
           {...(onReturnToStart ? { onOpenStart: onReturnToStart } : {})}
+          {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+          {...(onOpenTour ? { onOpenTour } : {})}
         />
         <div className="topbar-center" data-tauri-drag-region aria-hidden="true" />
         {immersive && project ? (
@@ -161,6 +167,7 @@ export function AppShell({
           <button
             type="button"
             className={`topbar-export-btn${hasClip ? ' ready' : ''}`}
+            data-tour="export"
             aria-label="Exportar video"
             data-tooltip={hasClip ? 'Exportar video · Ctrl+E' : 'Montá al menos un clip para exportar'}
             title={hasClip ? 'Exportar video · Ctrl+E' : 'Montá al menos un clip para exportar'}
@@ -173,6 +180,29 @@ export function AppShell({
             <Icon name="export" size={14} />
             <span>Exportar</span>
           </button>
+          <span className="topbar-divider" aria-hidden="true" />
+          {onOpenShortcuts && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Atajos de teclado (Shift + ?)"
+              data-tooltip="Atajos de teclado · Shift + ?"
+              onClick={onOpenShortcuts}
+            >
+              <Icon name="keyboard" size={16} />
+            </button>
+          )}
+          {onOpenTour && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Tour interactivo"
+              data-tooltip="Tour guiado · Conocer Olyvia"
+              onClick={onOpenTour}
+            >
+              <Icon name="sparkles" size={16} />
+            </button>
+          )}
           <button
             type="button"
             className="icon-button"
@@ -249,6 +279,48 @@ export function AppShell({
           </span>
         ) : null}
         <span className="statusbar-spacer" />
+        {onOpenShortcuts && (
+          <button
+            type="button"
+            className="statusbar-meta statusbar-btn"
+            onClick={onOpenShortcuts}
+            title="Ver atajos de teclado (Shift + ?)"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'inherit',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '0 6px',
+            }}
+          >
+            <Icon name="keyboard" size={12} />
+            <span>Atajos (?)</span>
+          </button>
+        )}
+        {onOpenTour && (
+          <button
+            type="button"
+            className="statusbar-meta statusbar-btn"
+            onClick={onOpenTour}
+            title="Iniciar tour interactivo de Olyvia"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'inherit',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '0 6px',
+            }}
+          >
+            <Icon name="sparkles" size={12} />
+            <span>Tour</span>
+          </button>
+        )}
         <span className="statusbar-meta">{store.statusText}</span>
         <span className="statusbar-meta statusbar-local">FFmpeg local · sin nube</span>
       </footer>

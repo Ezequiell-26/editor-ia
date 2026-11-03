@@ -17,6 +17,7 @@ import './styles/olyvia.css';
 import './styles/effect-studio.css';
 import './styles/brain.css';
 import './styles/commercial.css';
+import './styles/shortcuts-and-tour.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.

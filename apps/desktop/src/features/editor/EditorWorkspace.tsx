@@ -353,7 +353,7 @@ export function EditorWorkspace({
             <Suspense fallback={<AssetsFallback />}>
               <EditorAssets onNavigate={onNavigate} />
             </Suspense>
-            <div className="preview-panel">
+            <div className="preview-panel" data-tour="preview">
               <Preview />
               <Transport />
             </div>
@@ -366,7 +366,7 @@ export function EditorWorkspace({
             <Suspense fallback={<TimelineFallback />}>{modeContent}</Suspense>
           </div>
         )}
-        <div className="timeline-panel">
+        <div className="timeline-panel" data-tour="timeline">
           <div className="timeline-tabs" role="tablist" aria-label="Secuencias de la timeline">
             <button
               type="button"
