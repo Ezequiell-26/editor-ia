@@ -185,7 +185,7 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
       {!store.service.available ? (
         <p className="notice notice-warning" role="status">
           {store.service.unavailableReason ||
-            'Abr? la app de escritorio de Olyvia para crear, abrir y guardar proyectos.'}
+            'Abrí la app de escritorio de Olyvia para crear, abrir y guardar proyectos.'}
         </p>
       ) : null}
 

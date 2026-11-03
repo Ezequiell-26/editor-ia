@@ -8,7 +8,6 @@ import {
   type ProjectDocument,
   type Track,
 } from '@editor-ia/project-schema';
-import { createFakeService } from '../test/fake-service';
 
 /**
  * The UI's only door to the native side.
@@ -3635,9 +3634,17 @@ function createUnavailableService(): DesktopService {
   };
 }
 
+/**
+ * Servicio del entorno real.
+ *
+ * Sin runtime nativo (una pestaña del navegador) devuelve el servicio que
+ * declara `available: false`: la UI avisa y deshabilita crear/importar. Antes
+ * devolvía el fake de los tests, que dice estar disponible y guarda todo en
+ * memoria, así que la persona creaba un proyecto y lo perdía al recargar.
+ */
 export function createDesktopService(): DesktopService {
   if (!detectNativeRuntime()) {
-    return createFakeService();
+    return createUnavailableService();
   }
   return createNativeDesktopService();
 }

@@ -49,7 +49,9 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     // Atajos de herramientas rápidas
     expect(screen.getByRole('button', { name: /Director IA/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Guion IA/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Locución/i })).toBeTruthy();
+    // Anclado al inicio: los proyectos demo se llaman «… con Locución IA» y también
+    // son botones, así que /Locución/ a secas encontraba tres.
+    expect(screen.getByRole('button', { name: /^Locución/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Quitar fondo/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Upscale 4K/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Comprimir/i })).toBeTruthy();
