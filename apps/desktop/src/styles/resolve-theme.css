@@ -1,52 +1,67 @@
 /* ═══════════════════════════════════════════════════════════════════
-   Olyvia — Piel DaVinci Resolve
+   Olyvia — Piel base (históricamente "DaVinci Resolve")
    ═══════════════════════════════════════════════════════════════════
-   Plano: sin glow, sin blur, sin gradientes, sin sombras decorativas.
-   Paneles contiguos separados por líneas de 1 px, etiquetas en
-   mayúscula, jerarquía con gris grafito neutro y un único azul
-   desaturado como acento.
-   ═══════════════════════════════════════════════════════════════════ */
+   Esta capa mantiene las reglas ESTRUCTURALES que dan coherencia al
+   shell (separadores hairline, densidad, scrollbars neutras, etiquetas
+   contenidas). Desde el rediseño premium (2026-11-03) ya NO apaga los
+   efectos visuales globales: la capa `styles/premium/` importada al
+   final define blur, elevación, gradientes y movimiento de forma
+   controlada. Ver docs/PREMIUM-REDESIGN-PLAN.md.
 
-/* ─── 0 · Tokens ─── */
+   OLA 1 (2026-11-03, autorizado por el Lead): se neutralizaron los bloques
+   VISUALES de SHELL de esta piel porque forzaban con `!important` el look
+   plano y bloqueaban el rediseño: fondo del body/shell/content, topbar
+   entero (altura 34, marca, buscador, Exportar, iconos, divisores, chip),
+   menubar + dropdowns, sidebar/rail (ancho 40 forzado, botones 5/8, estado
+   activo lleno, separadores), statusbar (20 px) y controles de ventana.
+   La fuente de verdad ahora es `styles/premium/shell.css` (§9 del spec).
+
+   OLA 2 (2026-11-03, autorizado por el Lead): se neutralizaron los bloques
+   VISUALES de EDITOR/timeline/preview/transporte de esta piel, que forzaban
+   con `!important` el look plano y generaban el catálogo de impasse de
+   `premium/workspace.css`: editor-workspace/grid y paneles del editor
+   (radius 0, fondo panel, bordes 0, grid 320/1fr/340 con gap 1), toolbar
+   legada, panel headers (30 px, panel-3), inspector (secciones, tabs,
+   inputs), rail tabs del media pool, preview stage/canvas/HUD/tools/chips,
+   transporte completo, timeline (toolbar, ruler, track heads, clips por
+   data-kind, selección, playhead legado) y su bloque de transiciones.
+   La fuente de verdad del workspace es `premium/workspace.css` (§10).
+   OLA 3 · CONTENIDO (2026-11-03, autorizado por el Lead a redesign-views):
+   se neutralizaron los bloques VISUALES de CONTENIDO que todavía imponían el
+   look plano con `!important` y obligaban al catálogo de impasse de
+   `premium/views.css`: botones globales, cards (`.card`/`article.card`),
+   inputs globales, segmented, tablas, badges/chips, diálogos/modales y sus
+   backdrops, palette de comandos, tooltips, focus ring, selección, view
+   loading, empty states y `.actions`, banners, home (hero/filas/enlaces),
+   Ajustes (nav e iconos de sección), compliance, drop zones, view-toolbar,
+   welcome/export dialog, asset-card/rail-item y el bloque universal de
+   herramientas (`.view` y superficies `.card/.panel/.tool-panel/...`).
+   Conserva estructura/layout (display/flex/grid/posición/tamaños de layout y
+   scrollbars). NO se tocó editor/timeline/preview/transporte (Ola 2) ni
+   `.asset-rail/.preview-panel/.inspector/.timeline-panel` (workspace/shell).
+   Quedan a propósito: ruedas de color (§40, dato de matiz + VFX) y bloques
+   muertos del rail del editor (§ stickers/SFX/transiciones, sin uso en TSX).
+
+   Fuente de verdad visual: `styles/premium/` (components/shell/views).
+
+/* ─── 0 · Tokens de piel ─── */
+/* Los colores de tema NO se declaran acá: la fuente de verdad es la paleta JS
+ * (`state/theme-palette.ts`), que escribe inline en documentElement, y su
+ * fallback de primera pintura vive en `tokens.css` (contrato de color §5.8).
+ * Duplicarlos acá sólo generaba una segunda paleta que podía quedar vieja. */
 :root {
-  --color-bg: #131417;
-  --color-surface: #17181c;
-  --color-panel: #1a1b20;
-  --color-panel-2: #212228;
-  --color-panel-3: #282930;
-  --color-border: #2c2e35;
-  --color-border-strong: #3e414c;
-  --color-text: #e1e2e6;
-  --color-text-muted: #8e9096;
-  --color-empty: #63656b;
-  --color-accent: #2563eb;
-  --color-accent-strong: #1d4ed8;
-  --color-accent-ink: #ffffff;
-  --color-info: #60a5fa;
-  --color-danger: #ef4444;
-  --color-danger-strong: #dc2626;
-  --color-warning: #f59e0b;
-  --color-success: #10b981;
   --shadow-panel: none;
   --shadow-pop: 0 8px 28px rgba(0, 0, 0, 0.55);
   --glow-accent: none;
-  --radius-panel: 0px;
+  --radius-panel: 12px;
 }
 
 /* ─── 1 · Reset ornamental ─── */
-body {
-  background: var(--color-bg) !important;
-}
+/* El fondo del body lo define la capa premium (styles/premium/base.css) desde
+ * los tokens del tema; acá se quitaron los `!important` de shell (Ola 1). */
 
-/* Eliminar todos los glows, blur, gradientes y sombras decorativas */
-.app-shell *,
-.app-shell *::before,
-.app-shell *::after {
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-}
-
-/* Sin animación de entrada para el contenido */
+/* Sin animación de entrada para el contenido (la capa premium agrega la suya
+   sobre los hijos de .content, con respeto de reduced-motion). */
 .content,
 .content-flush {
   animation: none !important;
@@ -55,7 +70,7 @@ body {
 /* ─── 2 · Scrollbars: finas y neutras ─── */
 * {
   scrollbar-width: thin !important;
-  scrollbar-color: #3a3b3f transparent !important;
+  scrollbar-color: var(--color-border-strong) transparent !important;
 }
 
 *::-webkit-scrollbar {
@@ -68,742 +83,81 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #3a3b3f !important;
+  background: var(--color-border-strong) !important;
   border-radius: 0 !important;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #4c4d51 !important;
+  background: color-mix(in srgb, var(--color-text) 10%, var(--color-border-strong)) !important;
 }
 
 *::-webkit-scrollbar-corner {
   background: transparent !important;
 }
 
-/* ─── 3 · Shell global ─── */
-.app-shell {
-  background: var(--color-bg) !important;
-}
-
-/* Content area: sin gradiente decorativo */
-.content {
-  background: var(--color-bg) !important;
-  background-image: none !important;
-}
+/* ─── 3 · Shell global ───
+ * NEUTRALIZADO en la Ola 1 (autorizado por el Lead): el fondo del shell y del
+ * content los define `styles/premium/base.css` + `premium/shell.css` desde los
+ * tokens del tema. Acá se quitaron los `!important` para que la capa premium
+ * (importada al final) gobierne la cascada sin pelear. */
 
 /* ─── 4 · Topbar ─── */
-.app-shell .topbar {
-  background: #17181c !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  min-height: 34px !important;
-  height: 34px !important;
-  padding: 0 10px !important;
-}
+/* NEUTRALIZADO en la Ola 1: topbar, marca, buscador, botón Exportar, iconos,
+ * divisores y chip de proyecto pasan a `premium/shell.css` (§9.2 del spec:
+ * 44 px, vidrio de chrome, controles de 28 px). No quedan reglas acá. */
 
-.topbar-home-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  height: 24px !important;
-  padding: 0 9px !important;
-  border-radius: 3px !important;
-  /* Sin caja: en reposo sólo se ven el icono y la palabra, como en el menú. */
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  color: var(--color-text-muted) !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  transition: color 0.1s ease !important;
-}
-
-.topbar-home-btn:hover {  color: var(--color-text) !important;
-}
-
-/* GPU Gauge */
-.topbar-gpu-gauge {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  padding: 0 8px !important;
-  height: 22px !important;
-  border-radius: 3px !important;
-  background: #121316 !important;
-  border: 1px solid #282a32 !important;
-  font-family: var(--font-mono, monospace) !important;
-  font-size: 10px !important;
-  color: #8faec9 !important;
-  margin-right: 4px !important;
-  user-select: none !important;
-}
-
-.topbar-gpu-gauge .gpu-label {
-  font-size: 8.5px !important;
-  font-weight: 700 !important;
-  color: #636772 !important;
-  text-transform: uppercase !important;
-}
-
-.topbar-gpu-gauge .gpu-track {
-  width: 36px !important;
-  height: 4px !important;
-  background: #252830 !important;
-  border-radius: 2px !important;
-  overflow: hidden !important;
-}
-
-.topbar-gpu-gauge .gpu-fill {
-  height: 100% !important;
-  background: linear-gradient(90deg, #3b82f6, #10b981) !important;
-  border-radius: 2px !important;
-}
-
-.topbar-gpu-gauge .gpu-pct {
-  font-size: 9px !important;
-  font-weight: 600 !important;
-  color: #a0b6cc !important;
-}
-
-/* Topbar Export button (DaVinci Blue) */
-.topbar-export-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  height: 24px !important;
-  padding: 0 13px !important;
-  border-radius: 4px !important;
-  background: #2563eb !important;
-  border: 1px solid #3b82f6 !important;
-  color: #ffffff !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  box-shadow: none !important;
-  transition: background 0.12s ease !important;
-}
-
-.topbar-export-btn:hover:not(:disabled) {  background: var(--color-accent) !important;
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-.topbar-export-btn:disabled {
-  opacity: 0.45 !important;
-  cursor: not-allowed !important;
-}
-
-/* Project pill: texto plano, sin borde decorativo */
-.topbar-project-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 2px 8px;
-  background: transparent !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  box-shadow: none !important;
-}
-
-.topbar-project-pill:hover {  color: var(--color-text) !important;
-}
-
-.topbar-project-title {
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  color: var(--color-text) !important;
-}
-
-.topbar-project-spec {
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-}
-
-.topbar-project-dot {
-  width: 6px;
-  height: 6px;
-  background: var(--color-empty) !important;
-  box-shadow: none !important;
-}
-
-.topbar-project-dot.phase-dirty {
-  background: var(--color-warning) !important;
-  box-shadow: none !important;
-}
-
-.topbar-project-dot.phase-saving {
-  background: var(--color-accent) !important;
-  box-shadow: none !important;
-  animation: pulseDot 1s infinite !important;
-}
-
-.topbar-project-pill.empty {
-  opacity: 0.55;
-}
-
-/* Topbar actions */
-.topbar-actions {
-  gap: 2px !important;
-}
-
-.topbar .icon-button {
-  width: 26px !important;
-  height: 26px !important;
-  border-radius: 2px !important;
-  color: var(--color-text-muted) !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-.topbar .icon-button:hover:not(:disabled) {  color: var(--color-text) !important;
-}
-
-.topbar .icon-button.dirty {
-  color: var(--color-accent) !important;
-  box-shadow: none !important;
-}
-
-.topbar-divider {
-  width: 1px !important;
-  height: 14px !important;
-  background: var(--color-border) !important;
-  margin: 0 3px !important;
-}
-
-/* Export button: sólido, sin glow */
-.topbar-export-btn {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  height: 24px !important;
-  padding: 0 11px !important;
-  margin: 0 3px !important;
-  border-radius: 2px !important;
-  border: 1px solid var(--color-accent) !important;
-  background: var(--color-accent-strong) !important;
-  color: #f0f2f5 !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  box-shadow: none !important;
-  transition: background 0.1s ease !important;
-}
-
-.topbar-export-btn:hover:not(:disabled) {  background: var(--color-accent) !important;
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-.topbar-export-btn:disabled {
-  opacity: 0.3 !important;
-  cursor: not-allowed !important;
-  background: #2e2f33 !important;
-  border-color: var(--color-border) !important;
-  color: var(--color-empty) !important;
-  box-shadow: none !important;
-}
+/* (bloque del topbar legado eliminado en la Ola 1: ver nota arriba) */
 
 /* ─── 5 · MenuBar ─── */
-.menubar {
-  gap: 1px !important;
-}
+/* NEUTRALIZADO en la Ola 1: el menubar y sus dropdowns viven en
+ * `premium/shell.css` (ítems de 24/28 px, vidrio de menú, foco AA). */
 
-.menubar-title {
-  padding: 3px 7px !important;
-  border-radius: 2px !important;
-  font-size: 11px !important;
-  color: var(--color-text-muted) !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
 
-.menubar-title:hover,
-.menubar-title.open {  color: var(--color-text) !important;
-}
-
-.menubar-dropdown {
-  background: #28292d !important;
-  border: 1px solid #3f4044 !important;
-  border-radius: 3px !important;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
-  padding: 3px !important;
-}
-
-.menubar-item {
-  border-radius: 2px !important;
-  font-size: 11.5px !important;
-  padding: 5px 9px !important;
-  transition: background 0.08s ease !important;
-}
-
-.menubar-item:hover:not(:disabled) {  color: var(--color-text) !important;
-}
+/* (dropdowns y sidebar legados eliminados en la Ola 1: ver notas arriba) */
 
 /* ─── 6 · Sidebar / Rail ─── */
-.sidebar {
-  /* El ancho lo manda la columna del grid (`--sidebar-width`): 40px en el rail
-   * de íconos y el ancho configurado cuando hay etiquetas. Fijarlo en 175px
-   * hacía que la barra se derramara 135px sobre el contenido y se comiera los
-   * clics de sus propios botones. */
-  width: var(--sidebar-width, 40px) !important;
-  min-width: var(--sidebar-width, 40px) !important;
-  max-width: var(--sidebar-width, 40px) !important;
-  background: #17181c !important;
-  border-right: 1px solid var(--color-border) !important;
-  padding: 6px 6px !important;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow-y: auto !important;
-}
+/* NEUTRALIZADO en la Ola 1: el rail de 48 px (o la sidebar expandida con
+ * `--sidebar-width`), sus ítems de 32 px, el estado activo con
+ * `--state-selected` + barra de 2 px y las etiquetas de grupo viven en
+ * `premium/shell.css`. Acá se quitaron todas las reglas visuales que forzaban
+ * ancho de 40 px, paddings de 5/8, radios de 4 y un estado activo de acento
+ * lleno; el layout funcional (columna del grid) lo aporta `chrome.css`. */
 
-.sidebar-brand {
-  display: flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  padding: 8px 8px 12px !important;
-  cursor: pointer !important;
-  user-select: none !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  margin-bottom: 6px !important;
-}
+/* ─── 7 · (reservado) ─── */
 
-.sidebar-logo-box {
-  display: grid !important;
-  place-items: center !important;
-  width: 26px !important;
-  height: 26px !important;
-  background: #18191f !important;
-  border: 1px solid #32353e !important;
-  border-radius: 4px !important;
-  flex-shrink: 0 !important;
-}
+/* ─── 8 · Editor Workspace ───
+ * NEUTRALIZADO en la Ola 2: el look del workspace (grid del editor, paneles
+ * nivel 2 con --chrome-3 + hairline + --rad-lg, backgrounds y el layout
+ * responsive) vive en `premium/workspace.css` (§10 del spec). Acá se quitaron
+ * el `background: panel`, el grid 320/360/340 con gap 1, los `border-radius: 0`
+ * / `border: 0` de los paneles y los media queries duplicados que forzaban
+ * 285/260/240 px de timeline por `!important`. */
 
-.sidebar-brand-text {
-  display: flex !important;
-  flex-direction: column !important;
-  line-height: 1.1 !important;
-}
+/* ─── 8b · Toolbar legada ───
+ * NEUTRALIZADO en la Ola 2: `editor-toolbar/editor-title/editor-meta` no se
+ * renderizan desde la reorganización del workspace; sus alturas y tipografías
+ * forzadas se eliminaron para no competir si vuelven. */
 
-.sidebar-brand-title {
-  font-size: 12px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.04em !important;
-  color: #ffffff !important;
-}
+/* Chip de estado de las vistas de contenido.
+ * NEUTRALIZADO en la Ola 3: el chip premium (22 px, --rad-pill, hairline,
+ * AA) lo define `premium/views.css`; el componente base, `components.css`. */
 
-.sidebar-brand-sub {
-  font-size: 8.5px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.08em !important;
-  color: #6a88a8 !important;
-  text-transform: uppercase !important;
-}
+/* ─── 9 · Panel Headers / Inspector ───
+ * NEUTRALIZADO en la Ola 2: los headers de panel (38 px, --chrome-2), las
+ * secciones colapsables del Inspector, sus tabs y los inputs del inspector
+ * viven en `premium/workspace.css` (§6 y §10 del spec). Se eliminaron las
+ * alturas de 30 px, la tipografía 8.5/9 px, los bordes/radios 2 y los fondos
+ * panel-3 forzados. Los inputs heredan `premium/components.css`, que ya define
+ * el control del spec (--ctl-border, --rad-sm, --ctl-h-lg). */
 
-.sidebar ul {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 2px !important;
-  list-style: none !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
+/* ─── 10 · Rail Tabs del media pool ───
+ * NEUTRALIZADO en la Ola 2: las pestañas del rail de assets (icon-first, estado
+ * activo con --state-selected) las define `premium/workspace.css`. Se quitaron
+ * los paddings 6/8, radios 0 y el subrayado de acento forzados. */
 
-.nav-separator {
-  list-style: none !important;
-  padding: 10px 8px 3px !important;
-  margin-top: 4px !important;
-  background: transparent !important;
-  border: 0 !important;
-}
-
-.nav-separator-label {
-  display: block !important;
-  font-size: 9px !important;
-  font-weight: 700 !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.1em !important;
-  color: #5d6069 !important;
-}
-
-.sidebar button {
-  display: flex !important;
-  align-items: center !important;
-  gap: 9px !important;
-  width: 100% !important;
-  padding: 5px 8px !important;
-  border-radius: 4px !important;
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  color: #9a9da4 !important;
-  font-size: 11px !important;
-  font-weight: 500 !important;
-  text-align: left !important;
-  cursor: pointer !important;
-  transition: all 0.1s ease !important;
-}
-
-.sidebar button:hover {  color: #ffffff !important;
-}
-
-.sidebar button .nav-icon {
-  flex-shrink: 0 !important;
-  color: #8c8f96 !important;
-  opacity: 0.8 !important;
-}
-
-.sidebar button:hover .nav-icon {
-  color: #ffffff !important;
-  opacity: 1 !important;
-}
-
-/* La etiqueta sólo existe cuando el rail está expandido. En modo compacto
- * quedaba como un elemento de 0 px que, sumado al `gap`, corría el icono
- * 4,5 px fuera del centro. */
-.sidebar.expanded button .nav-label {
-  display: inline-block !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-}
-
-.sidebar:not(.expanded) button {
-  padding: 0 !important;
-  gap: 0 !important;
-  justify-content: center !important;
-}
-
-.sidebar:not(.expanded) button .nav-label,
-.sidebar:not(.expanded) button .nav-index {
-  display: none !important;
-}
-
-/* En el rail de 40 px no entra texto: las etiquetas de sección y la marca
- * quedaban recortadas a la vista ("RUTA", "HERRA…"). */
-.sidebar:not(.expanded) .nav-separator-label,
-.sidebar:not(.expanded) .sidebar-brand-text,
-.sidebar:not(.expanded) .sidebar-caption,
-.sidebar:not(.expanded) .sidebar-project-name,
-.sidebar:not(.expanded) .sidebar-project-meta {
-  display: none !important;
-}
-
-.sidebar:not(.expanded) .sidebar-brand {
-  justify-content: center !important;
-  padding: 0 !important;
-}
-
-.sidebar button[aria-current='page'] {
-  background: #1b4b82 !important;
-  border: 1px solid #3b82f6 !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  box-shadow: none !important;
-}
-
-.sidebar button[aria-current='page'] .nav-icon {
-  color: #93c5fd !important;
-  opacity: 1 !important;
-}
-
-.sidebar button[aria-current='page'] .nav-label {
-  color: #ffffff !important;
-}
-
-.sidebar button[aria-current='page']::before {
-  display: none !important;
-}
-
-/* ─── 8 · Editor Workspace ─── */
-.editor-workspace {
-  background: #1a1a1d !important;
-}
-
-/* Grid: CapCut 3-column layout (Izquierda: Herramientas/Assets · Centro: Video Preview · Derecha: Config/Inspector) */
-.editor-grid {
-  display: grid !important;
-  grid-template-columns: 320px minmax(360px, 1fr) 340px !important;
-  grid-template-rows: minmax(0, 1fr) 285px !important;
-  gap: 1px !important;
-  padding: 0 !important;
-  background: var(--color-border) !important;
-  min-height: 0 !important;
-  height: 100% !important;
-}
-
-/* Panels */
-.asset-rail {
-  grid-column: 1 !important;
-  grid-row: 1 !important;
-  border-radius: 0 !important;
-  border: 0 !important;
-  background: var(--color-panel) !important;
-  box-shadow: none !important;
-  overflow: hidden !important;
-  min-width: 0 !important;
-}
-
-.preview-panel {
-  grid-column: 2 !important;
-  grid-row: 1 !important;
-  border-radius: 0 !important;
-  border: 0 !important;
-  background: var(--color-panel) !important;
-  box-shadow: none !important;
-  overflow: hidden !important;
-  display: flex !important;
-  flex-direction: column !important;
-  min-width: 0 !important;
-}
-
-.inspector {
-  grid-column: 3 !important;
-  grid-row: 1 !important;
-  border-radius: 0 !important;
-  border: 0 !important;
-  background: var(--color-panel) !important;
-  box-shadow: none !important;
-  overflow: hidden !important;
-  min-width: 0 !important;
-}
-
-.timeline-panel {
-  grid-column: 1 / -1 !important;
-  grid-row: 2 !important;
-  border-radius: 0 !important;
-  border: 0 !important;
-  background: var(--color-panel) !important;
-  box-shadow: none !important;
-  overflow: hidden !important;
-}
-
-@media (max-width: 1280px) {
-  .editor-grid {
-    grid-template-columns: 290px minmax(320px, 1fr) 310px !important;
-    grid-template-rows: minmax(0, 1fr) 260px !important;
-  }
-}
-
-@media (max-width: 1080px) {
-  .editor-grid {
-    grid-template-columns: 260px minmax(280px, 1fr) 290px !important;
-    grid-template-rows: minmax(0, 1fr) 240px !important;
-  }
-}
-
-@media (max-width: 900px) {
-  .editor-grid {
-    grid-template-columns: minmax(0, 1fr) 280px !important;
-    grid-template-rows: minmax(0, 1fr) 240px !important;
-  }
-
-  .asset-rail {
-    display: none !important;
-  }
-
-  .preview-panel {
-    grid-column: 1 !important;
-  }
-
-  .inspector {
-    grid-column: 2 !important;
-  }
-}
-
-.editor-toolbar {
-  background: #232427 !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  height: 34px !important;
-  min-height: 34px !important;
-  padding: 0 12px !important;
-}
-
-.editor-title h2 {
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  color: var(--color-text) !important;
-}
-
-.editor-meta {
-  font-family: var(--font-mono) !important;
-  font-size: 9.5px !important;
-  color: var(--color-empty) !important;
-}
-
-.status-pill {
-  border-radius: 2px !important;
-  border: 1px solid #3f4044 !important;
-  background: #28292d !important;
-  color: var(--color-text-muted) !important;
-  font-size: 9.5px !important;
-  letter-spacing: 0.03em !important;
-  padding: 2px 7px !important;
-  box-shadow: none !important;
-}
-
-.status-pill-dot {
-  width: 5px !important;
-  height: 5px !important;
-  border-radius: 50% !important;
-}
-
-/* ─── 9 · Panel Headers ─── */
-.rail-head,
-.inspector-head,
-.timeline-toolbar {
-  background: #272830 !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  min-height: 30px !important;
-  padding: 0 10px !important;
-}
-
-.inspector-head h3 {
-  font-size: 9px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.16em !important;
-  text-transform: uppercase !important;
-  color: var(--color-empty) !important;
-}
-
-.inspector-section {
-  border-bottom: 1px solid #2e2f33 !important;
-  padding: 10px !important;
-}
-
-.inspector-section h4 {
-  font-size: 8.5px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.16em !important;
-  text-transform: uppercase !important;
-  color: var(--color-empty) !important;
-}
-
-.inspector-section h4::before {
-  background: #3a3b3f !important;
-  box-shadow: none !important;
-}
-
-/* ─── Inspector Tabs (CapCut Pro style) ─── */
-.inspector-tabs {
-  background: #202124 !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  backdrop-filter: none !important;
-  padding: 4px 6px !important;
-  gap: 2px !important;
-  display: flex !important;
-  overflow-x: auto !important;
-  scrollbar-width: none !important;
-}
-
-.inspector-tabs::-webkit-scrollbar {
-  display: none !important;
-}
-
-.inspector-tabs button {
-  border-radius: 2px !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
-  padding: 4px 8px !important;
-  color: var(--color-text-muted) !important;
-  background: transparent !important;
-  border: 0 !important;
-  border-bottom: 2px solid transparent !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-.inspector-tabs button:hover {  color: var(--color-text) !important;
-}
-
-.inspector-tabs button.active,
-.inspector-tabs button[aria-selected='true'] {
-  background: #2e3036 !important;
-  color: #9ec1ff !important;
-  border-bottom-color: var(--color-accent) !important;
-  border-radius: 0 !important;
-}
-
-/* Inspector inputs */
-.inspector input[type='range'] {
-  accent-color: var(--color-accent) !important;
-}
-
-.inspector input[type='number'],
-.inspector input[type='text'],
-.inspector select,
-.inspector textarea {
-  background: #1e1f22 !important;
-  border: 1px solid #3a3b3f !important;
-  border-radius: 2px !important;
-  color: var(--color-text) !important;
-  font-size: 11.5px !important;
-  padding: 4px 7px !important;
-}
-
-.inspector input[type='number']:focus,
-.inspector input[type='text']:focus,
-.inspector select:focus,
-.inspector textarea:focus {
-  border-color: var(--color-accent) !important;
-  outline: none !important;
-  box-shadow: none !important;
-}
-
-/* ─── 10 · Rail Tabs (CapCut Pro scrollable tabs) ─── */
-.rail-tabs {
-  background: #202124 !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  padding: 0 4px !important;
-  gap: 2px !important;
-  display: flex !important;
-  flex-wrap: nowrap !important;
-  overflow-x: auto !important;
-  scrollbar-width: none !important;
-}
-
-.rail-tabs::-webkit-scrollbar {
-  display: none !important;
-}
-
-.rail-tabs button {
-  flex: 0 0 auto !important;
-  border-radius: 0 !important;
-  border-bottom: 2px solid transparent !important;
-  color: var(--color-text-muted) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.04em !important;
-  padding: 6px 8px !important;
-  transition: color 0.1s ease, border-color 0.1s ease !important;
-  display: flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-}
-
-.rail-tabs button:hover {
-  color: var(--color-text) !important;
-}
-
-.rail-tabs button.active {
-  background: transparent !important;
-  border-bottom-color: var(--color-accent) !important;
-  color: var(--color-accent) !important;
-}
-
-/* Aspect ratio selector in Preview */
-.preview-ratio-select {
-  background: #1e1f22 !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 2px !important;
-  color: var(--color-text) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  padding: 2px 6px !important;
-  height: 24px !important;
-  cursor: pointer !important;
-}
-
-.preview-ratio-select:focus {
-  border-color: var(--color-accent) !important;
-  outline: none !important;
-}
+/* Selector de relación de aspecto del preview */
+/* NEUTRALIZADO en la Ola 2: el ratio select (24 px, --rad-sm, fondo de pozo)
+ * vive en `premium/workspace.css`. */
 
 /* Stickers grid */
 .rail-stickers {
@@ -832,7 +186,7 @@ body {
   padding: 3px 8px !important;
   border-radius: 12px !important;
   border: 1px solid var(--color-border) !important;
-  background: #1e1f22 !important;
+  background: var(--color-panel-2) !important;
   color: var(--color-text-muted) !important;
   font-size: 9.5px !important;
   cursor: pointer !important;
@@ -841,7 +195,7 @@ body {
 
 .sticker-filter-pills button.active {
   background: var(--color-accent) !important;
-  color: #101214 !important;
+  color: var(--color-accent-ink) !important;
   font-weight: 600 !important;
   border-color: var(--color-accent) !important;
 }
@@ -859,7 +213,7 @@ body {
   justify-content: center !important;
   gap: 4px !important;
   padding: 10px 4px !important;
-  background: #1e1f22 !important;
+  background: var(--color-panel-2) !important;
   border: 1px solid var(--color-border) !important;
   border-radius: 3px !important;
   cursor: pointer !important;
@@ -914,7 +268,7 @@ body {
   align-items: center !important;
   justify-content: space-between !important;
   padding: 6px 8px !important;
-  background: #1e1f22 !important;
+  background: var(--color-panel-2) !important;
   border: 1px solid var(--color-border) !important;
   border-radius: 3px !important;
 }
@@ -946,7 +300,7 @@ body {
 }
 
 .transition-settings-bar {
-  background: #1e1f22 !important;
+  background: var(--color-panel-2) !important;
   border: 1px solid var(--color-border) !important;
   border-radius: 3px !important;
   padding: 8px !important;
@@ -965,7 +319,7 @@ body {
   text-align: center !important;
   gap: 4px !important;
   padding: 8px 6px !important;
-  background: #1e1f22 !important;
+  background: var(--color-panel-2) !important;
   border: 1px solid var(--color-border) !important;
   border-radius: 3px !important;
 }
@@ -976,7 +330,7 @@ body {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  background: #28292d !important;
+  background: var(--color-panel-3) !important;
   border-radius: 3px !important;
   border: 1px solid var(--color-border) !important;
 }
@@ -1019,769 +373,120 @@ body {
   flex: 1 !important;
 }
 
-/* ─── 11 · Preview ─── */
-.preview-stage {
-  background: #0e0e10 !important;
-}
+/* ─── 11 · Preview ───
+ * NEUTRALIZADO en la Ola 2: el pozo del monitor, el marco del canvas, el HUD
+ * (chips de resolución/fps/proxy), las tools y el timecode chip viven en
+ * `premium/workspace.css` (§10). Se quitaron fondos, radios 0/2, tipografías
+ * 8-10 px, paddings y estados activos forzados. */
 
-.preview-canvas {
-  border-radius: 0 !important;
-  box-shadow: 0 0 0 1px var(--color-border) !important;
-}
+/* ─── 12 · Transport ───
+ * NEUTRALIZADO en la Ola 2: el transporte (barra, botones, CTA de play sólido,
+ * scrub con knob y timecode tabular) vive en `premium/workspace.css` (§10). Se
+ * quitaron alturas/radios 0/2, fondos panel, glow/outline y tamaño de play
+ * forzados. */
 
-.preview-hud {
-  padding: 6px !important;
-}
+/* ─── 13 · Timeline ───
+ * NEUTRALIZADO en la Ola 2: la timeline premium (ruler 28, track-head 160,
+ * filas del usuario, clips por color de medio, selección con --tl-sel-ring,
+ * handles de 7 px, snap guide dashed) vive en `premium/workspace.css` (§10).
+ * Se quitaron fondos panel-3, tipografías 7.5-10 px, radios 2, outlines de
+ * selección, anchos de trim-handle y el snap guide forzados. */
 
-.preview-hud-chip {
-  border-radius: 2px !important;
-  background: rgba(14, 14, 16, 0.85) !important;
-  border: 1px solid var(--color-border) !important;
-  font-family: var(--font-mono) !important;
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-  padding: 2px 6px !important;
-}
+/* ─── 14 · Statusbar ───
+ * NEUTRALIZADO en la Ola 1: la statusbar la define `premium/shell.css`
+ * (24 px, --type-11, --chrome-1, chips con --state-*). Acá se quitaron altura,
+ * fondo, tipografía y colores forzados. */
 
-.preview-hud-chip.strong {
-  color: var(--color-text-muted) !important;
-  font-weight: 600 !important;
-}
-
-.preview-hud-chip.proxy {
-  color: var(--color-warning) !important;
-  border-color: #5c4720 !important;
-}
-
-.preview-tools {
-  gap: 2px !important;
-  padding: 4px 8px 0 !important;
-}
-
-.preview-tool {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-  padding: 4px 7px !important;
-  border-radius: 2px !important;
-  border: 1px solid transparent !important;
-  background: transparent !important;
-  color: var(--color-text-muted) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-.preview-tool:hover {  color: var(--color-text) !important;
-}
-
-.preview-tool.active {
-  background: #35536e !important;
-  border-color: var(--color-accent-strong) !important;
-  color: #a9c7e8 !important;
-}
-
-.preview-overlay {
-  color: var(--color-empty) !important;
-}
-
-.preview-overlay strong {
-  font-size: 13px !important;
-  color: var(--color-text-muted) !important;
-}
-
-.preview-overlay span {
-  font-size: 11px !important;
-}
-
-.preview-timecode-chip {
-  font-family: var(--font-mono) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  padding: 2px 6px !important;
-  border-radius: 2px !important;
-  background: rgba(0, 0, 0, 0.55) !important;
-  color: var(--color-text-muted) !important;
-}
-
-/* ─── 12 · Transport ─── */
-.transport {
-  background: var(--color-panel) !important;
-  border-top: 1px solid var(--color-border) !important;
-  padding: 5px 12px !important;
-}
-
-.transport-button {
-  color: var(--color-text-muted) !important;
-  border-radius: 2px !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-.transport-button:hover:not(:disabled) {  color: var(--color-text) !important;
-}
-
-/* Play button: cuadrado, no circular, como DaVinci */
-.transport-play,
-.transport button.primary {
-  border-radius: 2px !important;
-  background: var(--color-accent-strong) !important;
-  color: #f0f2f5 !important;
-  box-shadow: none !important;
-  width: 28px !important;
-  height: 28px !important;
-}
-
-.transport-play:hover,
-.transport button.primary:hover {  transform: none !important;
-  background: var(--color-accent) !important;
-  box-shadow: none !important;
-}
-
-.primary-transport {
-  background: var(--color-accent-strong) !important;
-  color: #f0f2f5 !important;
-  border: none !important;
-  box-shadow: none !important;
-}
-
-.primary-transport:hover:not(:disabled) {  transform: none !important;
-  box-shadow: none !important;
-  background: var(--color-accent) !important;
-  filter: none !important;
-}
-
-/* Scrub bar */
-.transport-scrub {
-  height: 4px !important;
-  border-radius: 0 !important;
-  background: #2e2f33 !important;
-}
-
-.transport-scrub > span:first-child {
-  background: var(--color-accent) !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-}
-
-.transport-scrub-knob {
-  width: 10px !important;
-  height: 10px !important;
-  border-radius: 0 !important;
-  background: var(--color-text) !important;
-  border: 1px solid #1a1a1d !important;
-  box-shadow: none !important;
-}
-
-.transport-time {
-  font-family: var(--font-mono) !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  color: var(--color-text) !important;
-}
-
-.transport-time > span {
-  color: var(--color-empty) !important;
-}
-
-.transport-timecode {
-  font-family: var(--font-mono) !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  border-radius: 2px !important;
-  background: #1a1a1d !important;
-  border: 1px solid var(--color-border) !important;
-  color: var(--color-text) !important;
-  padding: 3px 7px !important;
-}
-
-.transport-frames {
-  font-family: var(--font-mono) !important;
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-}
-
-/* ─── 13 · Timeline ─── */
-.timeline-panel {
-  background: var(--color-panel) !important;
-}
-
-.timeline-toolbar {
-  background: #272830 !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  padding: 4px 8px !important;
-}
-
-.timeline-tools select {
-  background: #28292d !important;
-  border: 1px solid #3a3b3f !important;
-  border-radius: 2px !important;
-  color: var(--color-text-muted) !important;
-  font-size: 10.5px !important;
-}
-
-.zoom-readout {
-  color: var(--color-empty) !important;
-  font-family: var(--font-mono) !important;
-  font-size: 9px !important;
-}
-
-/* Ruler */
-.ruler-row {
-  background: #272830 !important;
-}
-
-.ruler-corner {
-  background: #272830 !important;
-  border-right: 1px solid var(--color-border) !important;
-  font-size: 8px !important;
-  letter-spacing: 0.12em !important;
-  color: var(--color-empty) !important;
-}
-
-.ruler-tick {
-  font-size: 8px !important;
-  color: var(--color-empty) !important;
-}
-
-/* Track heads */
-.track-head {
-  background: #272830 !important;
-  border-right: 1px solid var(--color-border) !important;
-}
-
-.track-name {
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  color: var(--color-text-muted) !important;
-}
-
-.track-kind {
-  font-size: 7.5px !important;
-  letter-spacing: 0.08em !important;
-  font-weight: 600 !important;
-  border-radius: 2px !important;
-  padding: 1px 5px !important;
-  background: #2e2f33 !important;
-}
-
-/* Clips */
-.timeline-clip {
-  border-radius: 2px !important;
-  box-shadow: none !important;
-}
-
-.timeline-clip.selected {
-  outline: 1px solid var(--color-accent) !important;
-  outline-offset: 0 !important;
-  box-shadow: none !important;
-}
-
-.clip-label {
-  text-shadow: none !important;
-  font-size: 9px !important;
-  font-weight: 600 !important;
-}
-
-/* Trim handles */
-.trim-handle {
-  width: 4px !important;
-  background: var(--color-accent) !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
-}
-
-.trim-handle:hover {
-  box-shadow: none !important;
-  background: var(--color-info) !important;
-}
-
-/* Snap guide */
-.snap-guide {
-  border-left: 1px dashed var(--color-accent) !important;
-}
-
-.snap-label {
-  font-family: var(--font-mono) !important;
-  font-size: 8px !important;
-  color: var(--color-accent) !important;
-  background: #1a1a1d !important;
-  padding: 2px 5px !important;
-  border-radius: 2px !important;
-}
-
-/* ─── 14 · Statusbar ─── */
-.app-statusbar {
-  height: 20px !important;
-  min-height: 20px !important;
-  padding: 0 12px !important;
-  background: #1e1f22 !important;
-  border-top: 1px solid var(--color-border) !important;
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-}
-
-.statusbar-dot {
-  width: 5px !important;
-  height: 5px !important;
-  border-radius: 50% !important;
-}
-
-.statusbar-dot.phase-dirty,
-.phase-dot.phase-dirty {
-  background: var(--color-warning) !important;
-}
-
-.statusbar-dot.phase-saving,
-.phase-dot.phase-saving {
-  background: var(--color-accent) !important;
-}
-
-.statusbar-project {
-  font-weight: 600 !important;
-  color: var(--color-text-muted) !important;
-}
-
-.statusbar-meta {
-  font-family: var(--font-mono) !important;
-  font-size: 8.5px !important;
-  color: #55565a !important;
-}
-
-.statusbar-local {
-  padding: 1px 5px !important;
-  border-radius: 2px !important;
-  background: #28292d !important;
-  border: 1px solid var(--color-border) !important;
-  color: var(--color-text-muted) !important;
-  font-weight: 600 !important;
-  font-size: 8px !important;
-  letter-spacing: 0.04em !important;
-}
-
-/* ─── 15 · Buttons ─── */
-button.primary {
-  background: var(--color-accent-strong) !important;
-  color: #f0f2f5 !important;
-  border: 1px solid var(--color-accent) !important;
-  border-radius: 2px !important;
-  font-weight: 600 !important;
-  box-shadow: none !important;
-}
-
-button.primary::before {
-  display: none !important;
-}
-
-button.primary:hover:not(:disabled) {  background: var(--color-accent) !important;
-  filter: none !important;
-  transform: none !important;
-  box-shadow: none !important;
-}
-
-button.ghost {
-  background: transparent !important;
-  border: 1px solid #3a3b3f !important;
-  border-radius: 2px !important;
-  color: var(--color-text-muted) !important;
-}
-
-button.ghost:hover:not(:disabled) {  color: var(--color-text) !important;
-}
-
+/* ─── 15 · Buttons ───
+ * NEUTRALIZADO en la Ola 3: el sistema de botones (acento sólido, ghost con
+ * --chrome-4, 28 px, --rad-sm, hover 110 ms, focus ring) vive en
+ * `premium/components.css` §8.1. `.icon-text` conserva sólo su layout. */
 .icon-text {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  font-size: 11px !important;
-  font-weight: 600 !important;
-  border-radius: 2px !important;
-  padding: 4px 9px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-6);
 }
 
-/* ─── 16 · Cards ─── */
-.card,
-article.card {
-  background: var(--color-panel) !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 3px !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  transition: border-color 0.1s ease !important;
-}
+/* ─── 16 · Cards ───
+ * NEUTRALIZADO en la Ola 3: `premium/components.css` §8.4 define la card
+ * (--chrome-4, hairline, --rad-md, --elev-1, hover sin translate). */
 
-.card:hover,
-article.card:hover {
-  border-color: #3f4044 !important;
-  box-shadow: none !important;
-  transform: none !important;
-}
+/* ─── 17 · Form Inputs ───
+ * NEUTRALIZADO en la Ola 3: inputs/selects/textarea (pozo más oscuro,
+ * --ctl-border, --rad-sm, altura por densidad, focus de 3 px y labels
+ * 11/650 caps) viven en `premium/components.css` §8.2. */
 
-/* ─── 17 · Form Inputs ─── */
-input[type='text'],
-input[type='number'],
-input[type='search'],
-input[type='url'],
-select,
-textarea {
-  background: #1e1f22 !important;
-  border: 1px solid #3a3b3f !important;
-  border-radius: 2px !important;
-  color: var(--color-text) !important;
-}
+/* ─── 18 · Segmented Controls ───
+ * NEUTRALIZADO en la Ola 3: el segmented (28 px, --rad-md, activo
+ * panel-3 + elev-1) vive en `premium/components.css` §8.6. */
 
-input[type='text']:focus,
-input[type='number']:focus,
-input[type='search']:focus,
-input[type='url']:focus,
-select:focus,
-textarea:focus {
-  border-color: var(--color-accent) !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: #55565a !important;
-}
-
-input[type='checkbox'],
-input[type='radio'] {
-  accent-color: var(--color-accent) !important;
-  cursor: pointer !important;
-}
-
-label.check {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  font-size: 11.5px !important;
-  color: var(--color-text-muted) !important;
-  cursor: pointer !important;
-}
-
-label.check:hover {
-  color: var(--color-text) !important;
-}
-
-/* ─── 18 · Segmented Controls ─── */
-.segmented {
-  display: inline-flex !important;
-  background: #1e1f22 !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 2px !important;
-  padding: 1px !important;
-  gap: 1px !important;
-}
-
-.segmented button {
-  border: none !important;
-  background: transparent !important;
-  border-radius: 1px !important;
-  color: var(--color-text-muted) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
-  padding: 4px 9px !important;
-  cursor: pointer !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-.segmented button:hover:not(.active) {  color: var(--color-text) !important;
-}
-
-.segmented button.active,
-.segmented button[aria-pressed='true'] {
-  background: var(--color-accent-strong) !important;
-  color: #f0f2f5 !important;
-  box-shadow: none !important;
-}
-
-/* ─── 19 · Tables ─── */
+/* ─── 19 · Tables ───
+ * NEUTRALIZADO en la Ola 3: headers 28 px/10 caps y filas de --row-h con
+ * hover 4 % viven en `premium/components.css` §8.12. Se conserva sólo la
+ * estructura de la tabla. */
 table {
-  border-collapse: separate !important;
-  border-spacing: 0 !important;
-  width: 100% !important;
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
 }
 
-th {
-  background: #272830 !important;
-  color: var(--color-empty) !important;
-  font-size: 9px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.1em !important;
-  text-transform: uppercase !important;
-  padding: 7px 11px !important;
-  border-bottom: 1px solid var(--color-border) !important;
-}
+/* ─── 20 · Badges & Chips ───
+ * NEUTRALIZADO en la Ola 3: badge 18 / chip 22, --rad-xs/--rad-pill y
+ * variantes semánticas viven en `premium/components.css` §8.7. */
 
-td {
-  padding: 9px 11px !important;
-  border-bottom: 1px solid #2a2b2e !important;
-  font-size: 12px !important;
-  color: var(--color-text-muted) !important;
-}
+/* ─── 21 · Dialogs, Modals & Overlays ───
+ * NEUTRALIZADO en la Ola 3: el vidrio de diálogo (--glass-dialog-*, --rad-2xl,
+ * --elev-4), los menús (--glass-menu-*, --rad-xl, --elev-3) y la command
+ * palette viven en `premium/components.css` §8.8 y `premium/shell.css`.
+ * Se quitaron fondos, bordes, radios, sombras, tipografías y paddings
+ * forzados; el scrim lo define la capa premium. */
 
-tr:hover td {
-  background: rgba(255, 255, 255, 0.015) !important;
-}
+/* ─── 22 · Tooltips ───
+ * NEUTRALIZADO en la Ola 3: el tooltip de `[data-tooltip]::after` (vidrio de
+ * menú, --rad-md, --elev-3, 11 px) vive en `premium/components.css` §8.9. */
 
-/* ─── 20 · Badges & Chips ─── */
-.badge,
-.chip {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 4px !important;
-  padding: 2px 7px !important;
-  border-radius: 2px !important;
-  background: #28292d !important;
-  color: var(--color-text-muted) !important;
-  border: 1px solid #3a3b3f !important;
-  font-size: 9.5px !important;
-  font-weight: 600 !important;
-  letter-spacing: 0.06em !important;
-  text-transform: uppercase !important;
-}
+/* ─── 23 · Focus Ring ───
+ * NEUTRALIZADO en la Ola 3: `premium/base.css` define el anillo de 2 px +
+ * offset 2 (WCAG 2.4.7/2.4.13); un outline forzado de 1 px lo duplicaba. */
 
-/* ─── 21 · Dialogs, Modals & Overlays ─── */
-.palette,
-.export-dialog,
-.welcome-dialog,
-.context-menu,
-.profile-menu,
-.scopes-panel,
-.app-modal,
-.modal {
-  background: #232427 !important;
-  border: 1px solid #3f4044 !important;
-  border-radius: 4px !important;
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55) !important;
-  backdrop-filter: none !important;
-}
+/* ─── 24 · Selection ───
+ * NEUTRALIZADO en la Ola 3: `premium/base.css` define `::selection` con el
+ * acento del tema. */
 
-.palette-backdrop,
-.export-backdrop,
-.welcome-backdrop,
-.modal-backdrop,
-.app-modal-backdrop {
-  background: rgba(8, 8, 10, 0.65) !important;
-  backdrop-filter: none !important;
-}
+/* ─── 25 · View Loading ───
+ * NEUTRALIZADO en la Ola 3: el fallback de vista lo define
+ * `premium/views.css` (.view-loading: --ink-2, --type-13, 240 px) y el base
+ * de `app.css` para los loaders fuera de una vista. */
 
-.palette input[type='text'] {
-  background: #1a1a1d !important;
-  border: none !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  border-radius: 0 !important;
-  padding: 12px 14px !important;
-  font-size: 13px !important;
-  color: var(--color-text) !important;
-}
+/* ─── 26 · Empty States ───
+ * NEUTRALIZADO en la Ola 3: `.empty-state`/`.empty-inline` (icon tile,
+ * título 15/650, descripción 13, --rad-lg, hairline) viven en
+ * `premium/components.css` §8.11 y `premium/views.css` (márgenes y acciones).
+ * `.actions` recupera el layout base de `app.css` (flex inline). */
 
-.palette input[type='text']::placeholder {
-  color: #55565a !important;
-}
+/* ─── 27 · Banners ───
+ * NEUTRALIZADO en la Ola 3: el banner del shell (--chrome-1, hairline,
+ * 32 px) y sus variantes viven en `premium/components.css` §8.10 y
+ * `premium/shell.css`; acá se quitaron fondos y tipografía forzados. */
 
-.palette-item {
-  border-radius: 2px !important;
-  padding: 7px 11px !important;
-  font-size: 12px !important;
-  transition: background 0.08s ease !important;
-}
+/* ─── 28 · Home View ───
+ * NEUTRALIZADO en la Ola 3: el hero, los tiles de estado, los pilares y la
+ * ruta de producción viven en `premium/views.css` (chrome-4, --rad-xl en el
+ * hero, hairline, sin gradientes ni radios de 3 px forzados). */
 
-.palette-item:hover {
-  color: var(--color-text) !important;
-}
+/* ─── 29 · Settings ───
+ * NEUTRALIZADO en la Ola 3: la ventana de Ajustes (nav con estado activo por
+ * barra de acento, iconos de sección) la estiliza `premium/shell.css`; acá se
+ * quitaron radios, paddings, tipografías y estados forzados. */
 
-.palette-item.active {
-  color: var(--color-accent) !important;
-}
+/* ─── 30 · Compliance ───
+ * NEUTRALIZADO en la Ola 3: las cards de cumplimiento usan el sistema de
+ * `premium/components.css` + `premium/views.css`; se quitó el fondo/radio
+ * forzado. */
 
-.palette-shortcut {
-  font-family: var(--font-mono) !important;
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-  padding: 2px 5px !important;
-  border-radius: 2px !important;
-  background: #28292d !important;
-  border: 1px solid var(--color-border) !important;
-}
-
-.context-menu {
-  padding: 4px !important;
-}
-
-.context-menu [role='menuitem'] {
-  border-radius: 2px !important;
-  padding: 5px 9px !important;
-  font-size: 12px !important;
-  transition: background 0.08s ease !important;
-}
-
-.context-menu [role='menuitem']:hover:not(:disabled) {  color: var(--color-text) !important;
-}
-
-/* ─── 22 · Tooltips ─── */
-[data-tooltip]:hover::after {
-  background: #28292d !important;
-  border: 1px solid #3f4044 !important;
-  border-radius: 2px !important;
-  color: var(--color-text) !important;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45) !important;
-  animation: none !important;
-}
-
-/* ─── 23 · Focus Ring ─── */
-:focus-visible {
-  outline: 1px solid var(--color-accent) !important;
-  outline-offset: 1px !important;
-}
-
-/* ─── 24 · Selection ─── */
-::selection {
-  background: rgba(72, 129, 194, 0.3) !important;
-}
-
-/* ─── 25 · View Loading ─── */
-.view-loading {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-  height: 100% !important;
-  min-height: 200px !important;
-  color: var(--color-empty) !important;
-  font-size: 12px !important;
-}
-
-.view-loading-dot {
-  width: 6px !important;
-  height: 6px !important;
-  border-radius: 50% !important;
-  background: var(--color-accent) !important;
-  box-shadow: none !important;
-  animation: pulseDot 1.2s ease-in-out infinite !important;
-}
-
-/* ─── 26 · Empty States ─── */
-.empty-state {
-  text-align: center !important;
-  padding: 32px 20px !important;
-  color: var(--color-empty) !important;
-  font-size: 12px !important;
-  line-height: 1.65 !important;
-  max-width: 420px !important;
-  margin: 0 auto !important;
-}
-
-.actions {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 8px !important;
-  padding: 14px 0 !important;
-}
-
-/* ─── 27 · Banners ─── */
-.banner {
-  font-size: 12px !important;
-  padding: 6px 14px !important;
-}
-
-.banner-error {
-  background: #301a22 !important;
-  border-bottom: 1px solid #4a2535 !important;
-}
-
-.banner-notice {
-  background: #1a2b30 !important;
-  border-bottom: 1px solid #254540 !important;
-}
-
-/* ─── 28 · Home View ─── */
-.home-hero {
-  border-radius: 3px !important;
-  background: var(--color-panel) !important;
-  border: 1px solid var(--color-border) !important;
-}
-
-.home-setup-row {
-  transition: background 0.1s ease !important;
-  border-radius: 0 !important;
-}
-
-.home-setup-row:hover {  color: var(--color-text) !important;
-}
-
-.home-setup-icon {
-  border-radius: 3px !important;
-}
-
-.home-setup-icon.ready {
-  color: var(--color-accent) !important;
-  border-color: #35536e !important;
-}
-
-.home-status.ready {
-  color: var(--color-accent) !important;
-  font-weight: 600 !important;
-}
-
-.home-status.missing {
-  color: var(--color-warning) !important;
-  font-weight: 600 !important;
-}
-
-.home-download {
-  border-radius: 3px !important;
-}
-
-.home-links button {
-  border-radius: 3px !important;
-}
-
-/* ─── 29 · Settings ─── */
-.settings-nav {
-  border-radius: 3px !important;
-}
-
-.settings-nav button {
-  border-radius: 2px !important;
-  font-size: 12px !important;
-  padding: 7px 10px !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-/* La sección activa se marca con color y una regla fina a la izquierda, no
- * con un bloque de fondo: la ventana de Configuración se lee como una lista. */
-.settings-nav button[aria-current='location'],
-.settings-nav > button.active {
-  background: transparent !important;
-  border-color: transparent !important;
-  color: var(--color-text) !important;
-  box-shadow: inset 2px 0 0 var(--color-accent) !important;
-}
-
-.settings-section-icon {
-  border-radius: 3px !important;
-}
-
-/* ─── 30 · Compliance ─── */
-.compliance-card {
-  border-radius: 3px !important;
-  border: 1px solid var(--color-border) !important;
-  background: var(--color-panel) !important;
-  box-shadow: none !important;
-}
-
-.compliance-card:hover {
-  border-color: #3f4044 !important;
-  box-shadow: none !important;
-}
-
-/* ─── 31 · Scopes ─── */
+/* ─── 31 · Scopes (PREVIEW — sin cambios en esta pasada) ───
+ * Pertenece al editor/preview (Ola 2). Se conserva tal cual porque
+ * `premium/workspace.css` todavía no define las pestañas de scopes. */
 .scopes-tabs button {
   font-size: 10px !important;
   font-weight: 600 !important;
@@ -1790,71 +495,42 @@ tr:hover td {
 }
 
 .scopes-tabs button.active {
-  background: #35536e !important;
-  color: #a9c7e8 !important;
+  background: color-mix(in srgb, var(--color-accent) 30%, var(--color-panel-3)) !important;
+  color: var(--color-accent-ink) !important;
 }
 
-/* ─── 32 · Drop Zones ─── */
-.drop-zone {
-  border: 1px dashed var(--color-accent) !important;
-  border-radius: 3px !important;
-  background: rgba(72, 129, 194, 0.03) !important;
-}
+/* ─── 32 · Drop Zones ───
+ * NEUTRALIZADO en la Ola 3: no hay usos vigentes en TSX; si vuelven, deben
+ * usar los tokens premium (--state-selected, --rad-md) en views/workspace. */
 
-.drop-zone.active,
-.drop-zone:hover {
-  border-color: var(--color-accent) !important;
-  background: rgba(72, 129, 194, 0.06) !important;
-  box-shadow: none !important;
-}
+/* ─── 33 · View Toolbar ───
+ * NEUTRALIZADO en la Ola 3: la barra de contexto de las vistas
+ * (--shell-toolbar-h, hairline inferior, label 10/650 caps) vive en
+ * `premium/views.css` §2. */
 
-/* ─── 33 · View Toolbar ─── */
-.view-toolbar {
-  border-bottom: 1px solid var(--color-border) !important;
-  margin-bottom: 14px !important;
-}
+/* ─── 34 · Window Controls ───
+ * NEUTRALIZADO en la Ola 1: los controles de ventana (46 px, hover y cierre)
+ * los define `premium/shell.css`. */
 
-.view-toolbar h2 {
-  font-size: 14px !important;
-  font-weight: 600 !important;
-  color: var(--color-text) !important;
-}
-
-/* ─── 34 · Window Controls ─── */
-.window-controls {
-  gap: 0 !important;
-}
-
-.window-control {
-  border-radius: 0 !important;
-}
-
-/* ─── 35 · Safe Guides ─── */
+/* ─── 35 · Safe Guides (PREVIEW — sin cambios en esta pasada) ───
+ * Pertenece al preview (Ola 2). Se conserva el layout funcional de las guías
+ * y sus bordes de referencia; `pointer-events` es comportamiento. */
 .safe-guides {
-  pointer-events: none !important;
+  pointer-events: none;
 }
 
 .safe-action {
-  border: 1px solid rgba(72, 129, 194, 0.15) !important;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 15%, transparent) !important;
 }
 
 .safe-title {
-  border: 1px dashed rgba(72, 129, 194, 0.1) !important;
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 10%, transparent) !important;
 }
 
-/* ─── 36 · Smooth global transitions (only color + bg, never transform) ─── */
-.sidebar button,
-.menubar-title,
-.menubar-item,
-.icon-button,
-.transport-button,
-.preview-tool,
-.rail-tabs button,
-button.primary,
-button.ghost,
-button.small {
-  transition: background 0.1s ease, color 0.1s ease, border-color 0.1s ease !important;
-}
+/* ─── 36 · Smooth global transitions ───
+ * NEUTRALIZADO en la Ola 3: `premium/components.css` define transiciones
+ * explícitas de 110 ms por propiedad; el fallback forzado de 0.1 s que
+ * competía con ellas ya no hace falta. */
 
 /* ─── 37 · Keyframe Animations (mínimas) ─── */
 @keyframes pulseDot {
@@ -1862,229 +538,73 @@ button.small {
   50% { opacity: 0.35; }
 }
 
-/* ─── 38 · Welcome Dialog ─── */
-.welcome-dialog {
-  border-radius: 4px !important;
-}
+/* ─── 38 · Welcome Dialog ───
+ * NEUTRALIZADO en la Ola 3: el welcome dialog usa el vidrio/radio de
+ * `premium/components.css` §8.8 y el launcher de `premium/launcher.css`. */
 
-.welcome-option {
-  border-radius: 3px !important;
-}
+/* ─── 39 · Export Dialog ───
+ * NEUTRALIZADO en la Ola 3: el diálogo de exportación usa el vidrio/radio de
+ * `premium/components.css` §8.8 y el workspace de `premium/workspace.css`. */
 
-/* ─── 39 · Export Dialog ─── */
-.export-dialog {
-  border-radius: 4px !important;
-}
-
-/* ─── 40 · DaVinci Color Wheels ─── */
+/* ─── 40 · DaVinci Color Wheels ───
+ * REVISADO en la Ola 3 (autorizado con cautela): las ruedas son un control
+ * funcional del inspector de VFX. Se quitaron fondos/bordes/tipografías
+ * forzados del contenedor y sus labels; se conserva la rueda de matiz
+ * (arcoíris ilustrativo, excepción documentada del spec §5.5/§7) y el layout
+ * de los tres círculos. Si workspace rediseña el inspector, esta regla se
+ * retira desde su capa. */
 .inspector-color-wheels {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-around !important;
-  padding: 10px 4px 12px !important;
-  background: #131417 !important;
-  border: 1px solid #282a30 !important;
-  border-radius: 4px !important;
-  margin: 6px 0 10px !important;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 10px 4px 12px;
+  margin: 6px 0 10px;
 }
 
 .color-wheel-item {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  gap: 4px !important;
-}
-
-.color-wheel-label {
-  font-size: 9.5px !important;
-  font-weight: 700 !important;
-  color: #9a9da4 !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.05em !important;
-}
-
-.color-wheel-sub {
-  font-size: 8px !important;
-  font-weight: 500 !important;
-  color: #5d6069 !important;
-  text-transform: uppercase !important;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
 }
 
 .color-wheel-circle {
-  width: 52px !important;
-  height: 52px !important;
-  border-radius: 50% !important;
-  border: 1.5px solid #363942 !important;
-  position: relative !important;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  position: relative;
+  /* Rueda de matiz: dato de color ajeno a la paleta de rol (§5.5/§7). */
   background: conic-gradient(from 0deg, #ef4444, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #ef4444) !important;
-  box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.85) !important;
-  cursor: crosshair !important;
+  cursor: crosshair;
 }
 
 .color-wheel-reticle {
-  position: absolute !important;
-  top: 50% !important;
-  left: 50% !important;
-  transform: translate(-50%, -50%) !important;
-  width: 7px !important;
-  height: 7px !important;
-  border-radius: 50% !important;
-  background: #ffffff !important;
-  border: 1.5px solid #131417 !important;
-  pointer-events: none !important;
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-text);
+  border: 1.5px solid var(--color-bg);
+  pointer-events: none;
 }
 
-/* ─── 41 · Timeline Tracks (DaVinci Palette) ─── */
-/* Track V2 / Titles */
-.timeline-track[data-kind='title'] .timeline-clip,
-.timeline-clip[data-kind='title'],
-.timeline-clip.clip-cue,
-.timeline-clip.clip-title {
-  background: #4c1d95 !important;
-  border: 1px solid #7c3aed !important;
-  color: #ffffff !important;
-  border-radius: 3px !important;
-}
+/* ─── 41 · Timeline Tracks ───
+ * NEUTRALIZADO en la Ola 2: los colores de clip por rol de medio, la selección
+ * y el playhead viven en `premium/workspace.css` (borde/fondo con
+ * `color-mix(--color-*)`, `--tl-sel-ring`, `--color-accent`). Se eliminaron los
+ * bloques por `[data-kind]`, el outline de selección de 2 px y el playhead rojo
+ * legado (`.timeline-playhead-*`, sin uso desde el rediseño). */
 
-/* Track V1 / Video Clips */
-.timeline-track[data-kind='video'] .timeline-clip,
-.timeline-clip[data-kind='video'],
-.timeline-clip.clip-video {
-  background: #1e3a8a !important;
-  border: 1px solid #2563eb !important;
-  color: #ffffff !important;
-  border-radius: 3px !important;
-}
+/* ─── 42 · Media Pool & Tools Cards ───
+ * NEUTRALIZADO en la Ola 3: `.asset-card` y `.rail-item` son contenido; pasan
+ * al sistema de cards premium (`premium/components.css` §8.4 y las clases de
+ * la vista Medios). */
 
-/* Track A1 & A2 / Audio Clips & Narration */
-.timeline-track[data-kind='audio'] .timeline-clip,
-.timeline-clip[data-kind='audio'],
-.timeline-clip.clip-audio,
-.timeline-clip.clip-narration {
-  background: #064e3b !important;
-  border: 1px solid #059669 !important;
-  color: #ffffff !important;
-  border-radius: 3px !important;
-}
-
-.timeline-clip.selected {
-  outline: 2px solid #60a5fa !important;
-  outline-offset: -1px !important;
-}
-
-.timeline-playhead-line {
-  background: #ef4444 !important;
-  width: 1.5px !important;
-  box-shadow: 0 0 4px rgba(239, 68, 68, 0.7) !important;
-}
-
-.timeline-playhead-head {
-  background: #ef4444 !important;
-  border-radius: 2px !important;
-}
-
-/* ─── 42 · Media Pool & Tools Cards ─── */
-.rail-tabs {
-  background: #17181c !important;
-  border-bottom: 1px solid var(--color-border) !important;
-  padding: 0 4px !important;
-  gap: 2px !important;
-}
-
-.rail-tabs button {
-  border-radius: 3px 3px 0 0 !important;
-  border-bottom: 2px solid transparent !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-  color: var(--color-text-muted) !important;
-  padding: 6px 8px !important;
-}
-
-.rail-tabs button.active {
-  color: #ffffff !important;
-  border-bottom-color: #3b82f6 !important;
-  background: #202228 !important;
-}
-
-.asset-card,
-.rail-item {
-  background: #17181c !important;
-  border: 1px solid #282a32 !important;
-  border-radius: 4px !important;
-  transition: border-color 0.12s ease !important;
-}
-
-.asset-card:hover,
-.rail-item:hover {  color: var(--color-text) !important;
-}
-
-/* ─── 43 · Universal DaVinci Theme Across ALL Tools ─── */
-.view,
-.tool-view,
-.director-view,
-.factory-view,
-.compliance-view,
-.download-view,
-.compare-view,
-.compress-view,
-.denoise-view,
-.thumbnail-view,
-.localization-view,
-.ai-hub-view,
-.background-view,
-.upscale-view,
-.settings-view {
-  background: var(--color-bg) !important;
-  color: var(--color-text) !important;
-}
-
-.tool-panel,
-.view-card,
-.card,
-.production-card,
-.glass-panel,
-.panel {
-  background: #1a1b20 !important;
-  border: 1px solid #2c2e35 !important;
-  border-radius: 4px !important;
-  box-shadow: none !important;
-}
-
-.tool-header,
-.view-header {
-  border-bottom: 1px solid #2c2e35 !important;
-}
-
-input[type='text'],
-input[type='number'],
-input[type='search'],
-select,
-textarea {
-  background: #121316 !important;
-  border: 1px solid #2c2e35 !important;
-  border-radius: 3px !important;
-  color: #e1e2e6 !important;
-}
-
-input:focus,
-select:focus,
-textarea:focus {
-  border-color: #3b82f6 !important;
-  outline: none !important;
-}
-
-button.primary {
-  background: #2563eb !important;
-  border: 1px solid #3b82f6 !important;
-  color: #ffffff !important;
-  border-radius: 3px !important;
-  font-weight: 600 !important;
-  box-shadow: none !important;
-}
-
-button.primary:hover:not(:disabled) {  background: var(--color-accent) !important;
-  filter: none !important;
-  transform: none !important;
-  box-shadow: none !important;
-}
+/* ─── 43 · Universal DaVinci Theme Across ALL Tools ───
+ * NEUTRALIZADO en la Ola 3: `.view` y las superficies de herramientas
+ * (`.card/.panel/.tool-panel/.production-card/...`) toman fondo de
+ * `premium/base.css` (transparente) y `premium/components.css` (--chrome-4,
+ * hairline, --rad-md, --elev-1). `.tool-header/.view-header` usan el hairline
+ * premium. No queda ningún color literal ni radio de 3/4 px forzado. */
 

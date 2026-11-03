@@ -1,0 +1,723 @@
+/* ==========================================================================
+   Olyvia · capa premium — COMPONENTES (Quiet Premium)
+   Referencia: docs/PREMIUM-REDESIGN-SPEC.md §4 (principios), §8 (componentes).
+   Reglas duras: acento sólido (sin gradientes en botones/cards), hover ≤110 ms,
+   sin translateY, sin glow, radios derivados de --rad-*, máx. 2 sombras/pantalla.
+   Se permite `!important` sólo para ganar capas legacy que ya lo usan.
+   ========================================================================== */
+
+/* ─────────────────────────────────────────────────────────────── Botones ── */
+button {
+  font-family: inherit;
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out);
+}
+
+/* Primario: relleno de acento sólido + brillo interior. Sin gradiente. */
+button.primary,
+.actions button.primary,
+button.small.primary,
+button.accent-outline.primary {
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--ctl-px) !important;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 78%, #000000) !important;
+  border-radius: var(--rad-sm) !important;
+  background: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+  font-size: var(--type-12) !important;
+  font-weight: var(--fw-strong) !important;
+  line-height: 1 !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, #ffffff 14%, transparent) !important;
+  filter: none !important;
+  text-shadow: none !important;
+}
+
+button.primary:hover:not(:disabled),
+.actions button.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 90%, var(--color-text)) !important;
+  filter: none !important;
+}
+
+button.primary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 86%, #000000) !important;
+  transform: none;
+}
+
+button.primary:disabled,
+button.primary[aria-disabled='true'] {
+  opacity: var(--disabled-opacity) !important;
+  cursor: not-allowed !important;
+  box-shadow: none !important;
+}
+
+button.primary::before {
+  display: none !important;
+}
+
+/* Secundario y ghost */
+button.ghost,
+.actions button.ghost,
+.actions button:not(.primary),
+button.small:not(.primary) {
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--ctl-px);
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-sm) !important;
+  background: var(--chrome-4) !important;
+  color: var(--ink-1) !important;
+  font-size: var(--type-12) !important;
+  font-weight: var(--fw-medium) !important;
+  box-shadow: none !important;
+}
+
+button.ghost:hover:not(:disabled),
+.actions button:not(.primary):hover:not(:disabled),
+button.small:not(.primary):hover:not(:disabled) {
+  background: var(--chrome-3) !important;
+  border-color: color-mix(in srgb, var(--color-text) 14%, transparent) !important;
+  color: var(--ink-1) !important;
+}
+
+button.ghost:active:not(:disabled),
+button.small:not(.primary):active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-panel-3) 80%, var(--color-panel-2)) !important;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Icon button 28×28 */
+.icon-button,
+button.icon-button {
+  width: var(--ctl-h-md) !important;
+  height: var(--ctl-h-md) !important;
+  min-width: var(--ctl-h-md) !important;
+  min-height: var(--ctl-h-md) !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: var(--rad-sm) !important;
+  background: transparent !important;
+  color: var(--ink-2) !important;
+  box-shadow: none !important;
+}
+
+.icon-button:hover:not(:disabled) {
+  background: var(--state-hover) !important;
+  border-color: var(--hairline-color) !important;
+  color: var(--ink-1) !important;
+}
+
+.icon-button:active:not(:disabled) {
+  background: var(--state-active) !important;
+}
+
+.icon-button:disabled {
+  opacity: var(--disabled-opacity) !important;
+}
+
+.icon-text {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-6);
+}
+
+/* Peligro */
+button.danger:not(.primary),
+.button-danger {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent) !important;
+  background: var(--state-danger-soft) !important;
+  color: color-mix(in srgb, var(--color-danger) 68%, var(--color-text)) !important;
+}
+
+button.danger:not(.primary):hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger) 22%, transparent) !important;
+}
+
+/* Link (AA con --ink-link) */
+button.link,
+.link-button,
+a.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--ink-link) !important;
+  font-weight: var(--fw-medium) !important;
+  text-decoration: underline !important;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+
+button.link:hover,
+.link-button:hover,
+a.link:hover {
+  color: color-mix(in srgb, var(--color-accent) 18%, var(--color-text)) !important;
+  text-decoration-thickness: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────── Inputs ── */
+input[type='text'],
+input[type='email'],
+input[type='password'],
+input[type='number'],
+input[type='search'],
+input[type='tel'],
+input[type='url'],
+input[type='date'],
+input[type='time'],
+textarea,
+select {
+  min-height: var(--ctl-h-lg);
+  padding: 0 var(--ctl-px) !important;
+  border: 1px solid var(--ctl-border) !important;
+  border-radius: var(--rad-sm) !important;
+  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-surface)) !important;
+  color: var(--ink-1) !important;
+  font-family: inherit !important;
+  font-size: var(--type-13) !important;
+  line-height: var(--lh-ui) !important;
+  box-shadow: none !important;
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out);
+}
+
+textarea {
+  padding: var(--gap-8) var(--ctl-px) !important;
+  min-height: 72px;
+  resize: vertical;
+}
+
+input:hover:not(:disabled),
+textarea:hover:not(:disabled),
+select:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-text) 46%, var(--color-border)) !important;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none !important;
+  border-color: var(--color-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent) !important;
+  transform: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-3) !important;
+}
+
+input:disabled,
+select:disabled,
+textarea:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+select {
+  appearance: none;
+  padding-right: 26px !important;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-3) 50%),
+    linear-gradient(135deg, var(--ink-3) 50%, transparent 50%) !important;
+  background-position:
+    calc(100% - 16px) calc(50% + 1px),
+    calc(100% - 11px) calc(50% + 1px) !important;
+  background-size: 5px 5px, 5px 5px !important;
+  background-repeat: no-repeat !important;
+}
+
+input[type='range'] {
+  accent-color: var(--color-accent);
+  height: 4px;
+  border: 0 !important;
+  background: var(--color-panel-3) !important;
+  border-radius: var(--rad-pill) !important;
+  box-shadow: none !important;
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--color-accent);
+}
+
+/* Labels de formulario (spec §8.2: 11 px, 650, mayúscula, +0.06em) */
+.field > span,
+.field > label,
+label.field > span,
+.appearance-label {
+  font-size: var(--type-11) !important;
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  color: var(--ink-2) !important;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-6);
+}
+
+/* Íconos dentro de inputs/selects */
+.input-with-icon {
+  position: relative;
+}
+
+.input-with-icon input {
+  padding-left: 28px !important;
+}
+
+/* Search pill del topbar (spec §8.2: alto 28, ancho 200–280) */
+.topbar-search,
+.search-pill {
+  height: var(--ctl-h-md) !important;
+  min-height: var(--ctl-h-md) !important;
+  padding: 0 var(--gap-8) !important;
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-sm) !important;
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent) !important;
+  color: var(--ink-2) !important;
+  box-shadow: none !important;
+}
+
+.topbar-search:hover {
+  border-color: color-mix(in srgb, var(--color-text) 18%, transparent) !important;
+  color: var(--ink-1) !important;
+  background: var(--state-hover) !important;
+}
+
+/* ─────────────────────────────────────────────────────── Cards / paneles ── */
+.card {
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-md) !important;
+  background: var(--chrome-4) !important;
+  box-shadow: var(--elev-1) !important;
+  padding: 16px;
+  transition:
+    border-color var(--dur-4) var(--ease-out),
+    box-shadow var(--dur-4) var(--ease-out);
+}
+
+.card::before {
+  display: none !important;
+}
+
+.card:hover {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent) !important;
+}
+
+/* Cards interactivas: sube el borde y la elevación, SIN translate. */
+.card.is-clickable:hover,
+.card-glow:hover,
+.tool-card:hover,
+.start-card:hover {
+  transform: none !important;
+  box-shadow: var(--elev-2) !important;
+}
+
+.card.is-compact {
+  padding: 12px;
+}
+
+/* Encabezado de vista (nivel 2 → 3): hairline y aire, sin caja. */
+.view-head {
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: var(--gap-16) !important;
+  padding: var(--gap-16) 0 var(--gap-12) !important;
+  margin-bottom: var(--gap-16) !important;
+  border: 0 !important;
+  border-bottom: var(--hairline) !important;
+  background: transparent !important;
+}
+
+.view-head h1,
+.view-head h2 {
+  font-size: var(--type-18) !important;
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: var(--track-tight) !important;
+}
+
+.view-head p {
+  color: var(--ink-2) !important;
+  font-size: var(--type-13) !important;
+}
+
+/* Header de panel (nivel 2): 32 px, etiqueta técnica, acciones a la derecha. */
+.panel-head,
+.section-head,
+.fold-head {
+  min-height: var(--shell-panel-head-h);
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Subheaders de sección */
+.section-title,
+.block-title {
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  color: var(--ink-2);
+}
+
+/* ───────────────────────────────────────────── Badges / chips / kbd ── */
+.badge,
+.chip,
+.pill,
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  height: var(--badge-h);
+  padding: 0 6px;
+  border: var(--hairline);
+  border-radius: var(--rad-xs) !important;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent) !important;
+  color: var(--ink-2) !important;
+  font-size: var(--type-10) !important;
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: none !important;
+}
+
+.chip {
+  height: var(--chip-h);
+  border-color: var(--hairline-strong-color) !important;
+  border-radius: var(--rad-pill) !important;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent) !important;
+  font-size: var(--type-11) !important;
+  font-weight: var(--fw-medium) !important;
+}
+
+.badge.is-accent,
+.chip.is-accent {
+  border-color: var(--state-selected-border) !important;
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent) !important;
+  color: color-mix(in srgb, var(--color-accent) 55%, var(--color-text)) !important;
+}
+
+.badge.is-success,
+.chip.is-success,
+.tool-line.ready .badge {
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent) !important;
+  background: var(--state-success-soft) !important;
+  color: color-mix(in srgb, var(--color-success) 62%, var(--color-text)) !important;
+}
+
+.badge.is-warning,
+.chip.is-warning {
+  border-color: color-mix(in srgb, var(--color-warning) 42%, transparent) !important;
+  background: var(--state-warning-soft) !important;
+  color: color-mix(in srgb, var(--color-warning) 60%, var(--color-text)) !important;
+}
+
+.badge.is-danger,
+.chip.is-danger {
+  border-color: color-mix(in srgb, var(--color-danger) 44%, transparent) !important;
+  background: var(--state-danger-soft) !important;
+  color: color-mix(in srgb, var(--color-danger) 64%, var(--color-text)) !important;
+}
+
+kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--kbd-h);
+  min-width: 20px;
+  padding: 0 4px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs) !important;
+  background: color-mix(in srgb, var(--color-text) 6%, transparent) !important;
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--ink-2) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 10.5px !important;
+  font-weight: 600 !important;
+  line-height: 1;
+}
+
+/* ─────────────────────────────────────────── Tabs / segmented / pills ── */
+.segmented {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: var(--gap-2) !important;
+  height: var(--ctl-h-md) !important;
+  padding: 2px !important;
+  border: 1px solid var(--ctl-border) !important;
+  border-radius: var(--rad-md) !important;
+  background: var(--chrome-3) !important;
+  box-shadow: none !important;
+}
+
+.segmented button {
+  height: calc(var(--ctl-h-md) - 6px) !important;
+  min-height: 0 !important;
+  padding: 0 var(--gap-8) !important;
+  border: 0 !important;
+  border-radius: var(--rad-sm) !important;
+  background: transparent !important;
+  color: var(--ink-2) !important;
+  font-size: var(--type-11) !important;
+  font-weight: var(--fw-medium) !important;
+  box-shadow: none !important;
+}
+
+.segmented button:hover:not(.active) {
+  background: var(--state-hover) !important;
+  color: var(--ink-1) !important;
+}
+
+.segmented button.active,
+.segmented button[aria-pressed='true'] {
+  background: var(--color-panel-3) !important;
+  color: var(--ink-1) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 6%, transparent),
+    var(--elev-1) !important;
+}
+
+/* ──────────────────────────────────────────── Avisos / banners / toasts ── */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-8);
+  padding: var(--gap-8) var(--gap-12) !important;
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-md) !important;
+  background: var(--chrome-4) !important;
+  box-shadow: none !important;
+  font-size: var(--type-12) !important;
+  line-height: var(--lh-ui) !important;
+  color: var(--ink-1);
+}
+
+.notice-ok {
+  border-color: color-mix(in srgb, var(--color-success) 34%, transparent) !important;
+  background: color-mix(in srgb, var(--color-success) 8%, var(--chrome-4)) !important;
+}
+
+.notice-warning {
+  border-color: color-mix(in srgb, var(--color-warning) 34%, transparent) !important;
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--chrome-4)) !important;
+}
+
+.notice-error,
+.banner-error {
+  border-color: color-mix(in srgb, var(--color-danger) 38%, transparent) !important;
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--chrome-4)) !important;
+}
+
+.banner {
+  min-height: 32px;
+  border-bottom: var(--hairline);
+  background: var(--chrome-1);
+  color: var(--ink-1);
+  font-size: var(--type-12);
+}
+
+/* ───────────────────────────────────────────── Menús, dialogs, popovers ── */
+.menubar-dropdown,
+.cmdp-panel,
+.profile-popover,
+.context-menu,
+.palette,
+.app-modal,
+.export-dialog,
+.welcome-dialog,
+.scopes-panel,
+.modal {
+  border: var(--glass-border) !important;
+  border-radius: var(--rad-xl) !important;
+  background: var(--glass-menu-bg) !important;
+  box-shadow: var(--elev-3) !important;
+  backdrop-filter: var(--glass-menu-blur);
+  -webkit-backdrop-filter: var(--glass-menu-blur);
+}
+
+.app-modal,
+.export-dialog,
+.welcome-dialog,
+.modal {
+  border-radius: var(--rad-2xl) !important;
+  background: var(--glass-dialog-bg) !important;
+  box-shadow: var(--elev-4) !important;
+}
+
+.app-modal-backdrop,
+.settings-window-backdrop,
+.modal-backdrop {
+  background: var(--scrim) !important;
+}
+
+/* Cabeceras/pies estándar de diálogo (si el markup los tiene) */
+.app-modal-header,
+.modal-header {
+  min-height: 52px;
+  border-bottom: var(--hairline);
+}
+
+.app-modal-footer,
+.modal-footer {
+  min-height: 56px;
+  border-top: var(--hairline);
+}
+
+/* Ítems de menú / paleta: 28 px, hover neutro/acento suave. */
+.menubar-item,
+.cmdp-item,
+.context-menu button {
+  min-height: 28px;
+  border-radius: var(--rad-sm) !important;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+}
+
+.menubar-item:hover,
+.cmdp-item:hover,
+.cmdp-item.selected,
+.context-menu button:hover {
+  background: var(--state-selected) !important;
+  color: var(--ink-1) !important;
+}
+
+.menubar-item:hover {
+  background: var(--state-hover) !important;
+}
+
+.menubar-separator {
+  background: var(--hairline-color) !important;
+}
+
+/* ──────────────────────────────────────────────────────────── Tooltips ── */
+[data-tooltip]::after {
+  max-width: 280px;
+  padding: 4px 8px;
+  border: var(--glass-border);
+  border-radius: var(--rad-md);
+  background: var(--glass-menu-bg);
+  color: var(--ink-1);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
+  white-space: normal;
+  box-shadow: var(--elev-3);
+  backdrop-filter: var(--glass-menu-blur);
+}
+
+/* ───────────────────────────────────────────────── Listas y tablas ── */
+th {
+  height: 28px;
+  padding: 0 var(--gap-10);
+  border-bottom: var(--hairline);
+  background: var(--chrome-2);
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
+td {
+  height: var(--row-h);
+  padding: 0 var(--gap-10);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-text) 5%, transparent);
+  font-size: var(--type-12);
+  color: var(--ink-1);
+}
+
+tbody tr:hover td {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+tbody tr.selected td,
+tr[aria-selected='true'] td {
+  background: var(--state-selected);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.data-list > div,
+.tool-line,
+.setting-row,
+.row-line {
+  border-bottom: var(--hairline);
+}
+
+.data-list > div:last-child,
+.tool-line:last-child {
+  border-bottom: 0;
+}
+
+/* ─────────────────────────────────────────────────── Empty states ── */
+.empty-state,
+.empty-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-8);
+  padding: var(--gap-32);
+  max-width: 420px;
+  margin-inline: auto;
+  border: var(--hairline);
+  border-radius: var(--rad-lg);
+  color: var(--ink-2);
+  text-align: center;
+  background: color-mix(in srgb, var(--color-text) 2.5%, transparent);
+}
+
+.empty-state strong,
+.empty-inline strong {
+  color: var(--ink-1);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+}
+
+/* ─────────────────────────────────────────────────────── Progreso ── */
+.progress-track,
+.progress-bar {
+  height: 6px;
+  border-radius: var(--rad-pill);
+  background: var(--color-panel-3);
+  overflow: hidden;
+}
+
+.progress-fill,
+.progress-bar > span,
+.progress > span {
+  height: 100%;
+  border-radius: var(--rad-pill);
+  background: var(--color-accent);
+}
+
+/* ─────────────────────────────────────── Foco interior en filas/ítems ── */
+[role='option']:focus-visible,
+[role='menuitem']:focus-visible,
+[role='tab']:focus-visible,
+[role='option']:focus,
+.cmdp-item:focus-visible {
+  outline: none !important;
+  box-shadow: var(--focus-ring-inset) !important;
+}

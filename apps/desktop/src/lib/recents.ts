@@ -18,50 +18,41 @@ function storage(): Storage | null {
   }
 }
 
-export const INITIAL_DEMO_PROJECTS: readonly RecentProject[] = [
-  {
-    path: 'demo://reels-vertical',
-    label: 'reels-tiktok-9-16.editoria.json',
-    name: '🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música',
-    openedAt: new Date().toISOString(),
-  },
-  {
-    path: 'demo://youtube-tutorial',
-    label: 'tutorial-youtube-16-9.editoria.json',
-    name: '🎬 Demo: Tutorial YouTube 16:9 con Locución IA',
-    openedAt: new Date(Date.now() - 3600000).toISOString(),
-  },
-  {
-    path: 'demo://podcast-multicam',
-    label: 'podcast-multicam-audio.editoria.json',
-    name: '🎙️ Demo: Podcast & Multicámara con Mezcla de Audio',
-    openedAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-];
+/**
+ * Los recientes son sólo proyectos que existen en disco. Las rutas de demo con
+ * esquema `demo:` y las guardadas dentro de `proyectos/` con prefijo demo (de
+ * versiones anteriores del lanzador) se descartan: no hay proyecto detrás y al
+ * abrirlas el primer clic del usuario terminaba en un error invisible. No se
+ * muestran ni se conservan.
+ */
+function isOpenableRecent(record: Record<string, unknown>): boolean {
+  if (typeof record.path !== 'string') return false;
+  const path = record.path.replace(/\\/g, '/');
+  return !/^demo:\/\//i.test(path) && !/proyectos\/demo-/i.test(path);
+}
 
 export function loadRecents(): RecentProject[] {
   const store = storage();
-  if (!store) return [...INITIAL_DEMO_PROJECTS];
+  if (!store) return [];
   try {
     const raw = store.getItem(KEY);
-    if (!raw) return [...INITIAL_DEMO_PROJECTS];
+    if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
-    if (!Array.isArray(parsed) || parsed.length === 0) return [...INITIAL_DEMO_PROJECTS];
-    const loaded = parsed
+    if (!Array.isArray(parsed) || parsed.length === 0) return [];
+    return parsed
       .filter((item): item is RecentProject => {
         if (!item || typeof item !== 'object') return false;
         const record = item as Record<string, unknown>;
         return (
-          typeof record.path === 'string' &&
+          isOpenableRecent(record) &&
           typeof record.label === 'string' &&
           typeof record.name === 'string' &&
           typeof record.openedAt === 'string'
         );
       })
       .slice(0, MAX);
-    return loaded.length > 0 ? loaded : [...INITIAL_DEMO_PROJECTS];
   } catch {
-    return [...INITIAL_DEMO_PROJECTS];
+    return [];
   }
 }
 

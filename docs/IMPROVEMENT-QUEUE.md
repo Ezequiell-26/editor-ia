@@ -1,8 +1,49 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-02. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-03. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+## Lote rediseño premium + honestidad funcional (2026-11-03) — `done` con verificación
+
+Detalle completo en `docs/PREMIUM-REDESIGN-RESULT.md`; contrato visual en
+`docs/PREMIUM-REDESIGN-SPEC.md`; auditoría funcional en
+`docs/APP-FEATURE-AUDIT.md`; pendientes en `docs/FOLLOW-UPS.md` y
+`docs/PREMIUM-POLISH-SPEC.md`.
+
+- `[done]` **Capa premium nueva** `apps/desktop/src/styles/premium/*` (tokens,
+  base, componentes, shell, launcher, workspace, vistas) importada al final de
+  `main.tsx`, construida sobre los 34 colores de tema y el contrato de
+  apariencia (radio/densidad/zoom). Shell 44/48/24, sin inline styles en el
+  banner, Quiet Premium (sin gradientes en botones, sin translateY, sin glow).
+- `[done]` **Neutralización en origen**: `flat.css` 608→87 líneas;
+  `resolve-theme.css` 2.074→610 líneas y 1.036→152 `!important`;
+  `commercial/olyvia` sin forzar superficies de contenido; fuera el ripple que
+  recortaba botones. `premium/workspace.css` 1.149→16 `!important`.
+- `[done]` **Launcher/shell/editor/vistas premium** con capturas antes/después
+  (33 vistas 1440 y 1280, tema claro, timeline responsive).
+- `[done]` **Honestidad de IA y capacidades**: modo navegador con banner en el
+  flujo; Whisper sin ruta hardcodeada y con detección real; `test_provider` +
+  «Probar conexión»; Fábrica rechaza guion simulado; demos muertas eliminadas
+  (`demo://` = 0); modelos on-device con gate; panel MCP honesto.
+- `[done]` **Documentación**: README/TUTORIAL con requisitos reales; FOLLOW-UPS
+  con backend sin UI; este lote y el informe de resultado.
+- Verificación de la ola: typecheck 0; build 0; Vitest serial **1869 passed /
+  3 skipped**; Rust **541 passed**; Playwright **21 passed / 1 skipped**; 0
+  errores de consola y 0 overflow en la verificación visual.
+- `[done]` **Ola polish**: timeline customizable (densidad cómoda/compacta,
+  etiquetas completas/minimal, rejilla alineada a la regla — preferencias
+  persistentes en Ajustes→Editor), timeline premium (pistas/clips/regla/
+  playhead/toolbar, handles al hover, fluidez sin trabajo por frame) y vistas
+  más compactas/legibles (hub-tabs 24 px, chips 10 px, Home con 2 líneas).
+  Verificación: typecheck 0, build 0, suite serial **1869 passed / 3 skipped**,
+  e2e **21 passed / 1 skipped**, 33/33 vistas sin overflow a 1440/1280 y 0
+  errores de consola. Capturas en `.tmp-redesign/polish/`.
+- `[next]` Verificación en runtime nativo (checklist en `FOLLOW-UPS.md`):
+  `test_provider` contra Ollama real, transcripción con faster-whisper,
+  TTS/FFmpeg/MCP nativos.
+- `[next]` Reemplazar la build instalada por la nueva (`target-polish/`,
+  firmada local) cuando el usuario cierre la app en uso.
 
 ## Estado verificado en código (2026-10-28 18:49, última vuelta)
 
@@ -1695,6 +1736,56 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
 22. **Lottie: `.lottie` y prueba IPC nativa** — abrir el ZIP `.lottie` con
     `fflate` (ya es dependencia) y ejercitar la conversión completa en la app
     nativa, IPC incluido, midiendo el WebM resultante.
+
+## Color completamente configurable (2026-11-03)
+
+Detalle técnico y contrato: `docs/COLOR-CUSTOMIZATION.md`. Verificación
+independiente: `.tmp-theme-shots/after/report.json` + `METHOD.md`.
+
+- `[done]` **Motor de paleta** — `state/theme-palette.ts` (nuevo): **34 tokens**
+  en 5 grupos (superficies, acento, estados, medios, marca), 7 presets completos,
+  derivación desde los 5 colores base, **66 variables CSS** emitidas (34
+  `--color-*` + alias `--commercial-*`/`--olyvia-*`, estados con fallback,
+  degradado/glow/borde/tinta de marca, glows y `--primary-hue`), contraste WCAG
+  (`themeContrastReport` con 10 pares, `ensureContrast`, `fixTextContrast`) y
+  archivo de tema estricto `olyvia-theme`. Compatibilidad v4: datos con sólo los
+  5 colores se migran solos. **38 tests** de motor + 14 de apariencia.
+- `[done]` **Estudio de color en Ajustes** — `ColorStudioCard`: 34 filas con
+  color picker + hex + reset por token, 5 grupos colapsables, preview vivo del
+  shell, reporte de contraste con «Corregir texto», exportar/importar tema JSON
+  y restablecer con confirmación. **10 tests** + 3 de `AppearanceCard`.
+- `[done]` **Tokenización de todas las capas CSS** — `commercial`, `olyvia`,
+  `flat`, `chrome`, `resolve-theme`, `app`, `home`, `start-screen`, `settings`.
+  Literales de rol que ganan la cascada: **24 → 0**. `resolve-theme.css` (última
+  capa con `!important`) pasó de 162 a 7 hex y ya no aporta roles; `app.css`
+  497→243 (restantes: sombras, fallbacks y secciones legacy pisadas).
+  `start-screen.css` 261→0 y `home.css` 16→0.
+- `[done]` **Marcadores semánticos unificados** — `MarkersPanel` y timeline usan
+  las mismas clases `.marker-*` + `var(--marker-color)`; 6 categorías
+  distinguibles por defecto y todas siguen la paleta.
+- `[done]` **Fix de persistencia del picker** — el input nativo de color no
+  siempre deja foco: el commit dependía de blur/pointerup y elegir color +
+  cerrar con Escape perdía el cambio. Ahora hay commit agrupado (320 ms) además
+  de blur/pointerup. Verificado en Chrome real con recarga.
+- `[done]` **E2E del tema** — `e2e/theme.spec.ts` (7 tests): acento/panel en
+  vivo, persistencia, import válido/inválido, export `olyvia-theme` con 34
+  tokens, contraste fail→pass, tema claro y medición de cobertura. Config de
+  Playwright alineada al puerto 3000 (antes apuntaba a 5173 y levantaba un
+  segundo Vite) y fix de arnés `exact: true` en `helpers.ts`.
+- **Verificación**: `theme.spec` **7/7** (22,6 s), `settings.spec` **4/4**;
+  `npm run typecheck` exit 0; `npm run build` exit 0 (5,24 s); suite serial
+  **1829 passed / 3 skipped** (205/206 archivos). Verificador independiente:
+  cobertura de tema **66,7 %** (806/1209 propiedades), **0 tokens sin efecto
+  visible** y **0 literales de rol** ganando la cascada.
+- `[pending]` **Tema claro completo** — con bg claro las superficies, el texto y
+  `color-scheme` siguen la paleta, pero quedan 13 (Ajustes) + 8 (Inicio) pares
+  de texto de estado/tenue por debajo de WCAG AA (mín. 2,36:1) y botones de
+  acento oscuros. Falta derivar estados legibles para fondos claros.
+- `[pending]` **Contraste del tema por defecto** — 50 pares < AA (acento
+  `#1f5eff` sobre `#181b20` = 3,37:1) es deuda de diseño previa; el estudio
+  permite corregirla a mano. Falta un preset accesible de fábrica.
+- `[pending]` **Color por clip/pista** — `clip.colorTag` sigue siendo dato del
+  proyecto; evaluar exponerlo en el estudio o mantenerlo fuera del tema.
 
 ## Reglas del ciclo
 

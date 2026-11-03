@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { NAV_VIEWS } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
@@ -232,17 +232,30 @@ export function LearnView({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
         </div>
         <div className="learn-progress" aria-label={`Progreso ${percent}%`}>
           <div
-            className="learn-progress-track"
+            className="learn-progress-ring"
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={percent}
+            style={
+              {
+                '--learn-progress': `${percent * 3.6}deg`,
+              } as CSSProperties
+            }
           >
-            <span style={{ width: `${percent}%` }} />
+            <div className="learn-progress-ring-inner" aria-hidden="true">
+              <strong>{percent}%</strong>
+              <span>listo</span>
+            </div>
           </div>
-          <span className="fine-print">
-            {percent}% · {completed} de {SECTIONS.length} temas
-          </span>
+          <div className="learn-progress-copy">
+            <strong>
+              {completed} de {SECTIONS.length} temas
+            </strong>
+            <span className="fine-print">
+              {percent === 100 ? 'Guía completa' : 'El progreso se guarda en este equipo'}
+            </span>
+          </div>
         </div>
       </div>
 

@@ -41,7 +41,7 @@ describe('registro de navegación', () => {
     expect(new Set(labels).size).toBe(labels.length);
   });
 
-  it('mantiene todas las vistas existentes y excluye IA/MCP del legado', () => {
+  it('descubre AI Hub y MCP en «Más» sin duplicar las puertas de los hubs', () => {
     const all = new Set<ViewId>(NAV_VIEWS.map((view) => view.id));
     for (const id of [
       'youtube',
@@ -57,11 +57,31 @@ describe('registro de navegación', () => {
     const secondary = SECONDARY_NAV_VIEWS.map((view) => view.id);
     expect(secondary).toContain('director');
     expect(secondary).toContain('motion');
+    // Las superficies de IA estaban sólo en la paleta o en Ajustes.
+    expect(secondary).toContain('ai-hub');
+    expect(secondary).toContain('mcp');
     expect(secondary).not.toContain('script');
     expect(secondary).not.toContain('assets');
+    // Lo que ya vive dentro de un hub no repite puerta en «Más».
     expect(secondary).not.toContain('factory');
     expect(secondary).not.toContain('denoise');
-    expect(secondary).not.toContain('ai-hub');
-    expect(secondary).not.toContain('mcp');
+  });
+
+  it('describe AI Hub y Director por lo que hacen de verdad, sin prometer LLM', () => {
+    const byId = new Map(NAV_VIEWS.map((view) => [view.id, view]));
+    const aiHub = byId.get('ai-hub');
+    const director = byId.get('director');
+    expect(aiHub?.hint).toMatch(/prompts/i);
+    expect(aiHub?.hint).toMatch(/briefs/i);
+    expect(aiHub?.hint).toMatch(/operador local/i);
+    // El AI Hub compone prompts y ejecuta un operador determinista: no llama a
+    // un modelo ni gasta tokens, así que el hint no debe sugerirlo.
+    expect(aiHub?.hint).not.toMatch(/modelos locales con tokens/i);
+    expect(aiHub?.hint).not.toMatch(/genera con un modelo/i);
+    // Director usa heurísticas y el modelo de rostros: no es un LLM. Puede
+    // aclararlo explícitamente ("sin LLM"), lo que no puede es prometer uno.
+    expect(director?.hint).not.toMatch(/Director IA/i);
+    expect(director?.hint).not.toMatch(/con un modelo de lenguaje/i);
+    expect(director?.hint).toMatch(/heurística|análisis/i);
   });
 });

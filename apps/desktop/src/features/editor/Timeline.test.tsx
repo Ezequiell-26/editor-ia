@@ -12,7 +12,9 @@ import { createFakeService, readyAsset } from '../../test/fake-service';
 import { Timeline } from './Timeline';
 
 const NOW = '2026-10-20T00:00:00.000Z';
-const HEADER = 168;
+// Espejo de la geometría del header de pistas: el runtime lee el token
+// --tl-track-head-w (160) y en jsdom sin CSS usa el mismo fallback 160.
+const HEADER = 160;
 
 if (typeof document.elementFromPoint !== 'function') {
   document.elementFromPoint = () => null;

@@ -7,7 +7,7 @@
 //! provider that lets the whole flow run offline without pretending to be a
 //! model.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -246,6 +246,473 @@ pub(crate) fn chat_endpoint(base_url: &str) -> String {
     }
 }
 
+// --- Llamada de chat con JSON mode y reparación ---------------------------
+//
+// Guion, asistente y traducción comparten el mismo contrato: pedir JSON con
+// `response_format` cuando el endpoint lo soporte, reintentar sin el parámetro
+// si lo rechaza y, si el contenido no es JSON válido, hacer **un** reintento de
+// reparación mostrándole al modelo su salida anterior. Todo acotado: la salida
+// del modelo sigue siendo texto no confiable que se valida después.
+
+const CHAT_TIMEOUT: Duration = Duration::from_secs(120);
+const MAX_CHAT_RESPONSE_BYTES: usize = 2_000_000;
+const MAX_REPAIR_ECHO_CHARS: usize = 2_000;
+
+pub(crate) struct ChatRequest<'a> {
+    pub(crate) base_url: &'a str,
+    pub(crate) model: &'a str,
+    pub(crate) temperature: f64,
+    pub(crate) messages: Vec<Value>,
+    pub(crate) key: Option<String>,
+}
+
+/// Cuerpo mínimo de `/chat/completions`. `json_mode` agrega `response_format`.
+fn chat_payload(model: &str, temperature: f64, messages: &[Value], json_mode: bool) -> Value {
+    let mut body = json!({
+        "model": model,
+        "temperature": temperature,
+        "messages": messages,
+    });
+    if json_mode {
+        body["response_format"] = json!({ "type": "json_object" });
+    }
+    body
+}
+
+/// El endpoint sólo se reintenta sin `response_format` cuando el rechazo es de
+/// parámetro (400/415/422). Un 401/403/429/5xx no se arregla sacándolo.
+fn should_retry_without_json_mode(status: u16) -> bool {
+    matches!(status, 400 | 415 | 422)
+}
+
+/// Segunda vuelta con reparación: se muestra la salida inválida y se pide sólo
+/// el JSON corregido. Se recorta para no arrastrar una respuesta enorme.
+pub(crate) fn json_repair_messages(mut messages: Vec<Value>, invalid: &str) -> Vec<Value> {
+    messages.push(json!({
+        "role": "assistant",
+        "content": invalid.chars().take(MAX_REPAIR_ECHO_CHARS).collect::<String>(),
+    }));
+    messages.push(json!({
+        "role": "user",
+        "content": "Tu respuesta anterior no era JSON válido. Devolvé SOLO el objeto JSON corregido, sin markdown ni comentarios, respetando exactamente el contrato pedido.",
+    }));
+    messages
+}
+
+/// Petición de chat completions compartida. Devuelve el `content` del mensaje
+/// (todavía sin parsear) y aplica el fallback de JSON mode si el endpoint lo
+/// rechaza.
+pub(crate) async fn chat_completion(request: ChatRequest<'_>) -> Result<String, ProjectError> {
+    let client = reqwest::Client::builder()
+        .timeout(CHAT_TIMEOUT)
+        .build()
+        .map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::ProviderUnavailable,
+                "no se pudo preparar la conexión",
+            )
+        })?;
+    let mut json_mode = true;
+    let mut attempt = 0u8;
+    loop {
+        attempt += 1;
+        let body = chat_payload(
+            request.model,
+            request.temperature,
+            &request.messages,
+            json_mode,
+        );
+        let mut call = client
+            .post(chat_endpoint(request.base_url))
+            .json(&body)
+            .header("Accept", "application/json");
+        if let Some(secret) = request.key.clone() {
+            call = call.bearer_auth(secret);
+        }
+        let response = call.send().await.map_err(|error| {
+            let safe = if error.is_timeout() {
+                format!(
+                    "el proveedor no respondió en {} segundos",
+                    CHAT_TIMEOUT.as_secs()
+                )
+            } else if error.is_connect() {
+                "no se pudo conectar con el proveedor; revisá la URL y que el servicio esté encendido"
+                    .to_owned()
+            } else {
+                "la llamada al proveedor falló".to_owned()
+            };
+            ProjectError::message(ProjectErrorCode::ProviderUnavailable, &safe)
+        })?;
+        let status = response.status();
+        if attempt == 1 && json_mode && should_retry_without_json_mode(status.as_u16()) {
+            // El endpoint no conoce `response_format`: se repite sin el parámetro.
+            json_mode = false;
+            continue;
+        }
+        if !status.is_success() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::ProviderRejected,
+                &format!(
+                    "el proveedor rechazó la solicitud (HTTP {})",
+                    status.as_u16()
+                ),
+            ));
+        }
+        let bytes = response.bytes().await.map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "el proveedor no devolvió un cuerpo legible",
+            )
+        })?;
+        if bytes.len() > MAX_CHAT_RESPONSE_BYTES {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "la respuesta del proveedor supera el límite de 2 MB",
+            ));
+        }
+        let payload: Value = serde_json::from_slice(&bytes).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                "el proveedor no devolvió un JSON interpretable",
+            )
+        })?;
+        let content = payload["choices"][0]["message"]["content"]
+            .as_str()
+            .ok_or_else(|| {
+                ProjectError::message(
+                    ProjectErrorCode::InvalidProviderResponse,
+                    "la respuesta del proveedor no trae choices[0].message.content",
+                )
+            })?;
+        return Ok(content.to_owned());
+    }
+}
+
+/// Parsea y valida el plan de guion devuelto por el modelo. Separado para poder
+/// aplicar el reintento de reparación sin duplicar el contrato.
+fn parse_script_content(content: &str) -> Result<RawPlan, String> {
+    let json_text =
+        extract_json(content).ok_or_else(|| "la respuesta no contiene un objeto JSON".to_owned())?;
+    let value: Value =
+        serde_json::from_str(json_text).map_err(|_| "el JSON no se pudo parsear".to_owned())?;
+    validate_plan(&value)
+}
+
+// --- "Probar conexión" del proveedor -------------------------------------
+//
+// El default del proveedor está vacío y hasta ahora el primer error aparecía
+// recién al generar. Este sondeo hace una petición GET corta a `{base}/models`
+// y devuelve un resultado **tipado** (éxito, 401, 404, timeout, sin conexión)
+// con el modelo configurado verificado contra la lista, sin lanzar la excepción
+// genérica del primer error de generación.
+
+const PROVIDER_TEST_TIMEOUT: Duration = Duration::from_secs(8);
+const MAX_MODELS_LISTED: usize = 50;
+const MAX_MODELS_BODY_BYTES: usize = 2_000_000;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderTestResult {
+    /// `ok`, `mock`, `unconfigured`, `missing-key`, `unauthorized`, `forbidden`,
+    /// `not-found`, `timeout`, `unreachable`, `http-error`, `invalid-response`.
+    pub status: String,
+    pub ok: bool,
+    pub http_status: Option<u16>,
+    pub latency_ms: u64,
+    /// Modelo configurado si el proveedor lo lista; si no, el primero listado.
+    pub model: Option<String>,
+    pub detail: String,
+    pub base_url: String,
+}
+
+/// `{base}/models`, tolerando que la URL ya incluya `/models` o que se haya
+/// configurado el endpoint de chat completo.
+pub(crate) fn models_endpoint(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.ends_with("/models") {
+        trimmed.to_owned()
+    } else if let Some(prefix) = trimmed.strip_suffix("/chat/completions") {
+        format!("{prefix}/models")
+    } else {
+        format!("{trimmed}/models")
+    }
+}
+
+/// Extrae ids de la respuesta de `/models` (máximo acotado). `None` si el
+/// cuerpo no es JSON interpretable con forma de listado.
+fn parse_model_ids(payload: &[u8]) -> Option<Vec<String>> {
+    let value: Value = serde_json::from_slice(payload).ok()?;
+    let entries = value.get("data")?.as_array()?;
+    let mut ids = Vec::new();
+    for entry in entries.iter().take(MAX_MODELS_LISTED) {
+        if let Some(id) = entry.get("id").and_then(Value::as_str) {
+            let trimmed = id.trim();
+            if !trimmed.is_empty() {
+                ids.push(trimmed.chars().take(120).collect::<String>());
+            }
+        }
+    }
+    Some(ids)
+}
+
+fn provider_test_result(
+    status: &str,
+    ok: bool,
+    http_status: Option<u16>,
+    latency_ms: u64,
+    model: Option<String>,
+    detail: String,
+    base_url: &str,
+) -> ProviderTestResult {
+    ProviderTestResult {
+        status: status.to_owned(),
+        ok,
+        http_status,
+        latency_ms,
+        model,
+        detail,
+        base_url: base_url.to_owned(),
+    }
+}
+
+/// Mensaje accionable según el estado HTTP: dice qué revisar, no sólo el código.
+fn http_failure_detail(status: u16) -> (&'static str, String) {
+    match status {
+        401 => (
+            "unauthorized",
+            "el proveedor rechazó la clave (HTTP 401); revisá la clave guardada en Ajustes → IA"
+                .to_owned(),
+        ),
+        403 => (
+            "forbidden",
+            "el proveedor respondió 403: la clave no tiene permiso sobre este modelo o endpoint"
+                .to_owned(),
+        ),
+        404 => (
+            "not-found",
+            "el proveedor respondió 404: la URL base no expone /models; revisá que termine en /v1"
+                .to_owned(),
+        ),
+        429 => (
+            "rate-limited",
+            "el proveedor respondió 429: hay un límite de uso o cuota agotada".to_owned(),
+        ),
+        other => (
+            "http-error",
+            format!("el proveedor respondió HTTP {other} al listar los modelos"),
+        ),
+    }
+}
+
+/// Sondeo real del endpoint, separado del comando para poder probarlo con un
+/// servidor local de prueba sin estado de Tauri.
+async fn test_provider_endpoint(
+    base_url: &str,
+    configured_model: &str,
+    key: Option<&str>,
+    timeout: Duration,
+) -> ProviderTestResult {
+    let started = Instant::now();
+    let client = match reqwest::Client::builder().timeout(timeout).build() {
+        Ok(client) => client,
+        Err(_) => {
+            return provider_test_result(
+                "unreachable",
+                false,
+                None,
+                started.elapsed().as_millis() as u64,
+                None,
+                "no se pudo preparar la conexión HTTP".to_owned(),
+                base_url,
+            );
+        }
+    };
+    let mut call = client
+        .get(models_endpoint(base_url))
+        .header("Accept", "application/json");
+    if let Some(secret) = key {
+        call = call.bearer_auth(secret);
+    }
+    let response = match call.send().await {
+        Ok(response) => response,
+        Err(error) => {
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let (status, detail) = if error.is_timeout() {
+                let waited = if timeout.as_millis() < 1_000 {
+                    format!("{} ms", timeout.as_millis())
+                } else {
+                    format!("{} segundos", timeout.as_secs())
+                };
+                (
+                    "timeout",
+                    format!(
+                        "el proveedor no respondió en {waited}; revisá que Ollama/servicio esté encendido y la URL"
+                    ),
+                )
+            } else if error.is_connect() {
+                (
+                    "unreachable",
+                    "no se pudo conectar: el servicio está apagado, la URL es incorrecta o un firewall bloquea el puerto"
+                        .to_owned(),
+                )
+            } else {
+                (
+                    "unreachable",
+                    "la conexión con el proveedor falló antes de recibir respuesta".to_owned(),
+                )
+            };
+            return provider_test_result(status, false, None, latency_ms, None, detail, base_url);
+        }
+    };
+    let http_status = response.status().as_u16();
+    let latency_ms = started.elapsed().as_millis() as u64;
+    if !response.status().is_success() {
+        let (status, detail) = http_failure_detail(http_status);
+        return provider_test_result(
+            status,
+            false,
+            Some(http_status),
+            latency_ms,
+            None,
+            detail,
+            base_url,
+        );
+    }
+    let body = match response.bytes().await {
+        Ok(body) => body,
+        Err(_) => {
+            return provider_test_result(
+                "invalid-response",
+                false,
+                Some(http_status),
+                latency_ms,
+                None,
+                "el proveedor respondió pero el cuerpo no se pudo leer".to_owned(),
+                base_url,
+            );
+        }
+    };
+    if body.len() > MAX_MODELS_BODY_BYTES {
+        return provider_test_result(
+            "invalid-response",
+            false,
+            Some(http_status),
+            latency_ms,
+            None,
+            "la lista de modelos supera el límite de 2 MB".to_owned(),
+            base_url,
+        );
+    }
+    let Some(models) = parse_model_ids(&body) else {
+        return provider_test_result(
+            "invalid-response",
+            false,
+            Some(http_status),
+            latency_ms,
+            None,
+            "el proveedor respondió 200 pero el cuerpo no es una lista de modelos compatible"
+                .to_owned(),
+            base_url,
+        );
+    };
+    if models.iter().any(|id| id == configured_model.trim()) {
+        return provider_test_result(
+            "ok",
+            true,
+            Some(http_status),
+            latency_ms,
+            Some(configured_model.trim().to_owned()),
+            format!(
+                "conexión correcta: el modelo configurado «{}» está disponible en el proveedor",
+                configured_model.trim()
+            ),
+            base_url,
+        );
+    }
+    if let Some(first) = models.first() {
+        return provider_test_result(
+            "ok",
+            true,
+            Some(http_status),
+            latency_ms,
+            Some(first.clone()),
+            format!(
+                "conexión correcta, pero el modelo configurado «{}» no aparece en la lista (por ejemplo «{first}»); revisá el nombre o descargalo",
+                configured_model.trim()
+            ),
+            base_url,
+        );
+    }
+    provider_test_result(
+        "ok",
+        true,
+        Some(http_status),
+        latency_ms,
+        None,
+        "conexión correcta, pero el proveedor no listó ningún modelo; verificá el nombre del modelo con una generación"
+            .to_owned(),
+        base_url,
+    )
+}
+
+/// Prueba la conexión con el proveedor configurado (Ajustes → IA). No lanza el
+/// error genérico de una generación: devuelve un estado tipado y accionable que
+/// la interfaz puede mostrar tal cual.
+#[tauri::command]
+pub async fn test_provider(
+    state: State<'_, AppState>,
+) -> Result<ProviderTestResult, ProjectError> {
+    let settings = state.settings_snapshot()?;
+    let provider = settings.provider.clone();
+    let base_url = provider.base_url.trim().to_owned();
+    if provider.kind == "mock" {
+        return Ok(provider_test_result(
+            "mock",
+            false,
+            None,
+            0,
+            None,
+            "el proveedor simulado no hace llamadas de red: configurá Ollama o una API compatible para probar la conexión"
+                .to_owned(),
+            &base_url,
+        ));
+    }
+    if base_url.is_empty() || provider.model.trim().is_empty() {
+        return Ok(provider_test_result(
+            "unconfigured",
+            false,
+            None,
+            0,
+            None,
+            "configurá la URL base y el modelo en Ajustes → IA antes de probar la conexión"
+                .to_owned(),
+            &base_url,
+        ));
+    }
+    validate_provider_base_url(&base_url)?;
+    let local = is_local_endpoint(&base_url);
+    let key = read_key();
+    if !local && key.is_none() {
+        return Ok(provider_test_result(
+            "missing-key",
+            false,
+            None,
+            0,
+            None,
+            "falta la clave del proveedor en el almacén de Windows; guardala en Ajustes → IA"
+                .to_owned(),
+            &base_url,
+        ));
+    }
+    Ok(test_provider_endpoint(
+        &base_url,
+        provider.model.trim(),
+        key.as_deref(),
+        PROVIDER_TEST_TIMEOUT,
+    )
+    .await)
+}
+
 #[derive(Debug, Deserialize)]
 struct RawScene {
     title: Option<String>,
@@ -476,96 +943,42 @@ pub async fn generate_script(
         "Brief del video:\n{brief}\n\nGenerá exactamente {} escenas con una progresión narrativa clara.",
         request.scene_count
     );
-    let body = json!({
-        "model": provider.model,
-        "temperature": 0.6,
-        "messages": [
-            { "role": "system", "content": system },
-            { "role": "user", "content": user }
-        ]
-    });
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                "no se pudo preparar la conexión",
-            )
-        })?;
-    let mut call = client
-        .post(chat_endpoint(&provider.base_url))
-        .json(&body)
-        .header("Accept", "application/json");
-    if let Some(secret) = key {
-        call = call.bearer_auth(secret);
-    }
-    let response = call.send().await.map_err(|error| {
-        let safe = if error.is_timeout() {
-            "el proveedor no respondió en 120 segundos".to_owned()
-        } else if error.is_connect() {
-            "no se pudo conectar con el proveedor; revisá la URL y que el servicio esté encendido"
-                .to_owned()
-        } else {
-            "la llamada al proveedor falló".to_owned()
-        };
-        ProjectError::message(ProjectErrorCode::ProviderUnavailable, &safe)
-    })?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderRejected,
-            &format!(
-                "el proveedor rechazó la solicitud (HTTP {})",
-                status.as_u16()
-            ),
-        ));
-    }
-    let body = response.bytes().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el proveedor no devolvió un cuerpo legible",
-        )
-    })?;
-    if body.len() > 2_000_000 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "la respuesta del proveedor supera el límite de 2 MB",
-        ));
-    }
-    let payload: Value = serde_json::from_slice(&body).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el proveedor no devolvió un JSON interpretable",
-        )
-    })?;
-    let content = payload["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| {
-            ProjectError::message(
-                ProjectErrorCode::InvalidProviderResponse,
-                "la respuesta del proveedor no trae choices[0].message.content",
-            )
-        })?;
-    let json_text = extract_json(content).ok_or_else(|| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "la respuesta del modelo no contiene un objeto JSON",
-        )
-    })?;
-    let value: Value = serde_json::from_str(json_text).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el JSON del modelo no se pudo parsear",
-        )
-    })?;
-    let raw = validate_plan(&value).map_err(|detail| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            &format!("el plan del modelo no cumple el contrato: {detail}"),
-        )
-    })?;
+    let messages = vec![
+        json!({ "role": "system", "content": system }),
+        json!({ "role": "user", "content": user }),
+    ];
+    let first = chat_completion(ChatRequest {
+        base_url: &provider.base_url,
+        model: &provider.model,
+        temperature: 0.6,
+        messages: messages.clone(),
+        key: key.clone(),
+    })
+    .await?;
+    let raw = match parse_script_content(&first) {
+        Ok(raw) => raw,
+        Err(first_detail) => {
+            // Un solo reintento de reparación, también en JSON mode: si el
+            // modelo devolvió texto o un JSON roto, se le muestra y se le pide
+            // sólo el objeto corregido.
+            let repaired = chat_completion(ChatRequest {
+                base_url: &provider.base_url,
+                model: &provider.model,
+                temperature: 0.6,
+                messages: json_repair_messages(messages, &first),
+                key,
+            })
+            .await?;
+            parse_script_content(&repaired).map_err(|detail| {
+                ProjectError::message(
+                    ProjectErrorCode::InvalidProviderResponse,
+                    &format!(
+                        "el plan del modelo no cumple el contrato ni tras un reintento de reparación: {detail} (primer intento: {first_detail})"
+                    ),
+                )
+            })?
+        }
+    };
     Ok(plan_from_raw(
         raw,
         "openai-compatible",
@@ -986,79 +1399,37 @@ pub async fn translate_subtitles(
         texts.len()
     );
     let user = serde_json::json!({ "texts": texts }).to_string();
-    let body = json!({
-        "model": provider.model,
-        "temperature": 0.2,
-        "messages": [
-            { "role": "system", "content": system },
-            { "role": "user", "content": user }
-        ]
-    });
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                "no se pudo preparar la conexión",
-            )
-        })?;
-    let mut call = client
-        .post(chat_endpoint(&provider.base_url))
-        .json(&body)
-        .header("Accept", "application/json");
-    if let Some(secret) = key {
-        call = call.bearer_auth(secret);
-    }
-    let response = call.send().await.map_err(|error| {
-        let safe = if error.is_timeout() {
-            "el proveedor no respondió en 120 segundos".to_owned()
-        } else if error.is_connect() {
-            "no se pudo conectar con el proveedor; revisá la URL y que el servicio esté encendido"
-                .to_owned()
-        } else {
-            "la llamada de traducción falló".to_owned()
-        };
-        ProjectError::message(ProjectErrorCode::ProviderUnavailable, &safe)
-    })?;
-    let status = response.status();
-    if !status.is_success() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderRejected,
-            &format!(
-                "el proveedor rechazó la traducción (HTTP {})",
-                status.as_u16()
-            ),
-        ));
-    }
-    let body = response.bytes().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el proveedor no devolvió un cuerpo legible",
-        )
-    })?;
-    if body.len() > 2_000_000 {
-        return Err(ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "la respuesta de traducción supera el límite de 2 MB",
-        ));
-    }
-    let payload: Value = serde_json::from_slice(&body).map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el proveedor no devolvió un JSON interpretable",
-        )
-    })?;
-    let content = payload["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| {
-            ProjectError::message(
-                ProjectErrorCode::InvalidProviderResponse,
-                "la respuesta no trae choices[0].message.content",
-            )
-        })?;
+    let expected = texts.len();
+    let messages = vec![
+        json!({ "role": "system", "content": system }),
+        json!({ "role": "user", "content": user }),
+    ];
+    let first = chat_completion(ChatRequest {
+        base_url: &provider.base_url,
+        model: &provider.model,
+        temperature: 0.2,
+        messages: messages.clone(),
+        key: key.clone(),
+    })
+    .await?;
+    let translated = match parse_translations(&first, expected) {
+        Ok(translated) => translated,
+        Err(_) => {
+            // Un reintento de reparación: mismo contrato, misma cantidad de
+            // entradas; si tampoco cumple, gana el error del segundo intento.
+            let repaired = chat_completion(ChatRequest {
+                base_url: &provider.base_url,
+                model: &provider.model,
+                temperature: 0.2,
+                messages: json_repair_messages(messages, &first),
+                key,
+            })
+            .await?;
+            parse_translations(&repaired, expected)?
+        }
+    };
     Ok(TranslatedTexts {
-        texts: parse_translations(content, texts.len())?,
+        texts: translated,
         provider_id: "openai-compatible".to_owned(),
         model: provider.model.clone(),
         simulated: false,
@@ -1114,6 +1485,89 @@ mod tests {
         let text = "```json\n{\"title\":\"x\",\"scenes\":[]}\n```";
         assert_eq!(extract_json(text), Some("{\"title\":\"x\",\"scenes\":[]}"));
         assert!(extract_json("sin json").is_none());
+    }
+
+    #[test]
+    fn chat_payload_requests_json_only_when_enabled() {
+        let messages = vec![json!({ "role": "user", "content": "hola" })];
+        let with_json = chat_payload("modelo", 0.2, &messages, true);
+        assert_eq!(with_json["response_format"]["type"], "json_object");
+        assert_eq!(with_json["messages"][0]["content"], "hola");
+        let plain = chat_payload("modelo", 0.2, &messages, false);
+        assert!(plain.get("response_format").is_none());
+        assert_eq!(plain["model"], "modelo");
+    }
+
+    #[test]
+    fn only_parameter_rejections_retry_without_json_mode() {
+        for status in [400, 415, 422] {
+            assert!(should_retry_without_json_mode(status), "{status}");
+        }
+        for status in [401, 403, 404, 429, 500, 503] {
+            assert!(!should_retry_without_json_mode(status), "{status}");
+        }
+    }
+
+    #[test]
+    fn json_repair_retry_echoes_the_invalid_output_and_asks_only_for_json() {
+        let messages = vec![json!({ "role": "user", "content": "hacé un guion" })];
+        let invalid = "x".repeat(MAX_REPAIR_ECHO_CHARS + 500);
+        let repaired = json_repair_messages(messages, &invalid);
+        assert_eq!(repaired.len(), 3);
+        assert_eq!(repaired[1]["role"], "assistant");
+        assert_eq!(
+            repaired[1]["content"].as_str().unwrap().chars().count(),
+            MAX_REPAIR_ECHO_CHARS
+        );
+        let instruction = repaired[2]["content"].as_str().unwrap();
+        assert!(instruction.contains("SOLO"), "{instruction}");
+        assert!(instruction.contains("JSON"), "{instruction}");
+    }
+
+    #[tokio::test]
+    async fn chat_completion_retries_without_json_mode_when_rejected() {
+        let (base, server) = serve(vec![
+            http_response(
+                "400 Bad Request",
+                r#"{"error":"response_format is not supported"}"#,
+            ),
+            http_response(
+                "200 OK",
+                r#"{"choices":[{"message":{"content":"{\"ok\":true}"}}]}"#,
+            ),
+        ])
+        .await;
+        let content = chat_completion(ChatRequest {
+            base_url: &base,
+            model: "m",
+            temperature: 0.0,
+            messages: vec![json!({ "role": "user", "content": "x" })],
+            key: None,
+        })
+        .await
+        .expect("segundo intento sin response_format");
+        let _ = server.await;
+        assert_eq!(content, r#"{"ok":true}"#);
+    }
+
+    #[tokio::test]
+    async fn chat_completion_does_not_retry_auth_failures() {
+        let (base, server) = serve(vec![http_response(
+            "401 Unauthorized",
+            r#"{"error":"bad key"}"#,
+        )])
+        .await;
+        let error = chat_completion(ChatRequest {
+            base_url: &base,
+            model: "m",
+            temperature: 0.0,
+            messages: vec![json!({ "role": "user", "content": "x" })],
+            key: None,
+        })
+        .await
+        .expect_err("401 no se reintenta");
+        let _ = server.await;
+        assert!(error.message.contains("401"), "{}", error.message);
     }
 
     #[test]
@@ -1226,6 +1680,162 @@ mod tests {
         let result = mock_translation(&request);
         assert!(result.simulated);
         assert_eq!(result.texts, vec!["Hola", "Mundo"]);
+    }
+
+    fn http_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// Servidor HTTP mínimo: atiende una respuesta por conexión y cierra. Así se
+    /// prueba el comando real contra 200/401/404 sin depender de internet.
+    async fn serve(responses: Vec<String>) -> (String, tokio::task::JoinHandle<()>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("puerto de prueba");
+        let address = listener.local_addr().expect("dirección");
+        let handle = tokio::spawn(async move {
+            for response in responses {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buffer = [0u8; 4096];
+                let _ = socket.read(&mut buffer).await;
+                let _ = socket.write_all(response.as_bytes()).await;
+                let _ = socket.flush().await;
+            }
+        });
+        (format!("http://{address}/v1"), handle)
+    }
+
+    #[test]
+    fn models_endpoint_joins_like_the_chat_endpoint() {
+        assert_eq!(models_endpoint("http://x/v1"), "http://x/v1/models");
+        assert_eq!(models_endpoint("http://x/v1/"), "http://x/v1/models");
+        assert_eq!(models_endpoint("http://x/v1/models"), "http://x/v1/models");
+        assert_eq!(
+            models_endpoint("http://x/v1/chat/completions"),
+            "http://x/v1/models"
+        );
+    }
+
+    #[test]
+    fn model_ids_are_bounded_and_validated() {
+        assert_eq!(
+            parse_model_ids(br#"{"data":[{"id":" llama3.1 "},{"id":""},{"id":5}]}"#),
+            Some(vec!["llama3.1".to_owned()])
+        );
+        assert_eq!(parse_model_ids(br#"{"data":[]}"#), Some(Vec::new()));
+        assert!(parse_model_ids(b"no json").is_none());
+        assert!(parse_model_ids(br#"{"object":"list"}"#).is_none());
+    }
+
+    #[tokio::test]
+    async fn provider_test_reports_success_with_the_configured_model() {
+        let (base, server) = serve(vec![http_response(
+            "200 OK",
+            r#"{"data":[{"id":"llama3.1"},{"id":"qwen2.5"}]}"#,
+        )])
+        .await;
+        let result = test_provider_endpoint(&base, "llama3.1", None, Duration::from_secs(2)).await;
+        let _ = server.await;
+        assert!(result.ok, "{result:?}");
+        assert_eq!(result.status, "ok");
+        assert_eq!(result.http_status, Some(200));
+        assert_eq!(result.model.as_deref(), Some("llama3.1"));
+        assert!(result.detail.contains("llama3.1"), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn provider_test_warns_when_the_configured_model_is_not_listed() {
+        let (base, server) = serve(vec![http_response(
+            "200 OK",
+            r#"{"data":[{"id":"llama3.1"}]}"#,
+        )])
+        .await;
+        let result = test_provider_endpoint(&base, "modelo-inexistente", None, Duration::from_secs(2))
+            .await;
+        let _ = server.await;
+        assert!(result.ok);
+        assert_eq!(result.model.as_deref(), Some("llama3.1"));
+        assert!(result.detail.contains("no aparece"), "{result:?}");
+    }
+
+    #[tokio::test]
+    async fn provider_test_classifies_401_and_404() {
+        let (base, server) = serve(vec![http_response("401 Unauthorized", r#"{"error":"bad key"}"#)]).await;
+        let unauthorized = test_provider_endpoint(&base, "m", None, Duration::from_secs(2)).await;
+        let _ = server.await;
+        assert!(!unauthorized.ok);
+        assert_eq!(unauthorized.status, "unauthorized");
+        assert_eq!(unauthorized.http_status, Some(401));
+        assert!(unauthorized.detail.contains("401"), "{unauthorized:?}");
+
+        let (base, server) = serve(vec![http_response("404 Not Found", r#"{"error":"nope"}"#)]).await;
+        let not_found = test_provider_endpoint(&base, "m", None, Duration::from_secs(2)).await;
+        let _ = server.await;
+        assert!(!not_found.ok);
+        assert_eq!(not_found.status, "not-found");
+        assert_eq!(not_found.http_status, Some(404));
+        assert!(not_found.detail.contains("/v1"), "{not_found:?}");
+    }
+
+    #[tokio::test]
+    async fn provider_test_reports_timeout() {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .expect("puerto de prueba");
+        let address = listener.local_addr().expect("dirección");
+        let slow = tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buffer = [0u8; 4096];
+            let _ = socket.read(&mut buffer).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+        let timeout = test_provider_endpoint(
+            &format!("http://{address}/v1"),
+            "m",
+            None,
+            Duration::from_millis(150),
+        )
+        .await;
+        slow.abort();
+        assert!(!timeout.ok);
+        assert_eq!(timeout.status, "timeout", "{timeout:?}");
+        assert!(timeout.detail.contains("150 ms"), "{timeout:?}");
+    }
+
+    #[tokio::test]
+    async fn provider_test_classifies_transport_failures_as_unreachable() {
+        // URL no parseable: el error de transporte no debe confundirse con un
+        // rechazo del proveedor ni con un timeout.
+        let invalid = test_provider_endpoint("sin esquema", "m", None, Duration::from_millis(300)).await;
+        assert!(!invalid.ok);
+        assert_eq!(invalid.status, "unreachable", "{invalid:?}");
+
+        // Puerto cerrado: según el stack de red el error puede ser un rechazo
+        // inmediato o un timeout de conexión; ambos son fallos de transporte.
+        let closed = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("puerto libre");
+        let port = closed.local_addr().expect("dirección").port();
+        drop(closed);
+        let refused = test_provider_endpoint(
+            &format!("http://127.0.0.1:{port}/v1"),
+            "m",
+            None,
+            Duration::from_millis(400),
+        )
+        .await;
+        assert!(!refused.ok, "{refused:?}");
+        assert!(
+            matches!(refused.status.as_str(), "unreachable" | "timeout"),
+            "{refused:?}"
+        );
     }
 }
 

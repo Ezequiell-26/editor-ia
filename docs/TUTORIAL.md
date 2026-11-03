@@ -6,16 +6,38 @@ disponible dentro de la app en **Aprender**, con accesos directos a cada vista.
 ## 1. Antes de empezar
 
 Olyvia es local-first: proyectos, medios, subtítulos y claves se quedan en tu
-equipo. Necesitás:
+equipo. **Local-first no significa “sin instalar nada”**: la app no manda nada a
+la nube, pero varias funciones usan herramientas del sistema o motores externos.
+
+**La app de escritorio es el requisito para trabajar de verdad.** El navegador
+(`http://localhost:3000`) sólo sirve para recorrer la interfaz: muestra un banner
+de **modo navegador** y no puede abrir proyectos, importar medios, ejecutar
+FFmpeg, IA de texto, TTS ni MCP. Para el flujo completo usá la app nativa
+(`npm run tauri:dev` en desarrollo o el instalador).
+
+Necesitás:
 
 - Windows 10/11 con WebView2.
 - FFmpeg y FFprobe (en `PATH` o elegidos en **Ajustes → Herramientas**).
 - PowerShell 5.1 para la voz SAPI local.
-- Python con `faster-whisper` sólo si vas a transcribir.
+- **Python con `faster-whisper` sólo si vas a transcribir.** El motor no viene
+  empaquetado: instalalo con `python -m pip install faster-whisper` o apuntá la
+  app a un intérprete concreto con la variable de entorno
+  `EDITORIA_WHISPER_PYTHON` (por ejemplo
+  `C:\ruta\al\venv\Scripts\python.exe`). La app verifica el `import` del módulo
+  —no alcanza con que exista `python`— y, si falta, **Ajustes → Capacidades**
+  muestra el motivo exacto y cómo resolverlo. Después de instalar el motor,
+  reiniciá Olyvia: el sondeo se cachea por proceso.
+- `onnxruntime.dll` junto al ejecutable (o `ORT_DYLIB_PATH`) y los pesos
+  descargados para **Quitar fondo** y **Upscale**; los modelos se bajan desde
+  **Ajustes → Capacidades** con checksum y licencia.
 - Node/npx sólo si vas a usar servidores MCP basados en Node.
+- Un proveedor OpenAI-compatible (Ollama, LM Studio, vLLM, llama.cpp u otro) si
+  querés IA de texto real. Sin él podés usar el proveedor simulado, que no hace
+  red y marca sus respuestas en la UI.
 
-El instalador no incluye FFmpeg ni modelos de transcripción. La app avisa cuando
-falta una herramienta.
+El instalador no incluye FFmpeg, faster-whisper ni modelos de transcripción. La
+app avisa cuando falta una herramienta y explica cómo resolverlo.
 
 Al abrir Olyvia vas a ver **Inicio**: muestra el estado de yt-dlp, FFmpeg,
 FFprobe y SAPI; permite instalar o cambiar las herramientas, preparar la
@@ -67,6 +89,11 @@ En **Guion**:
 - Escribí las escenas a mano o generá un plan con el proveedor configurado.
 - El proveedor simulado no hace red; el proveedor OpenAI-compatible puede ser
   OpenAI, Ollama, LM Studio, vLLM u otro endpoint equivalente.
+- Configurá URL base y modelo en **Ajustes → IA**. Si algo falla, el asistente
+  muestra en su estado de error **Probar proveedor**: consulta la lista de
+  modelos con timeout corto y devuelve estado, HTTP, latencia y si el modelo
+  configurado aparece, con **Abrir Ajustes** al lado. No es un mock: el
+  resultado sale del endpoint real.
 - Cada escena guarda título, intención, narración, nota visual y duración
   estimada. Podés editar todo.
 - **Prompts para Flow** crea un prompt por escena, con estilo editable. Descargá
@@ -567,8 +594,16 @@ leé siempre la política oficial enlazada.
 - **Ajustes** tiene una barra lateral de secciones (Apariencia, Inteligencia
   artificial, Voz y audio, Herramientas, Datos locales y Alcance). Cada sección
   explica qué controla y el panel queda visible mientras desplazás el contenido.
-- **Ajustes → Apariencia**: temas, colores, fuentes, escala, densidad, rail,
-  radios, timeline, barra de estado y reducción de animaciones.
+- **Ajustes → Apariencia**: estudio de color con **34 colores** editables
+  agrupados en superficies, acento, estados, medios y marca, más **7 presets**
+  completos y preview en vivo. Incluye reporte de contraste WCAG con «Corregir
+  texto», exportar/importar un tema `olyvia-theme` en JSON y restablecer por
+  token o todo. Se suman tipografías para interfaz, títulos y monoespaciada,
+  escala global, densidad, ancho y etiquetas del rail, radios, alto de filas de
+  timeline, barra de estado y reducción de animaciones. La paleta se aplica como
+  variables CSS y se guarda sólo en este equipo (`localStorage`), nunca dentro
+  del proyecto. Detalle técnico en
+  [`COLOR-CUSTOMIZATION.md`](COLOR-CUSTOMIZATION.md).
 - **Perfil (abajo a la izquierda)**: foto, nombre y rol. La foto se recorta a
   256 px y se guarda en este equipo.
 - **Iconos**: las barras de herramientas usan iconos con texto accesible y
@@ -761,6 +796,15 @@ Flow requiere una sesión manual de Google y créditos; el puente se probó con
 dobles, no con una generación real en esta máquina. El instalador no está
 firmado. MCP es local, por stdio, y el Director todavía no llama herramientas
 MCP.
+
+Requisitos y modo navegador: la UI en `localhost:3000` sólo permite recorrer
+pantallas, con un banner de **modo navegador**; crear/guardar proyectos,
+importar, renderizar, la IA real, la transcripción y MCP requieren la **app de
+escritorio**. La transcripción no viene empaquetada: necesita un Python con
+`faster-whisper` (o `EDITORIA_WHISPER_PYTHON`), y la app lo mide y lo informa en
+**Ajustes → Capacidades** con el motivo accionable en vez de asumirlo. FFmpeg,
+yt-dlp, ONNX Runtime y los pesos on-device tampoco están garantizados dentro del
+paquete: la app mide qué encuentra en tu equipo y lo informa.
 
 ## Motion graphics sin salir de la app
 

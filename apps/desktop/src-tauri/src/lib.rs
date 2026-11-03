@@ -453,6 +453,7 @@ pub fn run() {
             commands::providers::get_provider,
             commands::providers::save_provider,
             commands::providers::clear_provider_key,
+            commands::providers::test_provider,
             commands::providers::generate_script,
             commands::assistant::assistant_chat,
             commands::assistant::match_media_plan,

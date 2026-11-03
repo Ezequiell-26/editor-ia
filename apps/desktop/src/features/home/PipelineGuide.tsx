@@ -13,11 +13,13 @@ interface PipelineGuideProps {
  */
 export function PipelineGuide({ progress, onNavigate }: PipelineGuideProps) {
   const next = progress.next;
+  const doneCount = progress.steps.filter((step) => step.state === 'done').length;
+  const percent = Math.round((doneCount / Math.max(1, progress.steps.length)) * 100);
 
   return (
     <section className="card pipeline-guide" aria-labelledby="pipeline-guide-title">
       <header className="pipeline-guide-head">
-        <div>
+        <div className="pipeline-guide-copy">
           <p className="eyebrow">Ruta de producción</p>
           <h2 id="pipeline-guide-title">De la idea al MP4 en seis pasos</h2>
           <p className="muted">
@@ -28,23 +30,44 @@ export function PipelineGuide({ progress, onNavigate }: PipelineGuideProps) {
                 : 'Elegí por dónde seguir.'}
           </p>
         </div>
-        {next ? (
-          <button
-            type="button"
-            className="primary icon-text"
-            onClick={() => onNavigate(next.view)}
+        <div className="pipeline-guide-side">
+          <div
+            className="pipeline-guide-meter"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={progress.steps.length}
+            aria-valuenow={doneCount}
+            aria-label="Progreso de la ruta de producción"
           >
-            <Icon name={next.icon} size={15} />
-            <span>Ir a {next.label}</span>
-          </button>
-        ) : null}
+            <div className="pipeline-guide-meter-track" aria-hidden="true">
+              <span style={{ width: `${percent}%` }} />
+            </div>
+            <span className="fine-print">
+              {doneCount} de {progress.steps.length} etapas completas
+            </span>
+          </div>
+          {next ? (
+            <button
+              type="button"
+              className="primary icon-text"
+              onClick={() => onNavigate(next.view)}
+            >
+              <Icon name={next.icon} size={15} />
+              <span>Ir a {next.label}</span>
+            </button>
+          ) : null}
+        </div>
       </header>
 
       <ol className="pipeline-guide-list">
         {progress.steps.map((step, index) => (
           <li key={step.stage.id} className={`pipeline-guide-step ${step.state}`}>
             <span className="pipeline-guide-index" aria-hidden="true">
-              {step.state === 'done' ? '✓' : String(index + 1).padStart(2, '0')}
+              {step.state === 'done' ? (
+                <Icon name="check" size={13} />
+              ) : (
+                String(index + 1).padStart(2, '0')
+              )}
             </span>
             <div className="pipeline-guide-copy">
               <strong>{step.stage.label}</strong>

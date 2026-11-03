@@ -1,0 +1,383 @@
+/* ==========================================================================
+   Olyvia · capa premium — TOKENS
+   --------------------------------------------------------------------------
+   El rediseño NO define una paleta paralela: superficies, tinta, líneas,
+   elevaciones y estados se derivan de los 34 tokens de tema (--color-*) y del
+   contrato de apariencia (--radius-2, --sidebar-width, --timeline-row,
+   data-density, data-reduce-motion). Así siguen funcionando el estudio de
+   color, los 7 presets y el tema claro.
+
+   Valores alineados con docs/PREMIUM-REDESIGN-SPEC.md (§7 tabla maestra).
+   Importado al final de main.tsx, sin @layer (decisión §12 del spec).
+   ========================================================================== */
+
+:root {
+  /* --- Superficies y líneas derivadas (tema-aware) ---------------------- */
+  --premium-canvas: var(--color-bg);
+  --premium-surface-0: color-mix(in srgb, var(--color-bg) 82%, var(--color-surface));
+  --premium-surface-1: var(--color-surface);
+  --premium-surface-2: var(--color-panel-2);
+  --premium-surface-3: var(--color-panel-3);
+  --premium-surface-raised: var(--color-surface-raised);
+  --premium-glass-hi: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  --premium-glass-strong: color-mix(in srgb, var(--color-bg) 88%, transparent);
+  --premium-glass-dialog: color-mix(in srgb, var(--color-bg) 94%, var(--color-surface));
+  --premium-line: color-mix(in srgb, var(--color-border) 88%, var(--color-text));
+  --premium-line-soft: color-mix(in srgb, var(--color-border) 62%, transparent);
+  --premium-line-strong: var(--color-border-strong);
+  --premium-highlight: color-mix(in srgb, var(--color-text) 7%, transparent);
+  --premium-hairline: 6%;
+  --premium-hairline-strong: 10%;
+
+  /* --- Tinta (contrastes AA derivados, sin tocar la paleta) ------------- */
+  --premium-ink: var(--color-text);
+  --premium-ink-2: var(--color-text-muted);
+  --premium-ink-3: color-mix(in srgb, var(--color-text) 70%, var(--color-bg));
+  --premium-ink-4: color-mix(in srgb, var(--color-text) 56%, var(--color-bg));
+  --premium-ink-faint: var(--premium-ink-4);
+  --premium-ink-soft: var(--premium-ink-2);
+  --premium-ink-muted: var(--premium-ink-3);
+  /* Enlaces: acento mezclado con tinta para pasar AA en oscuro y en claro. */
+  --premium-link: color-mix(in srgb, var(--color-accent) 62%, var(--color-text));
+  --premium-link-hover: color-mix(in srgb, var(--color-accent) 42%, var(--color-text));
+
+  /* --- Acento y estados (siempre desde la paleta) ----------------------- */
+  --premium-accent: var(--color-accent);
+  --premium-accent-strong: var(--color-accent-strong);
+  --premium-accent-light: var(--color-accent-light);
+  --premium-accent-ink: var(--color-accent-ink);
+  --premium-accent-soft: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --premium-accent-line: color-mix(in srgb, var(--color-accent) 38%, transparent);
+  --premium-accent-glow: color-mix(in srgb, var(--color-accent) 45%, transparent);
+  --premium-state-hover: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --premium-state-active: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --premium-state-selected: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --premium-control-border: color-mix(in srgb, var(--color-border-strong) 62%, var(--color-text));
+
+  /* --- Espaciado (base 4) ---------------------------------------------- */
+  --premium-gap-1: 2px;
+  --premium-gap-2: 4px;
+  --premium-gap-3: 8px;
+  --premium-gap-4: 12px;
+  --premium-gap-5: 16px;
+  --premium-gap-6: 20px;
+  --premium-gap-7: 24px;
+  --premium-gap-8: 32px;
+  --premium-gap-9: 40px;
+  --premium-gap-10: 48px;
+  --premium-gap-11: 64px;
+
+  /* --- Radios derivados del contrato de apariencia (--radius-2) -------- */
+  /* El usuario mueve el slider 2–18; el techo premium es 16. */
+  --premium-r-xs: max(3px, calc(var(--radius-2, 10px) - 6px));
+  --premium-r-sm: max(5px, calc(var(--radius-2, 10px) - 4px));
+  --premium-r-md: max(7px, calc(var(--radius-2, 10px) - 2px));
+  --premium-r-lg: min(16px, calc(var(--radius-2, 10px) + 2px));
+  --premium-r-xl: min(16px, calc(var(--radius-2, 10px) + 6px));
+  --premium-r-pill: 999px;
+
+  /* --- Elevación (triple capa: borde interno + sombra cercana + lejana) - */
+  --premium-elev-1:
+    0 1px 0 color-mix(in srgb, var(--color-text) 6%, transparent) inset,
+    0 1px 2px rgba(0, 0, 0, 0.32),
+    0 2px 8px -4px rgba(0, 0, 0, 0.35);
+  --premium-elev-2:
+    0 1px 0 color-mix(in srgb, var(--color-text) 7%, transparent) inset,
+    0 2px 6px -2px rgba(0, 0, 0, 0.32),
+    0 12px 32px -12px rgba(0, 0, 0, 0.6);
+  --premium-elev-3:
+    0 1px 0 color-mix(in srgb, var(--color-text) 8%, transparent) inset,
+    0 8px 24px -8px rgba(0, 0, 0, 0.5),
+    0 32px 80px -24px rgba(0, 0, 0, 0.75);
+  --premium-elev-accent:
+    0 1px 0 color-mix(in srgb, #ffffff 22%, transparent) inset,
+    0 10px 26px -12px var(--premium-accent-glow);
+  --premium-scrim: rgba(4, 6, 10, 0.62);
+
+  /* --- Tipografía ------------------------------------------------------- */
+  --premium-text-2xs: 10px;
+  --premium-text-xs: 11px;
+  --premium-text-sm: 12px;
+  --premium-text-md: 13px;
+  --premium-text-base: 14px;
+  --premium-text-lg: 15px;
+  --premium-text-xl: 18px;
+  --premium-text-2xl: 24px;
+  --premium-text-display: 32px;
+  --premium-leading-tight: 1.15;
+  --premium-leading-snug: 1.32;
+  --premium-leading-ui: 1.45;
+  --premium-leading-normal: 1.6;
+  --premium-tracking-tight: -0.02em;
+  --premium-tracking-normal: -0.005em;
+  --premium-tracking-caps: 0.08em;
+  --premium-tracking-wide: 0.08em;
+  --premium-weight-regular: 450;
+  --premium-weight-medium: 550;
+  --premium-weight-semibold: 650;
+  --premium-weight-bold: 700;
+
+  /* --- Movimiento (Carbon Motion + receta Linear) ---------------------- */
+  --premium-ease-out: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --premium-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --premium-ease-entrance: cubic-bezier(0, 0, 0.38, 0.9);
+  --premium-ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
+  --premium-ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --premium-dur-instant: 70ms;
+  --premium-dur-fast: 110ms;
+  --premium-dur: 150ms;
+  --premium-dur-slow: 240ms;
+  --premium-dur-emphasis: 400ms;
+
+  /* --- Layout del shell (spec §8) -------------------------------------- */
+  --premium-topbar-h: 44px;
+  --premium-menubar-h: 32px;
+  --premium-statusbar-h: 24px;
+  --premium-rail-w: 48px;
+  --premium-rail-w-expanded: var(--sidebar-width, 172px);
+  --premium-panel-header-h: 32px;
+  --premium-toolbar-h: 36px;
+  --premium-tab-h: 32px;
+  --premium-nav-item-h: 32px;
+  --premium-winctl-w: 46px;
+  --premium-content-pad: 24px;
+  --premium-gap: var(--premium-gap-4);
+
+  /* --- Controles y datos ------------------------------------------------ */
+  --premium-ctl-h-xs: 22px;
+  --premium-ctl-h-sm: 24px;
+  --premium-ctl-h-md: 28px;
+  --premium-ctl-h-lg: 32px;
+  --premium-ctl-h-xl: 36px;
+  --premium-ctl-px-sm: 8px;
+  --premium-ctl-px-md: 10px;
+  --premium-ctl-px-lg: 14px;
+  --premium-ctl-gap: 6px;
+  --premium-badge-h: 18px;
+  --premium-chip-h: 22px;
+  --premium-kbd-h: 18px;
+  --premium-row-h: 32px;
+  --premium-disabled-opacity: 0.45;
+
+  /* --- Timeline --------------------------------------------------------- */
+  --premium-tl-ruler-h: 28px;
+  --premium-tl-track-head-w: 160px;
+  --premium-tl-playhead-w: 1px;
+  --premium-tl-wave-alpha: 0.55;
+  --premium-tl-sel-ring: 0 0 0 1.5px var(--color-accent);
+  --premium-tl-handle-w: 7px;
+
+  /* --- Foco ------------------------------------------------------------- */
+  --premium-focus-ring:
+    0 0 0 2px var(--premium-canvas),
+    0 0 0 4px color-mix(in srgb, var(--color-accent) 62%, transparent);
+  --premium-focus-ring-inset: inset 0 0 0 2px color-mix(in srgb, var(--color-accent) 62%, transparent);
+
+  /* --- Scrollbar -------------------------------------------------------- */
+  --premium-scroll-thumb: color-mix(in srgb, var(--color-border-strong) 76%, transparent);
+  --premium-scroll-thumb-hover: color-mix(in srgb, var(--color-text-muted) 62%, transparent);
+}
+
+/* Densidad: el contrato data-density ya lo escribe applyAppearance. */
+:root[data-density='compact'] {
+  --premium-topbar-h: 40px;
+  --premium-statusbar-h: 22px;
+  --premium-content-pad: 18px;
+  --premium-ctl-h-lg: 28px;
+  --premium-ctl-h-xl: 32px;
+  --premium-nav-item-h: 28px;
+  --premium-row-h: 28px;
+}
+
+:root[data-density='spacious'] {
+  --premium-topbar-h: 48px;
+  --premium-statusbar-h: 28px;
+  --premium-content-pad: 32px;
+  --premium-ctl-h-lg: 36px;
+  --premium-ctl-h-xl: 40px;
+  --premium-nav-item-h: 36px;
+  --premium-row-h: 36px;
+}
+
+/* Sombras legacy: la capa premium es la fuente de verdad del look tallado. */
+:root {
+  --shadow-xs: var(--premium-elev-1);
+  --shadow-sm: var(--premium-elev-1);
+  --shadow-md: var(--premium-elev-2);
+  --shadow-lg: var(--premium-elev-2);
+  --shadow-xl: var(--premium-elev-3);
+  --shadow-pop: var(--premium-elev-3);
+}
+
+/* ==========================================================================
+   Vocabulario del spec (docs/PREMIUM-REDESIGN-SPEC.md §6-§7)
+   Alias estables para que todos los archivos de la capa premium usen los
+   mismos nombres que la especificación. No crean paleta nueva: derivan de
+   los 34 tokens del tema.
+   ========================================================================== */
+:root {
+  /* Superficies de chrome (jerarquía de 3 niveles, §9.3) */
+  --chrome-1: color-mix(in srgb, var(--color-surface) 82%, var(--color-bg));
+  --chrome-2: color-mix(in srgb, var(--color-surface) 92%, var(--color-bg));
+  --chrome-3: var(--color-panel);
+  --chrome-4: color-mix(in srgb, var(--color-panel-2) 70%, var(--color-panel));
+
+  /* Tinta AA derivada (no tocar los 34 tokens) */
+  --ink-1: var(--color-text);
+  --ink-2: var(--color-text-muted);
+  --ink-3: color-mix(in srgb, var(--color-text-faint) 70%, var(--color-text));
+  --ink-4: color-mix(in srgb, var(--color-empty) 62%, var(--color-text));
+  --ink-link: color-mix(in srgb, var(--color-accent) 34%, var(--color-text));
+
+  /* Estados */
+  --state-hover: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --state-active: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --state-selected: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  --state-selected-border: color-mix(in srgb, var(--color-accent) 42%, transparent);
+  --state-danger-soft: color-mix(in srgb, var(--color-danger) 14%, transparent);
+  --state-warning-soft: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  --state-success-soft: color-mix(in srgb, var(--color-success) 14%, transparent);
+
+  /* Bordes: decorativo vs interactivo (WCAG 1.4.11) */
+  --hairline-color: color-mix(in srgb, var(--color-text) 6%, transparent);
+  --hairline-strong-color: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --hairline: 1px solid var(--hairline-color);
+  --hairline-strong: 1px solid var(--hairline-strong-color);
+  --ctl-border: color-mix(in srgb, var(--color-text) 38%, var(--color-border));
+
+  /* Tipografía de escala corta */
+  --type-10: 10px;
+  --type-11: 11px;
+  --type-12: 12px;
+  --type-13: 13px;
+  --type-14: 14px;
+  --type-15: 15px;
+  --type-18: 18px;
+  --type-24: 24px;
+  --type-32: 32px;
+  --fw-regular: 450;
+  --fw-medium: 550;
+  --fw-strong: 650;
+  --fw-black: 700;
+  --track-caps: 0.08em;
+  --track-tight: -0.02em;
+  --lh-ui: 1.45;
+  --lh-body: 1.6;
+
+  /* Espaciado (nombres en px, base 4) */
+  --gap-2: 2px;
+  --gap-4: 4px;
+  --gap-6: 6px;
+  --gap-8: 8px;
+  --gap-10: 10px;
+  --gap-12: 12px;
+  --gap-16: 16px;
+  --gap-20: 20px;
+  --gap-24: 24px;
+  --gap-32: 32px;
+  --gap-40: 40px;
+  --gap-56: 56px;
+  --gap-72: 72px;
+
+  /* Radios derivados del usuario (techo 16, nunca hardcodear) */
+  --rad-xs: max(3px, calc(var(--radius-2, 10px) - 6px));
+  --rad-sm: max(5px, calc(var(--radius-2, 10px) - 4px));
+  --rad-md: max(7px, calc(var(--radius-2, 10px) - 2px));
+  --rad-lg: min(16px, calc(var(--radius-2, 10px) + 2px));
+  --rad-xl: min(16px, calc(var(--radius-2, 10px) + 6px));
+  --rad-2xl: 16px;
+  --rad-pill: 999px;
+
+  /* Elevación (máx. 2 sombras simultáneas en pantalla) */
+  --elev-1:
+    0 1px 0 color-mix(in srgb, var(--color-text) 5%, transparent) inset,
+    0 1px 2px rgba(0, 0, 0, 0.28);
+  --elev-2:
+    0 1px 0 color-mix(in srgb, var(--color-text) 6%, transparent) inset,
+    0 2px 6px -2px rgba(0, 0, 0, 0.3),
+    0 10px 28px -12px rgba(0, 0, 0, 0.55);
+  --elev-3:
+    0 1px 0 color-mix(in srgb, var(--color-text) 7%, transparent) inset,
+    0 8px 24px -10px rgba(0, 0, 0, 0.55),
+    0 30px 70px -24px rgba(0, 0, 0, 0.7);
+  --elev-4:
+    0 1px 0 color-mix(in srgb, var(--color-text) 8%, transparent) inset,
+    0 16px 40px -12px rgba(0, 0, 0, 0.6),
+    0 48px 110px -30px rgba(0, 0, 0, 0.8);
+
+  /* Vidrio (sólo chrome: topbar, menú, diálogo) */
+  --glass-hi-bg: color-mix(in srgb, var(--color-surface) 74%, transparent);
+  --glass-hi-blur: blur(12px) saturate(140%);
+  --glass-menu-bg: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  --glass-menu-blur: blur(16px) saturate(145%);
+  --glass-dialog-bg: color-mix(in srgb, var(--color-panel) 94%, transparent);
+  --glass-dialog-blur: blur(20px) saturate(150%);
+  --glass-border: 1px solid color-mix(in srgb, var(--color-text) 9%, transparent);
+  --glass-edge: inset 0 1px 0 color-mix(in srgb, #ffffff 7%, transparent);
+  --scrim: rgba(4, 6, 10, 0.62);
+
+  /* Movimiento (Carbon Motion) */
+  --dur-1: 70ms;
+  --dur-2: 90ms;
+  --dur-3: 110ms;
+  --dur-4: 150ms;
+  --dur-5: 240ms;
+  --dur-6: 400ms;
+  --ease-out: cubic-bezier(0.2, 0, 0.38, 0.9);
+  --ease-entrance: cubic-bezier(0, 0, 0.38, 0.9);
+  --ease-exit: cubic-bezier(0.2, 0, 1, 0.9);
+  --ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Shell (spec §9.2) */
+  --shell-topbar-h: 44px;
+  --shell-statusbar-h: 24px;
+  --shell-rail-w: 48px;
+  --shell-panel-head-h: 32px;
+  --shell-toolbar-h: 36px;
+  --shell-tab-h: 32px;
+  --shell-winctl-w: 46px;
+  --shell-dock-w: 340px;
+  --shell-content-pad-x: 24px;
+  --shell-content-pad-top: 20px;
+  --shell-content-pad-bottom: 40px;
+  --shell-content-max: 1500px;
+  --shell-min-w: 1024px;
+  --shell-min-h: 640px;
+
+  /* Controles y datos */
+  --ctl-h-xs: 22px;
+  --ctl-h-sm: 24px;
+  --ctl-h-md: 28px;
+  --ctl-h-lg: 32px;
+  --ctl-h-xl: 36px;
+  --ctl-px: 10px;
+  --ctl-px-sm: 8px;
+  --ctl-gap: 6px;
+  --badge-h: 18px;
+  --chip-h: 22px;
+  --kbd-h: 18px;
+  --row-h: 32px;
+  --disabled-opacity: 0.45;
+
+  /* Alias de compatibilidad para las capas de la ola 1-3 */
+  --shell-nav-item-h: var(--premium-nav-item-h);
+  --shell-menubar-item-h: 24px;
+  --fw-semibold: var(--fw-strong);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Timeline (spec §10) */
+  --tl-ruler-h: 28px;
+  --tl-track-head-w: 160px;
+  --tl-playhead-w: 1px;
+  --tl-wave-alpha: 0.55;
+  --tl-handle-w: 7px;
+  --tl-sel-ring: inset 0 0 0 1.5px var(--color-accent);
+  --tl-sel-border: var(--color-accent);
+
+  /* Foco (2 px + offset 2) */
+  --focus-ring:
+    0 0 0 2px var(--color-bg),
+    0 0 0 4px color-mix(in srgb, var(--color-accent) 62%, transparent);
+  --focus-ring-inset: inset 0 0 0 2px color-mix(in srgb, var(--color-accent) 62%, transparent);
+}
+

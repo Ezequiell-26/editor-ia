@@ -22,6 +22,18 @@ import './styles/brain.css';
 import './styles/commercial.css';
 import './styles/shortcuts-and-tour.css';
 
+// ── Capa de rediseño premium (última: gana la cascada) ─────────────────────
+// Tokens y base primero, luego shell/launcher/workspace/vistas. Cada archivo
+// tiene dueño y se importa en este orden fijo. Ver
+// docs/PREMIUM-REDESIGN-PLAN.md §3.
+import './styles/premium/tokens.css';
+import './styles/premium/base.css';
+import './styles/premium/components.css';
+import './styles/premium/shell.css';
+import './styles/premium/launcher.css';
+import './styles/premium/workspace.css';
+import './styles/premium/views.css';
+
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.
 applyAppearance(loadAppearance());

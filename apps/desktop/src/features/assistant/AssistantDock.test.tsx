@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Asset } from '@editor-ia/project-schema';
 import { createEmptyProject } from '@editor-ia/project-schema';
@@ -846,5 +846,123 @@ describe('acciones rápidas del asistente', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Silencios' }));
     await screen.findByText(/No hay clips con audio/);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+describe('recuperación del proveedor desde el estado de error', () => {
+  function failingService() {
+    const service = createFakeService();
+    service.getProvider = async () => ({
+      kind: 'openai-compatible',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+      model: 'llama3.1',
+      hasKey: false,
+      keyringAvailable: true,
+    });
+    service.assistantChat = async () => {
+      throw new Error(
+        'no se pudo conectar con el proveedor; revisá la URL y que el servicio esté encendido',
+      );
+    };
+    return service;
+  }
+
+  async function renderErrorState(service: ReturnType<typeof createFakeService>, onSelect = vi.fn()) {
+    render(
+      <ProjectProvider service={service}>
+        <AssistantDock activeId="home" onSelect={onSelect} />
+      </ProjectProvider>,
+    );
+    openAssistant();
+    send('contame algo');
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toContain('no se pudo conectar con el proveedor');
+    return onSelect;
+  }
+
+  it('ofrece probar el proveedor y muestra el resultado tipado', async () => {
+    const service = failingService();
+    let probes = 0;
+    service.testProvider = async () => {
+      probes += 1;
+      return {
+        status: 'ok',
+        ok: true,
+        httpStatus: 200,
+        latencyMs: 12,
+        model: 'llama3.1',
+        detail:
+          'conexión correcta: el modelo configurado «llama3.1» está disponible en el proveedor',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+      };
+    };
+    const onSelect = await renderErrorState(service);
+
+    const group = screen.getByRole('group', { name: 'Recuperar proveedor' });
+    fireEvent.click(within(group).getByRole('button', { name: 'Probar proveedor' }));
+
+    const notice = await screen.findByText(/Conexión correcta en 12 ms/);
+    expect(notice.textContent).toContain('llama3.1');
+    expect(probes).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abrir Ajustes' }));
+    expect(onSelect).toHaveBeenCalledWith('settings');
+  });
+
+  it('si el sondeo falla muestra el motivo del backend, no un éxito', async () => {
+    const service = failingService();
+    service.testProvider = async () => {
+      throw new Error(
+        'no se pudo conectar: el servicio está apagado, la URL es incorrecta o un firewall bloquea el puerto',
+      );
+    };
+    await renderErrorState(service);
+    fireEvent.click(screen.getByRole('button', { name: 'Probar proveedor' }));
+    expect(
+      await screen.findByText(/el servicio está apagado, la URL es incorrecta/),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Conexión correcta/)).toBeNull();
+  });
+
+  it('muestra el estado busy mientras el sondeo está en curso', async () => {
+    const service = failingService();
+    let resolveProbe: (result: {
+      status: string;
+      ok: boolean;
+      httpStatus: number | null;
+      latencyMs: number;
+      model: string | null;
+      detail: string;
+      baseUrl: string;
+    }) => void = () => {};
+    service.testProvider = () =>
+      new Promise((resolve) => {
+        resolveProbe = resolve;
+      });
+    await renderErrorState(service);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Probar proveedor' }));
+    const probing = await screen.findByRole('button', { name: 'Probando…' });
+    expect((probing as HTMLButtonElement).disabled).toBe(true);
+
+    resolveProbe({
+      status: 'timeout',
+      ok: false,
+      httpStatus: null,
+      latencyMs: 8_000,
+      model: null,
+      detail: 'el proveedor no respondió en 8 segundos; revisá que Ollama esté encendido',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+    });
+    expect(await screen.findByText(/no respondió en 8 segundos/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Probando…' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Probar proveedor' })).toBeTruthy();
+  });
+
+  it('sin error no muestra acciones de recuperación', async () => {
+    render(<App service={createFakeService()} />);
+    openAssistant();
+    expect(screen.queryByRole('button', { name: 'Probar proveedor' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Abrir Ajustes' })).toBeNull();
   });
 });

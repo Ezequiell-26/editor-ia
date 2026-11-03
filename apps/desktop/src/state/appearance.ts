@@ -5,37 +5,45 @@
  * user can choose the palette, the typography, the scale and the density. All
  * of it is stored in this machine only (localStorage) and applied as CSS custom
  * properties, never baked into a project file.
+ *
+ * Desde la iteración «color customizable», el color vive en una paleta de 34
+ * tokens (`state/theme-palette.ts`); este módulo guarda el modelo persistido,
+ * conserva los 5 colores base como espejos por compatibilidad y emite las
+ * variables no-color (tipografía, radios, zoom, sidebar).
  */
 
+import {
+  THEME_PALETTES,
+  colorSchemeFor,
+  hslToHex,
+  hueOf,
+  normalizePalette,
+  paletteBaseColors,
+  paletteCssVariables,
+  paletteFromBase,
+  type ThemeColors,
+  type ThemePalette,
+  type ThemePresetId,
+  type ThemeTokenId,
+} from './theme-palette';
+
+// La api pública histórica de colors se mantiene disponible desde este módulo.
+export { THEME_PRESETS, contrastInk, hslToHex, hueOf, mixHex } from './theme-palette';
+export type { ThemeColors, ThemePalette, ThemePresetId } from './theme-palette';
+
 /**
- * v3: la identidad visual es Olyvia (azul/cian/violeta del emblema orbital).
- * Se cambia la clave a propósito para que una instalación existente reciba el
- * tema de marca en vez de conservar el grafito de la etapa Editor IA.
+ * v4: la clave se conserva para no perder las preferencias ya guardadas. Los
+ * datos sin `palette` se migran al leerlos (ver `normalizeAppearance`).
  */
 export const APPEARANCE_STORAGE_KEY = 'editor-ia.appearance.v4';
 
-export type ThemePresetId =
-  | 'olyvia'
-  | 'resolve'
-  | 'mint'
-  | 'ember'
-  | 'violet'
-  | 'ocean'
-  | 'graphite'
-  | 'custom';
 export type Density = 'compact' | 'comfortable' | 'spacious';
-
-export interface ThemeColors {
-  readonly accent: string;
-  readonly info: string;
-  readonly background: string;
-  readonly surface: string;
-  readonly text: string;
-}
 
 export interface AppearanceSettings extends ThemeColors {
   readonly version: 1;
   readonly preset: ThemePresetId;
+  /** Paleta completa de 34 tokens: la fuente de verdad del color. */
+  readonly palette: ThemePalette;
   readonly fontUi: string;
   readonly fontDisplay: string;
   readonly fontMono: string;
@@ -49,64 +57,6 @@ export interface AppearanceSettings extends ThemeColors {
   readonly showStatusbar: boolean;
   readonly reduceMotion: boolean;
 }
-
-export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, ThemeColors>> = {
-  /** Olyvia: el emblema orbital en cian, azul y violeta sobre tinta nocturna. */
-  olyvia: {
-    accent: '#1f5eff',
-    info: '#22c55e',
-    background: '#0f1115',
-    surface: '#181b20',
-    text: '#f2f5ff',
-  },
-  /**
-   * DaVinci Resolve: grafito neutro, sin tinte azul ni verde, y un azul
-   * desaturado como único acento. Los paneles se derivan mezclando la
-   * superficie con el texto, así que este preset define toda la escala.
-   */
-  resolve: {
-    accent: '#4b8fd6',
-    info: '#6fa8dc',
-    background: '#141517',
-    surface: '#1e1f22',
-    text: '#d8d9dc',
-  },
-  mint: {
-    accent: '#5eead4',
-    info: '#5aa9ff',
-    background: '#07090d',
-    surface: '#0d1117',
-    text: '#edf2f8',
-  },
-  ember: {
-    accent: '#ffab70',
-    info: '#7aa2f7',
-    background: '#0a0807',
-    surface: '#14100d',
-    text: '#f7efe8',
-  },
-  violet: {
-    accent: '#b8a1ff',
-    info: '#67e8f9',
-    background: '#080710',
-    surface: '#12101d',
-    text: '#f2effc',
-  },
-  ocean: {
-    accent: '#38bdf8',
-    info: '#a78bfa',
-    background: '#050a10',
-    surface: '#0a1420',
-    text: '#e8f5fc',
-  },
-  graphite: {
-    accent: '#d7dee8',
-    info: '#9fb3c8',
-    background: '#070809',
-    surface: '#111315',
-    text: '#f4f6f9',
-  },
-};
 
 export const UI_FONTS: readonly { readonly id: string; readonly label: string }[] = [
   { id: 'Segoe UI Variable Text', label: 'Segoe UI Variable' },
@@ -136,7 +86,8 @@ export const MONO_FONTS: readonly { readonly id: string; readonly label: string 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: 1,
   preset: 'olyvia',
-  ...THEME_PRESETS.olyvia,
+  ...paletteBaseColors(THEME_PALETTES.olyvia),
+  palette: THEME_PALETTES.olyvia,
   fontUi: 'Segoe UI Variable Text',
   fontDisplay: 'Segoe UI Variable Display',
   fontMono: 'Cascadia Mono',
@@ -155,14 +106,27 @@ const FONT_NAMES = new Set(
   [...UI_FONTS, ...DISPLAY_FONTS, ...MONO_FONTS].map((font) => font.id),
 );
 
+/** Campos base persistidos por v4 y el token de paleta que espejan. */
+const BASE_FIELDS: readonly { readonly field: keyof ThemeColors; readonly token: ThemeTokenId }[] = [
+  { field: 'accent', token: 'accent' },
+  { field: 'info', token: 'info' },
+  { field: 'background', token: 'bg' },
+  { field: 'surface', token: 'surface' },
+  { field: 'text', token: 'text' },
+];
+
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
   const numeric = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(numeric)) return fallback;
   return Math.round(Math.min(max, Math.max(min, numeric)) * 100) / 100;
 }
 
+function validHex(value: unknown): string | null {
+  return typeof value === 'string' && HEX.test(value.trim()) ? value.trim().toLowerCase() : null;
+}
+
 function hex(value: unknown, fallback: string): string {
-  return typeof value === 'string' && HEX.test(value.trim()) ? value.trim().toLowerCase() : fallback;
+  return validHex(value) ?? fallback;
 }
 
 function font(value: unknown, fallback: string): string {
@@ -194,17 +158,40 @@ function preset(value: unknown): ThemePresetId {
     : DEFAULT_APPEARANCE.preset;
 }
 
-/** Coerce anything read from disk into a safe, bounded appearance. */
+/**
+ * Coerce anything read from disk into a safe, bounded appearance.
+ *
+ * La paleta se resuelve en tres pasos (contrato §2.5):
+ * 1. fallback = preset completo o derivación desde los 5 base si es `custom`;
+ * 2. `normalizePalette` aplica sólo los tokens válidos guardados;
+ * 3. compatibilidad v4: un campo base presente y distinto del token manda y
+ *    actualiza ese token (los datos viejos guardaban sólo esos 5 colores).
+ */
 export function normalizeAppearance(raw: unknown): AppearanceSettings {
   const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  return {
-    version: 1,
-    preset: preset(source.preset),
+  const presetId = preset(source.preset);
+  const base: Record<keyof ThemeColors, string> = {
     accent: hex(source.accent, DEFAULT_APPEARANCE.accent),
     info: hex(source.info, DEFAULT_APPEARANCE.info),
     background: hex(source.background, DEFAULT_APPEARANCE.background),
     surface: hex(source.surface, DEFAULT_APPEARANCE.surface),
     text: hex(source.text, DEFAULT_APPEARANCE.text),
+  };
+  const fallbackPalette =
+    presetId === 'custom' ? paletteFromBase(base) : THEME_PALETTES[presetId];
+  let palette = normalizePalette(source.palette, fallbackPalette);
+  for (const { field, token } of BASE_FIELDS) {
+    const explicit = validHex(source[field]);
+    if (explicit && explicit !== palette[token]) {
+      palette = { ...palette, [token]: explicit };
+    }
+  }
+  const mirrors = paletteBaseColors(palette);
+  return {
+    version: 1,
+    preset: presetId,
+    ...mirrors,
+    palette,
     fontUi: font(source.fontUi, DEFAULT_APPEARANCE.fontUi),
     fontDisplay: font(source.fontDisplay, DEFAULT_APPEARANCE.fontDisplay),
     fontMono: font(source.fontMono, DEFAULT_APPEARANCE.fontMono),
@@ -219,83 +206,36 @@ export function normalizeAppearance(raw: unknown): AppearanceSettings {
   };
 }
 
-function parse(hexColor: string): [number, number, number] {
-  const value = hexColor.replace('#', '');
-  return [
-    Number.parseInt(value.slice(0, 2), 16),
-    Number.parseInt(value.slice(2, 4), 16),
-    Number.parseInt(value.slice(4, 6), 16),
-  ];
-}
-
-function toHex(channel: number): string {
-  return Math.max(0, Math.min(255, Math.round(channel)))
-    .toString(16)
-    .padStart(2, '0');
-}
-
-/** Linear mix: `weight` is the amount of `b` in the result (0–1). */
-export function mixHex(a: string, b: string, weight: number): string {
-  const first = parse(a);
-  const second = parse(b);
-  const amount = Math.min(1, Math.max(0, weight));
-  return `#${first
-    .map((channel, index) => toHex(channel + ((second[index] ?? channel) - channel) * amount))
-    .join('')}`;
-}
-
-/** Readable ink for text drawn on top of the accent colour. */
-export function contrastInk(color: string): string {
-  const [red, green, blue] = parse(color);
-  const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255;
-  return luminance > 0.6 ? '#07110e' : '#f8fffc';
-}
-
 function stack(name: string, fallback: string): string {
   return `'${name}', ${fallback}`;
 }
 
-/** CSS custom properties and data attributes for the current appearance. */
+/**
+ * CSS custom properties and data attributes for the current appearance.
+ *
+ * Los colores se delegan por completo en la paleta; acá sólo quedan las
+ * variables no-color de siempre más el matiz del acento (que la paleta ya
+ * emite y se repite para conservar el contrato histórico de este módulo).
+ */
 export function appearanceCssVariables(appearance: AppearanceSettings): Record<string, string> {
   const sidebar = appearance.sidebarLabels ? appearance.sidebarWidth : 40;
-  const commercial = appearance.preset === 'olyvia';
   return {
-    '--color-bg': appearance.background,
-    '--color-surface': appearance.surface,
-    '--color-panel': commercial ? '#181B20' : mixHex(appearance.surface, appearance.text, 0.035),
-    '--color-panel-2': commercial ? '#1C2027' : mixHex(appearance.surface, appearance.text, 0.075),
-    '--color-panel-3': commercial ? '#222731' : mixHex(appearance.surface, appearance.text, 0.115),
-    '--color-border': commercial ? '#2D3240' : mixHex(appearance.surface, appearance.text, 0.14),
-    '--color-border-strong': commercial ? '#3A4152' : mixHex(appearance.surface, appearance.text, 0.28),
-    '--color-text': appearance.text,
-    '--color-text-muted': commercial ? '#9CA3AF' : mixHex(appearance.text, appearance.background, 0.42),
-    '--color-empty': commercial ? '#6B7280' : mixHex(appearance.text, appearance.background, 0.6),
-    '--color-accent': appearance.accent,
-    '--color-accent-strong': commercial ? '#1748C9' : mixHex(appearance.accent, appearance.background, 0.24),
-    '--color-accent-ink': contrastInk(appearance.accent),
-    '--color-cta': '#FF6B2B',
-    '--color-success': '#22C55E',
-    '--color-info': appearance.info,
+    ...paletteCssVariables(appearance.palette),
+    '--primary-hue': String(hueOf(appearance.palette.accent)),
     '--font-ui': stack(appearance.fontUi, "'Segoe UI', system-ui, sans-serif"),
     '--font-display': stack(appearance.fontDisplay, "'Segoe UI', system-ui, sans-serif"),
     '--font-mono': stack(appearance.fontMono, 'ui-monospace, monospace'),
     '--sidebar-width': `${sidebar}px`,
     '--sidebar-min': `${sidebar}px`,
     '--sidebar-max': `${sidebar}px`,
-    '--radius-1': commercial ? '8px' : `${Math.max(2, appearance.radius - 3)}px`,
-    '--radius-2': commercial ? '10px' : `${appearance.radius}px`,
-    '--radius-3': commercial ? '10px' : `${appearance.radius + 4}px`,
+    // Escala de esquinas: pequeña = radio - 2, media = radio, grande = radio + 2.
+    '--radius-1': `${Math.max(2, appearance.radius - 2)}px`,
+    '--radius-2': `${appearance.radius}px`,
+    '--radius-3': `${appearance.radius + 2}px`,
     '--timeline-row': `${appearance.timelineRows}px`,
     '--app-zoom': String(appearance.scale),
     '--app-width': `${100 / appearance.scale}vw`,
     '--app-height': `${100 / appearance.scale}dvh`,
-    '--glow-accent': commercial
-      ? '0 0 12px rgba(31, 94, 255, 0.3)'
-      : `0 0 0 1px ${mixHex(appearance.accent, appearance.background, 0.65)}, 0 0 26px ${mixHex(
-          appearance.accent,
-          appearance.background,
-          0.8,
-        )}`,
   };
 }
 
@@ -307,6 +247,8 @@ export function applyAppearance(
   for (const [name, value] of Object.entries(appearanceCssVariables(appearance))) {
     root.style.setProperty(name, value);
   }
+  // El navegador pinta controles nativos (scrollbars, inputs) según el tema.
+  root.style.colorScheme = colorSchemeFor(appearance.palette);
   root.dataset.density = appearance.density;
   root.dataset.reduceMotion = String(appearance.reduceMotion);
   root.dataset.statusbar = appearance.showStatusbar ? 'visible' : 'hidden';
@@ -348,55 +290,9 @@ function safeStorage(): Storage | null {
 // Color por matiz (para la barra de color)
 // --------------------------------------------------------------------------- //
 
-/** HSL (0-360, 0-1, 0-1) a hex `#rrggbb`. */
-export function hslToHex(hue: number, saturation: number, lightness: number): string {
-  const h = ((hue % 360) + 360) % 360;
-  const s = Math.min(1, Math.max(0, saturation));
-  const l = Math.min(1, Math.max(0, lightness));
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  const [r, g, b] =
-    h < 60
-      ? [c, x, 0]
-      : h < 120
-        ? [x, c, 0]
-        : h < 180
-          ? [0, c, x]
-          : h < 240
-            ? [0, x, c]
-            : h < 300
-              ? [x, 0, c]
-              : [c, 0, x];
-  const to = (value: number) =>
-    Math.round((value + m) * 255)
-      .toString(16)
-      .padStart(2, '0');
-  return `#${to(r)}${to(g)}${to(b)}`;
-}
-
-/** Hex `#rrggbb` a matiz (0-360). Devuelve 0 si no se puede leer. */
-export function hueOf(hex: string): number {
-  const match = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!match) return 0;
-  const value = Number.parseInt(match[1]!, 16);
-  const r = ((value >> 16) & 255) / 255;
-  const g = ((value >> 8) & 255) / 255;
-  const b = (value & 255) / 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const delta = max - min;
-  if (delta === 0) return 0;
-  let hue: number;
-  if (max === r) hue = ((g - b) / delta) % 6;
-  else if (max === g) hue = (b - r) / delta + 2;
-  else hue = (r - g) / delta + 4;
-  return Math.round(((hue * 60) % 360 + 360) % 360);
-}
-
 /**
- * Paleta derivada de un matiz. El acento se mantiene legible sobre fondo oscuro
- * y el color secundario queda a 150° para que no compita con el acento.
+ * Paleta de dos colores derivada de un matiz. El acento se mantiene legible
+ * sobre fondo oscuro y el color secundario queda a 150° para que no compita.
  */
 export function paletteFromHue(hue: number): Pick<ThemeColors, 'accent' | 'info'> {
   return {

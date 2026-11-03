@@ -59,7 +59,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'mixer', label: 'Mezcla', hint: 'Mezclador · Ganancia por pista, solo, mute y master', group: 'herramientas' },
   { id: 'vfx', label: 'VFX', hint: 'VFX · Nodos, rotoscopía poligonal y seguimiento facial', group: 'herramientas' },
   { id: 'download', label: 'Descargar', hint: 'Descargador web · Bajar videos, fotos y audio hasta 8K', group: 'herramientas' },
-  { id: 'director', label: 'Director', hint: 'Director IA · Análisis automático de video, cortes y ritmo', group: 'herramientas' },
+  { id: 'director', label: 'Director', hint: 'Director local · Análisis medido, cortes y shorts con heurísticas y rostros (sin LLM)', group: 'herramientas' },
   { id: 'auto-edit', label: 'Automático', hint: 'Editor automático · Analiza el video y crea variantes editables sin LLM', group: 'herramientas' },
   { id: 'youtube', label: 'YouTube', hint: 'Analizador de canales · Mejor video, miniaturas, títulos y comentarios', group: 'herramientas' },
   { id: 'factory', label: 'Fábrica', hint: 'Fábrica de videos · Generación en lote de variantes desde un brief', group: 'herramientas' },
@@ -72,7 +72,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'sharpen', label: 'Definición', hint: 'Nitidez perceptual · Máscara de enfoque, curva S, grano y Lanczos 4K', group: 'herramientas' },
   { id: 'thumbnails', label: 'Miniaturas', hint: 'Creador de miniaturas · Diseñar carátulas para YouTube y redes', group: 'herramientas' },
   { id: 'localization', label: 'Localización', hint: 'Subtítulos y traducción · Traducir a 8 idiomas con exportación SRT/VTT', group: 'herramientas' },
-  { id: 'ai-hub', label: 'AI Hub', hint: 'Hub de IA · Prompts, briefs creativos y modelos locales con tokens', group: 'herramientas' },
+  { id: 'ai-hub', label: 'AI Hub', hint: 'Hub de IA · Prompts, briefs y operador local (comandos sin tokens)', group: 'herramientas' },
   { id: 'motion', label: 'Motion', hint: 'Motion graphics · Títulos, lower-thirds y cierres con render local', group: 'herramientas' },
   { id: 'visuals', label: 'Efectos', hint: 'Efectos y transiciones · Aplicar presets, ajustes y auditoría visual', group: 'herramientas' },
   { id: 'background', label: 'Fondo', hint: 'Quitar fondo · Recorte de silueta automático con IA local', group: 'herramientas' },
@@ -118,7 +118,7 @@ export const MAIN_NAV_VIEWS: readonly NavView[] = [
   { id: 'settings', label: 'Ajustes', hint: 'Apariencia, IA, integraciones y datos', group: 'ayuda' },
 ];
 
-/** Herramientas avanzadas visibles tras «Más»; hubs, IA y MCP van aparte. */
+/** Vistas que ya se alcanzan dentro de un hub (no repiten puerta en «Más»). */
 const HUB_COVERED = new Set<ViewId>([
   'youtube',
   'compliance',
@@ -134,12 +134,13 @@ const HUB_COVERED = new Set<ViewId>([
   'background',
 ]);
 
+/**
+ * Herramientas avanzadas visibles tras «Más». AI Hub y MCP también viven acá:
+ * son superficies de IA reales (compositor/operador y servidores MCP) y tenerlas
+ * sólo en la paleta o en Ajustes las volvía indescubribles.
+ */
 export const SECONDARY_NAV_VIEWS: readonly NavView[] = NAV_VIEWS.filter(
-  (view) =>
-    !MAIN_IDS.has(view.id) &&
-    !HUB_COVERED.has(view.id) &&
-    view.id !== 'ai-hub' &&
-    view.id !== 'mcp',
+  (view) => !MAIN_IDS.has(view.id) && !HUB_COVERED.has(view.id),
 );
 
 /** Vistas donde la ruta no aporta contexto. */

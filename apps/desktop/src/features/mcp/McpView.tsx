@@ -4,6 +4,7 @@ import { ViewToolbar } from '../../components/ViewToolbar';
 import type {
   McpProbeResult,
   McpServerConfig,
+  McpServerInfo,
   McpServerInput,
   McpSessionInfo,
   McpToolInfo,
@@ -146,6 +147,17 @@ function idleLabel(idleMs: number): string {
   return `${Math.round(minutes / 60)} h`;
 }
 
+/**
+ * Token del servidor MCP propio enmascarado. El valor completo sólo aparece
+ * después de una acción explícita del usuario ("Mostrar token") y nunca se
+ * incluye en el texto de la página por defecto.
+ */
+export function maskedToken(token: string): string {
+  if (!token) return '—';
+  if (token.length <= 8) return '••••••••';
+  return `${token.slice(0, 4)}••••••••${token.slice(-4)}`;
+}
+
 /** MCP tools may return structured JSON as content[].text. */
 function toolPayload(value: unknown): unknown {
   if (!value || typeof value !== 'object') return value;
@@ -207,6 +219,71 @@ export function McpView() {
   const [flowPayload, setFlowPayload] = useState<unknown>(null);
   const [flowPaths, setFlowPaths] = useState<string[]>([]);
   const [flowImporting, setFlowImporting] = useState(false);
+  // Servidor MCP propio (el que expone Olyvia a agentes externos).
+  const [ownServer, setOwnServer] = useState<McpServerInfo | null>(null);
+  const [ownChecked, setOwnChecked] = useState(false);
+  const [ownBusy, setOwnBusy] = useState(false);
+  const [ownError, setOwnError] = useState<string | null>(null);
+  const [ownTokenVisible, setOwnTokenVisible] = useState(false);
+  const [ownCopied, setOwnCopied] = useState<string | null>(null);
+
+  const refreshOwnServer = useCallback(async () => {
+    if (!store.service.available) {
+      setOwnServer(null);
+      setOwnChecked(true);
+      return;
+    }
+    setOwnError(null);
+    try {
+      setOwnServer(await store.service.mcpServerStatus());
+    } catch (failure) {
+      setOwnError(
+        failure instanceof Error
+          ? failure.message
+          : 'no se pudo leer el estado del servidor MCP de Olyvia',
+      );
+    } finally {
+      setOwnChecked(true);
+    }
+  }, [store.service]);
+
+  useEffect(() => {
+    void refreshOwnServer();
+  }, [refreshOwnServer]);
+
+  async function startOwnServer(): Promise<void> {
+    setOwnBusy(true);
+    setOwnError(null);
+    setOwnCopied(null);
+    try {
+      const info = await store.service.startMcpServer();
+      setOwnServer(info);
+      store.setNotice(
+        'Servidor MCP de Olyvia activo. Copiá la URL y el token para configurarlo en un agente externo.',
+      );
+    } catch (failure) {
+      setOwnError(
+        failure instanceof Error ? failure.message : 'no se pudo iniciar el servidor MCP de Olyvia',
+      );
+    } finally {
+      setOwnBusy(false);
+    }
+  }
+
+  async function copyOwnServer(value: 'url' | 'token'): Promise<void> {
+    if (!ownServer) return;
+    const text = value === 'url' ? ownServer.url : ownServer.token;
+    try {
+      await navigator.clipboard.writeText(text);
+      setOwnCopied(value === 'url' ? 'URL copiada.' : 'Token copiado al portapapeles.');
+    } catch {
+      setOwnCopied(
+        value === 'url'
+          ? 'No se pudo copiar la URL: copiala seleccionando el texto visible.'
+          : 'No se pudo copiar el token: usá «Mostrar token» y copialo a mano.',
+      );
+    }
+  }
 
   const refresh = useCallback(async () => {
     if (!store.service.available) {
@@ -673,6 +750,124 @@ export function McpView() {
           </button>
         </div>
       ) : null}
+
+      <section className="card" aria-labelledby="own-mcp-title">
+        <div className="production-card-head">
+          <div>
+            <p className="eyebrow">Servidor MCP de Olyvia</p>
+            <h3 id="own-mcp-title">Control de la app para agentes externos</h3>
+          </div>
+          <span className={`status-pill ${ownServer ? 'saved' : ownChecked ? 'dirty' : ''}`}>
+            {ownServer ? 'Activo' : ownChecked ? 'Sin endpoint' : 'Comprobando'}
+          </span>
+        </div>
+        <p className="muted">
+          Expone las herramientas de Olyvia por HTTP local con token Bearer, para que Claude,
+          Cursor u otro cliente MCP maneje esta app.
+        </p>
+        {!store.service.available ? (
+          <p className="fine-print">
+            El servidor MCP de Olyvia corre sólo en la app de escritorio: el navegador no puede
+            abrir el endpoint HTTP ni leer el token persistente.
+          </p>
+        ) : (
+          <>
+            {ownError ? (
+              <p className="notice notice-warning" role="alert">
+                {ownError}
+              </p>
+            ) : null}
+            {ownServer ? (
+              <>
+                <dl className="data-list">
+                  <div>
+                    <dt>URL</dt>
+                    <dd className="path">{ownServer.url}</dd>
+                  </div>
+                  <div>
+                    <dt>Token</dt>
+                    <dd className="path">
+                      <code>{ownTokenVisible ? ownServer.token : maskedToken(ownServer.token)}</code>
+                    </dd>
+                  </div>
+                </dl>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void copyOwnServer('url')}
+                  >
+                    Copiar URL
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void copyOwnServer('token')}
+                  >
+                    Copiar token
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => setOwnTokenVisible((visible) => !visible)}
+                  >
+                    {ownTokenVisible ? 'Ocultar token' : 'Mostrar token'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void refreshOwnServer()}
+                    disabled={ownBusy}
+                  >
+                    Comprobar estado
+                  </button>
+                </div>
+                {ownTokenVisible ? (
+                  <p className="fine-print">
+                    El token completo queda visible en pantalla; ocultalo cuando termines.
+                  </p>
+                ) : null}
+                {ownCopied ? (
+                  <p className="fine-print" role="status">
+                    {ownCopied}
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <p className="fine-print">
+                  {ownChecked
+                    ? 'Todavía no hay un endpoint MCP activo en esta sesión.'
+                    : 'Comprobando el estado del endpoint…'}
+                </p>
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="primary small"
+                    onClick={() => void startOwnServer()}
+                    disabled={ownBusy}
+                  >
+                    {ownBusy ? 'Iniciando…' : 'Iniciar servidor MCP'}
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost small"
+                    onClick={() => void refreshOwnServer()}
+                    disabled={ownBusy}
+                  >
+                    Volver a comprobar
+                  </button>
+                </div>
+              </>
+            )}
+            <p className="fine-print">
+              El servidor se inicia con Olyvia y se apaga al cerrarla. Esta versión no expone un
+              comando para detenerlo o reiniciarlo desde la interfaz: «Iniciar» sólo lo levanta si
+              todavía no está activo.
+            </p>
+          </>
+        )}
+      </section>
 
       <div className="mcp-layout">
         <div className="mcp-list">

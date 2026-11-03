@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { enterApp } from './helpers';
+import { clickNav, enterApp } from './helpers';
 
 test.beforeEach(async ({ page }) => {
   const errors: string[] = [];
@@ -17,27 +17,40 @@ test('la app arranca con el shell completo', async ({ page }) => {
 });
 
 test('la barra lateral navega por todas las vistas', async ({ page }) => {
-  const views = [
+  // Vistas del rail principal (MAIN_NAV_VIEWS): quedan marcadas con aria-current.
+  const primaryViews = [
     'Inicio',
     'Proyectos',
-    'Director',
-    'Producción',
-    'Fábrica',
-    'Editor',
     'Guion',
     'Medios',
+    'Producción',
+    'Editor',
     'Descargar',
+    'Creador',
+    'Laboratorio',
     'Aprender',
   ];
-  for (const label of views) {
-    await page.locator(`.sidebar button[aria-label="${label}"]`).click();
-    await expect(page.locator(`.sidebar button[aria-label="${label}"]`)).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
-    // Cada vista renderiza contenido propio.
+  for (const label of primaryViews) {
+    await clickNav(page, label);
+    await expect(
+      page.locator(`.sidebar > ul > li > button[aria-label="${label}"]`),
+    ).toHaveAttribute('aria-current', 'page');
     await expect(page.locator('main.content')).not.toBeEmpty();
   }
+
+  // Vistas secundarias: viven detrás de «Más» y también renderizan contenido.
+  // Fábrica/Convertir/etc. son HUB_COVERED (se alcanzan dentro de Creador o
+  // Laboratorio), así que no tienen puerta propia en el rail.
+  const more = page.locator('.sidebar .nav-more > button').first();
+  await expect(more).toBeVisible();
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+  const moreList = page.locator('#sidebar-more-list');
+  await expect(moreList).toBeVisible();
+  await expect(moreList.getByRole('button', { name: 'Director', exact: true })).toBeVisible();
+  await expect(moreList.getByRole('button', { name: 'AI Hub', exact: true })).toBeVisible();
+  await expect(moreList.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+  await clickNav(page, 'Director');
+  await expect(page.locator('main.content')).not.toBeEmpty();
 
   // Ajustes no es una vista: abre su propia ventana y no cambia el rail.
   await page.locator('.sidebar button[aria-label="Ajustes"]').click();
@@ -76,6 +89,9 @@ test('la ruta de producción vive solo en Inicio, sin franja superior', async ({
   await expect(page.locator('.pipeline-guide-step')).toHaveCount(6);
   await expect(page.locator('.pipeline-guide-step.current')).toContainText('Proyecto');
 
-  await page.locator('.sidebar button[aria-label="Convertir"]').click();
+  // Convertir está dentro del hub Laboratorio (HUB_COVERED): la ruta sigue sin
+  // franja propia en esa superficie.
+  await clickNav(page, 'Laboratorio');
   await expect(page.locator('.pipeline-bar')).toHaveCount(0);
+  await expect(page.locator('main.content')).not.toBeEmpty();
 });

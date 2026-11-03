@@ -5,13 +5,16 @@
    ============================================================ */
 
 :root {
-  --olyvia-cyan: #35d6ff;
-  --olyvia-blue: #4f8dff;
-  --olyvia-violet: #8b5cf6;
-  --olyvia-magenta: #d35cff;
-  --olyvia-ink: #05070f;
-  --olyvia-panel: #0a0f1e;
-  --olyvia-border: rgba(96, 137, 255, 0.22);
+  /* Fallback estático de primera pintura: el motor de paleta re-emite estos
+   * aliases inline en documentElement al arrancar (contrato §2.4). Mientras no
+   * corra el JS derivan de los tokens base de `tokens.css`. */
+  --olyvia-cyan: var(--color-brand-cyan);
+  --olyvia-blue: var(--color-brand-blue);
+  --olyvia-violet: var(--color-brand-violet);
+  --olyvia-magenta: var(--color-brand-magenta);
+  --olyvia-ink: var(--color-bg);
+  --olyvia-panel: var(--color-surface);
+  --olyvia-border: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
   --brand-gradient: linear-gradient(
     135deg,
     var(--olyvia-cyan) 0%,
@@ -19,14 +22,15 @@
     var(--olyvia-violet) 76%,
     var(--olyvia-magenta) 100%
   );
-  --brand-glow: 0 0 24px rgba(53, 214, 255, 0.2), 0 0 64px rgba(139, 92, 246, 0.15);
+  --brand-glow: 0 0 24px color-mix(in srgb, var(--olyvia-cyan) 20%, transparent),
+    0 0 64px color-mix(in srgb, var(--olyvia-violet) 15%, transparent);
 }
 
 body {
   background:
-    radial-gradient(1100px 620px at 8% -12%, rgba(53, 214, 255, 0.13), transparent 62%),
-    radial-gradient(950px 660px at 96% 0%, rgba(139, 92, 246, 0.16), transparent 60%),
-    radial-gradient(900px 700px at 50% 118%, rgba(211, 92, 255, 0.08), transparent 65%),
+    radial-gradient(1100px 620px at 8% -12%, color-mix(in srgb, var(--olyvia-cyan) 13%, transparent), transparent 62%),
+    radial-gradient(950px 660px at 96% 0%, color-mix(in srgb, var(--olyvia-violet) 16%, transparent), transparent 60%),
+    radial-gradient(900px 700px at 50% 118%, color-mix(in srgb, var(--olyvia-magenta) 8%, transparent), transparent 65%),
     var(--color-bg) !important;
 }
 
@@ -36,7 +40,7 @@ body {
 
 /* ── Topbar ─────────────────────────────────────────────── */
 .app-shell .topbar {
-  background: linear-gradient(180deg, rgba(7, 11, 22, 0.99), rgba(7, 11, 22, 0.93)) !important;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--olyvia-panel) 99%, transparent), color-mix(in srgb, var(--olyvia-panel) 93%, transparent)) !important;
   border-bottom: 1px solid var(--olyvia-border) !important;
 }
 
@@ -56,26 +60,30 @@ body {
   height: 22px;
   object-fit: cover;
   border-radius: 6px;
-  border: 1px solid rgba(150, 185, 255, 0.22);
-  box-shadow: 0 0 14px rgba(53, 214, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 22%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--olyvia-cyan) 18%, transparent);
 }
 
 .topbar-brand span {
   font-size: 10.5px;
   font-weight: 800;
   letter-spacing: 0.1em;
-  color: #edf7ff;
+  color: var(--color-text);
   white-space: nowrap;
 }
 
 .app-shell .statusbar {
-  background: linear-gradient(90deg, #060a14, #080d19) !important;
+  background: linear-gradient(
+    90deg,
+    var(--olyvia-ink),
+    color-mix(in srgb, var(--olyvia-ink) 80%, var(--olyvia-panel))
+  ) !important;
   border-top-color: var(--olyvia-border) !important;
 }
 
 /* ── Sidebar ────────────────────────────────────────────── */
 .app-shell .sidebar {
-  background: linear-gradient(180deg, #070b16 0%, #050811 100%) !important;
+  background: linear-gradient(180deg, var(--olyvia-panel) 0%, var(--olyvia-ink) 100%) !important;
   border-right: 1px solid var(--olyvia-border) !important;
 }
 
@@ -87,9 +95,9 @@ body {
   width: 30px !important;
   height: 30px !important;
   border-radius: 8px !important;
-  border: 1px solid rgba(120, 155, 255, 0.28) !important;
-  background: #05070f !important;
-  box-shadow: 0 0 16px rgba(53, 214, 255, 0.14) !important;
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 28%, transparent) !important;
+  background: var(--olyvia-ink) !important;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--olyvia-cyan) 14%, transparent) !important;
   overflow: hidden !important;
 }
 
@@ -109,51 +117,51 @@ body {
 }
 
 .sidebar-brand-sub {
-  color: #8fa4c9 !important;
+  color: var(--color-text-muted) !important;
 }
 
 .sidebar button[aria-current='page'] {
-  background: linear-gradient(90deg, rgba(53, 214, 255, 0.17), rgba(139, 92, 246, 0.12)) !important;
-  border-color: rgba(53, 214, 255, 0.3) !important;
-  color: #f4fbff !important;
-  box-shadow: inset 0 0 0 1px rgba(53, 214, 255, 0.08), 0 0 18px rgba(53, 214, 255, 0.06) !important;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--olyvia-cyan) 17%, transparent), color-mix(in srgb, var(--olyvia-violet) 12%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 30%, transparent) !important;
+  color: var(--color-text) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--olyvia-cyan) 8%, transparent), 0 0 18px color-mix(in srgb, var(--olyvia-cyan) 6%, transparent) !important;
 }
 
 .sidebar button[aria-current='page'] .nav-icon {
-  color: #7ee7ff !important;
-  filter: drop-shadow(0 0 6px rgba(53, 214, 255, 0.4));
+  color: var(--color-accent-light) !important;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--olyvia-cyan) 40%, transparent));
 }
 
 .sidebar button[aria-current='page']::before {
   background: var(--brand-gradient) !important;
-  box-shadow: 0 0 14px rgba(53, 214, 255, 0.55) !important;
+  box-shadow: 0 0 14px color-mix(in srgb, var(--olyvia-cyan) 55%, transparent) !important;
 }
 
 .sidebar button:hover .nav-icon {
-  color: #9edfff !important;
+  color: var(--color-accent-light) !important;
 }
 
 /* ── Controles primarios ────────────────────────────────── */
 button.primary {
   background: var(--brand-gradient) !important;
-  border-color: rgba(180, 220, 255, 0.35) !important;
-  color: #f8fcff !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 35%, transparent) !important;
+  color: var(--color-text) !important;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
   box-shadow:
-    0 8px 24px rgba(53, 214, 255, 0.16),
-    0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
+    0 8px 24px color-mix(in srgb, var(--olyvia-cyan) 16%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-text) 8%, transparent) inset !important;
 }
 
 button.primary:hover:not(:disabled) {
   filter: brightness(1.08) saturate(1.05);
   box-shadow:
-    0 10px 30px rgba(53, 214, 255, 0.24),
-    0 0 22px rgba(139, 92, 246, 0.18),
-    0 0 0 1px rgba(255, 255, 255, 0.1) inset !important;
+    0 10px 30px color-mix(in srgb, var(--olyvia-cyan) 24%, transparent),
+    0 0 22px color-mix(in srgb, var(--olyvia-violet) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--color-text) 10%, transparent) inset !important;
 }
 
 button.primary::before {
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.28), transparent 60%) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-text) 28%, transparent), transparent 60%) !important;
 }
 
 button:focus-visible,
@@ -165,22 +173,24 @@ textarea:focus-visible {
 }
 
 ::selection {
-  background: rgba(53, 214, 255, 0.28);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--olyvia-cyan) 28%, transparent);
+  color: var(--color-text);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #2b4d86, #26305c) !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--olyvia-blue) 55%, var(--olyvia-ink)),
+    color-mix(in srgb, var(--olyvia-violet) 40%, var(--olyvia-ink))
+  ) !important;
   border-color: var(--color-bg) !important;
 }
 
 /* ── Superficies ────────────────────────────────────────── */
-.app-shell .card,
-.app-shell .panel,
-.app-shell .modal,
-.app-shell .app-modal,
-.app-shell .menubar-dropdown,
-.app-shell .profile-popover,
+/* Ola 1: `.card`, `.panel`, `.modal`, `.app-modal`, `.profile-popover` y
+ * `.menubar-dropdown` salieron de esta lista: los define la capa premium
+ * (`--chrome-4`, `--glass-menu-*`, `--rad-*`, `--elev-1/3`). Los paneles del
+ * workspace siguen acá hasta la Ola 2. */
 .app-shell .project-current,
 .app-shell .factory-empty,
 .app-shell .script-provider,
@@ -199,7 +209,7 @@ textarea:focus-visible {
   background: var(--color-panel) !important;
   border-color: var(--olyvia-border) !important;
   border-radius: 12px !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text) 3.5%, transparent) !important;
 }
 
 .app-shell .view-toolbar {
@@ -217,15 +227,15 @@ textarea:focus-visible {
 }
 
 .count-pill {
-  color: #b9e9ff !important;
-  background: rgba(53, 214, 255, 0.08) !important;
-  border-color: rgba(53, 214, 255, 0.28) !important;
+  color: var(--color-accent-light) !important;
+  background: color-mix(in srgb, var(--olyvia-cyan) 8%, transparent) !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 28%, transparent) !important;
   border-radius: 999px !important;
 }
 
 .notice {
-  border-color: rgba(53, 214, 255, 0.3) !important;
-  background: rgba(53, 214, 255, 0.07) !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 30%, transparent) !important;
+  background: color-mix(in srgb, var(--olyvia-cyan) 7%, transparent) !important;
 }
 
 /* ── Inicio ─────────────────────────────────────────────── */
@@ -233,14 +243,14 @@ textarea:focus-visible {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(520px 260px at 92% 10%, rgba(139, 92, 246, 0.16), transparent 65%),
-    radial-gradient(420px 240px at 4% 90%, rgba(53, 214, 255, 0.1), transparent 65%),
+    radial-gradient(520px 260px at 92% 10%, color-mix(in srgb, var(--olyvia-violet) 16%, transparent), transparent 65%),
+    radial-gradient(420px 240px at 4% 90%, color-mix(in srgb, var(--olyvia-cyan) 10%, transparent), transparent 65%),
     var(--color-surface) !important;
   border-color: var(--olyvia-border) !important;
 }
 
 .home-hero-copy h1 {
-  color: #f4f9ff;
+  color: var(--color-text);
 }
 
 /* ── Motion ─────────────────────────────────────────────── */
@@ -252,15 +262,15 @@ textarea:focus-visible {
 
 .motion-template.active {
   border-color: var(--olyvia-cyan) !important;
-  box-shadow: 0 0 0 1px rgba(53, 214, 255, 0.35), 0 0 24px rgba(139, 92, 246, 0.16) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--olyvia-cyan) 35%, transparent), 0 0 24px color-mix(in srgb, var(--olyvia-violet) 16%, transparent) !important;
 }
 
 .motion-preview-frame {
   border-color: var(--olyvia-border) !important;
   background:
-    radial-gradient(400px 220px at 50% 0%, rgba(53, 214, 255, 0.09), transparent 60%),
-    #05080f !important;
-  box-shadow: inset 0 0 40px rgba(53, 214, 255, 0.04);
+    radial-gradient(400px 220px at 50% 0%, color-mix(in srgb, var(--olyvia-cyan) 9%, transparent), transparent 60%),
+    var(--olyvia-ink) !important;
+  box-shadow: inset 0 0 40px color-mix(in srgb, var(--olyvia-cyan) 4%, transparent);
 }
 
 .motion-form-panel {
@@ -270,22 +280,26 @@ textarea:focus-visible {
 /* ── Start screen ───────────────────────────────────────── */
 .start-screen {
   background:
-    radial-gradient(900px 560px at 8% -10%, rgba(53, 214, 255, 0.14), transparent 60%),
-    radial-gradient(900px 620px at 95% 0%, rgba(139, 92, 246, 0.17), transparent 62%),
-    #05070f !important;
+    radial-gradient(900px 560px at 8% -10%, color-mix(in srgb, var(--olyvia-cyan) 14%, transparent), transparent 60%),
+    radial-gradient(900px 620px at 95% 0%, color-mix(in srgb, var(--olyvia-violet) 17%, transparent), transparent 62%),
+    var(--olyvia-ink) !important;
 }
 
 .start-window {
-  background: #070b16 !important;
+  background: var(--olyvia-panel) !important;
   border: 1px solid var(--olyvia-border) !important;
   border-radius: 14px !important;
   box-shadow:
     0 34px 100px rgba(0, 0, 0, 0.65),
-    0 0 70px rgba(53, 214, 255, 0.08) !important;
+    0 0 70px color-mix(in srgb, var(--olyvia-cyan) 8%, transparent) !important;
 }
 
 .start-window-header {
-  background: linear-gradient(90deg, rgba(10, 18, 36, 0.99), rgba(7, 11, 22, 0.99)) !important;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--olyvia-panel) 99%, transparent),
+    color-mix(in srgb, var(--olyvia-ink) 72%, var(--olyvia-panel))
+  ) !important;
   border-bottom-color: var(--olyvia-border) !important;
 }
 
@@ -293,8 +307,8 @@ textarea:focus-visible {
   width: 26px !important;
   height: 26px !important;
   border-radius: 7px !important;
-  border: 1px solid rgba(120, 155, 255, 0.3) !important;
-  background: #05070f !important;
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 30%, transparent) !important;
+  background: var(--olyvia-ink) !important;
   overflow: hidden !important;
 }
 
@@ -315,68 +329,68 @@ textarea:focus-visible {
 }
 
 .start-app-pill {
-  color: #8fe9ff !important;
-  background: rgba(53, 214, 255, 0.09) !important;
-  border-color: rgba(53, 214, 255, 0.3) !important;
+  color: var(--color-accent-light) !important;
+  background: color-mix(in srgb, var(--olyvia-cyan) 9%, transparent) !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 30%, transparent) !important;
 }
 
 .start-version-btn {
-  background: #0b1324 !important;
+  background: var(--olyvia-panel) !important;
   border-color: var(--olyvia-border) !important;
 }
 
 .start-version-dot {
   background: var(--olyvia-cyan) !important;
-  box-shadow: 0 0 8px rgba(53, 214, 255, 0.7);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--olyvia-cyan) 70%, transparent);
 }
 
 .start-body {
-  background: #070b16 !important;
+  background: var(--olyvia-panel) !important;
 }
 
 .start-left-pane {
-  background: linear-gradient(180deg, #080e1d, #050810) !important;
+  background: linear-gradient(180deg, var(--olyvia-panel), var(--olyvia-ink)) !important;
   border-right-color: var(--olyvia-border) !important;
 }
 
 .start-right-pane {
   background:
-    radial-gradient(520px 300px at 90% 0%, rgba(139, 92, 246, 0.09), transparent 62%),
-    #070b16 !important;
+    radial-gradient(520px 300px at 90% 0%, color-mix(in srgb, var(--olyvia-violet) 9%, transparent), transparent 62%),
+    var(--olyvia-panel) !important;
 }
 
 .start-action-card--create {
-  background: linear-gradient(135deg, rgba(53, 214, 255, 0.14), rgba(139, 92, 246, 0.11)) !important;
-  border-color: rgba(53, 214, 255, 0.36) !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--olyvia-cyan) 14%, transparent), color-mix(in srgb, var(--olyvia-violet) 11%, transparent)) !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 36%, transparent) !important;
   border-radius: 10px !important;
 }
 
 .start-action-card--open {
-  background: rgba(10, 15, 30, 0.86) !important;
+  background: color-mix(in srgb, var(--olyvia-panel) 86%, transparent) !important;
   border-color: var(--olyvia-border) !important;
   border-radius: 10px !important;
 }
 
 .start-action-icon {
-  color: #7ee7ff !important;
+  color: var(--color-accent-light) !important;
 }
 
 .start-btn--primary {
   background: var(--brand-gradient) !important;
   border: 0 !important;
-  color: #f8fcff !important;
-  box-shadow: 0 10px 26px rgba(53, 214, 255, 0.18) !important;
+  color: var(--color-text) !important;
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--olyvia-cyan) 18%, transparent) !important;
 }
 
 .start-btn--ghost {
   border-color: var(--olyvia-border) !important;
-  color: #cfe3ff !important;
+  color: var(--color-text) !important;
 }
 
 .start-template-row,
 .start-tool-chip,
 .start-project-card {
-  background: rgba(9, 14, 28, 0.9) !important;
+  background: color-mix(in srgb, var(--olyvia-panel) 90%, transparent) !important;
   border-color: var(--olyvia-border) !important;
   border-radius: 10px !important;
 }
@@ -384,12 +398,12 @@ textarea:focus-visible {
 .start-template-row:hover,
 .start-tool-chip:hover,
 .start-project-card:hover {
-  border-color: rgba(53, 214, 255, 0.45) !important;
-  box-shadow: 0 0 20px rgba(53, 214, 255, 0.1) !important;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 45%, transparent) !important;
+  box-shadow: 0 0 20px color-mix(in srgb, var(--olyvia-cyan) 10%, transparent) !important;
 }
 
 .start-section-title {
-  color: #dcecff !important;
+  color: var(--color-text) !important;
 }
 
 .start-format-frame {
@@ -399,13 +413,13 @@ textarea:focus-visible {
 .start-format-grid button.active,
 .start-fps-grid button.active {
   border-color: var(--olyvia-cyan) !important;
-  background: rgba(53, 214, 255, 0.1) !important;
+  background: color-mix(in srgb, var(--olyvia-cyan) 10%, transparent) !important;
 }
 
 /* ── Legibilidad fina ───────────────────────────────────── */
 .app-shell .fine-print,
 .app-shell .muted {
-  color: #91a4c6 !important;
+  color: var(--color-text-muted) !important;
 }
 
 .app-shell .asset-rail,
@@ -447,14 +461,14 @@ textarea:focus-visible {
   place-items: center;
   width: 46px;
   height: 46px;
-  border: 1px solid rgba(160, 214, 255, 0.4);
+  border: 1px solid color-mix(in srgb, var(--olyvia-cyan) 40%, transparent);
   border-radius: 50%;
   background: var(--brand-gradient);
-  color: #f8fcff;
+  color: var(--color-text);
   box-shadow:
     0 12px 30px rgba(0, 0, 0, 0.45),
-    0 0 24px rgba(53, 214, 255, 0.28),
-    0 0 52px rgba(139, 92, 246, 0.16);
+    0 0 24px color-mix(in srgb, var(--olyvia-cyan) 28%, transparent),
+    0 0 52px color-mix(in srgb, var(--olyvia-violet) 16%, transparent);
   transition: transform 0.2s ease, filter 0.2s ease;
 }
 
@@ -464,7 +478,7 @@ textarea:focus-visible {
 }
 
 .assistant-launcher:focus-visible {
-  outline: 2px solid rgba(53, 214, 255, 0.8);
+  outline: 2px solid color-mix(in srgb, var(--olyvia-cyan) 80%, transparent);
   outline-offset: 3px;
 }
 
@@ -489,8 +503,8 @@ textarea:focus-visible {
   border-radius: 50%;
   background: radial-gradient(
     closest-side,
-    rgba(79, 141, 255, 0.34),
-    rgba(139, 92, 246, 0.16) 58%,
+    color-mix(in srgb, var(--olyvia-blue) 34%, transparent),
+    color-mix(in srgb, var(--olyvia-violet) 16%, transparent) 58%,
     transparent 76%
   );
   filter: blur(9px);
@@ -532,13 +546,13 @@ textarea:focus-visible {
   stroke: #5fe2ff;
   stroke-width: 14;
   stroke-linecap: round;
-  filter: drop-shadow(0 0 5px rgba(53, 214, 255, 0.9))
-    drop-shadow(0 0 14px rgba(79, 141, 255, 0.55));
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--olyvia-cyan) 90%, transparent))
+    drop-shadow(0 0 14px color-mix(in srgb, var(--olyvia-blue) 55%, transparent));
 }
 
 .pet-gaze circle {
   filter: drop-shadow(0 0 3px rgba(220, 252, 255, 0.95))
-    drop-shadow(0 0 10px rgba(53, 214, 255, 0.65));
+    drop-shadow(0 0 10px color-mix(in srgb, var(--olyvia-cyan) 65%, transparent));
 }
 
 .pet-look {
@@ -564,7 +578,7 @@ textarea:focus-visible {
   background: radial-gradient(circle at 42% 38%, #ffffff, #d6fbff 55%, #6fe7ff);
   box-shadow:
     0 0 5px rgba(210, 250, 255, 0.8),
-    0 0 12px rgba(53, 214, 255, 0.6);
+    0 0 12px color-mix(in srgb, var(--olyvia-cyan) 60%, transparent);
   opacity: 0.1;
   transform: translate(-50%, -50%) scale(0.85);
   animation: pet-dot 2.8s ease-in-out infinite;
@@ -754,11 +768,11 @@ textarea:focus-visible {
   border: 1px solid var(--olyvia-border);
   border-radius: 16px;
   background:
-    radial-gradient(420px 220px at 100% 0%, rgba(139, 92, 246, 0.13), transparent 65%),
-    linear-gradient(180deg, #0a1225, #070b16 70%);
+    radial-gradient(420px 220px at 100% 0%, color-mix(in srgb, var(--olyvia-violet) 13%, transparent), transparent 65%),
+    linear-gradient(180deg, var(--olyvia-panel), var(--olyvia-panel) 70%);
   box-shadow:
     0 28px 80px rgba(0, 0, 0, 0.65),
-    0 0 42px rgba(53, 214, 255, 0.1);
+    0 0 42px color-mix(in srgb, var(--olyvia-cyan) 10%, transparent);
 }
 
 .assistant-head {
@@ -768,7 +782,7 @@ textarea:focus-visible {
   gap: 8px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--olyvia-border);
-  background: linear-gradient(180deg, rgba(53, 214, 255, 0.045), transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--olyvia-cyan) 4.5%, transparent), transparent);
 }
 
 /* Marca y modelo en uso */
@@ -778,7 +792,7 @@ textarea:focus-visible {
   gap: 9px;
   padding: 8px 12px;
   border-bottom: 1px solid var(--olyvia-border);
-  background: rgba(5, 8, 17, 0.45);
+  background: color-mix(in srgb, var(--olyvia-ink) 45%, transparent);
 }
 
 .assistant-model-bar > svg {
@@ -794,7 +808,7 @@ textarea:focus-visible {
 
 .assistant-model-info strong {
   overflow: hidden;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
@@ -803,7 +817,7 @@ textarea:focus-visible {
 
 .assistant-model-info span {
   overflow: hidden;
-  color: #8fa4c9;
+  color: var(--color-text-muted);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -812,16 +826,16 @@ textarea:focus-visible {
 .assistant-model-select {
   max-width: 100%;
   padding: 3px 6px;
-  border: 1px solid rgba(53, 214, 255, 0.24);
+  border: 1px solid color-mix(in srgb, var(--olyvia-cyan) 24%, transparent);
   border-radius: 7px;
-  background: rgba(5, 8, 17, 0.8);
-  color: #eef7ff;
+  background: color-mix(in srgb, var(--olyvia-ink) 80%, transparent);
+  color: var(--color-text);
   font: inherit;
   font-size: 11px;
 }
 
 .assistant-model-select:focus-visible {
-  border-color: var(--olyvia-cyan, #35d6ff);
+  border-color: var(--olyvia-cyan);
   outline: none;
 }
 
@@ -830,7 +844,7 @@ textarea:focus-visible {
   padding: 2px 8px;
   border: 1px solid var(--olyvia-border);
   border-radius: 999px;
-  color: #8fa4c9;
+  color: var(--color-text-muted);
   font-family: var(--font-mono, monospace);
   font-size: 9px;
   letter-spacing: 0.04em;
@@ -838,20 +852,20 @@ textarea:focus-visible {
 }
 
 .assistant-model-chip.local {
-  border-color: rgba(74, 222, 128, 0.4);
-  background: rgba(74, 222, 128, 0.1);
-  color: #9ff3bd;
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: color-mix(in srgb, var(--color-success) 10%, transparent);
+  color: color-mix(in srgb, var(--color-success) 45%, var(--color-text));
 }
 
 .assistant-model-chip.remote {
-  border-color: rgba(53, 214, 255, 0.4);
-  background: rgba(53, 214, 255, 0.1);
-  color: #a9dfff;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 40%, transparent);
+  background: color-mix(in srgb, var(--olyvia-cyan) 10%, transparent);
+  color: var(--color-accent-light);
 }
 
 .assistant-model-chip.sim {
-  border-color: rgba(148, 163, 184, 0.4);
-  color: #94a3b8;
+  border-color: color-mix(in srgb, var(--color-text-muted) 40%, transparent);
+  color: var(--color-text-muted);
 }
 
 .assistant-foot-model {
@@ -860,7 +874,7 @@ textarea:focus-visible {
   gap: 5px;
   min-width: 0;
   overflow: hidden;
-  color: #8fa4c9;
+  color: var(--color-text-muted);
   font-family: var(--font-mono, monospace);
   font-size: 9.5px;
   white-space: nowrap;
@@ -879,7 +893,7 @@ textarea:focus-visible {
 
 .assistant-identity strong {
   display: block;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 12px;
 }
 
@@ -887,7 +901,7 @@ textarea:focus-visible {
   display: block;
   max-width: 210px;
   overflow: hidden;
-  color: #8fa4c9;
+  color: var(--color-text-muted);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -915,25 +929,25 @@ textarea:focus-visible {
 
 .assistant-message.assistant {
   align-self: flex-start;
-  border: 1px solid rgba(53, 214, 255, 0.16);
-  background: rgba(53, 214, 255, 0.07);
-  color: #dceeff;
+  border: 1px solid color-mix(in srgb, var(--olyvia-cyan) 16%, transparent);
+  background: color-mix(in srgb, var(--olyvia-cyan) 7%, transparent);
+  color: var(--color-text);
 }
 
 .assistant-message.user {
   align-self: flex-end;
-  border: 1px solid rgba(139, 92, 246, 0.28);
-  background: rgba(139, 92, 246, 0.16);
-  color: #f4efff;
+  border: 1px solid color-mix(in srgb, var(--olyvia-violet) 28%, transparent);
+  background: color-mix(in srgb, var(--olyvia-violet) 16%, transparent);
+  color: var(--color-text);
 }
 
 .assistant-error {
   margin: 0 12px 8px;
   padding: 7px 9px;
-  border: 1px solid rgba(255, 120, 140, 0.3);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
   border-radius: 8px;
-  background: rgba(255, 90, 110, 0.08);
-  color: #ffc5ce;
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
+  color: color-mix(in srgb, var(--color-danger) 55%, var(--color-text));
   font-size: 10.5px;
 }
 
@@ -942,21 +956,21 @@ textarea:focus-visible {
   flex-wrap: wrap;
   gap: 5px;
   padding: 8px 12px;
-  border-top: 1px solid rgba(96, 137, 255, 0.14);
+  border-top: 1px solid color-mix(in srgb, var(--olyvia-blue) 14%, transparent);
 }
 
 .assistant-quick button {
   padding: 3px 8px;
-  border: 1px solid rgba(53, 214, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--olyvia-cyan) 20%, transparent);
   border-radius: 999px;
-  background: rgba(53, 214, 255, 0.05);
-  color: #a9dfff;
+  background: color-mix(in srgb, var(--olyvia-cyan) 5%, transparent);
+  color: var(--color-accent-light);
   font-size: 9.5px;
 }
 
 .assistant-quick button:hover {
-  border-color: rgba(53, 214, 255, 0.5);
-  color: #ffffff;
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 50%, transparent);
+  color: var(--color-text);
 }
 
 .assistant-consent {
@@ -964,7 +978,7 @@ textarea:focus-visible {
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  color: #9fb4d6;
+  color: var(--color-text-muted);
   font-size: 9.5px;
 }
 
@@ -977,7 +991,7 @@ textarea:focus-visible {
   align-items: flex-end;
   gap: 6px;
   padding: 9px 12px;
-  border-top: 1px solid rgba(96, 137, 255, 0.14);
+  border-top: 1px solid color-mix(in srgb, var(--olyvia-blue) 14%, transparent);
 }
 
 .assistant-composer textarea {
@@ -988,7 +1002,7 @@ textarea:focus-visible {
   padding: 8px 9px;
   border: 1px solid var(--olyvia-border);
   border-radius: 9px;
-  background: rgba(5, 8, 17, 0.7);
+  background: color-mix(in srgb, var(--olyvia-ink) 70%, transparent);
   color: var(--color-text);
   font: inherit;
   font-size: 11.5px;
@@ -1010,7 +1024,7 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 8px;
   padding: 6px 12px 8px;
-  color: #7288aa;
+  color: var(--color-text-secondary);
   font-size: 9px;
 }
 
@@ -1024,7 +1038,7 @@ textarea:focus-visible {
   gap: 5px;
   min-width: 0;
   overflow: hidden;
-  color: #8fa4c9;
+  color: var(--color-text-muted);
   font-family: var(--font-mono, monospace);
   font-size: 9.5px;
   white-space: nowrap;
@@ -1039,14 +1053,14 @@ textarea:focus-visible {
 .assistant-confirm {
   margin: 0 12px 8px;
   padding: 8px 10px;
-  border: 1px solid rgba(255, 170, 90, 0.36);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 36%, transparent);
   border-radius: 9px;
-  background: rgba(255, 140, 60, 0.09);
+  background: color-mix(in srgb, var(--color-warning) 9%, transparent);
 }
 
 .assistant-confirm p {
   margin: 0 0 6px;
-  color: #ffd9b8;
+  color: color-mix(in srgb, var(--color-warning) 45%, var(--color-text));
   font-size: 11px;
   line-height: 1.45;
 }
@@ -1083,14 +1097,14 @@ textarea:focus-visible {
 
 .text-edit-head h2 {
   margin: 0 0 6px;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 22px;
 }
 
 .text-edit-head p {
   max-width: 720px;
   margin: 0;
-  color: #93a4c4;
+  color: var(--color-text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -1112,7 +1126,7 @@ textarea:focus-visible {
   flex-direction: column;
   gap: 3px;
   padding-bottom: 6px;
-  color: #7288aa;
+  color: var(--color-text-secondary);
   font-size: 10px;
   white-space: nowrap;
 }
@@ -1132,7 +1146,7 @@ textarea:focus-visible {
 
 .text-edit-transcript-head h3 {
   margin: 2px 0 4px;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 15px;
 }
 
@@ -1152,9 +1166,9 @@ textarea:focus-visible {
   margin: 0;
   padding: 0;
   overflow-y: auto;
-  border: 1px solid rgba(96, 137, 255, 0.16);
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 16%, transparent);
   border-radius: 12px;
-  background: rgba(5, 8, 17, 0.55);
+  background: color-mix(in srgb, var(--olyvia-ink) 55%, transparent);
   list-style: none;
 }
 
@@ -1164,7 +1178,7 @@ textarea:focus-visible {
   align-items: start;
   gap: 10px;
   padding: 9px 11px;
-  border-bottom: 1px solid rgba(96, 137, 255, 0.1);
+  border-bottom: 1px solid color-mix(in srgb, var(--olyvia-blue) 10%, transparent);
   cursor: pointer;
 }
 
@@ -1173,7 +1187,7 @@ textarea:focus-visible {
 }
 
 .text-edit-segment:hover label {
-  background: rgba(53, 214, 255, 0.04);
+  background: color-mix(in srgb, var(--olyvia-cyan) 4%, transparent);
 }
 
 .text-edit-segment input {
@@ -1182,7 +1196,7 @@ textarea:focus-visible {
 }
 
 .text-edit-time {
-  color: #6f86a8;
+  color: var(--color-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 9.5px;
   padding-top: 2px;
@@ -1190,7 +1204,7 @@ textarea:focus-visible {
 }
 
 .text-edit-copy {
-  color: #dceeff;
+  color: var(--color-text);
   font-size: 12px;
   line-height: 1.45;
   overflow-wrap: anywhere;
@@ -1211,7 +1225,7 @@ textarea:focus-visible {
   gap: 14px;
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid rgba(96, 137, 255, 0.14);
+  border-top: 1px solid color-mix(in srgb, var(--olyvia-blue) 14%, transparent);
 }
 
 .text-edit-actions .fine-print {
@@ -1230,14 +1244,14 @@ textarea:focus-visible {
 
 .text-edit-empty h3 {
   margin: 0;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 15px;
 }
 
 .text-edit-empty p {
   max-width: 620px;
   margin: 0;
-  color: #93a4c4;
+  color: var(--color-text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -1274,14 +1288,14 @@ textarea:focus-visible {
 
 .multicam-head h2 {
   margin: 0 0 6px;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 22px;
 }
 
 .multicam-head p {
   max-width: 760px;
   margin: 0;
-  color: #93a4c4;
+  color: var(--color-text-muted);
   font-size: 12px;
   line-height: 1.55;
 }
@@ -1342,14 +1356,14 @@ textarea:focus-visible {
   justify-content: space-between;
   gap: 12px;
   padding: 7px 9px;
-  border: 1px solid rgba(96, 137, 255, 0.14);
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 14%, transparent);
   border-radius: 10px;
-  background: rgba(5, 8, 17, 0.4);
+  background: color-mix(in srgb, var(--olyvia-ink) 40%, transparent);
 }
 
 .multicam-cameras li.selected {
-  border-color: rgba(53, 214, 255, 0.34);
-  background: rgba(53, 214, 255, 0.05);
+  border-color: color-mix(in srgb, var(--olyvia-cyan) 34%, transparent);
+  background: color-mix(in srgb, var(--olyvia-cyan) 5%, transparent);
 }
 
 .multicam-check {
@@ -1367,7 +1381,7 @@ textarea:focus-visible {
 .multicam-check strong {
   display: block;
   overflow: hidden;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1376,7 +1390,7 @@ textarea:focus-visible {
 .multicam-check small {
   display: block;
   margin-top: 2px;
-  color: #7288aa;
+  color: var(--color-text-secondary);
   font-size: 9.5px;
 }
 
@@ -1399,7 +1413,7 @@ textarea:focus-visible {
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border: 1px solid rgba(96, 137, 255, 0.2);
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 20%, transparent);
   border-radius: 12px;
   background: #03050b;
 }
@@ -1428,10 +1442,10 @@ textarea:focus-visible {
   max-width: calc(100% - 20px);
   padding: 4px 8px;
   overflow: hidden;
-  border: 1px solid rgba(53, 214, 255, 0.35);
+  border: 1px solid color-mix(in srgb, var(--olyvia-cyan) 35%, transparent);
   border-radius: 999px;
-  background: rgba(5, 8, 17, 0.78);
-  color: #8fe9ff;
+  background: color-mix(in srgb, var(--olyvia-ink) 78%, transparent);
+  color: var(--color-accent-light);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
   text-overflow: ellipsis;
@@ -1444,7 +1458,7 @@ textarea:focus-visible {
   inset: 0;
   display: grid;
   place-items: center;
-  color: #7288aa;
+  color: var(--color-text-secondary);
   font-size: 12px;
 }
 
@@ -1463,7 +1477,7 @@ textarea:focus-visible {
 
 .multicam-time {
   flex: none;
-  color: #93a4c4;
+  color: var(--color-text-muted);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -1489,7 +1503,7 @@ textarea:focus-visible {
 .multicam-angles small {
   max-width: 100%;
   overflow: hidden;
-  color: rgba(238, 247, 255, 0.62);
+  color: color-mix(in srgb, var(--color-text) 62%, transparent);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1508,7 +1522,7 @@ textarea:focus-visible {
 
 .multicam-cuts h3 {
   margin: 2px 0 8px;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 15px;
 }
 
@@ -1529,22 +1543,22 @@ textarea:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
-  border: 1px solid rgba(96, 137, 255, 0.12);
+  border: 1px solid color-mix(in srgb, var(--olyvia-blue) 12%, transparent);
   border-radius: 8px;
-  background: rgba(5, 8, 17, 0.45);
-  color: #dceeff;
+  background: color-mix(in srgb, var(--olyvia-ink) 45%, transparent);
+  color: var(--color-text);
   font-size: 10.5px;
 }
 
 .multicam-cut-time {
-  color: #8fe9ff;
+  color: var(--color-accent-light);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
 }
 
 .multicam-cuts li em {
-  color: #7288aa;
+  color: var(--color-text-secondary);
   font-size: 9px;
   font-style: normal;
 }
@@ -1571,13 +1585,13 @@ textarea:focus-visible {
 
 .multicam-empty h3 {
   margin: 0;
-  color: #eef7ff;
+  color: var(--color-text);
   font-size: 15px;
 }
 
 .multicam-empty p {
   margin: 0;
-  color: #93a4c4;
+  color: var(--color-text-muted);
   font-size: 12px;
 }
 

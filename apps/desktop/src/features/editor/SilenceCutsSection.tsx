@@ -8,6 +8,7 @@ import {
 } from '../../state/silence-cuts';
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { InspectorSection } from './InspectorSection';
 
 /**
  * Sección del Inspector para "cortar silencios": expone el motor de
@@ -209,8 +210,11 @@ export function SilenceCutsSection(props: {
   }
 
   return (
-    <section className="inspector-section silence-cuts" data-group={props.group}>
-      <h4>{props.title ?? 'Cortar silencios'}</h4>
+    <InspectorSection
+      title={props.title ?? 'Cortar silencios'}
+      group={props.group}
+      className="silence-cuts"
+    >
       <p className="fine-print">
         Detecta los tramos bajo el umbral con los picos que mide FFmpeg, muestra cuánto
         recortaría y aplica dividiendo el clip y corriendo el resto (ripple). Nunca borra
@@ -315,6 +319,6 @@ export function SilenceCutsSection(props: {
           {info ?? 'Analizá los picos para ver cuánto se recortaría antes de aplicar.'}
         </p>
       )}
-    </section>
+    </InspectorSection>
   );
 }

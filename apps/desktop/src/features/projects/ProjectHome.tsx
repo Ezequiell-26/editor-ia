@@ -253,7 +253,13 @@ export function ProjectHome({ onNavigate }: ProjectHomeProps) {
           </div>
         </article>
       ) : (
-        <p className="empty-state">No hay proyectos abiertos.</p>
+        <div className="empty-state view-empty projects-empty">
+          <span className="view-empty-icon" aria-hidden="true">
+            <Icon name="projects" size={20} />
+          </span>
+          <strong>No hay proyectos abiertos</strong>
+          <p>Creá uno abajo con nombre, formato y fps, o abrí un archivo .olyvia existente.</p>
+        </div>
       )}
 
       <div className="home-grid">

@@ -19,6 +19,7 @@ import type {
   NarrationResult,
   OpenedProject,
   ProviderInfo,
+  ProviderTestResult,
   RenderFinishedEvent,
   RenderProgressEvent,
   RenderStarted,
@@ -1750,6 +1751,20 @@ export function createFakeService(): FakeService {
     },
     async clearProviderKey() {
       return service.getProvider();
+    },
+    async testProvider(): Promise<ProviderTestResult> {
+      // El fake no tiene red: devuelve un resultado tipado y honesto, nunca un
+      // éxito inventado. Los tests de UI pueden pisar este método.
+      return {
+        status: 'unconfigured',
+        ok: false,
+        httpStatus: null,
+        latencyMs: 0,
+        model: null,
+        detail:
+          'el servicio de prueba no hace llamadas de red; configurá un proveedor real en Ajustes → IA',
+        baseUrl: '',
+      };
     },
     async getAudioProvider(): Promise<AudioProviderInfo> {
       return {

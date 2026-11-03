@@ -11,7 +11,9 @@ test('la ventana de actualizaciones informa el estado real, sin releases fictici
 
   const dialog = page.getByRole('dialog', { name: 'Actualizaciones de Olyvia' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('Versión instalada: v0.1.0')).toBeVisible();
+  // La versión se informa dinámicamente; antes se hardcodeaba v0.1.0 y quedó
+  // obsoleto al subir la app de versión.
+  await expect(dialog.getByText(/Versi[oó]n instalada: v\d+\.\d+\.\d+/)).toBeVisible();
   await expect(dialog.getByText('Sin canal de actualizaciones configurado')).toBeVisible();
   await expect(dialog.getByText(/Firma: local autofirmada/)).toBeVisible();
   await expect(dialog.getByText(/Endpoint de releases: sin definir/)).toBeVisible();

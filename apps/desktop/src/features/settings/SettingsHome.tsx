@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { ViewId } from '../../app/navigation';
 import type {
   ProviderInfo,
+  ProviderTestResult,
   SystemInfo,
 } from '../../services/project-service';
 import { providerUrlProblem } from '../../services/project-service';
@@ -16,6 +17,7 @@ import { useProjectStore } from '../../state/project-store';
 import { AudioProviderCard } from './AudioProviderCard';
 import { CapabilitiesCard } from './CapabilitiesCard';
 import { AppearanceCard } from './AppearanceCard';
+import { ColorStudioCard } from './ColorStudioCard';
 import { PluginsCard } from './PluginsCard';
 import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
@@ -151,6 +153,26 @@ function VersionLine({ label, info }: { readonly label: string; readonly info: S
   );
 }
 
+/** Etiqueta legible del estado tipado que devuelve `test_provider`. */
+const PROVIDER_TEST_LABELS: Record<string, string> = {
+  ok: 'el endpoint respondió y el modelo está disponible',
+  mock: 'Proveedor simulado (sin red)',
+  unconfigured: 'Sin proveedor configurado',
+  'missing-key': 'Falta la clave del proveedor',
+  unauthorized: 'Clave rechazada por el proveedor',
+  forbidden: 'Acceso denegado por el proveedor',
+  'not-found': 'URL o modelo no encontrado',
+  'rate-limited': 'El proveedor limitó las peticiones',
+  timeout: 'El proveedor no respondió a tiempo',
+  unreachable: 'No se pudo conectar con el endpoint',
+  'http-error': 'El proveedor respondió con un error HTTP',
+  'invalid-response': 'Respuesta del proveedor no válida',
+};
+
+function providerTestLabel(status: string): string {
+  return PROVIDER_TEST_LABELS[status] ?? `Resultado: ${status}`;
+}
+
 export function SettingsHome({
   onNavigate,
 }: {
@@ -165,6 +187,9 @@ export function SettingsHome({
   const [system, setSystem] = useState<SystemInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [toolBusy, setToolBusy] = useState<string | null>(null);
+  const [testBusy, setTestBusy] = useState(false);
+  const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('apariencia');
 
   // Antes las secciones se apilaban y un IntersectionObserver marcaba la activa.
@@ -219,6 +244,8 @@ export function SettingsHome({
       });
       setProvider(info);
       setApiKey('');
+      setTestResult(null);
+      setTestError(null);
       store.setNotice('Proveedor guardado. La clave, si la escribiste, quedó en el almacén de Windows.');
     } catch (error) {
       store.setNotice(error instanceof Error ? error.message : 'no se pudo guardar el proveedor');
@@ -226,6 +253,39 @@ export function SettingsHome({
       setBusy(false);
     }
   }
+
+  /**
+   * Prueba real del proveedor **guardado**: el backend consulta `GET /models`
+   * con timeout corto y devuelve un estado tipado (HTTP, latencia, modelo) o un
+   * error accionable. No hay éxito inventado: si el método no puede ejecutarse,
+   * se muestra el motivo.
+   */
+  async function testConnection(): Promise<void> {
+    setTestBusy(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      setTestResult(await store.service.testProvider());
+    } catch (error) {
+      setTestResult(null);
+      setTestError(
+        error instanceof Error
+          ? `La prueba no pudo ejecutarse: ${error.message}`
+          : 'La prueba no pudo ejecutarse: el servicio no respondió.',
+      );
+    } finally {
+      setTestBusy(false);
+    }
+  }
+
+  /** La prueba usa lo guardado: avisar si el formulario tiene cambios sin guardar. */
+  const providerDirty =
+    provider === null ||
+    provider.kind !== kind ||
+    provider.baseUrl !== baseUrl ||
+    provider.model !== model;
+  const canTestProvider =
+    !busy && !testBusy && (kind === 'mock' || (baseUrl.trim().length > 0 && model.trim().length > 0));
 
   async function clearKey(): Promise<void> {
     setBusy(true);
@@ -314,6 +374,7 @@ export function SettingsHome({
 
           <SettingsSection section={sectionById('apariencia')} active={activeSection === 'apariencia'}>
             <AppearanceCard />
+            <ColorStudioCard />
             <PluginsCard />
           </SettingsSection>
 
@@ -413,6 +474,18 @@ export function SettingsHome({
             <button type="button" className="primary" onClick={() => void saveProvider()} disabled={busy}>
               {busy ? 'Guardando…' : 'Guardar proveedor'}
             </button>
+            <button
+              type="button"
+              onClick={() => void testConnection()}
+              disabled={!canTestProvider}
+              title={
+                canTestProvider
+                  ? 'Consulta el endpoint guardado y muestra modelo, latencia y estado HTTP'
+                  : 'Completá la URL base y el modelo (o usá el simulado) para poder probar'
+              }
+            >
+              {testBusy ? 'Probando…' : 'Probar conexión'}
+            </button>
             <button type="button" onClick={() => void clearKey()} disabled={busy || !provider?.hasKey}>
               Borrar clave
             </button>
@@ -427,6 +500,50 @@ export function SettingsHome({
               Usar simulado
             </button>
           </div>
+
+          {providerDirty && kind !== 'mock' ? (
+            <p className="fine-print">
+              La prueba consulta el proveedor <strong>guardado</strong>. Guardá estos cambios para
+              probar exactamente esta configuración.
+            </p>
+          ) : null}
+
+          {testBusy ? (
+            <p className="fine-print" role="status">
+              Probando el proveedor guardado…
+            </p>
+          ) : null}
+
+          {testError ? (
+            <p className="notice notice-warning" role="status">
+              {testError}
+            </p>
+          ) : null}
+
+          {testResult ? (
+            <div
+              className={`notice ${testResult.ok ? 'notice-ok' : 'notice-warning'}`}
+              role="status"
+            >
+              <strong>
+                {testResult.ok ? 'Conexión correcta' : 'Conexión fallida'} ·{' '}
+                {providerTestLabel(String(testResult.status))}
+              </strong>
+              <p>{testResult.detail}</p>
+              <p className="fine-print">
+                {testResult.httpStatus !== null ? `HTTP ${testResult.httpStatus} · ` : ''}
+                {testResult.latencyMs > 0 ? `${testResult.latencyMs} ms · ` : ''}
+                {testResult.model ? `modelo ${testResult.model} · ` : ''}
+                {testResult.baseUrl ? testResult.baseUrl : kind === 'mock' ? 'simulado, sin red' : ''}
+              </p>
+              {!testResult.ok ? (
+                <p className="fine-print">
+                  Corregí URL base, modelo o clave arriba y volvé a probar; para modelos locales
+                  verificá que Ollama, LM Studio o vLLM estén escuchando en esa URL.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <p className="fine-print">
             {provider?.keyringAvailable
               ? 'Almacén de Windows disponible. La clave se lee sólo al hacer una llamada.'

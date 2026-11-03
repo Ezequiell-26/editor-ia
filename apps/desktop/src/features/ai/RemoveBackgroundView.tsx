@@ -5,13 +5,15 @@ import { ViewToolbar } from '../../components/ViewToolbar';
 import type { BackgroundRemoval } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
 import { queuePendingComparison } from '../compare/pending';
+import { LocalModelGate, useLocalModel } from './LocalModelGate';
 
 /**
  * Quitar fondo con IA local.
  *
  * Fase 3: es la primera capacidad que corre con un modelo neuronal en la
  * máquina del usuario (u2netp vía ONNX Runtime). Nada sale de la app; el
- * resultado es un PNG con transparencia listo para el comparador.
+ * resultado es un PNG con transparencia listo para el comparador. La vista
+ * comprueba el modelo antes de ejecutar y ofrece descargarlo acá mismo.
  */
 export function RemoveBackgroundView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
@@ -19,6 +21,7 @@ export function RemoveBackgroundView({ onNavigate }: { readonly onNavigate: (id:
   const [result, setResult] = useState<BackgroundRemoval | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const model = useLocalModel(store.service, 'remove-background');
 
   async function pickImage(): Promise<void> {
     setBusy(true);
@@ -36,6 +39,10 @@ export function RemoveBackgroundView({ onNavigate }: { readonly onNavigate: (id:
 
   async function run(): Promise<void> {
     if (!inputPath) return;
+    if (model.state !== 'ready') {
+      setError('Falta el modelo local de recorte: descargalo en el panel «Modelo local» de esta vista.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -76,6 +83,12 @@ export function RemoveBackgroundView({ onNavigate }: { readonly onNavigate: (id:
         </div>
       </header>
 
+      <LocalModelGate
+        label="Recorte u2netp"
+        controller={model}
+        onOpenSettings={() => onNavigate('settings')}
+      />
+
       {error ? (
         <p className="notice notice-warning" role="alert">
           {error}
@@ -100,7 +113,12 @@ export function RemoveBackgroundView({ onNavigate }: { readonly onNavigate: (id:
           type="button"
           className="primary icon-text"
           onClick={() => void run()}
-          disabled={busy || !inputPath}
+          disabled={busy || !inputPath || model.state !== 'ready'}
+          title={
+            model.state === 'ready'
+              ? undefined
+              : 'El modelo local no está listo: descargalo o revisá Ajustes → Capacidades'
+          }
         >
           <Icon name="sparkles" size={15} />
           <span>{busy ? 'Recortando…' : 'Quitar fondo'}</span>

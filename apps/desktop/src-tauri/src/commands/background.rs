@@ -52,10 +52,11 @@ pub fn onnx_runtime_available(model_path: Option<&Path>) -> bool {
     false
 }
 
-/// ¿Hay Python con faster-whisper disponible? Misma resolución que la
-/// transcripción: una sola fuente de verdad.
+/// ¿Hay un Python verificado con faster-whisper disponible? Misma resolución
+/// que la transcripción: una sola fuente de verdad, y con el módulo importable
+/// comprobado (no alcanza con que exista un `python`).
 pub fn whisper_cli_available() -> bool {
-    crate::commands::transcribe::resolve_python().is_some()
+    crate::commands::transcribe::whisper_status().available()
 }
 
 fn runtime_dll() -> Result<PathBuf, ProjectError> {

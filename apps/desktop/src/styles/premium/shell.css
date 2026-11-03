@@ -1,0 +1,2180 @@
+/* ==========================================================================
+   Olyvia · capa premium — SHELL (Quiet Premium)
+   Dueño: agente de shell. Documento base: docs/PREMIUM-REDESIGN-SPEC.md
+   §7 (tokens), §8 (componentes), §9 (layout del shell), §11 (a11y), §12 (cascada).
+
+   Qué domina: cuerpo del shell (topbar, menubar, rail/sidebar, statusbar,
+   banners, window controls), ventana de Ajustes, paleta de comandos y dock del
+   asistente. Qué NO toca: workspace del editor, timeline, vistas de contenido
+   (dueños: premium/workspace.css y premium/views.css).
+
+   Cascada: sin @layer (decisión §12.2). El `!important` se usa sólo donde una
+   capa legacy lo impone; cada bloque lleva `!impasse:` con el selector/archivo
+   que lo obliga. Se neutralizaron en origen los kill-switches de `flat.css`
+   (Ola 1) y el Lead neutralizó el ripple de `premium-animations.css`.
+   Antipatrones prohibidos (§4): gradiente en botón/card, translateY en hover,
+   glow, backdrop-filter en botones/cards, transition: all, outline sin anillo.
+   ========================================================================== */
+
+/* El spec §7.1 nombra --shell-nav-item-h; tokens.css lo expone por ahora como
+ * --premium-nav-item-h. Alias local hasta que se unifique el vocabulario. */
+:root {
+  --shell-nav-item-h: var(--premium-nav-item-h);
+}
+
+/* ═══════════════════════════════════════════════════ Lienzo del shell ══ */
+
+/* !impasse: resolve-theme.css:25, commercial.css:30, flat.css:16, olyvia.css:29
+ * fuerzan el fondo del body con. Se replica la viñeta neutra de
+ * base.css (profundidad por capa, no glow). */
+body {
+  background:
+    radial-gradient(
+      1100px 460px at 50% -18%,
+      color-mix(in srgb, var(--color-text) 3.2%, transparent),
+      transparent 62%
+    ),
+    var(--color-bg) !important;
+}
+
+/* !impasse: commercial.css:30 y olyvia.css:37 fijan .app-shell con. */
+.app-shell {
+  background: var(--color-bg) !important;
+}
+
+/* !impasse: resolve-theme.css:69-72 y commercial.css:201-204 fijan el fondo y
+ * el padding de .content. El padding del contenido lo define el shell (spec §9.2). */
+.app-shell .content {
+  background: transparent !important;
+  padding: var(--shell-content-pad-top) var(--shell-content-pad-x) var(--shell-content-pad-bottom);
+}
+
+/* Las vistas no duplican el padding cuando el chrome ya lo aplica. */
+.app-shell .content .view {
+  padding: 0;
+}
+
+.app-shell .content.content-flush {
+  padding: 0;
+}
+
+/* ═════════════════════════════════════════════════════════════ Topbar ══ */
+/* Estructura: marca │ Inicio │ menubar │ drag │ proyecto │ acciones │ winctl
+ * Medidas del spec §9.2: 44 px (40/48 por densidad), padding 8 izq / 0 der. */
+
+/* !impasse: resolve-theme.css:75-81 (height/min-height/padding), chrome.css:34,
+ * commercial.css:46-55, olyvia.css:42-45 fijan el topbar con. */
+.app-shell .topbar {
+  display: flex;
+  align-items: center;
+  height: var(--shell-topbar-h);
+  min-height: var(--shell-topbar-h);
+  padding: 0 0 0 var(--gap-8);
+  gap: var(--gap-8);
+  flex-wrap: nowrap;
+  background: var(--glass-hi-bg) !important;
+  border-bottom: var(--hairline) !important;
+  box-shadow: var(--glass-edge) !important;
+  backdrop-filter: var(--glass-hi-blur);
+  -webkit-backdrop-filter: var(--glass-hi-blur);
+  position: relative;
+  z-index: 100;
+}
+
+.app-shell .topbar::before,
+.app-shell .topbar::after {
+  display: none;
+}
+
+/* ── Marca: mark 22 + wordmark 12.5/650 ───────────────────────────────── */
+
+/* !impasse: commercial.css:57-81 y olyvia.css:47-73 fuerzan tamaño, borde y
+ * color del wordmark (text-fill transparent del gradiente de marca). */
+.app-shell .topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-8);
+  height: 28px;
+  padding: 0 var(--gap-10) 0 0;
+  margin: 0;
+  border: 0;
+  border-right: var(--hairline) !important;
+  flex: none;
+  user-select: none;
+}
+
+.app-shell .topbar-brand img {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--rad-xs);
+  border: var(--hairline-strong);
+  box-shadow: none;
+  object-fit: cover;
+}
+
+.app-shell .topbar-brand span {
+  background: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
+  -webkit-text-fill-color: var(--ink-1);
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* ── Botón Inicio: 24 px, ghost ────────────────────────────────────────── */
+
+/* !impasse: resolve-theme.css:83-101 (alto/padding/colores). */
+.app-shell .topbar-home-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-6);
+  height: var(--ctl-h-sm);
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  flex: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .topbar-home-btn:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+/* ── Menubar: ítem 24 px, gap 2, dropdown de 28 ───────────────────────── */
+
+/* !impasse: resolve-theme.css:285-299 y commercial.css:94-110 fuerzan gap,
+ * padding, radio, tamaño y color de los títulos de menú. */
+.app-shell .menubar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  height: 100%;
+  min-width: 0;
+  flex: none;
+}
+
+.app-shell .menubar-menus {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.app-shell .menubar-title {
+  height: var(--ctl-h-sm);
+  padding: 0 var(--gap-8) !important;
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm) !important;
+  background: transparent;
+  color: var(--ink-2) !important;
+  font-size: var(--type-12) !important;
+  font-weight: var(--fw-medium) !important;
+  letter-spacing: 0;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .menubar-title:hover,
+.app-shell .menubar-title.open {
+  background: var(--state-hover) !important;
+  color: var(--ink-1) !important;
+}
+
+/* !impasse: resolve-theme.css:301-317 define el dropdown (panel-3, radio 3,
+ * sombra) y los ítems con. Se reemplaza por el vidrio de menú. */
+.app-shell .menubar-dropdown {
+  top: calc(100% + var(--gap-4));
+  min-width: 240px;
+  max-width: 360px;
+  padding: var(--gap-4);
+  border: var(--glass-border) !important;
+  border-radius: var(--rad-xl) !important;
+  background: var(--glass-menu-bg) !important;
+  box-shadow: var(--elev-3) !important;
+  backdrop-filter: var(--glass-menu-blur);
+  -webkit-backdrop-filter: var(--glass-menu-blur);
+  animation: shell-pop var(--dur-4) var(--ease-entrance) both;
+}
+
+.app-shell .menubar-item {
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--gap-8);
+  border: 0;
+  border-radius: var(--rad-sm) !important;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-regular);
+}
+
+.app-shell .menubar-item:hover:not(:disabled),
+.app-shell .menubar-item:focus-visible {
+  background: var(--state-hover) !important;
+  color: var(--ink-1) !important;
+}
+
+.app-shell .menubar-item:disabled {
+  color: var(--ink-4);
+  opacity: var(--disabled-opacity);
+}
+
+.app-shell .menubar-check {
+  color: var(--color-accent);
+}
+
+.app-shell .menubar-shortcut {
+  padding-left: var(--gap-24);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  letter-spacing: 0;
+}
+
+.app-shell .menubar-separator {
+  height: 1px;
+  margin: var(--gap-4) var(--gap-8);
+  background: var(--hairline-color);
+}
+
+/* ── Centro / proyecto en edición ─────────────────────────────────────── */
+
+.app-shell .topbar-center {
+  flex: 1 1 auto;
+  min-width: 12px;
+  height: 100%;
+}
+
+/* !impasse: resolve-theme.css:176-223 y chrome.css:55-98 definen el chip de
+ * proyecto con bordes y paddings propios. */
+.app-shell .topbar-project {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  min-width: 0;
+  max-width: 42vw;
+  height: 26px;
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 55%, transparent);
+  box-shadow: none;
+}
+
+.app-shell .topbar-project-name {
+  overflow: hidden;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .topbar-project-phase {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+/* ── Acciones: iconos 28, divider 1×20, buscar 28, exportar 28 ────────── */
+
+/* !impasse: chrome.css:107-137, commercial.css:129-146 y resolve-theme.css
+ * fijan tamaños y colores de los iconos del topbar con. */
+.app-shell .topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-4);
+  margin-left: auto;
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+.app-shell .topbar .icon-button {
+  width: var(--ctl-h-md);
+  height: var(--ctl-h-md);
+  min-width: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .topbar .icon-button:hover:not(:disabled) {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.app-shell .topbar .icon-button:disabled {
+  opacity: var(--disabled-opacity);
+}
+
+.app-shell .topbar .icon-button.dirty {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+.app-shell .topbar-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 var(--gap-4);
+  background: var(--hairline-color);
+  flex: none;
+}
+
+/* !impasse: commercial.css:129-146 fuerza alto/radio/fondo del buscador y
+ * chrome.css:255 da padding; se alinea al spec §8.2 (28 px, 200–280 de ancho). */
+.app-shell .topbar-search {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--gap-8);
+  width: 232px;
+  min-width: 200px;
+  max-width: 280px;
+  height: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  margin-right: var(--gap-4);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-sm) !important;
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent) !important;
+  color: var(--ink-2) !important;
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .topbar-search:hover {
+  border-color: color-mix(in srgb, var(--color-text) 18%, transparent) !important;
+  background: var(--state-hover) !important;
+  color: var(--ink-1) !important;
+}
+
+.app-shell .topbar-search span {
+  color: inherit;
+}
+
+.app-shell .topbar-search kbd {
+  margin-left: auto;
+  height: var(--kbd-h);
+  min-width: 20px;
+  padding: 0 4px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+/* Exportar: primario sólido (spec §8.1) */
+/* !impasse: resolve-theme.css:147-175 y commercial.css fijan alto, radio,
+ * fondo y hover del botón Exportar con. */
+.app-shell .topbar-export-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-6);
+  height: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  margin-left: var(--gap-4);
+  padding: 0 var(--gap-12);
+  border: 1px solid var(--color-accent-strong);
+  border-radius: var(--rad-sm);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  line-height: 1;
+  text-shadow: none;
+  filter: none;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-accent-ink) 14%, transparent);
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .topbar-export-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 90%, var(--color-text));
+  filter: none;
+}
+
+.app-shell .topbar-export-btn:active:not(:disabled) {
+  background: var(--color-accent-strong);
+  transform: none;
+}
+
+.app-shell .topbar-export-btn:disabled {
+  background: var(--chrome-4);
+  border-color: transparent;
+  color: var(--ink-3);
+  box-shadow: none;
+  opacity: var(--disabled-opacity);
+  filter: none;
+}
+
+/* ── Controles de ventana: 46 × alto del topbar, cierre rojo Windows ──── */
+
+/* !impasse: chrome.css:139-166 (38 px, radio 0) y resolve-theme.css:1804. */
+.app-shell .window-controls {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  margin: 0 0 0 var(--gap-2);
+  flex: none;
+}
+
+.app-shell .window-control {
+  width: var(--shell-winctl-w);
+  height: 100%;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-2);
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .window-control:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.app-shell .window-control.close:hover {
+  background: var(--color-danger-strong);
+  color: var(--color-accent-ink);
+}
+
+/* ═══════════════════════════════════════════════════ Banners / avisos ══ */
+
+/* !impasse: commercial.css:643-657 (borde izquierdo de acento y radios) y
+ * app.css:299-317. */
+.app-shell .banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-12);
+  min-height: 32px;
+  padding: 0 var(--gap-16) !important;
+  border: 0 !important;
+  border-bottom: var(--hairline) !important;
+  border-left: 0 !important;
+  border-radius: 0 !important;
+  background: var(--chrome-1) !important;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+}
+
+.app-shell .banner-error {
+  border-bottom-color: color-mix(in srgb, var(--color-danger) 34%, transparent) !important;
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--chrome-1)) !important;
+}
+
+.app-shell .banner-notice {
+  border-bottom-color: color-mix(in srgb, var(--color-accent) 30%, transparent) !important;
+  background: color-mix(in srgb, var(--color-accent) 7%, var(--chrome-1)) !important;
+}
+
+.app-shell .recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-12);
+  min-height: 32px;
+  padding: 0 var(--gap-16);
+  border-bottom: var(--hairline);
+  background: var(--state-warning-soft);
+  color: var(--ink-1);
+  font-size: var(--type-12);
+}
+
+.app-shell .recovery-banner-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.app-shell .recovery-banner .primary,
+.app-shell .recovery-banner .ghost {
+  min-height: var(--ctl-h-sm);
+  padding: 0 var(--gap-8);
+  font-size: var(--type-11);
+}
+
+/* ═══════════════════════════════════════════════ Cuerpo / rail (48px) ══ */
+
+/* !impasse: chrome.css:325-330 y app.css:327-331 definen el grid del cuerpo. */
+.app-shell .app-body {
+  display: grid;
+  grid-template-columns: var(--shell-rail-w) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+
+/* Sidebar expandida: el ancho lo manda el contrato de apariencia, no la capa
+ * premium (spec §7.1: --shell-sidebar-w = var(--sidebar-width)). */
+:root[data-sidebar='labels'] .app-shell .app-body {
+  grid-template-columns: var(--sidebar-width, 172px) minmax(0, 1fr);
+}
+
+/* Editor inmersivo: app.css oculta rail y statusbar (display:none) para dar
+ * todo el ancho al workspace. Sin esta regla, el grid de 2 columnas del shell
+ * le dejaba el `<main>` en la columna de 48 px (conflicto reportado por
+ * redesign-workspace). !impasse: app.css:11308-11310 (regla normal de menor
+ * especificidad que el grid del shell). */
+.app-shell.editor-immersive .app-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* !impasse: resolve-theme.css:320-334 (ancho/padding/overflow/background),
+ * commercial.css:149-154, olyvia.css:85-88. */
+.app-shell .sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  width: var(--shell-rail-w);
+  min-width: var(--shell-rail-w);
+  max-width: var(--shell-rail-w);
+  padding: var(--gap-6) var(--gap-6);
+  background: var(--chrome-2) !important;
+  border-right: var(--hairline) !important;
+  overflow: visible;
+  position: relative;
+  z-index: 20;
+}
+
+.app-shell .sidebar::before {
+  display: none;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar {
+  width: var(--sidebar-width, 172px);
+  min-width: var(--sidebar-width, 172px);
+  max-width: var(--sidebar-width, 172px);
+  padding: var(--gap-8) var(--gap-8) var(--gap-6);
+}
+
+.app-shell .sidebar ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-shell .sidebar > ul {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* !impasse: resolve-theme.css:405-420 fija padding 5/8, gap 9, radio 4,
+ * font 11 y transition all en TODOS los botones del rail; commercial.css:156
+ * y app.css:6376 hacen lo mismo. */
+.app-shell .sidebar button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  width: 100%;
+  height: var(--shell-nav-item-h);
+  min-height: var(--shell-nav-item-h);
+  padding: 0 !important;
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm) !important;
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  text-align: left;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+/* !impasse: resolve-theme.css:425-434 fuerza color y opacity del icono. */
+.app-shell .sidebar button .nav-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--ink-2);
+  opacity: 1;
+  flex: none;
+  transition: color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .sidebar button:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.app-shell .sidebar button:hover .nav-icon {
+  color: var(--ink-1);
+}
+
+/* !impasse: resolve-theme.css:472-491 fuerza el estado activo a acento lleno
+ * (45 % sobre panel-3), tinta accent-ink y apaga el indicador `::before`.
+ * El spec §9.2 pide --state-selected + borde + barra de 2 px. */
+.app-shell .sidebar button[aria-current='page'] {
+  background: var(--state-selected) !important;
+  border-color: var(--state-selected-border) !important;
+  color: var(--ink-1) !important;
+  font-weight: var(--fw-medium);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-text) 6%, transparent) !important;
+}
+
+.app-shell .sidebar button[aria-current='page'] .nav-icon {
+  color: var(--color-accent);
+  opacity: 1;
+}
+
+.app-shell .sidebar button[aria-current='page'] .nav-label {
+  color: var(--ink-1);
+}
+
+.app-shell .sidebar button[aria-current='page']::before {
+  content: '';
+  display: block;
+  position: absolute;
+  left: -6px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: var(--rad-pill);
+  background: var(--color-accent);
+  box-shadow: none;
+}
+
+/* ── Separadores de grupo: línea en rail, etiqueta en expanded ────────── */
+
+/* !impasse: resolve-theme.css:388-403 fija padding, margen y muestra la
+ * etiqueta SIEMPRE (incluso con 48 px de rail); commercial.css:184-193 la
+ * oculta siempre. El spec §9.2 la quiere visible sólo en sidebar expandida. */
+.app-shell .sidebar .nav-separator {
+  position: relative;
+  height: auto;
+  min-height: 0;
+  margin: var(--gap-8) var(--gap-6) !important;
+  padding: 0;
+  border: 0;
+  border-top: var(--hairline);
+  background: none !important;
+  list-style: none;
+}
+
+.app-shell .sidebar .nav-separator-label {
+  display: none !important;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar .nav-separator {
+  margin: var(--gap-12) var(--gap-8) var(--gap-6) !important;
+  border-top: 0;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar .nav-separator-label {
+  display: block !important;
+  color: var(--ink-3) !important;
+  font-size: var(--type-10) !important;
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: var(--track-caps) !important;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+/* ── Sidebar expandida: ítem 32 + etiqueta ────────────────────────────── */
+
+/* !impasse: resolve-theme.css:439-444 y chrome.css:408-430 fijan la fila
+ * expandida; el gap/padding se alinea al spec §9.2 (8 px). */
+:root[data-sidebar='labels'] .app-shell .sidebar button {
+  justify-content: flex-start;
+  gap: var(--gap-8) !important;
+  padding: 0 var(--gap-8) !important;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar button .nav-label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar button[aria-current='page']::before {
+  left: -8px;
+  top: 6px;
+  bottom: 6px;
+}
+
+/* ── Popover «Más herramientas» (posición fija) ───────────────────────── */
+
+/* !impasse: commercial.css:929-945 fija left/bottom/min-width/padding/fondo. */
+.app-shell .sidebar .nav-more-list {
+  left: calc(var(--shell-rail-w) + var(--gap-8)) !important;
+  bottom: 64px !important;
+  z-index: 300 !important;
+  min-width: 216px !important;
+  max-width: 260px !important;
+  padding: var(--gap-4) !important;
+  border: var(--glass-border) !important;
+  border-radius: var(--rad-lg) !important;
+  background: var(--glass-menu-bg) !important;
+  box-shadow: var(--elev-3) !important;
+  backdrop-filter: var(--glass-menu-blur);
+  -webkit-backdrop-filter: var(--glass-menu-blur);
+  animation: shell-pop var(--dur-4) var(--ease-entrance) both;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar .nav-more-list {
+  left: calc(var(--sidebar-width, 172px) + var(--gap-8)) !important;
+}
+
+.app-shell .sidebar .nav-more-list button {
+  justify-content: flex-start;
+  gap: var(--gap-8);
+  height: var(--ctl-h-md);
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--gap-8);
+}
+
+.app-shell .sidebar .nav-more-list .nav-label {
+  display: block !important;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  font-weight: var(--fw-regular);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .sidebar .nav-more-list button:hover .nav-label {
+  color: var(--ink-1);
+}
+
+/* ── Pie del rail: proyecto + perfil ──────────────────────────────────── */
+
+/* !impasse: commercial.css:195-198 y chrome.css:438-451/926-951. */
+.app-shell .sidebar .sidebar-tail {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--gap-4);
+  margin-top: auto;
+  padding: var(--gap-8) 0 0;
+  border-top: var(--hairline);
+  justify-content: flex-start;
+}
+
+.app-shell .sidebar .sidebar-project-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-6);
+  min-width: 0;
+  padding: var(--gap-4);
+  border-radius: var(--rad-sm);
+  color: var(--ink-3);
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar .sidebar-project-dot {
+  justify-content: flex-start;
+  padding: var(--gap-4) var(--gap-8);
+}
+
+.app-shell .sidebar .sidebar-project-name {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root[data-sidebar='labels'] .app-shell .sidebar .sidebar-project-name {
+  display: block;
+}
+
+.app-shell .sidebar-project-dot .phase-dot,
+.app-shell .sidebar .phase-dot {
+  width: 6px;
+  height: 6px;
+  box-shadow: none;
+}
+
+/* Componentes.css estiliza `.profile-menu` como si fuera el popover; el
+ * wrapper real del rail es transparente y el popover viven en un portal.
+ * (Bug de selector a corregir en components.css; acá se neutraliza.) */
+.app-shell .profile-menu {
+  width: 100%;
+  position: relative;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* !impasse: chrome.css:958-975, 1037-1047 y 924-951. */
+.app-shell .profile-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-8);
+  width: 100%;
+  min-height: var(--shell-nav-item-h);
+  padding: var(--gap-4);
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .profile-trigger:hover,
+.app-shell .profile-trigger[aria-expanded='true'] {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.app-shell .profile-avatar {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--rad-pill);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: var(--fw-black);
+  box-shadow: none;
+}
+
+.app-shell .profile-avatar.large {
+  width: 40px;
+  height: 40px;
+  font-size: var(--type-12);
+}
+
+:root[data-sidebar='labels'] .app-shell .profile-trigger {
+  justify-content: flex-start;
+  padding: var(--gap-4) var(--gap-8);
+}
+
+:root[data-sidebar='labels'] .app-shell .profile-trigger-copy {
+  display: grid;
+}
+
+:root[data-sidebar='labels'] .app-shell .profile-chevron {
+  display: block;
+}
+
+.app-shell .profile-trigger-copy strong {
+  color: var(--ink-1);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .profile-trigger-copy span {
+  color: var(--ink-3);
+  font-size: var(--type-10);
+}
+
+/* Popover de perfil (portal): vidrio de menú + elevación 3. */
+.profile-popover {
+  width: 300px;
+  gap: var(--gap-12);
+  padding: var(--gap-12);
+  border: var(--glass-border);
+  border-radius: var(--rad-xl);
+  background: var(--glass-menu-bg);
+  box-shadow: var(--elev-3);
+  backdrop-filter: var(--glass-menu-blur);
+  -webkit-backdrop-filter: var(--glass-menu-blur);
+  color: var(--ink-1);
+}
+
+.profile-popover-head {
+  padding-bottom: var(--gap-10);
+  border-bottom: var(--hairline);
+}
+
+.profile-popover-head strong {
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+}
+
+.profile-popover-head span {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+}
+
+.profile-actions {
+  gap: var(--gap-2);
+}
+
+.profile-actions button {
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  font-weight: var(--fw-regular);
+}
+
+.profile-actions button:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.profile-actions svg {
+  color: var(--ink-3);
+}
+
+.profile-local-note {
+  border-top: var(--hairline);
+  color: var(--ink-4);
+  font-size: var(--type-10);
+}
+
+/* ══════════════════════════════════════════════ Statusbar (24 px) ══ */
+
+/* !impasse: resolve-theme.css:1294-1303 (20 px, panel-2, 9 px), commercial.css:
+ * 630-637 y app.css:6489-6503 definen la statusbar con. */
+.app-shell .app-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  height: var(--shell-statusbar-h);
+  min-height: var(--shell-statusbar-h);
+  padding: 0 var(--gap-10);
+  border-top: var(--hairline) !important;
+  background: var(--chrome-1) !important;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-regular);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.app-shell .statusbar-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--rad-pill);
+  flex: none;
+  background: var(--color-empty);
+  box-shadow: none;
+}
+
+.app-shell .statusbar-dot.phase-saved {
+  background: var(--color-success);
+}
+
+.app-shell .statusbar-dot.phase-dirty {
+  background: var(--color-warning);
+}
+
+.app-shell .statusbar-dot.phase-saving,
+.app-shell .statusbar-dot.phase-loading {
+  background: var(--color-accent);
+  animation: shell-pulse 1.2s var(--ease-in-out) infinite;
+}
+
+.app-shell .statusbar-dot.phase-failed {
+  background: var(--color-danger);
+}
+
+.app-shell .statusbar-project {
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .statusbar-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+}
+
+.app-shell .statusbar-spacer {
+  flex: 1;
+}
+
+/* La app pasa estilos inline a estos botones; la clase gana la presentación. */
+.app-shell .statusbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  height: var(--ctl-h-xs);
+  padding: 0 var(--gap-6);
+  border: 0;
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .statusbar-btn:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.app-shell .statusbar-local {
+  padding: 0 0 0 var(--gap-8);
+  border: 0;
+  border-left: var(--hairline);
+  background: transparent;
+  color: var(--ink-4);
+  font-size: var(--type-11);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* ═══════════════════════════════════════════ Dock del asistente ══ */
+
+/* Botón flotante: acento sólido + elevación, sin glow ni gradiente (§4). */
+/* !impasse: commercial.css:807-815 fuerza fondo/borde/sombra del launcher. */
+.app-shell .assistant-launcher {
+  position: fixed;
+  right: var(--gap-12);
+  bottom: calc(var(--shell-statusbar-h) + var(--gap-12));
+  z-index: 1500;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--color-accent-strong) !important;
+  border-radius: var(--rad-md);
+  background: var(--color-accent) !important;
+  color: var(--color-accent-ink);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-accent-ink) 14%, transparent),
+    0 2px 6px -2px rgba(0, 0, 0, 0.34) !important;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-4) var(--ease-out);
+}
+
+.app-shell .assistant-launcher:hover {
+  background: color-mix(in srgb, var(--color-accent) 90%, var(--color-text)) !important;
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-accent-ink) 16%, transparent),
+    var(--elev-2) !important;
+}
+
+.app-shell .assistant-launcher:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* Panel del asistente: popover (vidrio de menú) de 340 px, header 40. */
+.app-shell .assistant-panel {
+  position: fixed;
+  right: var(--gap-12);
+  bottom: calc(var(--shell-statusbar-h) + 64px);
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--shell-dock-w), calc(100vw - 24px));
+  max-height: min(72vh, 600px);
+  overflow: hidden;
+  border: var(--glass-border);
+  border-radius: var(--rad-xl);
+  background: var(--glass-menu-bg);
+  box-shadow: var(--elev-3);
+  backdrop-filter: var(--glass-menu-blur);
+  -webkit-backdrop-filter: var(--glass-menu-blur);
+  animation: shell-pop var(--dur-4) var(--ease-entrance) both;
+}
+
+.app-shell .assistant-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+  min-height: 40px;
+  padding: var(--gap-6) var(--gap-12);
+  border-bottom: var(--hairline);
+  background: transparent;
+}
+
+.app-shell .assistant-identity strong {
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+}
+
+.app-shell .assistant-identity > div > span {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+}
+
+.app-shell .assistant-model-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  padding: var(--gap-8) var(--gap-12);
+  border-bottom: var(--hairline);
+  background: color-mix(in srgb, var(--color-bg) 40%, transparent);
+}
+
+.app-shell .assistant-model-info strong {
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .assistant-model-info span {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+}
+
+.app-shell .assistant-model-chip {
+  padding: 0 var(--gap-6);
+  height: var(--badge-h);
+  border: var(--hairline);
+  border-radius: var(--rad-pill);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.04em;
+  line-height: var(--badge-h);
+  text-transform: uppercase;
+}
+
+.app-shell .assistant-model-chip.local {
+  border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  background: var(--state-success-soft);
+  color: color-mix(in srgb, var(--color-success) 62%, var(--color-text));
+}
+
+.app-shell .assistant-model-chip.remote {
+  border-color: color-mix(in srgb, var(--color-warning) 42%, transparent);
+  background: var(--state-warning-soft);
+  color: color-mix(in srgb, var(--color-warning) 60%, var(--color-text));
+}
+
+.app-shell .assistant-log {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--gap-8);
+  min-height: 150px;
+  padding: var(--gap-12);
+  overflow-y: auto;
+}
+
+.app-shell .assistant-message {
+  max-width: 88%;
+  margin: 0;
+  padding: var(--gap-8) var(--gap-10);
+  border-radius: var(--rad-md);
+  font-size: var(--type-12);
+  line-height: var(--lh-ui);
+  white-space: pre-wrap;
+}
+
+.app-shell .assistant-message.assistant {
+  align-self: flex-start;
+  border: var(--hairline);
+  background: var(--chrome-3);
+  color: var(--ink-1);
+}
+
+.app-shell .assistant-message.user {
+  align-self: flex-end;
+  border: 1px solid var(--state-selected-border);
+  background: var(--state-selected);
+  color: var(--ink-1);
+}
+
+.app-shell .assistant-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-4);
+  padding: var(--gap-8) var(--gap-12);
+  border-top: var(--hairline);
+}
+
+.app-shell .assistant-quick button {
+  min-height: var(--chip-h);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  box-shadow: none;
+}
+
+.app-shell .assistant-quick button:hover:not(:disabled) {
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+  color: var(--ink-1);
+}
+
+.app-shell .assistant-composer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--gap-6);
+  padding: var(--gap-8) var(--gap-12);
+  border-top: var(--hairline);
+}
+
+.app-shell .assistant-composer textarea {
+  flex: 1;
+  min-height: 56px;
+  max-height: 104px;
+  padding: var(--gap-8) var(--gap-10);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-surface));
+  color: var(--ink-1);
+  font: inherit;
+  font-size: var(--type-12);
+  resize: none;
+  box-shadow: none;
+}
+
+.app-shell .assistant-composer button {
+  display: grid;
+  place-items: center;
+  width: var(--ctl-h-xl);
+  min-width: var(--ctl-h-xl);
+  height: var(--ctl-h-xl);
+  align-self: flex-end;
+  padding: 0;
+}
+
+.app-shell .assistant-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+  padding: var(--gap-6) var(--gap-12) var(--gap-8);
+  border-top: var(--hairline);
+  color: var(--ink-3);
+  font-size: var(--type-10);
+}
+
+.app-shell .assistant-foot .link {
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .assistant-foot-model {
+  color: var(--ink-3);
+  font-size: var(--type-10);
+}
+
+.app-shell .assistant-error {
+  margin: 0 var(--gap-12) var(--gap-8);
+  padding: var(--gap-8) var(--gap-10);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 38%, transparent);
+  border-radius: var(--rad-sm);
+  background: var(--state-danger-soft);
+  color: color-mix(in srgb, var(--color-danger) 64%, var(--color-text));
+  font-size: var(--type-11);
+}
+
+.app-shell .assistant-confirm {
+  margin: 0 var(--gap-12) var(--gap-8);
+  padding: var(--gap-8) var(--gap-10);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 42%, transparent);
+  border-radius: var(--rad-sm);
+  background: var(--state-warning-soft);
+}
+
+.app-shell .assistant-confirm p {
+  color: var(--ink-1);
+  font-size: var(--type-11);
+  line-height: var(--lh-ui);
+}
+
+/* ══════════════════════════════════ Ventana de Ajustes (portal) ══ */
+
+.settings-window-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim) !important;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: shell-fade var(--dur-4) var(--ease-out) both;
+}
+
+.settings-window {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: min(1000px, 94vw);
+  height: min(720px, 90vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--glass-border);
+  border-radius: var(--rad-2xl);
+  background: var(--glass-dialog-bg);
+  box-shadow: var(--elev-4);
+  backdrop-filter: var(--glass-dialog-blur);
+  -webkit-backdrop-filter: var(--glass-dialog-blur);
+}
+
+.settings-window-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-10);
+  height: 52px;
+  min-height: 52px;
+  padding: 0 var(--gap-8) 0 var(--gap-16);
+  border-bottom: var(--hairline);
+  background: transparent;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.settings-window-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-8);
+  color: var(--ink-1);
+  font-size: var(--type-13);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+}
+
+.settings-window-title svg {
+  color: var(--ink-2);
+}
+
+.settings-window-title em {
+  font-style: normal;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  font-weight: var(--fw-regular);
+}
+
+.settings-window-close {
+  width: var(--ctl-h-md);
+  height: var(--ctl-h-md);
+}
+
+.settings-window-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--gap-16) var(--gap-20) var(--gap-20);
+  overscroll-behavior: contain;
+}
+
+.settings-window .settings-view {
+  padding: 0;
+  max-width: none;
+  height: auto;
+}
+
+.settings-window .settings-shell {
+  width: 100%;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: var(--gap-16);
+  align-items: start;
+  margin: 0;
+}
+
+.settings-window .settings-nav {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: var(--gap-2);
+  padding: var(--gap-4);
+  border: var(--hairline);
+  border-radius: var(--rad-lg);
+  background: var(--chrome-2);
+  box-shadow: none;
+}
+
+.settings-window .settings-nav-head {
+  display: grid;
+  gap: var(--gap-2);
+  padding: var(--gap-4) var(--gap-8) var(--gap-10);
+  margin-bottom: var(--gap-4);
+  border-bottom: var(--hairline);
+}
+
+.settings-window .settings-nav-kicker {
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.settings-window .settings-nav-head strong {
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-18);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-tight);
+  line-height: 1.2;
+}
+
+.settings-window .settings-nav-head small {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+}
+
+.settings-window .settings-nav > button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--gap-8);
+  width: 100%;
+  min-height: var(--ctl-h-lg);
+  padding: 0 var(--gap-8);
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  text-align: left;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.settings-window .settings-nav > button:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.settings-window .settings-nav > button.active {
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+  color: var(--ink-1);
+}
+
+.settings-window .settings-nav > button.active::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: var(--rad-pill);
+  background: var(--color-accent);
+}
+
+.settings-window .settings-nav-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.settings-window .settings-nav > button.active .settings-nav-icon {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.settings-window .settings-nav-copy strong {
+  color: inherit;
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+}
+
+.settings-window .settings-nav-copy small {
+  display: none;
+}
+
+.settings-window .settings-nav-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-4);
+  margin-top: var(--gap-4);
+  padding: var(--gap-8) var(--gap-8) var(--gap-2);
+  border-top: var(--hairline);
+  color: var(--ink-4);
+  font-size: var(--type-10);
+}
+
+.settings-window .settings-nav-foot svg {
+  color: var(--ink-4);
+}
+
+.settings-window .settings-content {
+  display: grid;
+  gap: var(--gap-16);
+  min-width: 0;
+  padding: var(--gap-16);
+  border: var(--hairline);
+  border-radius: var(--rad-lg);
+  background: var(--chrome-3);
+  box-shadow: none;
+  /* El scroll vive en `.settings-window-body`: un segundo scroll interno (que
+   * traía settings.css) dejaba el estudio de color inaccesible. */
+  max-height: none;
+  overflow: visible;
+}
+
+.settings-window .settings-section {
+  display: grid;
+  gap: var(--gap-12);
+  min-width: 0;
+}
+
+.settings-window .settings-section-head {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--gap-10);
+  padding-bottom: var(--gap-12);
+  border-bottom: var(--hairline);
+}
+
+.settings-window .settings-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.settings-window .settings-section-head h2 {
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-18);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-tight);
+  line-height: 1.25;
+}
+
+.settings-window .settings-section-head p {
+  max-width: 74ch;
+  margin: var(--gap-4) 0 0;
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  line-height: var(--lh-ui);
+}
+
+.settings-window .settings-section-body {
+  display: grid;
+  gap: var(--gap-12);
+  min-width: 0;
+}
+
+/* La tinta de aviso heredada no llegaba a AA sobre el vidrio. */
+.settings-window .settings-section-body > .notice {
+  border-radius: var(--rad-md);
+  color: var(--ink-1);
+}
+
+.settings-window .settings-cards,
+.settings-window .settings-cards.two {
+  gap: var(--gap-12);
+}
+
+.settings-window .card {
+  padding: var(--gap-16);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-md);
+  background: var(--chrome-4);
+  box-shadow: var(--elev-1);
+}
+
+.settings-window .card > h3,
+.settings-window .color-studio-top h3 {
+  margin: 0 0 var(--gap-4);
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+}
+
+.settings-window .card .eyebrow {
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  letter-spacing: var(--track-caps);
+}
+
+/* Estudio de color: hereda el look de cards/inputs premium; sólo se alinean
+ * la referencia y los botones de archivo. */
+.settings-window .color-studio {
+  gap: var(--gap-12);
+  max-width: 100%;
+}
+
+.settings-window .color-studio-reference {
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  color: var(--ink-2);
+  font-size: var(--type-10);
+  line-height: var(--chip-h);
+}
+
+.settings-window .color-studio-actions button {
+  min-height: var(--ctl-h-md);
+  padding: 0 var(--gap-10);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-4);
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  box-shadow: none;
+}
+
+.settings-window .color-studio-actions button:hover:not(:disabled) {
+  background: var(--chrome-3);
+  border-color: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+/* ══════════════════════════════════════════ Paleta de comandos ══ */
+
+/* Overlay a pantalla completa: único caso de elevación 5 (spec §6.5). */
+.cmdp-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: start center;
+  padding-top: 12vh;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: shell-fade var(--dur-4) var(--ease-out) both;
+}
+
+.cmdp-panel {
+  width: min(640px, 92vw);
+  display: flex;
+  flex-direction: column;
+  max-height: 70vh;
+  overflow: hidden;
+  border: var(--glass-border);
+  border-radius: var(--rad-2xl);
+  background: var(--glass-dialog-bg) !important;
+  box-shadow: var(--elev-4) !important;
+  backdrop-filter: var(--glass-dialog-blur) !important;
+  -webkit-backdrop-filter: var(--glass-dialog-blur) !important;
+  animation: shell-dialog-in var(--dur-5) var(--ease-emphasized) both;
+}
+
+/* Input sin caja de 36 px con icono 16 (spec §8.8). */
+.cmdp-search {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-10);
+  height: 48px;
+  padding: 0 var(--gap-12);
+  border-bottom: var(--hairline);
+  color: var(--ink-3);
+}
+
+.cmdp-search svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+.cmdp-search input {
+  flex: 1;
+  height: 36px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-1);
+  font-size: var(--type-15);
+  font-weight: var(--fw-regular);
+  letter-spacing: 0;
+  outline: none;
+}
+
+.cmdp-search input::placeholder {
+  color: var(--ink-3);
+}
+
+/* El input de la paleta no es una caja: el foco lo dibuja el panel, no el
+ * input (spec §8.8: input sin borde). Sin esto, components.css le agrega el
+ * halo de foco de los formularios y aparece un rectángulo azul adentro. */
+.cmdp-search input:focus,
+.cmdp-search input:focus-visible {
+  border-color: transparent;
+  box-shadow: none;
+  outline: none;
+}
+
+.cmdp-kbd {
+  flex: none;
+  height: var(--kbd-h);
+  padding: 0 var(--gap-6);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: var(--kbd-h);
+}
+
+.cmdp-list {
+  padding: var(--gap-4);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.cmdp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-12);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: 0 var(--gap-10);
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-regular);
+  text-align: left;
+  box-shadow: none;
+  transition: background-color var(--dur-1) linear;
+}
+
+.cmdp-item:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.cmdp-item.selected {
+  background: var(--state-selected);
+  color: var(--ink-1);
+  font-weight: var(--fw-medium);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.cmdp-item-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmdp-item-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-10);
+  flex: none;
+}
+
+.cmdp-category,
+.cmdp-item-sub {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+}
+
+.cmdp-item.selected .cmdp-category,
+.cmdp-item.selected .cmdp-item-sub {
+  color: var(--ink-2);
+}
+
+.cmdp-shortcut {
+  height: var(--kbd-h);
+  min-width: 20px;
+  padding: 0 var(--gap-4);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: var(--kbd-h);
+}
+
+.cmdp-kind {
+  padding: 0 var(--gap-6);
+  height: var(--badge-h);
+  border: var(--hairline);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  line-height: var(--badge-h);
+}
+
+.cmdp-section + .cmdp-section {
+  margin-top: var(--gap-4);
+  padding-top: var(--gap-4);
+  border-top: var(--hairline);
+}
+
+.cmdp-section-title {
+  margin: var(--gap-4) var(--gap-10) var(--gap-2);
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.cmdp-empty {
+  padding: var(--gap-32) var(--gap-20);
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  text-align: center;
+}
+
+.cmdp-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-12);
+  height: 36px;
+  padding: 0 var(--gap-12);
+  border-top: var(--hairline);
+  color: var(--ink-3);
+  font-size: var(--type-11);
+}
+
+.cmdp-footer kbd {
+  height: 17px;
+  min-width: 17px;
+  padding: 0 var(--gap-4);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.cmdp-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════════ Topbar responsivo ══ */
+/* La ventana mínima del editor es 1024×640 (spec §9.2). Por debajo de 1180 se
+ * compactan las etiquetas de acciones para que el topbar nunca desborde. */
+
+@media (max-width: 1180px) {
+  .app-shell .topbar-home-btn > span {
+    display: none;
+  }
+
+  .app-shell .topbar-home-btn {
+    width: var(--ctl-h-sm);
+    padding: 0;
+  }
+
+  .app-shell .topbar-search {
+    width: 190px;
+    min-width: 168px;
+  }
+
+  .app-shell .topbar-search > span {
+    display: none;
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-shell .topbar {
+    gap: var(--gap-4);
+  }
+
+  .app-shell .menubar-title {
+    padding: 0 var(--gap-6);
+    font-size: var(--type-11);
+  }
+
+  .app-shell .topbar-divider {
+    margin: 0 var(--gap-2);
+  }
+
+  .app-shell .topbar-export-btn {
+    padding: 0 var(--gap-8);
+  }
+
+  .app-shell .topbar-export-btn > span {
+    display: none;
+  }
+}
+
+/* ══════════════════════════════════════ Motion y reduced-motion ══ */
+
+@keyframes shell-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shell-dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes shell-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes shell-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* El contrato de apariencia ya apaga animaciones con data-reduce-motion, y
+ * base.css cubre prefers-reduced-motion; acá se asegura el chrome. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-window-backdrop,
+  .cmdp-overlay,
+  .cmdp-panel,
+  .app-shell .assistant-panel,
+  .app-shell .menubar-dropdown,
+  .app-shell .sidebar .nav-more-list {
+    animation: none;
+  }
+}
+
+:root[data-reduce-motion='true'] .app-shell .assistant-panel,
+:root[data-reduce-motion='true'] .app-shell .menubar-dropdown,
+:root[data-reduce-motion='true'] .app-shell .sidebar .nav-more-list,
+:root[data-reduce-motion='true'] .settings-window-backdrop,
+:root[data-reduce-motion='true'] .cmdp-overlay,
+:root[data-reduce-motion='true'] .cmdp-panel {
+  animation: none;
+}
+
+/* ==========================================================================
+   Aviso de modo navegador — franja en el flujo (no flotante)
+   Se monta dentro de AppShell (debajo del topbar) y de StartScreen (debajo
+   del header). Una línea de estado + desplegable; nunca tapa contenido.
+   ========================================================================== */
+.browser-mode-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-10);
+  flex-wrap: nowrap;
+  min-height: 34px;
+  padding: 5px var(--gap-16);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-warning) 34%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--chrome-1));
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  line-height: var(--lh-ui);
+}
+
+.browser-mode-banner-label {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 44%, transparent);
+  border-radius: var(--rad-xs);
+  color: color-mix(in srgb, var(--color-warning) 62%, var(--ink-1));
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.browser-mode-banner-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-mode-banner-line strong {
+  color: var(--ink-1);
+  font-weight: var(--fw-strong);
+}
+
+.browser-mode-banner-details {
+  flex: 0 0 auto;
+  position: relative;
+}
+
+.browser-mode-banner-details > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 3px 8px;
+  border: 1px solid var(--hairline-strong-color, color-mix(in srgb, var(--color-text) 10%, transparent));
+  border-radius: var(--rad-sm);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+.browser-mode-banner-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.browser-mode-banner-details > summary:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.browser-mode-banner-details[open] > p {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: var(--z-popover, 1100);
+  width: min(560px, calc(100vw - 32px));
+  margin: 0;
+  padding: var(--gap-12);
+  border: var(--glass-border, 1px solid var(--hairline-strong-color));
+  border-radius: var(--rad-lg);
+  background: var(--glass-menu-bg);
+  box-shadow: var(--elev-3);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  line-height: var(--lh-body);
+  white-space: normal;
+  backdrop-filter: var(--glass-menu-blur);
+}
+
+.browser-mode-banner-details[open] > p strong {
+  color: var(--ink-1);
+}
+
+.browser-mode-banner-action {
+  flex: 0 0 auto;
+  min-height: var(--ctl-h-sm);
+  height: var(--ctl-h-sm);
+  padding: 0 10px;
+  font-size: var(--type-11);
+}
+
+.start-window .browser-mode-banner {
+  margin: 0 0 var(--gap-8);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 30%, transparent);
+  border-radius: var(--rad-md);
+}
+
+@media (max-width: 1100px) {
+  .browser-mode-banner {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .browser-mode-banner-line {
+    white-space: normal;
+    flex-basis: 100%;
+    order: 3;
+  }
+  .browser-mode-banner-action {
+    margin-left: auto;
+  }
+}

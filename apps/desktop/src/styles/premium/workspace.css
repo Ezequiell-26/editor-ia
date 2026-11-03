@@ -1,0 +1,3112 @@
+/* ==========================================================================
+   Olyvia · capa premium — WORKSPACE (editor: preview, timeline, inspector,
+   paneles de assets, transporte, mixer y diálogos de export/render).
+
+   Dueño: agente de workspace. Se importa ÚLTIMA en main.tsx.
+   Qué domina: `.editor-workspace` y sus paneles; no toca topbar/rail/statusbar
+   (shell) ni las vistas de contenido (views).
+
+   Lenguaje: docs/PREMIUM-REDESIGN-SPEC.md §6–§10 y tokens de
+   `premium/tokens.css` (--chrome-*, --ink-*, --type-*, --gap-*, --rad-*,
+   --elev-*, --dur-* y --ease-*, --shell-*, --ctl-*, --tl-*).
+   Reglas: superficies opacas + hairline, sin glow ni sombras de color; el
+   acento sólo en selección/playhead/CTA; motion ≤ 110 ms de hover; el alto de
+   pista es del usuario (`--timeline-row`) y las medidas del timeline salen de
+   los tokens --tl-*.
+
+   Cascada (Ola 2): `styles/resolve-theme.css` fue neutralizado EN ORIGEN en los
+   bloques de editor/timeline/preview/transporte (ver la cabecera de ese
+   archivo), así que este layer gana por orden de import y ya no necesita
+   `!important` para el look del workspace. flat.css también fue neutralizado
+   por el agente de shell. Quedan sólo dos impasses reales contra capas
+   compartidas, marcados con `!impasse:` al final del archivo:
+   `commercial.css` (paneles del editor) y `components.css` (radio del modal de
+   export). Los `display`/`grid`/`height` de layout no usan `!important`
+   (spec §12.5).
+   ========================================================================== */
+
+/* ───────────────────────────────────────── 1 · Marco del workspace ─────── */
+
+.app-shell .editor-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-10);
+  min-height: 0;
+  height: 100%;
+  padding: var(--gap-10) var(--gap-12) var(--gap-12);
+  background: var(--color-bg);
+}
+
+/* Pestañas de modo del editor (Edición / Cerebro / Texto / …). */
+.app-shell .editor-mode-tabs {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--gap-4);
+  height: calc(var(--shell-tab-h, 32px) + 6px);
+  padding: 0 var(--gap-2);
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: transparent;
+  scrollbar-width: none;
+}
+
+.app-shell .editor-mode-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell .editor-mode-tab {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: var(--ctl-h-md, 28px);
+  padding: 0 var(--ctl-px, 10px);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .editor-mode-tab:hover {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .editor-mode-tab.active {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+/* Rejilla del editor: rail · preview · inspector / timeline a lo ancho. */
+.app-shell .editor-grid {
+  display: grid;
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+  grid-template-columns:
+    clamp(264px, 21.5vw, 320px) minmax(0, 1fr) clamp(288px, 23vw, 340px);
+  grid-template-rows: minmax(0, 1fr) var(--timeline-height, 280px);
+  gap: var(--gap-10);
+  padding: 0;
+  background: transparent;
+}
+
+:root[data-density='compact'] .app-shell .editor-grid {
+  gap: var(--gap-8);
+}
+
+:root[data-density='spacious'] .app-shell .editor-grid {
+  gap: var(--gap-12);
+}
+
+/* Nivel 2 del spec (§9.3): paneles de trabajo, superficie --chrome-3 con
+   header --chrome-2 y borde hairline. Sin sombras ni gradientes. El único
+   `!important` que queda es el de `commercial.css` sobre estos paneles y vive
+   al final del archivo (§14). */
+
+.app-shell .asset-rail,
+.app-shell .preview-panel,
+.app-shell .inspector,
+.app-shell .timeline-panel,
+.app-shell .editor-mode-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-lg);
+  background: var(--chrome-3);
+  overflow: hidden;
+}
+
+.app-shell .asset-rail {
+  grid-column: 1;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .preview-panel {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .inspector {
+  grid-column: 3;
+  grid-row: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .timeline-panel {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-shell .editor-mode-panel {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  overflow: auto;
+  padding: var(--gap-16) var(--gap-6) var(--gap-24);
+}
+
+.app-shell .editor-mode-panel .view {
+  max-width: none;
+  min-height: 0;
+}
+
+/* Asa de alto de la timeline. */
+.app-shell .timeline-resize {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 4;
+  height: 7px;
+  margin: -3px 0 0;
+  border: 0;
+  border-radius: var(--rad-pill);
+  background: transparent;
+  cursor: ns-resize;
+}
+
+.app-shell .timeline-resize::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 2px;
+  width: 34px;
+  height: 2px;
+  margin-left: -17px;
+  border-radius: var(--rad-pill);
+  background: var(--ink-4);
+  opacity: 0;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline-resize:hover::after,
+.app-shell .timeline-resize:focus-visible::after {
+  opacity: 1;
+  background: var(--color-accent);
+}
+
+/* ──────────────────────────────────────── 2 · Cabeceras de panel ───────── */
+
+/* 38 px = header de panel del spec (32) + aire para el eyebrow de la tarea. */
+.app-shell .rail-head,
+.app-shell .inspector-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+  flex: 0 0 auto;
+  min-height: calc(var(--shell-panel-head-h, 32px) + 6px);
+  padding: 0 var(--gap-12);
+  border-bottom: var(--hairline);
+  background: var(--chrome-2);
+}
+
+.app-shell .rail-head > div {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap-6);
+  min-width: 0;
+}
+
+.app-shell .rail-head .eyebrow {
+  margin: 0;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.app-shell .rail-head > div > strong {
+  min-width: 18px;
+  padding: 0 5px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-pill);
+  background: var(--state-hover);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+
+.app-shell .inspector-head h3 {
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-shell .inspector-head > span:last-child {
+  padding: 1px 6px;
+  border: 1px solid var(--state-selected-border);
+  border-radius: var(--rad-xs);
+  background: var(--state-selected);
+  color: color-mix(in srgb, var(--color-accent) 55%, var(--color-text));
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  line-height: 15px;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+/* ─────────────────────────────────────────────── 3 · Asset rail ────────── */
+
+.app-shell .rail-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: var(--gap-2);
+  padding: var(--gap-8) var(--gap-8) var(--gap-6);
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: var(--hairline);
+  background: var(--chrome-2);
+  scrollbar-width: none;
+}
+
+.app-shell .rail-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell .rail-tabs button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ctl-gap, 6px);
+  height: var(--ctl-h-sm, 24px);
+  min-height: var(--ctl-h-sm, 24px);
+  padding: 0 var(--ctl-px-sm, 8px);
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .rail-tabs button svg {
+  flex: none;
+}
+
+.app-shell .rail-tabs button span {
+  white-space: nowrap;
+}
+
+/* Rail compacto: todas las categorías visibles como iconos; la activa suma su
+   etiqueta (patrón toolbar, spec §8.13). Evita el scroll horizontal oculto. */
+.app-shell .rail-tabs button span {
+  display: none;
+}
+
+.app-shell .rail-tabs button.active span {
+  display: inline;
+}
+
+.app-shell .rail-tabs button:hover {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .rail-tabs button.active {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+.app-shell .rail-tabs button.active svg {
+  color: var(--color-accent);
+}
+
+/* Buscador / filtro / favoritos del rail de medios. */
+.app-shell .rail-browser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--gap-6);
+  flex: 0 0 auto;
+  padding: var(--gap-8) var(--gap-10) var(--gap-6);
+  border-bottom: var(--hairline);
+}
+
+.app-shell .rail-search {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  min-width: 0;
+  height: var(--ctl-h-md, 28px);
+  padding: 0 var(--gap-8);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-surface));
+  color: var(--ink-3);
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out);
+}
+
+.app-shell .rail-search:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+.app-shell .rail-search svg {
+  flex: none;
+}
+
+.app-shell .rail-search input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+}
+
+.app-shell .rail-search input:focus,
+.app-shell .rail-search input:focus-visible {
+  box-shadow: none;
+}
+
+.app-shell .rail-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rad-pill);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.app-shell .rail-search-clear:hover {
+  color: var(--ink-1);
+}
+
+.app-shell .rail-filter {
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  max-width: 104px;
+  padding: 0 24px 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-11);
+  color: var(--ink-2);
+}
+
+.app-shell .rail-fav-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-md, 28px);
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0;
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-10);
+}
+
+.app-shell .rail-fav-filter span {
+  display: none;
+}
+
+.app-shell .rail-fav-filter:hover {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .rail-fav-filter.active {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 45%, transparent);
+  background: var(--state-warning-soft);
+}
+
+/* Lista de medios del rail. */
+.app-shell .rail-list {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--gap-8);
+  gap: var(--gap-2);
+}
+
+.app-shell .rail-asset {
+  display: flex;
+  gap: var(--gap-8);
+  padding: var(--gap-6);
+  border: 1px solid transparent;
+  border-radius: var(--rad-md);
+  background: transparent;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .rail-asset:hover {
+  border-color: var(--hairline-strong-color);
+  background: var(--state-hover);
+}
+
+.app-shell .rail-thumb {
+  position: relative;
+  width: 56px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--rad-sm);
+  overflow: hidden;
+  background: var(--color-panel-3);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong-color);
+}
+
+.app-shell .rail-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.app-shell .rail-thumb-kind {
+  display: grid;
+  place-items: center;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  color: var(--color-video);
+}
+
+.app-shell .rail-thumb.kind-image .rail-thumb-kind {
+  color: var(--color-image);
+}
+
+.app-shell .rail-thumb.kind-audio .rail-thumb-kind {
+  color: var(--color-audio);
+}
+
+.app-shell .rail-thumb-time {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  padding: 0 4px;
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-bg) 84%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  line-height: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .rail-info {
+  display: grid;
+  align-content: start;
+  gap: 1px;
+  min-width: 0;
+}
+
+.app-shell .rail-info strong {
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .rail-info > span {
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-shell .rail-in-use-dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 5px;
+  border-radius: var(--rad-pill);
+  background: var(--color-success);
+  vertical-align: middle;
+}
+
+.app-shell .rail-actions {
+  display: flex;
+  gap: var(--gap-4);
+  margin-top: 2px;
+}
+
+.app-shell .rail-actions button {
+  height: var(--ctl-h-xs, 22px);
+  min-height: var(--ctl-h-xs, 22px);
+  padding: 0 var(--gap-8);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .rail-actions button:hover {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .rail-foot {
+  flex: 0 0 auto;
+  justify-content: center;
+  margin: var(--gap-4) var(--gap-8) var(--gap-8);
+  min-height: var(--ctl-h-sm, 24px);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-11);
+}
+
+/* ────────────────────────────────────────── 4 · Preview / monitor ──────── */
+
+.app-shell .preview-stage {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  position: relative;
+  /* Pozo del monitor: más oscuro que la superficie, también en tema claro
+     (los NLE mantienen el visor oscuro para juzgar color). */
+  padding: 40px var(--gap-16) var(--gap-16);
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 120% 90% at 50% 0%,
+      color-mix(in srgb, rgb(255 255 255) 4%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--color-bg) 18%, rgb(0 0 0));
+  border-bottom: var(--hairline);
+}
+
+.app-shell .preview-stage.pixel-perfect {
+  display: block;
+  overflow: auto;
+  padding: var(--gap-12);
+}
+
+/* HUD del monitor (resolución / fps / proxy). */
+.app-shell .preview-hud {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-4);
+  position: absolute;
+  top: 10px;
+  left: var(--gap-16);
+  z-index: 8;
+  padding: 0;
+  pointer-events: none;
+}
+
+.app-shell .preview-hud-chip {
+  display: inline-flex;
+  align-items: center;
+  height: var(--chip-h, 22px);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 78%, rgb(0 0 0));
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .preview-hud-chip.strong {
+  color: var(--ink-2);
+  font-weight: var(--fw-strong);
+}
+
+.app-shell .preview-hud-chip.preview-hud-render {
+  color: var(--ink-4);
+}
+
+.app-shell .preview-hud-chip.proxy {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 42%, transparent);
+  letter-spacing: 0.08em;
+}
+
+/* Herramientas del monitor: chips 24 px, sin blur ni glow. */
+.app-shell .preview-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: var(--gap-4);
+  position: absolute;
+  top: 9px;
+  right: var(--gap-16);
+  z-index: 9;
+  max-width: calc(100% - 170px);
+}
+
+.app-shell .preview-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-4);
+  height: var(--ctl-h-sm, 24px);
+  min-height: var(--ctl-h-sm, 24px);
+  min-width: 26px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, rgb(255 255 255) 14%, transparent);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 82%, rgb(0 0 0));
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .preview-tool > svg ~ span {
+  display: none;
+}
+
+.app-shell .preview-tool:hover:not(:disabled) {
+  color: var(--ink-1);
+  border-color: color-mix(in srgb, rgb(255 255 255) 22%, transparent);
+}
+
+.app-shell .preview-tool.active {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+.app-shell .preview-tool:disabled {
+  opacity: var(--disabled-opacity);
+}
+
+.app-shell .preview-ratio-select {
+  height: var(--ctl-h-sm, 24px);
+  min-height: var(--ctl-h-sm, 24px);
+  max-width: 126px;
+  padding: 0 22px 0 var(--gap-8);
+  border: 1px solid color-mix(in srgb, rgb(255 255 255) 14%, transparent);
+  border-radius: var(--rad-sm);
+  background-color: color-mix(in srgb, var(--color-bg) 82%, rgb(0 0 0));
+  color: var(--ink-2);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+}
+
+/* Lienzo del monitor: marco hairline + una sola sombra neutra (elev-2). */
+.app-shell .preview-canvas {
+  border-radius: var(--rad-sm);
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, rgb(255 255 255) 12%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--color-bg) 55%, rgb(0 0 0)),
+    0 18px 44px -18px rgba(0, 0, 0, 0.8);
+}
+
+.app-shell .preview-canvas::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  border-radius: inherit;
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, rgb(255 255 255) 8%, transparent) inset,
+    0 0 0 2px rgba(0, 0, 0, 0.3) inset;
+  pointer-events: none;
+}
+
+.app-shell .preview-timecode-chip {
+  display: inline-flex;
+  align-items: center;
+  left: var(--gap-16);
+  bottom: var(--gap-8);
+  height: var(--chip-h, 22px);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 78%, rgb(0 0 0));
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .preview-look {
+  border-radius: inherit;
+}
+
+.app-shell .preview-empty {
+  display: grid;
+  place-items: center;
+  padding: var(--gap-8);
+  color: var(--ink-2);
+  font-size: var(--type-13);
+  text-align: center;
+}
+
+.app-shell .preview-overlay {
+  padding: var(--gap-16) var(--gap-6);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-md);
+  background: color-mix(in srgb, var(--color-bg) 82%, rgb(0 0 0));
+  color: var(--ink-2);
+}
+
+.app-shell .preview-overlay strong {
+  color: var(--ink-1);
+  font-size: var(--type-13);
+}
+
+.app-shell .preview-media,
+.app-shell .preview-simulated-video {
+  border-radius: inherit;
+}
+
+/* ───────────────────────────────────────────── 5 · Transporte ──────────── */
+
+.app-shell .transport {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-16);
+  min-height: calc(var(--ctl-h-lg, 32px) + 24px);
+  padding: var(--gap-8) var(--gap-12);
+  border-top: var(--hairline);
+  background: var(--chrome-2);
+}
+
+.app-shell .transport-buttons {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 1px;
+  border: var(--hairline);
+  border-radius: var(--rad-md);
+  background: color-mix(in srgb, var(--color-bg) 60%, transparent);
+}
+
+.app-shell .transport-button {
+  display: grid;
+  place-items: center;
+  width: var(--ctl-h-md, 28px);
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .transport-button:hover:not(:disabled) {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .transport-button.active {
+  color: var(--color-accent);
+  background: var(--state-selected);
+}
+
+.app-shell .transport-button.primary-transport {
+  width: var(--ctl-h-lg, 32px);
+  height: var(--ctl-h-lg, 32px);
+  min-height: var(--ctl-h-lg, 32px);
+  margin: 0 var(--gap-4);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 80%, rgb(0 0 0));
+  border-radius: var(--rad-sm);
+  background: var(--color-accent);
+  color: var(--color-accent-ink);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, rgb(255 255 255) 18%, transparent);
+}
+
+.app-shell .transport-button.primary-transport:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 88%, var(--color-text));
+}
+
+.app-shell .transport-timeline {
+  display: grid;
+  flex: 1 1 auto;
+  gap: var(--gap-4);
+  min-width: 80px;
+}
+
+.app-shell .transport-scrub {
+  position: relative;
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-bg) 55%, var(--color-panel-3));
+  cursor: pointer;
+  overflow: visible;
+}
+
+.app-shell .transport-scrub > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+}
+
+.app-shell .transport-scrub-knob {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border: 2px solid color-mix(in srgb, var(--color-bg) 84%, rgb(0 0 0));
+  border-radius: var(--rad-pill);
+  background: var(--color-text);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.app-shell .transport-readout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .transport-time {
+  color: var(--ink-1);
+  font-size: var(--type-11);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.01em;
+}
+
+.app-shell .transport-time > span {
+  color: var(--ink-3);
+  font-weight: var(--fw-regular);
+}
+
+.app-shell .transport-frames {
+  padding: 0 6px;
+  border: var(--hairline);
+  border-radius: var(--rad-xs);
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  line-height: 16px;
+  letter-spacing: 0.02em;
+}
+
+/* ───────────────────────────────────────────── 6 · Inspector ───────────── */
+
+.app-shell .inspector-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 0 var(--gap-6);
+  display: block;
+  gap: 0;
+  scrollbar-gutter: stable;
+}
+
+.app-shell .inspector-section {
+  display: grid;
+  gap: var(--gap-8);
+  align-content: start;
+  margin: 0;
+  padding: var(--gap-8) var(--gap-12) var(--gap-12);
+  border: 0;
+  border-bottom: var(--hairline);
+  border-radius: 0;
+  background: transparent;
+}
+
+.app-shell .inspector-section:last-child {
+  border-bottom: 0;
+}
+
+.app-shell .inspector-section h4 {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+/* app.css:7222 dibuja una barra de acento en cada h4 del inspector; el diseño
+   premium deja la etiqueta sola y reserva el acento para selección/playhead. */
+.app-shell .inspector-section h4::before {
+  display: none;
+}
+
+/* Secciones colapsables: header clickeable con chevron (spec §8.5). */
+.app-shell .inspector-section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-6);
+  width: 100%;
+  min-height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  text-align: left;
+}
+
+.app-shell .inspector-section-toggle:hover {
+  color: var(--ink-2);
+}
+
+.app-shell .inspector-section-toggle svg {
+  flex: none;
+  color: var(--ink-4);
+  transition: transform var(--dur-5) var(--ease-emphasized);
+}
+
+.app-shell .inspector-section.is-collapsed {
+  padding-bottom: var(--gap-8);
+}
+
+.app-shell .inspector-section.is-collapsed > :not(h4) {
+  display: none;
+}
+
+.app-shell .inspector-section.is-collapsed .inspector-section-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.app-shell .inspector .field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  margin: 0;
+}
+
+.app-shell .inspector .field > span,
+.app-shell .inspector label.field > span {
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.app-shell .inspector input[type='text'],
+.app-shell .inspector input[type='number'],
+.app-shell .inspector input[type='search'],
+.app-shell .inspector select,
+.app-shell .inspector textarea {
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-12);
+}
+
+.app-shell .inspector input[type='range'] {
+  width: 100%;
+  accent-color: var(--color-accent);
+}
+
+.app-shell .inspector input[type='color'] {
+  min-height: var(--ctl-h-md, 28px);
+  padding: 2px;
+  border-radius: var(--rad-sm);
+}
+
+.app-shell .inspector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gap-8) var(--gap-4);
+}
+
+.app-shell .inspector-meta {
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  line-height: var(--lh-ui, 1.45);
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .inspector .fine-print {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  line-height: var(--lh-ui, 1.45);
+}
+
+.app-shell .inspector .actions.compact,
+.app-shell .inspector .actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--gap-6);
+}
+
+.app-shell .inspector .actions.compact button,
+.app-shell .inspector .actions button {
+  min-height: var(--ctl-h-sm, 24px);
+  height: auto;
+  padding: 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-11);
+}
+
+.app-shell .inspector .check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-6);
+  min-height: var(--ctl-h-sm, 24px);
+  padding: 0 var(--gap-8);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-surface));
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  cursor: pointer;
+}
+
+.app-shell .inspector .check:hover {
+  border-color: color-mix(in srgb, var(--color-text) 46%, var(--color-border));
+}
+
+.app-shell .inspector .check input[type='checkbox'] {
+  accent-color: var(--color-accent);
+}
+
+.app-shell .look-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-4);
+}
+
+.app-shell .look-chip {
+  height: var(--ctl-h-sm, 24px);
+  min-height: var(--ctl-h-sm, 24px);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .look-chip:hover {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+}
+
+.app-shell .look-chip.active {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+.app-shell .inspector .color-wheels {
+  gap: var(--gap-6);
+}
+
+.app-shell .inspector .color-wheel {
+  padding: var(--gap-6);
+  border: var(--hairline);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+}
+
+.app-shell .inspector .keyframe-panel {
+  display: grid;
+  gap: var(--gap-6);
+  padding: var(--gap-8);
+  border: var(--hairline);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+}
+
+.app-shell .inspector .production-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap-8);
+}
+
+.app-shell .inspector .production-card-head .eyebrow {
+  margin: 0 0 2px;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.app-shell .inspector .profile-list,
+.app-shell .inspector .operation-list {
+  display: grid;
+  gap: var(--gap-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.app-shell .inspector .profile-list li,
+.app-shell .inspector .operation-list li {
+  display: grid;
+  gap: 2px;
+  padding: var(--gap-6) var(--gap-8);
+  border: var(--hairline);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  line-height: var(--lh-ui, 1.45);
+}
+
+.app-shell .inspector .operation-list li span {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+}
+
+.app-shell .inspector .emoji-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-4);
+}
+
+/* Inspector de clip con pestañas. */
+.app-shell .clip-inspector {
+  display: grid;
+  gap: var(--gap-4);
+  align-content: start;
+}
+
+.app-shell .inspector-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 6;
+  display: flex;
+  gap: 1px;
+  margin: 0;
+  padding: var(--gap-2) var(--gap-8);
+  border: 0;
+  border-bottom: var(--hairline);
+  background: var(--chrome-2);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.app-shell .inspector-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.app-shell .inspector-tabs button {
+  flex: 0 0 auto;
+  min-height: var(--ctl-h-sm, 24px);
+  padding: 0 var(--gap-8);
+  border: 1px solid transparent;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .inspector-tabs button:hover {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .inspector-tabs button.active,
+.app-shell .inspector-tabs button[aria-selected='true'] {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+/* ─────────────────────────────────────── 7 · Timeline · barra superior ─── */
+
+.app-shell .timeline-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  height: calc(var(--shell-tab-h, 32px) + 2px);
+  min-height: calc(var(--shell-tab-h, 32px) + 2px);
+  padding: 0 var(--gap-12);
+  border-bottom: var(--hairline);
+  background: var(--chrome-2);
+}
+
+.app-shell .timeline-tabs button {
+  align-self: stretch;
+  height: 100%;
+  padding: 0 var(--gap-12);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  transition: color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline-tabs button:hover {
+  color: var(--ink-1);
+}
+
+.app-shell .timeline-tabs button.active {
+  color: var(--ink-1);
+  border-bottom-color: var(--color-accent);
+}
+
+.app-shell .timeline-tabs-meta {
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Toolbar del timeline: altura del spec (36), controles 28, sin acento. */
+.app-shell .timeline-toolbar {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--gap-6);
+  height: var(--shell-toolbar-h, 36px);
+  min-height: var(--shell-toolbar-h, 36px);
+  padding: 0 var(--gap-10);
+  border-bottom: var(--hairline);
+  background: var(--chrome-2);
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.app-shell .timeline-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: var(--gap-8);
+  border-right: var(--hairline);
+}
+
+.app-shell .timeline-toolbar .icon-button {
+  width: var(--ctl-h-md, 28px);
+  height: var(--ctl-h-md, 28px);
+  min-width: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  border-radius: var(--rad-sm);
+  color: var(--ink-2);
+}
+
+.app-shell .timeline-toolbar .icon-button:hover:not(:disabled) {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .timeline-toolbar .small {
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  gap: var(--gap-4);
+}
+
+.app-shell .timeline-toolbar .small:hover:not(:disabled) {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .timeline-toolbar .small.icon-text {
+  padding: 0 var(--gap-6);
+}
+
+/* Las etiquetas de los botones de acción aparecen sólo al hover: la barra
+   queda densa (icon-first) pero el nombre sigue accesible por aria-label. */
+.app-shell .timeline-toolbar .icon-text > .tool-label {
+  position: static;
+  width: auto;
+  height: auto;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: nowrap;
+}
+
+.app-shell .timeline-toolbar .icon-text:not(:hover) > .tool-label {
+  display: none;
+}
+
+.app-shell .timeline-tools select {
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  width: auto;
+  padding: 0 22px 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-11);
+  color: var(--ink-2);
+}
+
+.app-shell .zoom-readout {
+  min-width: 74px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  letter-spacing: 0.01em;
+  text-align: center;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .color-filter-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  margin-left: 2px;
+}
+
+.app-shell .color-filter-field .tool-label {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.app-shell .color-filter-field select {
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0 22px 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-11);
+}
+
+.app-shell .clip-search-field input {
+  width: 132px;
+  height: var(--ctl-h-md, 28px);
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-11);
+  transition: width var(--dur-3) var(--ease-out);
+}
+
+.app-shell .clip-search-field input:focus {
+  width: 168px;
+}
+
+.app-shell .timeline-duration {
+  margin-left: auto;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .timeline-duration .duration-tracks {
+  color: var(--ink-4);
+}
+
+/* Estados de los toggles (snap/pan): selección persistente del spec (§9.4). */
+.app-shell .snap-toggle.active,
+.app-shell .pan-toggle.active {
+  color: var(--color-accent);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+/* ── Polish 2026-11-03 · barra del timeline ────────────────────────────────
+ * Grupos separados, acciones primarias con etiqueta visible y secundarias
+ * icon-only con tooltip (el nombre sigue en aria-label). Sin !important. */
+.app-shell .timeline-toolbar {
+  gap: var(--gap-8);
+}
+
+.app-shell .timeline-tools {
+  gap: 4px;
+  padding-right: var(--gap-10);
+}
+
+.app-shell .timeline-tools-filters {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.app-shell .timeline-tools:last-of-type {
+  border-right: 0;
+  padding-right: 0;
+}
+
+/* Etiquetas: primarias siempre legibles, secundarias al hover. */
+.app-shell .timeline-toolbar .icon-text:not(:hover) > .tool-label {
+  display: none;
+}
+
+.app-shell .timeline-toolbar .pan-toggle > .tool-label,
+.app-shell .timeline-toolbar .snap-toggle > .tool-label,
+.app-shell .timeline-toolbar .icon-text[aria-label='Dividir en playhead'] > .tool-label,
+.app-shell .timeline-toolbar .icon-text[aria-label='Agregar o quitar marcador'] > .tool-label {
+  display: inline;
+}
+
+/* !impasse: flat.css:42-56 recorta los labels de `.timeline-tools` a 1×1 px
+   con !important (sr-only). Las acciones primarias del timeline vuelven a
+   mostrar texto; el resto conserva el modo icon-first. */
+.app-shell .timeline-toolbar .icon-text[aria-label='Dividir en playhead'] > .tool-label,
+.app-shell .timeline-toolbar .icon-text[aria-label='Agregar o quitar marcador'] > .tool-label {
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  margin: 0 !important;
+  overflow: visible !important;
+  clip: auto !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.app-shell .timeline-toolbar .clip-search-field,
+.app-shell .timeline-toolbar .timeline-tools select {
+  flex: none;
+}
+
+.app-shell .timeline-toolbar .small.icon-text {
+  padding: 0 var(--gap-8);
+}
+
+.app-shell .timeline-toolbar .timeline-tools select {
+  max-width: 118px;
+}
+
+/* ────────────────────────────────── 8 · Timeline · regla, pistas, clips ─── */
+
+.app-shell .timeline-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+  position: relative;
+  background: var(--color-panel);
+}
+
+.app-shell .timeline-surface {
+  position: relative;
+  min-height: 100%;
+  min-width: 100%;
+  background: transparent;
+}
+
+/* Regla: 28 px, marcas mayores 1×8, menores 1×4 (spec §10.1). */
+.app-shell .ruler-row {
+  display: flex;
+  height: var(--tl-ruler-h, 28px);
+  position: sticky;
+  top: 0;
+  z-index: 9;
+  background: var(--chrome-2);
+  border-bottom: var(--hairline-strong);
+}
+
+.app-shell .ruler-corner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-6);
+  width: var(--tl-track-head-w, 160px);
+  flex: none;
+  position: sticky;
+  left: 0;
+  z-index: 12;
+  padding: 0 var(--gap-10);
+  background: var(--chrome-2);
+  border-right: var(--hairline);
+}
+
+.app-shell .ruler-corner-title {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.app-shell .ruler-corner-badge {
+  padding: 0 4px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  line-height: 14px;
+  letter-spacing: 0.04em;
+}
+
+.app-shell .ruler-lane {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.app-shell .ruler-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  padding: 4px 0 0 4px;
+  border-left: 1px solid color-mix(in srgb, var(--color-text) 10%, transparent);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .ruler-minor {
+  position: absolute;
+  bottom: 0;
+  width: 1px;
+  height: 4px;
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  pointer-events: none;
+}
+
+/* Filas de pista: alto del usuario mediante --timeline-row. */
+.app-shell .timeline-row {
+  display: flex;
+  position: relative;
+  height: var(--timeline-row, 48px);
+  min-height: 0;
+  border-bottom: var(--hairline);
+  background: transparent;
+}
+
+.app-shell .track-head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+  width: var(--tl-track-head-w, 160px);
+  flex: none;
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  padding: 0 var(--gap-8);
+  background: var(--chrome-2);
+  border-right: var(--hairline);
+}
+
+.app-shell .timeline-row.selected .track-head {
+  background: var(--state-selected);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.app-shell .track-name {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--gap-4);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.app-shell .track-name > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-shell .track-kind {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 19px;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong-color);
+  border-radius: var(--rad-xs);
+  background: var(--state-hover);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.app-shell .track-kind.kind-video {
+  border-color: color-mix(in srgb, var(--color-video) 40%, transparent);
+  background: color-mix(in srgb, var(--color-video) 16%, transparent);
+  color: color-mix(in srgb, var(--color-video) 55%, var(--color-text));
+}
+
+.app-shell .track-kind.kind-image {
+  border-color: color-mix(in srgb, var(--color-image) 40%, transparent);
+  background: color-mix(in srgb, var(--color-image) 16%, transparent);
+  color: color-mix(in srgb, var(--color-image) 55%, var(--color-text));
+}
+
+.app-shell .track-kind.kind-audio,
+.app-shell .track-kind.kind-narration {
+  border-color: color-mix(in srgb, var(--color-audio) 40%, transparent);
+  background: color-mix(in srgb, var(--color-audio) 16%, transparent);
+  color: color-mix(in srgb, var(--color-audio) 55%, var(--color-text));
+}
+
+.app-shell .track-kind.kind-caption {
+  border-color: color-mix(in srgb, var(--color-caption) 40%, transparent);
+  background: color-mix(in srgb, var(--color-caption) 16%, transparent);
+  color: color-mix(in srgb, var(--color-caption) 55%, var(--color-text));
+}
+
+.app-shell .track-kind.kind-graphic {
+  border-color: color-mix(in srgb, var(--color-graphic) 40%, transparent);
+  background: color-mix(in srgb, var(--color-graphic) 16%, transparent);
+  color: color-mix(in srgb, var(--color-graphic) 55%, var(--color-text));
+}
+
+.app-shell .track-kind.kind-adjustment {
+  border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: color-mix(in srgb, var(--color-warning) 55%, var(--color-text));
+}
+
+.app-shell .track-flags {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.app-shell .flag {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 15px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: var(--ink-4);
+  font-size: var(--type-10);
+}
+
+.app-shell .flag:hover:not(:disabled) {
+  color: var(--ink-1);
+  background: var(--state-hover);
+}
+
+.app-shell .flag.active {
+  color: var(--color-accent);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+.app-shell .flag.solo.active {
+  color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 42%, transparent);
+  background: var(--state-warning-soft);
+}
+
+.app-shell .flag-letter {
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  line-height: 1;
+}
+
+.app-shell .timeline-row.collapsed .track-head {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-shell .timeline-row.collapsed .track-flags .flag:not(:first-child) {
+  display: none;
+}
+
+.app-shell .track-lane {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  background-color: var(--color-panel);
+  background-image: repeating-linear-gradient(
+    90deg,
+    transparent 0,
+    transparent 119px,
+    color-mix(in srgb, var(--color-text) 3%, transparent) 119px,
+    color-mix(in srgb, var(--color-text) 3%, transparent) 120px
+  );
+  border-top: 0;
+}
+
+.app-shell .timeline-row:nth-child(even) .track-lane {
+  background-color: color-mix(in srgb, var(--color-panel) 78%, var(--color-bg));
+}
+
+.app-shell .lane-hint {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  margin-left: var(--gap-8);
+  color: var(--ink-4);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  letter-spacing: 0;
+  text-transform: none;
+  pointer-events: none;
+}
+
+.app-shell .track-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 6px;
+  cursor: ns-resize;
+  z-index: 12;
+}
+
+.app-shell .track-resize:hover {
+  background: var(--color-accent);
+  opacity: 0.3;
+}
+
+/* ────────────────────────────────────────── 9 · Clips y waveforms ──────── */
+
+/* Clip: color por tipo de medio, tinte sutil sobre la miniatura, radio xs.
+   Spec §10.1: borde 1 px color-mix(kind 45%), fondo color-mix(kind 18%). */
+.app-shell .timeline-clip {
+  --clip-color: var(--color-video);
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  border: 1px solid color-mix(in srgb, var(--clip-color) 45%, transparent);
+  border-radius: var(--rad-xs);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--clip-color) 22%, var(--color-panel)) 0%,
+      color-mix(in srgb, var(--clip-color) 14%, var(--color-panel)) 100%
+    );
+  overflow: hidden;
+  cursor: grab;
+  user-select: none;
+  min-width: 12px;
+  touch-action: none;
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline-clip:hover {
+  border-color: color-mix(in srgb, var(--clip-color) 72%, var(--color-text));
+}
+
+.app-shell .timeline-clip.kind-video {
+  --clip-color: var(--color-video);
+}
+
+.app-shell .timeline-clip.kind-image {
+  --clip-color: var(--color-image);
+}
+
+.app-shell .timeline-clip.kind-audio {
+  --clip-color: var(--color-audio);
+}
+
+.app-shell .timeline-clip.kind-narration {
+  --clip-color: var(--color-narration);
+}
+
+.app-shell .timeline-clip.kind-graphic {
+  --clip-color: var(--color-graphic);
+}
+
+.app-shell .timeline-clip.kind-caption {
+  --clip-color: var(--color-caption);
+}
+
+.app-shell .timeline-clip.kind-adjustment,
+.app-shell .timeline-clip.kind-freeze {
+  --clip-color: var(--color-warning);
+}
+
+.app-shell .timeline-clip.kind-compound {
+  --clip-color: var(--color-brand-violet);
+}
+
+/* Tinte de medio sobre la miniatura (sutil: el thumbnail sigue legible). */
+.app-shell .timeline-clip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.32) 0%, transparent 42%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--clip-color) 16%, transparent) 0%,
+      color-mix(in srgb, var(--clip-color) 28%, transparent) 100%
+    );
+  pointer-events: none;
+}
+
+.app-shell .timeline-clip .clip-thumb {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.app-shell .timeline-clip .clip-waveform {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 11px;
+  bottom: 2px;
+  width: 100%;
+  height: calc(100% - 13px);
+  z-index: 2;
+  opacity: var(--tl-wave-alpha, 0.55);
+  color: color-mix(in srgb, var(--color-text) 80%, transparent);
+  pointer-events: none;
+}
+
+.app-shell .timeline-clip .clip-waveform.kind-audio {
+  color: color-mix(in srgb, var(--color-audio) 42%, var(--color-text));
+}
+
+.app-shell .timeline-clip .clip-waveform.kind-narration {
+  color: color-mix(in srgb, var(--color-narration) 44%, var(--color-text));
+}
+
+.app-shell .timeline-clip .clip-waveform.kind-video {
+  color: color-mix(in srgb, var(--color-video) 28%, var(--color-text));
+}
+
+.app-shell .timeline-clip .clip-waveform rect {
+  fill: currentColor;
+}
+
+.app-shell .timeline-clip .clip-label {
+  position: relative;
+  z-index: 3;
+  display: block;
+  padding: 3px 6px 0;
+  color: var(--color-text);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  text-shadow: none;
+}
+
+.app-shell .timeline-clip .clip-window {
+  position: relative;
+  z-index: 3;
+  display: block;
+  padding: 0 6px 3px;
+  color: color-mix(in srgb, var(--color-text) 66%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .timeline-clip .clip-color-dot {
+  width: 7px;
+  height: 7px;
+  margin-right: 4px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+
+/* Selección: anillo interior del spec (--tl-sel-ring / --tl-sel-border). */
+.app-shell .timeline-clip.selected {
+  outline: none;
+  z-index: 5;
+  border-color: var(--tl-sel-border);
+  box-shadow: var(--tl-sel-ring);
+}
+
+.app-shell .timeline-clip.dragging {
+  opacity: 0.82;
+  z-index: 7;
+}
+
+.app-shell .timeline-clip.dimmed {
+  opacity: 0.24;
+}
+
+.app-shell .timeline-clip.disabled {
+  opacity: 0.36;
+}
+
+.app-shell .timeline-clip.locked {
+  cursor: not-allowed;
+  opacity: 0.66;
+}
+
+/* Asas de recorte: 7 px (spec) con zona de hit ampliada a 12 px. */
+.app-shell .trim-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--tl-handle-w, 7px);
+  z-index: 6;
+  border-radius: var(--rad-xs);
+  background: var(--color-accent);
+  opacity: 0.92;
+  cursor: ew-resize;
+}
+
+.app-shell .trim-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+}
+
+.app-shell .trim-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 9px;
+  margin: -4.5px 0 0 -0.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-accent-ink) 64%, transparent);
+}
+
+.app-shell .trim-handle.start {
+  left: 0;
+}
+
+.app-shell .trim-handle.start::after {
+  left: 0;
+}
+
+.app-shell .trim-handle.end {
+  right: 0;
+}
+
+.app-shell .trim-handle.end::after {
+  right: 0;
+}
+
+.app-shell .fade-handle {
+  position: absolute;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  z-index: 7;
+  border: 1px solid var(--color-bg);
+  border-radius: var(--rad-xs);
+  background: var(--color-accent);
+  transform: translateX(-50%);
+  cursor: ew-resize;
+}
+
+.app-shell .fade-handle.out {
+  transform: translateX(50%);
+}
+
+.app-shell .fade-handle.active {
+  background: var(--color-text);
+}
+
+/* Subtítulos en la timeline. */
+.app-shell .caption-cue {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-caption) 45%, transparent);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-caption) 16%, var(--color-panel));
+  color: var(--color-text);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: grab;
+  user-select: none;
+}
+
+.app-shell .caption-cue.selected {
+  border-color: var(--tl-sel-border);
+  box-shadow: var(--tl-sel-ring);
+}
+
+/* Cabezal: 1 px de acento + halo del 10 %, sin glow (spec §10.1). */
+.app-shell .playhead-line {
+  width: var(--tl-playhead-w, 1px);
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 10%, transparent);
+  z-index: 8;
+}
+
+.app-shell .playhead-grip {
+  width: 9px;
+  height: 9px;
+  margin-left: -4px;
+  border: 1px solid color-mix(in srgb, var(--color-bg) 80%, rgb(0 0 0));
+  border-radius: var(--rad-xs);
+  background: var(--color-accent);
+  transform: none;
+  pointer-events: auto;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.app-shell .playhead-grip::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+}
+
+/* Marcadores: pin 7×7 en la regla (spec §10.1). */
+.app-shell .timeline-marker {
+  position: absolute;
+  top: 1px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 17px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  transform: translateX(-50%);
+  z-index: 11;
+}
+
+.app-shell .timeline-marker-flag {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--rad-pill);
+  background: var(--marker-color, var(--color-info));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-bg) 82%, transparent);
+  transition: transform var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline-marker:hover .timeline-marker-flag {
+  transform: scale(1.3);
+}
+
+.app-shell .timeline-marker-range {
+  position: absolute;
+  top: 10px;
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: var(--marker-color, var(--color-info));
+  opacity: 0.32;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.app-shell .marker-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--marker-color, var(--color-info));
+}
+
+/* Guía de imán: 1 px dashed al 60 % (spec §10.1). */
+.app-shell .snap-guide {
+  width: 1px;
+  background: repeating-linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-accent) 60%, transparent) 0 4px,
+    transparent 4px 8px
+  );
+  z-index: 14;
+}
+
+.app-shell .snap-guide span {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  padding: 1px 5px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: var(--chrome-4);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  white-space: nowrap;
+}
+
+/* Menú contextual del timeline. */
+.app-shell .timeline-menu {
+  min-width: 248px;
+  padding: var(--gap-2);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xl);
+  background: var(--chrome-4);
+  box-shadow: var(--elev-3);
+}
+
+.app-shell .timeline-menu button {
+  min-height: var(--ctl-h-md, 28px);
+  padding: 0 var(--gap-8);
+  border-radius: var(--rad-sm);
+  color: var(--ink-2);
+  font-size: var(--type-12);
+}
+
+.app-shell .timeline-menu button:hover:not(:disabled),
+.app-shell .timeline-menu button:focus-visible {
+  color: var(--ink-1);
+  background: var(--state-selected);
+}
+
+.app-shell .timeline-menu button.danger {
+  color: var(--color-danger);
+}
+
+.app-shell .timeline-menu-separator {
+  height: 1px;
+  margin: var(--gap-2) var(--gap-2);
+  background: var(--hairline-color);
+}
+
+.app-shell .timeline-menu-hint {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+}
+
+.app-shell .timeline-empty {
+  display: grid;
+  place-content: center;
+  gap: var(--gap-4);
+  padding: var(--gap-24);
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  text-align: center;
+}
+
+.app-shell .timeline-empty strong {
+  color: var(--ink-1);
+  font-size: var(--type-13);
+  font-weight: var(--fw-strong);
+}
+
+/* ── Polish 2026-11-03 · regla, pistas, clips y playhead ───────────────────
+ * Pasada de calidad sobre §8–§9: jerarquía en la regla, cabeceras de pista
+ * legibles con controles 24 px, rejilla alineada a la regla, clips con
+ * profundidad sutil, selección nítida y handles sólo al hover/selección.
+ * Todo con tokens (0 hex, sin glow, micro-interacciones ≤110-150 ms). */
+
+/* Regla: fondo propio, marca mayor con línea y label, menores cortas. */
+.app-shell .timeline .ruler-row {
+  background: var(--chrome-1);
+}
+
+.app-shell .timeline .ruler-corner {
+  background: var(--chrome-1);
+  border-right: var(--hairline);
+}
+
+.app-shell .timeline .ruler-tick {
+  border-left-color: color-mix(in srgb, var(--color-text) 16%, transparent);
+  color: var(--ink-2);
+  padding: 4px 0 0 5px;
+}
+
+.app-shell .timeline .ruler-tick > span {
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+}
+
+.app-shell .timeline .ruler-minor {
+  bottom: 0;
+  width: 1px;
+  height: 5px;
+  background: color-mix(in srgb, var(--color-text) 13%, transparent);
+}
+
+/* Pistas: cabecera con nombre 12/650, chip de tipo 24×16 y controles 24 px. */
+.app-shell .timeline .track-head {
+  gap: var(--gap-2);
+  padding: 0 var(--gap-8);
+  background: var(--chrome-2);
+  transition: background-color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline .timeline-row:hover .track-head {
+  background: color-mix(in srgb, var(--color-text) 4%, var(--chrome-2));
+}
+
+.app-shell .timeline .timeline-row.selected .track-head {
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--chrome-2));
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.app-shell .timeline .track-name {
+  gap: var(--gap-6);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+}
+
+.app-shell .timeline .track-kind {
+  width: 24px;
+  height: 16px;
+  border-radius: var(--rad-xs);
+  font-size: var(--type-10);
+}
+
+.app-shell .timeline .track-flags {
+  gap: 2px;
+  margin-top: 2px;
+}
+
+.app-shell .timeline .flag {
+  width: 24px;
+  height: 22px;
+  border-radius: var(--rad-xs);
+  color: var(--ink-3);
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline .flag:hover:not(:disabled) {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.app-shell .timeline .timeline-row.collapsed .track-head {
+  gap: var(--gap-4);
+}
+
+/* Rejilla del lane: una línea por marca mayor de la regla. */
+.app-shell .timeline .track-lane {
+  background-image: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-text) 5%, transparent) 0,
+    color-mix(in srgb, var(--color-text) 5%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: var(--tl-grid-step, 120px) 100%;
+}
+
+.app-shell .timeline .timeline-row:nth-child(even) .track-lane {
+  background-color: color-mix(in srgb, var(--color-panel) 76%, var(--color-bg));
+}
+
+.app-shell .timeline.no-grid .track-lane {
+  background-image: none;
+}
+
+/* Densidad compacta: filas sin alto propio al 80 % y regla de 24 px. */
+.app-shell .timeline.density-compact {
+  --tl-ruler-h: 24px;
+}
+
+.app-shell .timeline.density-compact .timeline-row:not(.collapsed) {
+  height: calc(var(--timeline-row, 48px) * 0.8);
+}
+
+.app-shell .timeline.density-compact .flag {
+  width: 22px;
+  height: 20px;
+}
+
+.app-shell .timeline.density-compact .track-kind {
+  width: 22px;
+  height: 14px;
+}
+
+/* Clips: radio 6, degradado suave por medio, sheen superior y borde legible. */
+.app-shell .timeline .timeline-clip {
+  border-color: color-mix(in srgb, var(--clip-color) 50%, transparent);
+  border-radius: var(--rad-sm);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--clip-color) 24%, var(--color-panel-2)) 0%,
+    color-mix(in srgb, var(--clip-color) 12%, var(--color-panel-2)) 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 8%, transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--color-bg) 22%, transparent);
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline .timeline-clip:hover {
+  border-color: color-mix(in srgb, var(--clip-color) 74%, var(--color-text));
+}
+
+/* Tinte del medio más bajo para que el clip respire y el texto gane contraste. */
+.app-shell .timeline .timeline-clip::after {
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--color-bg) 22%, transparent) 0%,
+      transparent 42%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--clip-color) 10%, transparent) 0%,
+      color-mix(in srgb, var(--clip-color) 20%, transparent) 100%
+    );
+}
+
+.app-shell .timeline .timeline-clip .clip-thumb {
+  opacity: 0.4;
+}
+
+.app-shell .timeline .timeline-clip .clip-label {
+  padding: 4px 7px 0;
+  font-size: var(--type-11);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.01em;
+}
+
+.app-shell .timeline .timeline-clip .clip-window {
+  padding: 0 7px 3px;
+  color: var(--ink-3);
+}
+
+.app-shell .timeline .timeline-clip .clip-waveform {
+  top: 19px;
+  height: calc(100% - 21px);
+}
+
+.app-shell .timeline .caption-cue {
+  border-radius: var(--rad-sm);
+}
+
+/* Selección: anillo del spec + elevación contenida. */
+.app-shell .timeline .timeline-clip.selected {
+  border-color: var(--tl-sel-border);
+  box-shadow: var(--tl-sel-ring), var(--elev-1);
+}
+
+/* Handles: limpios en reposo, visibles al hover o con el clip seleccionado. */
+.app-shell .timeline .trim-handle,
+.app-shell .timeline .fade-handle {
+  opacity: 0;
+  transition: opacity var(--dur-3) var(--ease-out);
+}
+
+.app-shell .timeline .timeline-clip:hover .trim-handle,
+.app-shell .timeline .timeline-clip.selected .trim-handle,
+.app-shell .timeline .timeline-clip:hover .fade-handle,
+.app-shell .timeline .timeline-clip.selected .fade-handle {
+  opacity: 0.92;
+}
+
+/* Etiquetas minimales (preferencia): sólo el nombre; el resto al hover. */
+.app-shell .timeline.labels-minimal .timeline-clip .clip-window {
+  display: none;
+}
+
+.app-shell .timeline.labels-minimal .timeline-clip .clip-label {
+  padding-bottom: 4px;
+}
+
+.app-shell .timeline.labels-minimal .timeline-clip .clip-waveform {
+  top: 17px;
+  height: calc(100% - 19px);
+}
+
+/* Playhead: 2 px de acento con contorno de fondo para leerse en cualquier tema. */
+.app-shell .timeline .playhead-line {
+  width: 2px;
+  margin-left: -1px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-bg) 72%, transparent);
+}
+
+.app-shell .timeline .playhead-grip {
+  width: 12px;
+  height: 14px;
+  margin-left: -6px;
+  border: 1px solid color-mix(in srgb, var(--color-bg) 82%, transparent);
+  border-radius: 3px 3px 2px 2px;
+  background: var(--color-accent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--color-bg) 55%, transparent);
+}
+
+/* Marcadores: hit target 20×18 y pin 8 px. */
+.app-shell .timeline .timeline-marker {
+  width: 20px;
+  height: 18px;
+  top: 0;
+}
+
+.app-shell .timeline .timeline-marker-flag {
+  width: 8px;
+  height: 8px;
+}
+
+.app-shell .timeline .timeline-marker:hover .timeline-marker-flag {
+  transform: scale(1.2);
+}
+
+/* ───────────────────────────────── 10 · Diálogos de export/render ─────── */
+
+.app-shell .modal.export-modal,
+.export-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - 48px));
+  max-height: min(86vh, 720px);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-2xl);
+  background: color-mix(in srgb, var(--color-panel) 94%, transparent);
+  box-shadow: var(--elev-4);
+  overflow: hidden;
+}
+
+/* !impasse: components.css:560-575 (grupo de overlays) fuerza radio
+   `--premium-r-lg` con `!important` sobre `.modal`; el export usa el radio de
+   diálogo del spec (--rad-2xl, §8.8). */
+.app-shell .export-modal {
+  border-radius: var(--rad-2xl) !important;
+}
+
+.app-shell .export-modal .modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-12);
+  flex: 0 0 auto;
+  min-height: 52px;
+  padding: 0 var(--gap-6) 0 var(--gap-6);
+  border-bottom: var(--hairline);
+  background: transparent;
+}
+
+.app-shell .export-modal .modal-head h3 {
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-tight);
+}
+
+.app-shell .export-modal .modal-head .icon-button {
+  width: var(--ctl-h-md, 28px);
+  height: var(--ctl-h-md, 28px);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+}
+
+.app-shell .export-modal .modal-body {
+  display: grid;
+  gap: var(--gap-16);
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: var(--gap-6);
+}
+
+.app-shell .export-modal .modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--gap-4);
+  flex: 0 0 auto;
+  min-height: 56px;
+  padding: 0 var(--gap-6);
+  border-top: var(--hairline);
+  background: var(--chrome-2);
+}
+
+.app-shell .export-modal .eyebrow {
+  margin: 0;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.app-shell .export-modal .export-gpu,
+.app-shell .export-modal .export-compression,
+.app-shell .export-modal .export-quality,
+.app-shell .export-modal .export-range,
+.app-shell .export-modal .batch-export,
+.app-shell .export-modal .batch-results {
+  display: grid;
+  gap: var(--gap-8);
+  padding: var(--gap-4);
+  border: var(--hairline);
+  border-radius: var(--rad-md);
+  background: var(--chrome-2);
+}
+
+.app-shell .export-modal .export-compression-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+}
+
+.app-shell .export-modal .compression-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-2);
+}
+
+.app-shell .export-modal .compression-presets button {
+  height: var(--ctl-h-sm, 24px);
+  min-height: var(--ctl-h-sm, 24px);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--type-11);
+}
+
+.app-shell .export-modal .compression-presets button.active,
+.app-shell .export-modal .compression-presets button[aria-pressed='true'] {
+  color: var(--ink-1);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+.app-shell .export-modal .export-compression-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--gap-8);
+}
+
+.app-shell .export-modal .export-range {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--gap-8);
+}
+
+.app-shell .export-modal .export-range .field {
+  flex: 1 1 140px;
+}
+
+.app-shell .export-modal .export-gpu-hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  line-height: var(--lh-ui, 1.45);
+}
+
+.app-shell .export-modal .progress-block {
+  display: grid;
+  gap: var(--gap-4);
+  padding: var(--gap-4);
+  border: 1px solid var(--state-selected-border);
+  border-radius: var(--rad-md);
+  background: var(--chrome-2);
+}
+
+.app-shell .export-modal .progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+}
+
+.app-shell .export-modal .progress-track {
+  height: 6px;
+  border-radius: var(--rad-pill);
+  background: var(--color-panel-3);
+  overflow: hidden;
+}
+
+.app-shell .export-modal .progress-track > span,
+.app-shell .export-modal .progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width var(--dur-5) var(--ease-out);
+}
+
+.app-shell .export-modal .render-file {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  padding: var(--gap-8);
+  border: var(--hairline);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  word-break: break-all;
+}
+
+.app-shell .export-modal .data-list.compact > * {
+  padding: var(--gap-8) 0;
+  border-bottom: var(--hairline);
+}
+
+.app-shell .export-modal .data-list.compact > *:last-child {
+  border-bottom: 0;
+}
+
+.app-shell .export-modal .notice {
+  margin: 0;
+}
+
+/* ───────────────────────────────────── 11 · Empty state del editor ─────── */
+
+.app-shell .editor-empty-view,
+.editor-empty-view {
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: var(--gap-8);
+  position: relative;
+  overflow: hidden;
+}
+
+.app-shell .editor-empty-card,
+.editor-empty-card {
+  position: relative;
+  width: min(720px, 100%);
+  padding: var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-2xl);
+  background: var(--chrome-3);
+  box-shadow: var(--elev-2);
+  text-align: center;
+}
+
+.app-shell .editor-empty-icon,
+.editor-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin: 0 auto var(--gap-4);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-md);
+  background: var(--state-hover);
+  color: var(--ink-2);
+}
+
+.app-shell .editor-empty-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  margin: 0 auto var(--gap-4);
+  padding: 0 var(--gap-8);
+  height: var(--badge-h, 18px);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-pill);
+  background: var(--state-hover);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.app-shell .editor-empty-title,
+.editor-empty-title {
+  margin: 0 0 var(--gap-8);
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-24);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-tight);
+  line-height: var(--premium-leading-tight, 1.15);
+}
+
+.app-shell .editor-empty-desc,
+.editor-empty-desc {
+  max-width: 54ch;
+  margin: 0 auto var(--gap-16);
+  color: var(--ink-2);
+  font-size: var(--type-13);
+  line-height: var(--lh-body, 1.6);
+}
+
+.app-shell .editor-empty-actions,
+.editor-empty-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, max-content));
+  justify-content: center;
+  gap: var(--gap-8);
+}
+
+.app-shell .editor-empty-actions button {
+  min-height: var(--ctl-h-lg, 32px);
+  border-radius: var(--rad-sm);
+  padding: 0 var(--gap-4);
+  font-size: var(--type-12);
+}
+
+.app-shell .editor-empty-hints {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  margin: var(--gap-6) 0 0;
+  padding: var(--gap-16) 0 0;
+  border-top: var(--hairline);
+  list-style: none;
+}
+
+.app-shell .editor-empty-hint {
+  display: grid;
+  gap: 2px;
+  padding: 0 var(--gap-4);
+  border-left: var(--hairline);
+  text-align: left;
+}
+
+.app-shell .editor-empty-hint:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+.app-shell .editor-empty-hint span {
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  letter-spacing: 0.06em;
+}
+
+.app-shell .editor-empty-hint strong {
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-strong);
+}
+
+.app-shell .editor-empty-hint em {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  font-style: normal;
+  line-height: var(--lh-ui, 1.45);
+}
+
+/* ─────────────────────────────────── 12 · Mixer y modos del editor ─────── */
+
+.app-shell .editor-mode-panel .view-head {
+  margin-bottom: var(--gap-16);
+}
+
+/* ────────────────────────── 13 · Responsive, densidad y reduced motion ─── */
+
+@media (max-width: 1600px) {
+  .app-shell .timeline-toolbar .icon-text:not(:hover) > .tool-label {
+    display: none;
+  }
+
+  .app-shell .rail-tabs button {
+    padding: 0 var(--gap-6);
+  }
+}
+
+@media (max-width: 1440px) {
+  .app-shell .editor-grid {
+    grid-template-columns:
+      clamp(260px, 21vw, 304px) minmax(0, 1fr) clamp(284px, 22.5vw, 328px);
+  }
+
+  .app-shell .timeline-toolbar {
+    gap: var(--gap-4);
+  }
+
+  .app-shell .clip-search-field input {
+    width: 112px;
+  }
+}
+
+@media (max-width: 1240px) {
+  .app-shell .editor-grid {
+    grid-template-columns: 252px minmax(0, 1fr) 274px;
+  }
+
+  .app-shell .rail-tabs button span {
+    display: none;
+  }
+
+  .app-shell .rail-tabs button {
+    width: var(--ctl-h-sm, 24px);
+    padding: 0;
+  }
+
+  .app-shell .rail-tabs {
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
+
+  .app-shell .timeline-toolbar .zoom-fit,
+  .app-shell .timeline-toolbar .duration-tracks,
+  .app-shell .timeline-toolbar .clip-search-field,
+  .app-shell .timeline-toolbar .color-filter-field {
+    display: none;
+  }
+
+  .app-shell .preview-hud-chip:not(.strong) {
+    display: none;
+  }
+
+  .app-shell .preview-hud-chip.preview-hud-render {
+    display: none;
+  }
+}
+
+@media (max-width: 1000px) {
+  .app-shell .editor-grid {
+    grid-template-columns: 232px minmax(0, 1fr) 262px;
+  }
+
+  .app-shell .editor-empty-hints {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell .editor-empty-hint {
+    padding: var(--gap-8) 0;
+    border-left: 0;
+    border-top: var(--hairline);
+  }
+
+  .app-shell .editor-empty-hint:first-child {
+    border-top: 0;
+  }
+}
+
+@media (max-width: 880px) {
+  .app-shell .editor-grid {
+    grid-template-columns: minmax(0, 1fr) 262px;
+  }
+
+  .app-shell .asset-rail {
+    display: none;
+  }
+
+  .app-shell .preview-panel {
+    grid-column: 1;
+  }
+
+  .app-shell .inspector {
+    grid-column: 2;
+  }
+}
+
+/* Movimiento reducido: el contrato lo escribe applyAppearance. */
+:root[data-reduce-motion='true'] .app-shell .editor-workspace *,
+:root[data-reduce-motion='true'] .app-shell .editor-workspace *::before,
+:root[data-reduce-motion='true'] .app-shell .editor-workspace *::after {
+  transition-duration: 1ms !important;
+  animation-duration: 1ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell .editor-workspace *,
+  .app-shell .editor-workspace *::before,
+  .app-shell .editor-workspace *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}
+
+/* ───────────────── 14 · Impasse del legacy (respuesta mínima acotada) ──── */
+
+/* La Ola 2 neutralizó en origen los `!important` de `styles/resolve-theme.css`
+ * que forzaban la piel plana en editor/timeline/preview/transporte (ver la
+ * cabecera de ese archivo). Todo el look del workspace gana ahora por orden de
+ * import contra lo que queda de app.css/flat/chrome. Queda UN impasse real:
+ * `commercial.css` todavía fija fondo/borde/radio/sombra de los paneles del
+ * editor con `!important`; se retirará cuando shell neutralice esos bloques.
+ * Los `display`/`grid`/`height` de layout NO usan `!important` (spec §12.5). */
+
+/* !impasse: commercial.css:222-230 — paneles del editor. */
+.app-shell .asset-rail,
+.app-shell .preview-panel,
+.app-shell .inspector,
+.app-shell .timeline-panel {
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-lg) !important;
+  background: var(--chrome-3) !important;
+  box-shadow: none !important;
+}
+
+/* ──────────────────────────────────── 15 · Tema claro (stress test) ────── */
+
+/* El visor se mantiene oscuro como en cualquier NLE; el resto sigue la paleta
+   clara del usuario. Sombras neutras más suaves. */
+:root[style*='color-scheme: light'] .app-shell .preview-stage {
+  background:
+    radial-gradient(
+      ellipse 120% 90% at 50% 0%,
+      color-mix(in srgb, rgb(255 255 255) 5%, transparent),
+      transparent 62%
+    ),
+    color-mix(in srgb, var(--color-bg) 8%, rgb(0 0 0));
+}
+
+:root[style*='color-scheme: light'] .app-shell .preview-canvas {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, rgb(255 255 255) 14%, transparent),
+    0 0 0 7px color-mix(in srgb, var(--color-text) 4%, transparent),
+    0 16px 36px -20px rgba(15, 23, 42, 0.35);
+}
+
+:root[style*='color-scheme: light'] .app-shell .editor-empty-card {
+  box-shadow: var(--elev-1);
+}
+
+:root[style*='color-scheme: light'] .app-shell .transport-scrub-knob {
+  border-color: color-mix(in srgb, var(--color-text) 24%, transparent);
+  background: color-mix(in srgb, var(--color-bg) 96%, var(--color-text));
+}
+
+/* Etiquetas del timeline sobre clips claros en tema claro: el clip ya mezcla
+   el color de medio con --color-panel, así que la tinta primaria funciona. */
+:root[style*='color-scheme: light'] .app-shell .timeline-clip .clip-label {
+  color: var(--color-text);
+}

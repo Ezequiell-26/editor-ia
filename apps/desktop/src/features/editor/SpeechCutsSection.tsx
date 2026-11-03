@@ -8,6 +8,7 @@ import {
 } from '../../state/speech-cuts';
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { InspectorSection } from './InspectorSection';
 
 /**
  * Sección del Inspector para cortar por pausas de voz.
@@ -207,8 +208,11 @@ export function SpeechCutsSection(props: {
   }
 
   return (
-    <section className="inspector-section speech-cuts" data-group={props.group}>
-      <h4>{props.title ?? 'Cortar pausas de voz'}</h4>
+    <InspectorSection
+      title={props.title ?? 'Cortar pausas de voz'}
+      group={props.group}
+      className="speech-cuts"
+    >
       <p className="fine-print">
         Usa los tiempos de los subtítulos para cortar entre frases y eliminar el aire, sin tocar
         las respiraciones internas. Necesita subtítulos generados en este clip.
@@ -302,6 +306,6 @@ export function SpeechCutsSection(props: {
               : 'Analizá para ver cuánto aire se quitaría antes de aplicar.')}
         </p>
       )}
-    </section>
+    </InspectorSection>
   );
 }

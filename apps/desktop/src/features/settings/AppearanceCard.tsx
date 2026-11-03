@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useAppearance } from '../../state/AppearanceProvider';
 import {
-  THEME_PRESETS,
+  contrastInk,
   hueOf,
+  mixHex,
   paletteFromHue,
   type Density,
   type ThemePresetId,
 } from '../../state/appearance';
+import { THEME_PALETTES, type ThemePalette } from '../../state/theme-palette';
 
 const PRESET_NAMES: Record<Exclude<ThemePresetId, 'custom'>, string> = {
   olyvia: 'Olyvia',
@@ -24,14 +26,41 @@ const DENSITIES: readonly { readonly id: Density; readonly label: string }[] = [
   { id: 'spacious', label: 'Amplia' },
 ];
 
+/**
+ * Deriva la paleta al mover el matiz: el acento y sus derivados cambian juntos
+ * para que el botón primario, la tinta y los alias de marca sigan siendo
+ * coherentes. El resto de los 34 tokens se conserva.
+ */
+function paletteWithAccent(palette: ThemePalette, accent: string): ThemePalette {
+  const accentLight = mixHex(accent, '#ffffff', 0.35);
+  return {
+    ...palette,
+    accent,
+    accentLight,
+    accentStrong: mixHex(accent, palette.bg, 0.24),
+    accentInk: contrastInk(accent),
+    // Mismos derivados que paletteFromBase: la marca acompaña al acento.
+    brandCyan: accentLight,
+    brandBlue: accent,
+  };
+}
+
 export function AppearanceCard() {
-  const { appearance, update, preview, commitPreview, applyTheme, reset } = useAppearance();
+  const {
+    appearance,
+    update,
+    preview,
+    commitPreview,
+    applyThemePreset,
+    previewPalette,
+    reset,
+  } = useAppearance();
 
   // Espejos locales: los sliders son controlados por el estado local para que
   // el pulgar avance en tiempo real mientras se arrastra; `appearance` (React)
   // solo se actualiza al soltar. Sin esto, el input controlado pelea contra el
   // arrastre y el cambio "aparece después".
-  const [hue, setHue] = useState(() => hueOf(appearance.accent));
+  const [hue, setHue] = useState(() => hueOf(appearance.palette.accent));
   const [scale, setScale] = useState(appearance.scale);
   const [radius, setRadius] = useState(appearance.radius);
   const [rows, setRows] = useState(appearance.timelineRows);
@@ -39,16 +68,22 @@ export function AppearanceCard() {
   // Si la apariencia cambia por fuera (Restablecer, preset, carga inicial),
   // sincronizamos los espejos.
   useEffect(() => {
+    setHue(hueOf(appearance.palette.accent));
     setScale(appearance.scale);
     setRadius(appearance.radius);
     setRows(appearance.timelineRows);
-  }, [appearance.scale, appearance.radius, appearance.timelineRows]);
+  }, [
+    appearance.palette.accent,
+    appearance.scale,
+    appearance.radius,
+    appearance.timelineRows,
+  ]);
 
   const accentPreview = paletteFromHue(hue).accent;
 
   function dragHue(next: number): void {
     setHue(next);
-    preview({ ...paletteFromHue(next), preset: 'custom' });
+    previewPalette(paletteWithAccent(appearance.palette, paletteFromHue(next).accent));
   }
 
   return (
@@ -64,7 +99,7 @@ export function AppearanceCard() {
       </header>
 
       <div className="appearance-presets" role="group" aria-label="Temas">
-        {(Object.keys(THEME_PRESETS) as Exclude<ThemePresetId, 'custom'>[]).map((preset) => (
+        {(Object.keys(THEME_PALETTES) as Exclude<ThemePresetId, 'custom'>[]).map((preset) => (
           <button
             key={preset}
             type="button"
@@ -73,11 +108,11 @@ export function AppearanceCard() {
             aria-label={`Tema ${PRESET_NAMES[preset]}`}
             title={PRESET_NAMES[preset]}
             onClick={() => {
-              setHue(hueOf(THEME_PRESETS[preset].accent));
-              applyTheme(THEME_PRESETS[preset], preset);
+              setHue(hueOf(THEME_PALETTES[preset].accent));
+              applyThemePreset(preset);
             }}
           >
-            <span style={{ background: THEME_PRESETS[preset].accent }} />
+            <span style={{ background: THEME_PALETTES[preset].accent }} />
           </button>
         ))}
         <span className="appearance-preset-name">
@@ -123,7 +158,7 @@ export function AppearanceCard() {
 
         <label className="appearance-field">
           <span className="appearance-label">
-            Escala <output>{Math.round(scale * 100)}%</output>
+            Escala <span className="appearance-value">{Math.round(scale * 100)}%</span>
           </span>
           <input
             type="range"
@@ -144,7 +179,7 @@ export function AppearanceCard() {
 
         <label className="appearance-field">
           <span className="appearance-label">
-            Esquinas <output>{radius} px</output>
+            Esquinas <span className="appearance-value">{radius} px</span>
           </span>
           <input
             type="range"
@@ -165,7 +200,7 @@ export function AppearanceCard() {
 
         <label className="appearance-field">
           <span className="appearance-label">
-            Filas <output>{rows} px</output>
+            Filas <span className="appearance-value">{rows} px</span>
           </span>
           <input
             type="range"

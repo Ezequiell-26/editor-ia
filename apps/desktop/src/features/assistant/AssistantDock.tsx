@@ -12,6 +12,7 @@ import {
   type AssistantAction,
   type ImageContent,
   type ProviderInfo,
+  type ProviderTestResult,
   type TranscriptionResult,
 } from '../../services/project-service';
 import { parseProject } from '@editor-ia/project-schema';
@@ -175,6 +176,10 @@ export function AssistantDock({
     readonly arguments: Readonly<Record<string, unknown>>;
   } | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  /** Último resultado tipado de «Probar proveedor» desde el estado de error. */
+  const [providerTest, setProviderTest] = useState<ProviderTestResult | null>(null);
+  const [providerTestFailure, setProviderTestFailure] = useState<string | null>(null);
+  const [testingProvider, setTestingProvider] = useState(false);
   const [consent, setConsent] = useState(false);
   const [listening, setListening] = useState(false);
   const [replying, setReplying] = useState(false);
@@ -235,6 +240,29 @@ export function AssistantDock({
       : isLocalProviderUrl(provider.baseUrl)
         ? 'local'
         : 'remote';
+
+  /**
+   * Recuperación desde el estado de error: prueba el proveedor configurado y
+   * muestra el resultado tipado (HTTP, latencia y modelo) sin cerrar el chat.
+   * El backend redacta el motivo accionable; acá no se inventa un éxito.
+   */
+  async function probeProvider(): Promise<void> {
+    if (testingProvider) return;
+    setTestingProvider(true);
+    setProviderTest(null);
+    setProviderTestFailure(null);
+    try {
+      setProviderTest(await store.service.testProvider());
+    } catch (cause) {
+      setProviderTestFailure(
+        cause instanceof Error
+          ? cause.message
+          : 'no se pudo probar la conexión con el proveedor',
+      );
+    } finally {
+      setTestingProvider(false);
+    }
+  }
 
   async function switchModel(model: string): Promise<void> {
     if (!provider || busy) return;
@@ -1514,6 +1542,8 @@ export function AssistantDock({
     }
     setInput('');
     setError(null);
+    setProviderTest(null);
+    setProviderTestFailure(null);
     append({ role: 'user', text });
 
     const local = parseOperatorCommand(text, NAV_VIEWS);
@@ -1656,6 +1686,8 @@ export function AssistantDock({
   function quick(text: string): void {
     setInput(text);
     setError(null);
+    setProviderTest(null);
+    setProviderTestFailure(null);
   }
 
   return (
@@ -1749,9 +1781,46 @@ export function AssistantDock({
           </div>
 
           {error ? (
-            <p className="assistant-error" role="alert">
-              {error}
-            </p>
+            <div className="assistant-error-recovery">
+              <p className="assistant-error" role="alert">
+                {error}
+              </p>
+              <div className="actions compact" role="group" aria-label="Recuperar proveedor">
+                <button
+                  type="button"
+                  className="small ghost"
+                  disabled={busy || testingProvider}
+                  onClick={() => void probeProvider()}
+                >
+                  {testingProvider ? 'Probando…' : 'Probar proveedor'}
+                </button>
+                <button
+                  type="button"
+                  className="small ghost"
+                  disabled={busy}
+                  onClick={() => onSelect('settings')}
+                >
+                  Abrir Ajustes
+                </button>
+              </div>
+              {providerTest ? (
+                <p
+                  className={`notice ${providerTest.ok ? 'notice-notice' : 'notice-warning'}`}
+                  role="status"
+                >
+                  {providerTest.ok
+                    ? `Conexión correcta en ${providerTest.latencyMs} ms`
+                    : 'El proveedor no respondió correctamente'}
+                  {' · '}
+                  {providerTest.detail}
+                </p>
+              ) : null}
+              {providerTestFailure ? (
+                <p className="notice notice-warning" role="status">
+                  {providerTestFailure}
+                </p>
+              ) : null}
+            </div>
           ) : null}
 
           {pendingMcpCall ? (

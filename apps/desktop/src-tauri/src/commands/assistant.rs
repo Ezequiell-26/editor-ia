@@ -11,7 +11,8 @@ use serde_json::{json, Value};
 use tauri::State;
 
 use crate::commands::providers::{
-    chat_endpoint, extract_json, is_local_endpoint, read_key, validate_provider_base_url,
+    chat_completion, chat_endpoint, extract_json, is_local_endpoint, json_repair_messages, read_key,
+    validate_provider_base_url, ChatRequest,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -459,8 +460,9 @@ async fn call_provider(
         "Podés proponer entre 1 y 5 acciones ordenadas; se ejecutan en secuencia. ",
         "Usá varias sólo cuando el pedido requiera pasos dependientes; no repitas acciones. ",
         "El borrado siempre espera confirmación explícita. ",
-        "El catálogo completo con nombres, descripciones y JSON Schema está en la sección ",
-        "CATALOGO_MCP_JSON del contexto. Llamá una herramienta con ",
+        "El catálogo de herramientas con nombres, descripciones y JSON Schema está en la sección ",
+        "CATALOGO_MCP_JSON del contexto; si dice CATALOGO PARCIAL, sólo esas herramientas están ",
+        "disponibles. Llamá una herramienta con ",
         "{\"kind\":\"mcp_call\",\"tool\":\"nombre_exacto\",\"arguments\":{...}}. ",
         "Elegí sólo herramientas presentes en ese catálogo y respetá inputSchema; ",
         "la app rechazará herramientas desconocidas o argumentos inválidos. ",
@@ -509,88 +511,81 @@ async fn call_provider(
     for message in messages {
         body_messages.push(json!({ "role": message.role, "content": message.content }));
     }
-    let body = json!({
-        "model": model,
-        "temperature": 0.3,
-        "messages": body_messages
-    });
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|_| {
-            ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                "no se pudo preparar la conexión",
-            )
-        })?;
-    let mut call = client
-        .post(chat_endpoint(base_url))
-        .json(&body)
-        .header("Accept", "application/json");
-    if let Some(secret) = key {
-        call = call.bearer_auth(secret);
-    }
-    let response = call.send().await.map_err(|error| {
-        let safe = if error.is_timeout() {
-            "el proveedor no respondió en 120 segundos".to_owned()
-        } else if error.is_connect() {
-            "no se pudo conectar con el proveedor; revisá que Ollama/servicio esté encendido"
-                .to_owned()
-        } else {
-            "la llamada al proveedor falló".to_owned()
-        };
-        ProjectError::message(ProjectErrorCode::ProviderUnavailable, &safe)
-    })?;
-    if !response.status().is_success() {
-        return Err(ProjectError::message(
-            ProjectErrorCode::ProviderRejected,
-            &format!(
-                "el proveedor rechazó el mensaje (HTTP {})",
-                response.status().as_u16()
-            ),
-        ));
-    }
-    let payload: Value = response.json().await.map_err(|_| {
-        ProjectError::message(
-            ProjectErrorCode::InvalidProviderResponse,
-            "el proveedor no devolvió JSON legible",
-        )
-    })?;
-    let content = payload["choices"][0]["message"]["content"]
-        .as_str()
-        .ok_or_else(|| {
-            ProjectError::message(
-                ProjectErrorCode::InvalidProviderResponse,
-                "la respuesta no trae choices[0].message.content",
-            )
-        })?;
-    let (reply, actions) = if let Some(json_text) = extract_json(content) {
-        match serde_json::from_str::<Value>(json_text) {
-            Ok(value) => (
-                clean_reply(value.get("reply").and_then(Value::as_str).unwrap_or("")),
-                clean_actions(&value),
-            ),
-            Err(_) => (clean_reply(content), Vec::new()),
+    let first = chat_completion(ChatRequest {
+        base_url,
+        model,
+        temperature: 0.3,
+        messages: body_messages.clone(),
+        key: key.clone(),
+    })
+    .await?;
+    let parse = |content: &str| -> Option<(String, Vec<Value>)> {
+        let json_text = extract_json(content)?;
+        let value: Value = serde_json::from_str(json_text).ok()?;
+        Some((
+            clean_reply(value.get("reply").and_then(Value::as_str).unwrap_or("")),
+            clean_actions(&value),
+        ))
+    };
+    let (reply, actions) = match parse(&first) {
+        Some(parsed) => parsed,
+        None => {
+            // Respondió texto plano o JSON roto: un reintento de reparación con
+            // el mismo contrato. Si tampoco cumple, se conserva el texto, que
+            // es el comportamiento tolerante de siempre.
+            let repaired = chat_completion(ChatRequest {
+                base_url,
+                model,
+                temperature: 0.3,
+                messages: json_repair_messages(body_messages, &first),
+                key,
+            })
+            .await?;
+            parse(&repaired).unwrap_or_else(|| (clean_reply(&repaired), Vec::new()))
         }
-    } else {
-        (clean_reply(content), Vec::new())
     };
     Ok((reply, actions))
 }
 
 /// El catálogo MCP viaja separado del contexto del proyecto para que el
 /// límite breve de contexto nunca recorte los esquemas de herramientas.
+///
+/// Si el catálogo completo supera el presupuesto, se degrada **por herramienta**
+/// (se incluyen las que entran y se avisa cuántas quedaron afuera). Antes se
+/// descartaba entero y el modelo se quedaba sin ninguna herramienta, sin aviso.
+fn pack_mcp_catalog(tools: &[Value]) -> Option<(String, usize)> {
+    let mut parts: Vec<String> = Vec::new();
+    let mut bytes = 2; // corchetes
+    let mut omitted = 0usize;
+    for tool in tools {
+        let Ok(part) = serde_json::to_string(tool) else {
+            omitted += 1;
+            continue;
+        };
+        let separator = usize::from(!parts.is_empty());
+        if bytes + part.len() + separator > MAX_ASSISTANT_MCP_CATALOG_BYTES {
+            omitted += 1;
+            continue;
+        }
+        bytes += part.len() + separator;
+        parts.push(part);
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some((format!("[{}]", parts.join(",")), omitted))
+    }
+}
+
 fn assistant_context(context: Option<&Value>) -> String {
     let Some(value) = context else {
         return "{}".to_owned();
     };
 
-    let mcp_catalog = value
+    let mcp_tools = value
         .get("mcpTools")
         .and_then(Value::as_array)
-        .filter(|items| !items.is_empty())
-        .and_then(|items| serde_json::to_string(items).ok())
-        .filter(|serialized| serialized.len() <= MAX_ASSISTANT_MCP_CATALOG_BYTES);
+        .filter(|items| !items.is_empty());
 
     let brain = value
         .get("brain")
@@ -605,10 +600,27 @@ fn assistant_context(context: Option<&Value>) -> String {
     let rest: String = rest.to_string().chars().take(MAX_CONTEXT_CHARS).collect();
 
     let mut sections = Vec::with_capacity(3);
-    if let Some(catalog) = mcp_catalog {
-        sections.push(format!(
-            "CATALOGO_MCP_JSON (nombres, descripciones y JSON Schema):\n{catalog}"
-        ));
+    if let Some(tools) = mcp_tools {
+        match pack_mcp_catalog(tools) {
+            Some((catalog, omitted)) => {
+                let mut section =
+                    format!("CATALOGO_MCP_JSON (nombres, descripciones y JSON Schema):\n{catalog}");
+                if omitted > 0 {
+                    let total = tools.len();
+                    let included = total - omitted;
+                    section.push_str(&format!(
+                        "\n[CATALOGO PARCIAL: se incluyeron {included} de {total} herramientas por el límite de {} KB. Las omitidas no están disponibles en este turno: no inventes su nombre ni su esquema; si el pedido depende de una, decí que no está disponible ahora.]",
+                        MAX_ASSISTANT_MCP_CATALOG_BYTES / 1024
+                    ));
+                }
+                sections.push(section);
+            }
+            None => sections.push(format!(
+                "CATALOGO_MCP_JSON: ninguna de las {} herramientas entró en el presupuesto de {} KB; no hay herramientas disponibles en este turno.",
+                tools.len(),
+                MAX_ASSISTANT_MCP_CATALOG_BYTES / 1024
+            )),
+        }
     }
     if let Some(brief) = brain {
         sections.push(format!("CONTEXTO DEL CEREBRO DE EDICION:\n{brief}"));
@@ -1168,7 +1180,7 @@ mod tests {
         .is_none());
         assert!(clean_action(Some(&json!({
             "kind": "media_folder",
-            "folder": "C:\\Users\\ofici\\Downloads"
+            "folder": "C:\\Users\\tester\\Downloads"
         })))
         .is_none());
         assert!(clean_action(Some(&json!({ "kind": "media_folder", "folder": "" }))).is_none());
@@ -1226,10 +1238,41 @@ mod tests {
         assert!(packed.contains("CEREBRO DE EDICION"));
         assert!(packed.contains("CONTEXTO DEL PROYECTO"));
         assert!(!packed.contains("mcpTools\\\":"));
+        assert!(!packed.contains("CATALOGO PARCIAL"));
     }
 
     #[test]
-    fn assistant_context_omits_catalog_if_it_exceeds_the_safe_budget() {
+    fn assistant_context_degrades_the_catalog_by_tool_instead_of_dropping_it() {
+        let small_tool = |name: &str| {
+            json!({
+                "name": name,
+                "description": "x".repeat(1_000),
+                "inputSchema": { "type": "object", "properties": {} }
+            })
+        };
+        let context = json!({
+            "mcpTools": [
+                small_tool("app_status"),
+                small_tool("media_probe"),
+                {
+                    "name": "oversized",
+                    "schema": "y".repeat(MAX_ASSISTANT_MCP_CATALOG_BYTES)
+                }
+            ]
+        });
+        let packed = assistant_context(Some(&context));
+        // Las herramientas chicas se conservan; sólo la gigante queda afuera y
+        // el modelo recibe un aviso explícito de que el catálogo es parcial.
+        assert!(packed.contains("CATALOGO_MCP_JSON"), "{packed}");
+        assert!(packed.contains("app_status"));
+        assert!(packed.contains("media_probe"));
+        assert!(!packed.contains("oversized"));
+        assert!(packed.contains("CATALOGO PARCIAL"), "{packed}");
+        assert!(packed.contains("2 de 3"), "{packed}");
+    }
+
+    #[test]
+    fn assistant_context_warns_when_no_tool_fits_the_budget() {
         let context = json!({
             "mcpTools": [{
                 "name": "oversized",
@@ -1237,8 +1280,11 @@ mod tests {
             }]
         });
         let packed = assistant_context(Some(&context));
-        assert!(!packed.contains("CATALOGO_MCP_JSON"));
-        assert!(packed.contains("CONTEXTO DEL PROYECTO"));
+        assert!(
+            !packed.contains("(nombres, descripciones y JSON Schema)"),
+            "{packed}"
+        );
+        assert!(packed.contains("ninguna de las 1 herramientas"), "{packed}");
     }
 
     #[test]

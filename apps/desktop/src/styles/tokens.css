@@ -1,31 +1,45 @@
 :root {
   color-scheme: dark;
   
-  /* ===== COLORES BASE - Mejorados para premium ===== */
-  --color-bg: #050810;
-  --color-surface: #0b0f1a;
-  --color-panel: #0f1420;
-  --color-panel-2: #141b2c;
-  --color-panel-3: #1a2238;
-  --color-border: #1e2945;
-  --color-border-strong: #2d4170;
-  --color-text: #f0f5ff;
-  --color-text-muted: #98a9c9;
+  /*
+   * Fallback de primera pintura del tema Olyvia. La fuente de verdad es la
+   * paleta JS (`state/theme-palette.ts`), que escribe estas mismas variables
+   * inline en documentElement al arrancar. Acá sólo viven los valores default
+   * para el instante previo a React (contrato de color, §5.8).
+   */
+  --color-bg: #0f1115;
+  --color-surface: #181b20;
+  --color-panel: #181b20;
+  --color-panel-2: #1c2027;
+  --color-panel-3: #222731;
+  --color-panel-raised: #1b2029;
+  --color-surface-raised: #161a20;
+  --color-border: #2d3240;
+  --color-border-strong: #3a4152;
+  --color-text: #f2f5ff;
+  --color-text-muted: #9ca3af;
   --color-text-secondary: #7a8ba8;
-  --color-empty: #6b7b9d;
-  
-  /* ===== COLORES DE ACENTO - Gradientes premium ===== */
-  --color-accent: #3dd6ff;
+  --color-text-faint: #6b7480;
+  --color-empty: #6b7280;
+
+  /* ===== COLORES DE ACENTO ===== */
+  --color-accent: #1f5eff;
   --color-accent-light: #6ee1ff;
-  --color-accent-strong: #8563ff;
-  --color-accent-ink: #05101a;
-  --color-info: #a78bfa;
-  --color-danger: #ff9a9a;
-  --color-danger-strong: #e94646;
-  --color-warning: #f5c76a;
+  --color-accent-strong: #1748c9;
+  --color-accent-ink: #f8fffc;
+  --color-info: #22c55e;
+  --color-danger: #ef4444;
+  --color-danger-strong: #dc2626;
+  --color-warning: #f59e0b;
   --color-success: #22c55e;
   --color-cta: #ff6b2b;
-  
+
+  /* ===== ESTADOS CON FALLBACK LEGADO ===== */
+  --color-ok: #22c55e;
+  --color-ok-strong: #1e9d4e;
+  --color-warn: #f59e0b;
+  --color-warn-strong: #c27f0d;
+
   /* ===== COLORES DE MEDIOS ===== */
   --color-video: #4d8df0;
   --color-image: #8b74e8;
@@ -33,6 +47,36 @@
   --color-narration: #56b97f;
   --color-caption: #d9b34a;
   --color-graphic: #d76fa9;
+
+  /* ===== COLORES DE MARCA ===== */
+  --color-brand-cyan: #35d6ff;
+  --color-brand-blue: #4f8dff;
+  --color-brand-violet: #8b5cf6;
+  --color-brand-magenta: #d35cff;
+
+  /* ===== ALIAS COMERCIALES (paleta JS) ===== */
+  --commercial-canvas: #0f1115;
+  --commercial-surface: #181b20;
+  --commercial-border: #2d3240;
+  --commercial-border-strong: #3a4152;
+  --commercial-accent: #1f5eff;
+  --commercial-success: #22c55e;
+  --commercial-cta: #ff6b2b;
+  --commercial-text: #f2f5ff;
+  --commercial-muted: #9ca3af;
+  --commercial-input: #14171c;
+
+  /* ===== ALIAS DE IDENTIDAD ORBITAL (paleta JS) ===== */
+  --olyvia-cyan: #35d6ff;
+  --olyvia-blue: #4f8dff;
+  --olyvia-violet: #8b5cf6;
+  --olyvia-magenta: #d35cff;
+  --olyvia-ink: #0f1115;
+  --olyvia-panel: #181b20;
+  --olyvia-border: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
+
+  /* ===== MATIZ DEL ACENTO ===== */
+  --primary-hue: 223;
   
   /* ===== TIPOGRAFÍA ===== */
   --font-ui: 'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -88,52 +132,48 @@
   --shadow-pop: 0 24px 70px rgba(0, 0, 0, 0.55);
   --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.25);
   
-  /* ===== GLOW EFFECTS ===== */
-  --glow-accent: 0 0 0 1px rgba(61, 214, 255, 0.25), 
-                 0 0 16px rgba(61, 214, 255, 0.2), 
-                 0 0 32px rgba(61, 214, 255, 0.12);
-  --glow-accent-strong: 0 0 0 2px rgba(61, 214, 255, 0.4), 
-                        0 0 24px rgba(61, 214, 255, 0.3), 
-                        0 0 48px rgba(133, 99, 255, 0.2);
-  --glow-success: 0 0 0 1px rgba(34, 197, 94, 0.3), 
-                  0 0 20px rgba(34, 197, 94, 0.15);
-  --glow-danger: 0 0 0 1px rgba(233, 70, 70, 0.3), 
-                 0 0 20px rgba(233, 70, 70, 0.15);
+  /* ===== GLOW EFFECTS (fallback: la paleta JS los pisa) ===== */
+  --glow-accent: 0 0 0 1px color-mix(in srgb, #1f5eff 30%, transparent),
+                 0 0 22px color-mix(in srgb, #1f5eff 18%, transparent);
+  --glow-accent-strong: 0 0 0 2px color-mix(in srgb, #1b4bc5 55%, transparent),
+                        0 0 28px color-mix(in srgb, #1f5eff 32%, transparent);
+  --glow-success: 0 0 0 1px color-mix(in srgb, #22c55e 30%, transparent),
+                  0 0 20px color-mix(in srgb, #22c55e 15%, transparent);
+  --glow-danger: 0 0 0 1px color-mix(in srgb, #ef4444 30%, transparent),
+                 0 0 20px color-mix(in srgb, #ef4444 15%, transparent);
   
-  /* ===== GRADIENTES - Más intensidad y dinamismo ===== */
-  --brand-gradient: linear-gradient(135deg, 
-    #3dd6ff 0%, 
-    #5c9cff 25%, 
-    #8563ff 55%, 
-    #c44eff 80%, 
-    #ff45d0 100%);
-  --brand-gradient-subtle: linear-gradient(135deg, 
-    rgba(61, 214, 255, 0.15) 0%, 
-    rgba(133, 99, 255, 0.12) 50%, 
-    rgba(211, 92, 255, 0.10) 100%);
-  --brand-gradient-hover: linear-gradient(135deg, 
-    #50ddff 0%, 
-    #6fa7ff 25%, 
-    #9873ff 55%, 
-    #d05eff 80%, 
-    #ff5cd8 100%);
-  --glass-gradient: linear-gradient(135deg, 
-    rgba(255, 255, 255, 0.08) 0%, 
-    rgba(255, 255, 255, 0.02) 100%);
-  --panel-gradient: linear-gradient(180deg, 
-    rgba(255, 255, 255, 0.03) 0%, 
+  /* ===== GRADIENTES (fallback: la paleta JS los pisa) ===== */
+  --brand-gradient: linear-gradient(135deg,
+    #35d6ff 0%,
+    #4f8dff 42%,
+    #8b5cf6 76%,
+    #d35cff 100%);
+  --brand-gradient-subtle: linear-gradient(135deg,
+    color-mix(in srgb, #35d6ff 15%, transparent) 0%,
+    color-mix(in srgb, #4f8dff 15%, transparent) 42%,
+    color-mix(in srgb, #8b5cf6 15%, transparent) 76%,
+    color-mix(in srgb, #d35cff 15%, transparent) 100%);
+  --brand-gradient-hover: linear-gradient(135deg,
+    #59ddff 0%,
+    #6fa2ff 42%,
+    #a079f8 76%,
+    #db79ff 100%);
+  --glass-gradient: linear-gradient(135deg,
+    color-mix(in srgb, var(--color-text) 8%, transparent) 0%,
+    color-mix(in srgb, var(--color-text) 2%, transparent) 100%);
+  --panel-gradient: linear-gradient(180deg,
+    color-mix(in srgb, var(--color-text) 3%, transparent) 0%,
     transparent 100%);
   
   /* ===== BRAND ===== */
-  --brand-ink: #050810;
-  --brand-border: rgba(106, 147, 255, 0.25);
-  --brand-glow: 0 0 28px rgba(61, 214, 255, 0.2), 
-                0 0 56px rgba(133, 99, 255, 0.16), 
-                0 0 84px rgba(211, 92, 255, 0.12);
+  --brand-ink: #07110e;
+  --brand-border: color-mix(in srgb, #4f8dff 25%, transparent);
+  --brand-glow: 0 0 24px color-mix(in srgb, #35d6ff 20%, transparent),
+                0 0 64px color-mix(in srgb, #8b5cf6 15%, transparent);
   
   /* ===== GLASSMORPHISM ===== */
-  --glass-bg: rgba(15, 20, 32, 0.6);
-  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-bg: color-mix(in srgb, var(--color-panel) 60%, transparent);
+  --glass-border: color-mix(in srgb, var(--color-text) 10%, transparent);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   --glass-backdrop: blur(16px) saturate(180%);
   

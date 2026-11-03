@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { AppShell } from './components/AppShell';
+import { BrowserModeBanner } from './components/BrowserModeBanner';
 import { CommandPalette } from './components/CommandPalette';
 import { SettingsWindow } from './components/SettingsWindow';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
@@ -290,6 +291,9 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   // El rail es la lista corta de superficies; las herramientas avanzadas
   // quedan detrás de «Más». El menú Ver sigue listando el rail visible.
   const railViews = MAIN_NAV_VIEWS;
+  // Sin runtime nativo la app no tiene acceso al sistema de archivos: el aviso
+  // persistente explica el modo antes de que el usuario choque con un error.
+  const browserMode = !store.service.available;
 
   // Precarga de todos los chunks de vista en tiempo ocioso: cuando el usuario
   // hace clic, el módulo ya está evaluado y el cambio no espera nada.
@@ -704,6 +708,14 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         onSelect={navigate}
         onOpenPalette={() => setPaletteOpen(true)}
         {...(onReturnToStart ? { onReturnToStart } : {})}
+        banner={
+          browserMode ? (
+            <BrowserModeBanner
+              reason={store.service.unavailableReason}
+              onOpenSettings={() => setSettingsOpen(true)}
+            />
+          ) : null
+        }
         content={content}
         flush={
           activeId === 'editor' ||
@@ -849,7 +861,14 @@ export function App({ service: suppliedService, initialShowStart }: AppProps) {
         <FlowQueueProvider>
           <McpBridgeRuntime />
           {backgroundMode ? null : showStart ? (
-            <StartScreen onEnterApp={handleEnterApp} />
+            <StartScreen
+              onEnterApp={handleEnterApp}
+              banner={
+                !service.available ? (
+                  <BrowserModeBanner reason={service.unavailableReason} />
+                ) : null
+              }
+            />
           ) : (
             <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />
           )}

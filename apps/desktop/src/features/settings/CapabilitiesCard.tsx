@@ -133,7 +133,9 @@ export function CapabilitiesCard() {
               {capability.backends.map((backend) => (
                 <small key={backend.id}>
                   {backend.detail}
-                  {backend.available ? ' · listo' : ` · ${backend.reason ?? 'no disponible'}`}
+                  {backend.available
+                    ? ' · listo'
+                    : ` · no disponible${backend.reason ? `: ${backend.reason}` : ' (el backend no reportó un motivo)'}`}
                 </small>
               ))}
             </div>

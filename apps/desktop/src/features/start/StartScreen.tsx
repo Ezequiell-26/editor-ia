@@ -1,4 +1,4 @@
-import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { useDialogFocus } from '../../hooks/useDialogFocus';
@@ -23,6 +23,8 @@ const SettingsHome = lazy(() =>
 
 export interface StartScreenProps {
   readonly onEnterApp: (view: ViewId) => void;
+  /** Franja opcional en el flujo del launcher (aviso de modo navegador). */
+  readonly banner?: ReactNode;
 }
 
 type StartPhase = 'idle' | 'exit';
@@ -165,7 +167,7 @@ const LauncherTipText = memo(function LauncherTipText() {
  * DaVinci Resolve-inspired Project Manager.
  * Compact floating window (900x580), zero glow, zero blur, pure graphite flat aesthetic.
  */
-export function StartScreen({ onEnterApp }: StartScreenProps) {
+export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   const store = useProjectStore();
   const [recents, setRecents] = useState<RecentProject[]>(() => loadRecents());
   const [searchQuery, setSearchQuery] = useState('');
@@ -194,6 +196,13 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
   const [error, setError] = useState<string | null>(null);
 
   const native = detectNativeRuntime();
+  // El navegador no puede abrir diálogos nativos ni escribir proyectos: se
+  // avisa antes de que el usuario haga clic, en vez de fallar en silencio o
+  // mostrar un botón que no puede cumplir lo que promete.
+  const browserMode = !native && !store.service.available;
+  const browserReason =
+    'Sólo en la app de escritorio: el navegador no puede abrir diálogos nativos ni escribir proyectos en disco.';
+  const visibleError = !showCreateModal ? (error ?? store.state.error) : null;
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const createDialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -376,6 +385,11 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
     e.stopPropagation();
     setIsDraggingOver(false);
 
+    if (browserMode) {
+      setError(browserReason);
+      return;
+    }
+
     const files = Array.from(e.dataTransfer.files);
     if (!files.length) return;
 
@@ -496,6 +510,27 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
           </div>
         </header>
 
+        {banner}
+
+        {/* Errores visibles: sin este banner, abrir un proyecto fallido o una
+            ruta inexistente dejaba al usuario sin ningún mensaje. */}
+        {visibleError ? (
+          <div className="start-error-notice" role="alert">
+            <Icon name="alert" size={13} />
+            <span>{visibleError}</span>
+            <button
+              type="button"
+              className="start-btn-link"
+              onClick={() => {
+                setError(null);
+                store.clearError();
+              }}
+            >
+              Cerrar
+            </button>
+          </div>
+        ) : null}
+
         {/* ─── Window Body: 2 Columns ─── */}
         <div className="start-body">
           {/* Left Column: Quick Actions, 1-Click Templates, AI Tools */}
@@ -504,25 +539,10 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
             <div className="start-actions-group">
               <button
                 type="button"
-                className="start-action-card start-action-card--demo"
-                onClick={() => void handleOpenRecent(recents[0] ?? { path: 'demo://reels-vertical', label: 'demo-reels-subtitulos.editoria.json', name: '🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música', openedAt: new Date().toISOString() })}
-                disabled={busy}
-                title="Abre instantáneamente un proyecto de prueba completo con video, audio y subtítulos"
-              >
-                <div className="start-action-icon">
-                  <Icon name="sparkles" size={18} />
-                </div>
-                <div className="start-action-text">
-                  <strong className="start-action-title">Probar Demo (1 clic)</strong>
-                  <span className="start-action-desc">Video, música y subtítulos listos</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
                 className="start-action-card start-action-card--create"
                 onClick={() => setShowCreateModal(true)}
-                disabled={busy}
+                disabled={busy || browserMode}
+                title={browserMode ? browserReason : undefined}
               >
                 <div className="start-action-icon">
                   <Icon name="plus" size={18} />
@@ -538,7 +558,8 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                 className="start-action-card start-action-card--open"
                 aria-label="Abrir proyecto"
                 onClick={() => void handleOpenProject()}
-                disabled={busy}
+                disabled={busy || browserMode}
+                title={browserMode ? browserReason : undefined}
               >
                 <div className="start-action-icon">
                   <Icon name="folder" size={16} />
@@ -549,6 +570,16 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                 </div>
               </button>
             </div>
+
+            {browserMode ? (
+              <p className="notice notice-warning" role="status">
+                <Icon name="info" size={13} />
+                <span>
+                  Estás en el navegador: podés recorrer la interfaz, pero crear o abrir
+                  proyectos necesita la app de escritorio.
+                </span>
+              </p>
+            ) : null}
 
             {/* 1-Click Templates */}
             <div className="start-pane-section">
@@ -562,8 +593,12 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                     type="button"
                     className="start-template-row"
                     onClick={() => void handleQuickTemplate(tpl)}
-                    disabled={busy}
-                    title={`Crear proyecto ${tpl.label} (${tpl.width}×${tpl.height})`}
+                    disabled={busy || browserMode}
+                    title={
+                      browserMode
+                        ? browserReason
+                        : `Crear proyecto ${tpl.label} (${tpl.width}×${tpl.height})`
+                    }
                   >
                     <span
                       className="start-tpl-ratio"
@@ -706,10 +741,14 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                             className={`start-thumb-fallback tone-${projectTone(project.name)}`}
                             aria-hidden="true"
                           >
+                            <span className="start-thumb-icon">
+                              <Icon name="film" size={16} />
+                            </span>
                             <span className="start-thumb-initial">
                               {projectInitial(project.name)}
                             </span>
                             <span className="start-thumb-hint">Sin vista previa</span>
+                            <span className="start-thumb-badge">Proyecto</span>
                           </div>
                         )}
                       </div>
@@ -759,6 +798,17 @@ export function StartScreen({ onEnterApp }: StartScreenProps) {
                   <span>Crea un nuevo proyecto o arrastra un video aquí para comenzar.</span>
                 </div>
               )}
+
+              {/* Zona de arrastre permanente: el launcher acepta archivos en
+                  toda la ventana; esta franja lo hace visible y ocupa el alto
+                  que sobra cuando hay pocos recientes. */}
+              {recents.length > 0 ? (
+                <div className="start-drop-hint" aria-hidden="true">
+                  <Icon name="plus" size={15} />
+                  <span>Arrastrá video, audio o imágenes para crear un proyecto</span>
+                  <kbd>Ctrl O</kbd>
+                </div>
+              ) : null}
             </div>
           </main>
         </div>

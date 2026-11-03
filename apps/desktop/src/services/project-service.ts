@@ -77,6 +77,38 @@ export interface ProviderInfo {
   readonly keyringAvailable: boolean;
 }
 
+/**
+ * Resultado tipado de «probar conexión» con el proveedor de IA.
+ *
+ * `status` distingue lo accionable de lo genérico: sin configurar, sin clave,
+ * 401, 404, timeout, sin conexión o éxito. La interfaz puede mostrar `detail`
+ * tal cual porque el backend ya lo redacta sin rutas ni secretos.
+ */
+export type ProviderTestStatus =
+  | 'ok'
+  | 'mock'
+  | 'unconfigured'
+  | 'missing-key'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'not-found'
+  | 'rate-limited'
+  | 'timeout'
+  | 'unreachable'
+  | 'http-error'
+  | 'invalid-response';
+
+export interface ProviderTestResult {
+  readonly status: ProviderTestStatus | string;
+  readonly ok: boolean;
+  readonly httpStatus: number | null;
+  readonly latencyMs: number;
+  /** Modelo configurado si el proveedor lo lista; si no, el primero listado. */
+  readonly model: string | null;
+  readonly detail: string;
+  readonly baseUrl: string;
+}
+
 export interface ScriptScenePlan {
   readonly id: string;
   readonly order: number;
@@ -1971,6 +2003,8 @@ export interface DesktopService {
     apiKey?: string;
   }): Promise<ProviderInfo>;
   clearProviderKey(): Promise<ProviderInfo>;
+  /** Prueba la conexión con el proveedor configurado (Ajustes → IA). */
+  testProvider(): Promise<ProviderTestResult>;
   getAudioProvider(): Promise<AudioProviderInfo>;
   saveAudioProvider(input: {
     kind: string;
@@ -2235,6 +2269,7 @@ export const PROJECT_COMMANDS = {
   getProvider: 'get_provider',
   saveProvider: 'save_provider',
   clearProviderKey: 'clear_provider_key',
+  testProvider: 'test_provider',
   getAudioProvider: 'get_audio_provider',
   saveAudioProvider: 'save_audio_provider',
   clearAudioProviderKey: 'clear_audio_provider_key',
@@ -3306,6 +3341,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async clearProviderKey() {
       return (await call(PROJECT_COMMANDS.clearProviderKey)) as ProviderInfo;
     },
+    async testProvider() {
+      return (await call(PROJECT_COMMANDS.testProvider)) as ProviderTestResult;
+    },
     async getAudioProvider() {
       return (await call(PROJECT_COMMANDS.getAudioProvider)) as AudioProviderInfo;
     },
@@ -3610,6 +3648,7 @@ function createUnavailableService(): DesktopService {
     getProvider: async () => unavailable(),
     saveProvider: async () => unavailable(),
     clearProviderKey: async () => unavailable(),
+    testProvider: async () => unavailable(),
     getAudioProvider: async () => unavailable(),
     saveAudioProvider: async () => unavailable(),
     clearAudioProviderKey: async () => unavailable(),

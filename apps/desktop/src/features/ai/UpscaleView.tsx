@@ -5,13 +5,15 @@ import { ViewToolbar } from '../../components/ViewToolbar';
 import type { UpscaleResult } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
 import { queuePendingComparison } from '../compare/pending';
+import { LocalModelGate, useLocalModel } from './LocalModelGate';
 
 /**
  * Upscale ×4 con Real-ESRGAN local.
  *
  * Fase 3: segundo consumo del gestor de modelos. El modelo tiene entrada fija
  * de 128×128, así que la imagen se procesa por teselas con solape; el límite
- * de 2048 por lado es de memoria y está explicado en la UI.
+ * de 2048 por lado es de memoria y está explicado en la UI. La vista comprueba
+ * el modelo antes de ejecutar y ofrece descargarlo acá mismo.
  */
 export function UpscaleView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
   const store = useProjectStore();
@@ -19,6 +21,7 @@ export function UpscaleView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
   const [result, setResult] = useState<UpscaleResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const model = useLocalModel(store.service, 'upscale');
 
   async function pickImage(): Promise<void> {
     setBusy(true);
@@ -36,6 +39,10 @@ export function UpscaleView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
 
   async function run(): Promise<void> {
     if (!inputPath) return;
+    if (model.state !== 'ready') {
+      setError('Falta el modelo local de upscale: descargalo en el panel «Modelo local» de esta vista.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -77,6 +84,12 @@ export function UpscaleView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
         </div>
       </header>
 
+      <LocalModelGate
+        label="Real-ESRGAN ×4"
+        controller={model}
+        onOpenSettings={() => onNavigate('settings')}
+      />
+
       {error ? (
         <p className="notice notice-warning" role="alert">
           {error}
@@ -101,7 +114,12 @@ export function UpscaleView({ onNavigate }: { readonly onNavigate: (id: ViewId) 
           type="button"
           className="primary icon-text"
           onClick={() => void run()}
-          disabled={busy || !inputPath}
+          disabled={busy || !inputPath || model.state !== 'ready'}
+          title={
+            model.state === 'ready'
+              ? undefined
+              : 'El modelo local no está listo: descargalo o revisá Ajustes → Capacidades'
+          }
         >
           <Icon name="sparkles" size={15} />
           <span>{busy ? 'Agrandando…' : 'Agrandar ×4'}</span>

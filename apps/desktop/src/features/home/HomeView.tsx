@@ -29,11 +29,22 @@ function statusText(available: boolean, version: string | null, missing: string)
   return available ? version ?? 'Disponible' : missing;
 }
 
+/** Estado de una fila del diagnóstico. `unavailable`/`demo` evitan el falso
+ *  "Listo" cuando la capacidad sólo existe en la app de escritorio. */
+type SetupState = 'ready' | 'missing' | 'unavailable' | 'demo';
+
+const SETUP_STATE_LABEL: Record<SetupState, string> = {
+  ready: 'Listo',
+  missing: 'Falta',
+  unavailable: 'Solo nativo',
+  demo: 'Demo',
+};
+
 function SetupRow({
   icon,
   title,
   detail,
-  ready,
+  state,
   busy,
   actionLabel,
   onAction,
@@ -41,23 +52,21 @@ function SetupRow({
   readonly icon: 'download' | 'film' | 'audio' | 'plug';
   readonly title: string;
   readonly detail: string;
-  readonly ready: boolean;
+  readonly state: SetupState;
   readonly busy: boolean;
   readonly actionLabel: string;
   readonly onAction: () => void;
 }) {
   return (
     <li className="home-setup-row">
-      <span className={`home-setup-icon${ready ? ' ready' : ''}`}>
+      <span className={`home-setup-icon ${state}`}>
         <Icon name={icon} size={15} />
       </span>
       <span className="home-setup-copy">
         <strong>{title}</strong>
         <small>{detail}</small>
       </span>
-      <span className={ready ? 'home-status ready' : 'home-status missing'}>
-        {ready ? 'Listo' : 'Falta'}
-      </span>
+      <span className={`home-status ${state}`}>{SETUP_STATE_LABEL[state]}</span>
       <button type="button" className="small ghost" onClick={onAction} disabled={busy}>
         {busy ? 'Instalando…' : actionLabel}
       </button>
@@ -169,8 +178,14 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
 
   async function openProject(): Promise<void> {
     if (!confirmLeave('Abrir otro proyecto')) return;
-    const ok = await store.openProject();
-    if (ok) onNavigate('editor');
+    setBusy('project');
+    setError(null);
+    try {
+      const ok = await store.openProject();
+      if (ok) onNavigate('editor');
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function openRecent(recent: RecentProject): Promise<void> {
@@ -191,25 +206,28 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
     onNavigate('download');
   }
 
-  const readyChecks = [
-    engine?.available === true,
-    system?.ffmpeg.available === true,
-    system?.ffprobe.available === true,
-    system?.powershell.available === true,
-  ];
-  const readyCount = readyChecks.filter(Boolean).length;
   const native = detectNativeRuntime();
-
-  async function loadDemo(isVertical: boolean): Promise<void> {
-    const path = isVertical ? 'proyectos/demo-reels.olyvia' : 'proyectos/demo-youtube.olyvia';
-    setBusy('project');
-    try {
-      const ok = await store.openProjectAt(path);
-      if (ok) onNavigate('editor');
-    } finally {
-      setBusy(null);
-    }
-  }
+  // Modo navegador real = sin runtime nativo y sin servicio utilizable. Con un
+  // servicio disponible (app de escritorio o servicio de prueba) se mantiene
+  // la UI completa. En navegador la UI lo dice en vez de fingir un estudio
+  // preparado (auditoría P0-1).
+  const browserMode = !native && !service.available;
+  // En escritorio se mide el entorno real; en modo web las filas dicen la
+  // verdad: las capacidades que dependen del sistema son "solo nativo".
+  const heroChecks = native
+    ? [
+        { label: 'Motor de descargas', ok: engine?.available === true },
+        { label: 'FFmpeg local', ok: system?.ffmpeg.available === true },
+        { label: 'FFprobe', ok: system?.ffprobe.available === true },
+        { label: 'Voz SAPI', ok: system?.powershell.available === true },
+      ]
+    : [
+        { label: 'Recorrido de la interfaz y la guía', ok: true },
+        { label: 'Proyectos en disco · solo app nativa', ok: false },
+        { label: 'Voz, MCP y descargas · solo app nativa', ok: false },
+        { label: 'Render y export verificado · solo app nativa', ok: false },
+      ];
+  const readyCount = heroChecks.filter((check) => check.ok).length;
 
   return (
     <section className="view home-view">
@@ -231,57 +249,161 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
 
       <header className="home-hero">
         <div className="home-hero-copy">
-          <p className="eyebrow">ESTUDIO DE PRODUCCIÓN AUDIOVISUAL IA</p>
-          <h1>{project ? `Continuar con: ${project.name}` : 'Creá videos virales en minutos con IA'}</h1>
-          <p>
+          <p className="eyebrow">Estudio de producción audiovisual IA</p>
+          <h1>{project ? `Continuar con ${project.name}` : 'Creá videos virales en minutos con IA'}</h1>
+          <p className="home-hero-lead">
             {project
-              ? `Proyecto actual: ${project.name} (${(project.video?.height ?? 1080) > (project.video?.width ?? 1920) ? '9:16 Vertical' : '16:9 Horizontal'}). Línea de tiempo con ${project.timeline?.tracks?.length ?? 2} pistas listas para editar.`
+              ? `Proyecto actual: ${project.name} (${(project.video?.height ?? 1080) > (project.video?.width ?? 1920) ? '9:16 vertical' : '16:9 horizontal'}). Línea de tiempo con ${project.timeline?.tracks?.length ?? 2} pistas listas para editar.`
               : 'Olyvia combina un editor de video multipista profesional con herramientas de inteligencia artificial: corte automático de silencios, subtítulos sincronizados, locución natural y plantillas para TikTok, Reels y YouTube.'}
           </p>
+          <div className="home-hero-actions">
+            {project ? (
+              <button
+                type="button"
+                className="primary icon-text"
+                onClick={() => onNavigate('editor')}
+              >
+                <Icon name="editor" size={15} />
+                <span>Abrir editor multipista</span>
+              </button>
+            ) : null}
+            {!browserMode ? (
+              <>
+                <button
+                  type="button"
+                  className="primary icon-text"
+                  aria-label="Abrir proyecto"
+                  onClick={() => void openProject()}
+                  disabled={busy === 'project'}
+                >
+                  <Icon name="folder" size={15} />
+                  <span>{busy === 'project' ? 'Abriendo…' : 'Abrir proyecto'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost icon-text"
+                  onClick={() => onNavigate('projects')}
+                >
+                  <Icon name="plus" size={15} />
+                  <span>Nuevo proyecto</span>
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="primary icon-text"
+                onClick={() => onNavigate('learn')}
+              >
+                <Icon name="learn" size={15} />
+                <span>Ver la guía</span>
+              </button>
+            )}
+          </div>
+          <div className="home-hero-meta">
+            {browserMode ? (
+              <>
+                <span className="home-hero-chip">
+                  <Icon name="info" size={12} />
+                  <span>Vista de evaluación en navegador</span>
+                </span>
+                <span className="home-hero-chip">
+                  <Icon name="lock" size={12} />
+                  <span>Sin estado real ni guardado</span>
+                </span>
+                <span className="home-hero-chip">
+                  <Icon name="download" size={12} />
+                  <span>La app nativa ejecuta todo</span>
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="home-hero-chip">
+                  <Icon name="shield" size={12} />
+                  <span>Procesado local, sin nube</span>
+                </span>
+                <span className="home-hero-chip">
+                  <Icon name="editor" size={12} />
+                  <span>Timeline multipista</span>
+                </span>
+                <span className="home-hero-chip">
+                  <Icon name="sparkles" size={12} />
+                  <span>IA integrada</span>
+                </span>
+              </>
+            )}
+          </div>
         </div>
-        <div className="home-hero-actions">
-          {project ? (
-            <button
-              type="button"
-              className="primary icon-text"
-              onClick={() => onNavigate('editor')}
-            >
-              <Icon name="editor" size={15} />
-              <span>Abrir Editor Multi-Pista</span>
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="primary icon-text"
-            style={{ background: 'linear-gradient(135deg, #2563eb, #3b82f6)' }}
-            onClick={() => void loadDemo(true)}
-            disabled={busy === 'project'}
-          >
-            <Icon name="sparkles" size={15} />
-            <span>🌟 Probar Demo (Reels 9:16)</span>
-          </button>
-          <button
-            type="button"
-            className="ghost icon-text"
-            onClick={() => void loadDemo(false)}
-            disabled={busy === 'project'}
-          >
-            <Icon name="film" size={15} />
-            <span>🎬 Probar Demo (YouTube 16:9)</span>
-          </button>
-          <button type="button" className="ghost icon-text" onClick={() => onNavigate('projects')}>
-            <Icon name="plus" size={15} />
-            <span>Nuevo</span>
-          </button>
-          <button type="button" className="ghost icon-text" aria-label="Abrir proyecto" onClick={() => void openProject()}>
-            <Icon name="projects" size={15} />
-            <span>Abrir...</span>
-          </button>
-        </div>
-        <div className="home-hero-status" aria-label="Estudio listo para trabajar">
-          <strong>LISTO</strong>
-          <span>Modo interactivo</span>
-        </div>
+        <aside className="home-hero-status" aria-label="Estado del estudio">
+          {browserMode ? (
+            <>
+              <div className="home-hero-status-head">
+                <span className="home-hero-status-icon" aria-hidden="true">
+                  <Icon name="info" size={18} />
+                </span>
+                <div className="home-hero-status-copy">
+                  <strong>Modo navegador</strong>
+                  <span>Interfaz de evaluación, sin runtime nativo</span>
+                </div>
+                <span className="home-status home-status-unmeasured home-hero-badge">
+                  NO MEDIDO
+                </span>
+              </div>
+              <ul className="home-hero-checks">
+                {heroChecks.map((check) => (
+                  <li
+                    key={check.label}
+                    data-ready={check.ok ? 'true' : 'unknown'}
+                  >
+                    <span aria-hidden="true" className="home-hero-check-dot" />
+                    {check.label}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="ghost small icon-text"
+                onClick={() => onNavigate('learn')}
+              >
+                <Icon name="learn" size={13} />
+                <span>Qué se puede probar acá</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="home-hero-status-head">
+                <strong className="home-hero-status-value">
+                  {readyCount}
+                  <span>/{heroChecks.length}</span>
+                </strong>
+                <div className="home-hero-status-copy">
+                  <strong>Preparación del estudio</strong>
+                  <span>Componentes verificados</span>
+                </div>
+                <span
+                  className={`home-status ${readyCount === heroChecks.length ? 'ready' : 'missing'} home-hero-badge`}
+                >
+                  {readyCount === heroChecks.length ? 'LISTO' : 'REVISAR'}
+                </span>
+              </div>
+              <ul className="home-hero-checks">
+                {heroChecks.map((check) => (
+                  <li key={check.label} data-ready={check.ok ? 'true' : 'false'}>
+                    <span aria-hidden="true" className="home-hero-check-dot" />
+                    {check.label}
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                className="ghost small icon-text"
+                onClick={() => onNavigate('settings')}
+              >
+                <Icon name="settings" size={13} />
+                <span>Revisar preparación</span>
+              </button>
+            </>
+          )}
+        </aside>
       </header>
 
       {/* Feature Pillars Grid */}
@@ -382,10 +504,16 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             <SetupRow
               icon="film"
               title="Línea de Tiempo y Render"
-              detail={native ? (system ? statusText(system.ffmpeg.available, system.ffmpeg.version, 'No encontrado') : 'Consultando…') : 'Canvas 2D + Web Audio Activo'}
-              ready={native ? system?.ffmpeg.available === true : true}
+              detail={
+                native
+                  ? (system ? statusText(system.ffmpeg.available, system.ffmpeg.version, 'No encontrado') : 'Consultando…')
+                  : 'Canvas 2D + Web Audio Activo · render solo en la app nativa'
+              }
+              state={
+                native ? (system?.ffmpeg.available === true ? 'ready' : 'missing') : 'demo'
+              }
               busy={busy === 'ffmpeg'}
-              actionLabel={native ? (system?.ffmpeg.available ? 'Cambiar' : 'Elegir') : 'Ver Editor'}
+              actionLabel={native ? (system?.ffmpeg.available ? 'Cambiar' : 'Elegir') : 'Ver editor'}
               onAction={() => {
                 if (native) void choose('ffmpeg');
                 else onNavigate('editor');
@@ -394,11 +522,17 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             <SetupRow
               icon="audio"
               title="Voz y Locución IA"
-              detail={native ? (system ? statusText(system.powershell.available, system.powershell.version, 'PowerShell no disponible') : 'Consultando…') : 'Síntesis de Voz y Cues VTT'}
-              ready={native ? system?.powershell.available === true : true}
+              detail={
+                native
+                  ? (system ? statusText(system.powershell.available, system.powershell.version, 'PowerShell no disponible') : 'Consultando…')
+                  : 'Voz del sistema · solo en la app nativa'
+              }
+              state={
+                native ? (system?.powershell.available === true ? 'ready' : 'missing') : 'unavailable'
+              }
               busy={false}
-              actionLabel={native ? 'Ajustes' : 'Locución'}
-              onAction={() => onNavigate(native ? 'settings' : 'production')}
+              actionLabel="Ajustes"
+              onAction={() => onNavigate('settings')}
             />
             <SetupRow
               icon="download"
@@ -406,9 +540,11 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
               detail={
                 native
                   ? (engine == null ? 'Consultando yt-dlp…' : statusText(engine.available, engine.version, 'yt-dlp no instalado'))
-                  : 'Importador Multimedia Web'
+                  : 'yt-dlp y archivos · solo en la app nativa'
               }
-              ready={native ? engine?.available === true : true}
+              state={
+                native ? (engine?.available === true ? 'ready' : 'missing') : 'unavailable'
+              }
               busy={busy === 'engine'}
               actionLabel="Abrir"
               onAction={() => onNavigate('download')}
@@ -416,8 +552,12 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
             <SetupRow
               icon="plug"
               title="Subtítulos & Cues"
-              detail="Generador sincronizado SRT / VTT"
-              ready={true}
+              detail={
+                native
+                  ? 'Generador sincronizado SRT / VTT'
+                  : 'Editor SRT / VTT de lectura · sin export en navegador'
+              }
+              state={native ? 'ready' : 'demo'}
               busy={false}
               actionLabel="Subtítulos"
               onAction={() => onNavigate('localization')}
@@ -426,7 +566,7 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
           <p className="fine-print">
             {native
               ? 'El motor de descargas se instala desde el ejecutable oficial de yt-dlp y utiliza FFmpeg local.'
-              : '⚡ Modo Web Activo: La línea de tiempo, edición multipista, plantillas Reels/YouTube y asistente IA están listos para usar.'}
+              : 'En el navegador sólo podés recorrer la interfaz y la guía. Crear, importar, exportar, voz IA, MCP y descargas requieren la app de escritorio de Olyvia.'}
           </p>
         </section>
 

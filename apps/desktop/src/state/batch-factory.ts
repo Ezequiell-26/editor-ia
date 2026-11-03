@@ -137,6 +137,16 @@ export async function generateVariant(
     approvedCost: options.approveCost,
   };
   const scriptPlan = await service.generateScript(request);
+  // La Fábrica escribe proyectos portables (y opcionalmente MP4) por variante.
+  // Con el proveedor simulado el "guion" es una plantilla: no se genera nada
+  // para no producir entregables que parezcan IA sin serlo. Es el mismo
+  // criterio que ya aplican Guion, Localización, Auto-Edit y Motion.
+  if (scriptPlan.simulated) {
+    throw new Error(
+      `variante ${plan.index + 1}: el proveedor de guion está en modo simulado y la Fábrica no escribe variantes con contenido de plantilla. ` +
+        'Configurá un proveedor real en Ajustes → IA (Ollama, LM Studio o una API compatible) y volvé a generar.',
+    );
+  }
   project = applyScenePlan(project, scriptPlan);
 
   const narrations: NarrationCandidate[] = [];

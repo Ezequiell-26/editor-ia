@@ -19,10 +19,9 @@ test('la paleta de comandos se abre con Ctrl+K y filtra', async ({ page }) => {
   // Enter ejecuta el comando: navega a la Fábrica y cierra la paleta.
   await page.keyboard.press('Enter');
   await expect(page.locator('.cmdp-panel')).toHaveCount(0);
-  await expect(page.locator('.sidebar button[aria-label="Fábrica"]')).toHaveAttribute(
-    'aria-current',
-    'page',
-  );
+  // Fábrica vive detrás de «Más» en el rail; lo que importa es que la vista
+  // activa sea la suya y no el rail que la contiene.
+  await expect(page.locator('main.content')).toContainText(/Fábrica/i);
 });
 
 test('la paleta se cierra con Escape', async ({ page }) => {

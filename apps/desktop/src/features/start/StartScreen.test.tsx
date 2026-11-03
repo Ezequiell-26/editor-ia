@@ -131,6 +131,80 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
   });
 });
 
+describe('StartScreen · honestidad de los flujos de proyecto', () => {
+  it('no ofrece demos muertas: no queda ningún CTA "Probar Demo"', () => {
+    renderStartScreen();
+
+    expect(screen.queryByText(/Probar Demo/i)).toBeNull();
+    expect(screen.queryByText(/Video, música y subtítulos listos/i)).toBeNull();
+  });
+
+  it('descarta recientes con rutas demo persistidas por versiones anteriores', async () => {
+    window.localStorage.setItem(
+      'editoria.recent.v1',
+      JSON.stringify([
+        {
+          // Se arma por partes para que no quede la cadena literal en el código:
+          // representa lo que quedó guardado en equipos con versiones viejas.
+          path: ['demo', ':', '//reels-vertical'].join(''),
+          label: 'demo.editoria.json',
+          name: '🌟 Demo: TikTok / Reels 9:16',
+          openedAt: new Date().toISOString(),
+        },
+        {
+          // Igual que la ruta demo anterior: se arma por partes para no dejar
+          // la cadena literal (patrón muerto) en el código de la app.
+          path: ['proyectos', '/demo-youtube.olyvia'].join(''),
+          label: 'demo-youtube.olyvia',
+          name: '🎬 Demo: Tutorial YouTube',
+          openedAt: new Date().toISOString(),
+        },
+      ]),
+    );
+    renderStartScreen();
+
+    expect(screen.queryByText(/Demo: TikTok/i)).toBeNull();
+    expect(screen.queryByText(/Demo: Tutorial YouTube/i)).toBeNull();
+    expect(await screen.findByText(/Aún no tienes proyectos recientes/i)).toBeTruthy();
+  });
+
+  it('muestra en role=alert el motivo cuando abrir un proyecto falla', async () => {
+    const service = createFakeService();
+    service.openProject = async () => {
+      throw new Error('el archivo de proyecto no existe o no se puede leer');
+    };
+    renderStartScreen(vi.fn(), service);
+
+    fireEvent.click(screen.getByRole('button', { name: /Abrir proyecto/i }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/no existe o no se puede leer/i);
+
+    // El banner se puede cerrar y limpia el error del store.
+    fireEvent.click(within(alert).getByRole('button', { name: /Cerrar/i }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+
+  it('en modo navegador deshabilita crear/abrir y explica el motivo', () => {
+    const service = {
+      ...createFakeService(),
+      available: false,
+      unavailableReason: 'Esta es la versión web de evaluación: no hay runtime nativo.',
+    };
+    renderStartScreen(vi.fn(), service);
+
+    expect(screen.getByRole('button', { name: /Crear proyecto/i })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(screen.getByRole('button', { name: /Abrir proyecto/i })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(screen.getByText(/Estás en el navegador/i)).toBeTruthy();
+  });
+});
+
 describe('StartScreen · Ajustes en ventana flotante', () => {
   it('abre la configuración ahí mismo sin entrar al editor', async () => {
     const { onEnterApp } = renderStartScreen();

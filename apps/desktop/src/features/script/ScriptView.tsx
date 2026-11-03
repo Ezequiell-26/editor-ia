@@ -313,12 +313,18 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
 
   if (!project) {
     return (
-      <section className="view">
-        <p className="empty-state">No hay un proyecto abierto. Creá o abrí uno para escribir el guion.</p>
-        <div className="actions">
-          <button type="button" className="primary" onClick={() => onNavigate('projects')}>
-            Ir a Proyectos
-          </button>
+      <section className="view view-empty-page">
+        <div className="empty-state view-empty">
+          <span className="view-empty-icon" aria-hidden="true">
+            <Icon name="script" size={20} />
+          </span>
+          <strong>No hay un proyecto abierto</strong>
+          <p>Creá o abrí uno para escribir las escenas, la narración y los prompts visuales.</p>
+          <div className="actions">
+            <button type="button" className="primary" onClick={() => onNavigate('projects')}>
+              Ir a Proyectos
+            </button>
+          </div>
         </div>
       </section>
     );

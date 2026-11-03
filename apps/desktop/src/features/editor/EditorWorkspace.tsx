@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
 import type { EditorModeId } from '../../app/view-routing';
+import { Icon } from '../../components/Icon';
 import {
   ProjectActionError,
   deleteCaptionCue,
@@ -260,43 +261,59 @@ export function EditorWorkspace({
     return (
       <section className="view editor-empty-view">
         <div className="editor-empty-card">
+          <span className="editor-empty-eyebrow">Olyvia · Estudio de edición</span>
           <div className="editor-empty-icon" aria-hidden="true">
-            🎬
+            <Icon name="film" size={24} />
           </div>
           <h2 className="editor-empty-title">Estudio de Edición de Video</h2>
           <p className="editor-empty-desc">
-            Para comenzar a cortar y componer, abre un proyecto de demostración con video, música y subtítulos listos, o crea un nuevo proyecto en blanco.
+            Abrí un proyecto existente o creá uno nuevo en blanco para empezar a cortar y
+            componer. No hay proyectos de demostración empaquetados: todo lo que ves en la
+            timeline es material que importaste vos.
           </p>
           <div className="editor-empty-actions">
             <button
               type="button"
               className="primary icon-text"
-              onClick={() => void store.openProjectAt('demo://reels-vertical')}
+              onClick={() => void store.openProject()}
             >
-              <span>🌟 Probar Demo (Reels 9:16)</span>
-            </button>
-            <button
-              type="button"
-              className="ghost icon-text"
-              onClick={() => void store.openProjectAt('demo://youtube-tutorial')}
-            >
-              <span>🎬 Probar Demo (YouTube 16:9)</span>
+              <Icon name="folder" size={15} />
+              <span>Abrir proyecto</span>
             </button>
             <button
               type="button"
               className="ghost icon-text"
               onClick={() => onNavigate('projects')}
             >
-              <span>➕ Nuevo proyecto</span>
+              <Icon name="plus" size={15} />
+              <span>Nuevo proyecto</span>
             </button>
             <button
               type="button"
               className="ghost icon-text"
               onClick={() => onNavigate('home')}
             >
-              <span>🏠 Volver a Inicio</span>
+              <Icon name="home" size={15} />
+              <span>Volver a Inicio</span>
             </button>
           </div>
+          <ul className="editor-empty-hints" aria-label="Primeros pasos del editor">
+            <li className="editor-empty-hint">
+              <span>01</span>
+              <strong>Abrí o creá un proyecto</strong>
+              <em>Elegís carpeta y formato; después importás medios.</em>
+            </li>
+            <li className="editor-empty-hint">
+              <span>02</span>
+              <strong>Armá la timeline</strong>
+              <em>Montá medios, recortá y dividí con S.</em>
+            </li>
+            <li className="editor-empty-hint">
+              <span>03</span>
+              <strong>Exportá verificado</strong>
+              <em>Render MP4 con FFmpeg y control de calidad.</em>
+            </li>
+          </ul>
         </div>
       </section>
     );

@@ -39,6 +39,12 @@ export interface EditorPreferences {
   readonly safeMargins: boolean;
   /** Estilo de emoji para la preview y el selector: Android o abierto. */
   readonly emojiStyle: 'android' | 'open';
+  /** Densidad visual de la timeline: cómoda (default) o compacta. */
+  readonly timelineDensity: 'comfortable' | 'compact';
+  /** Etiquetas de clip: nombre + ventana (full) o sólo el nombre (minimal). */
+  readonly timelineClipLabels: 'full' | 'minimal';
+  /** Rejilla temporal sutil alineada con las marcas mayores de la regla. */
+  readonly timelineShowGrid: boolean;
 }
 
 /** Almacenamiento mínimo que necesitan estas preferencias. */
@@ -62,6 +68,9 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   jumpStepFrames: 1,
   safeMargins: false,
   emojiStyle: 'android',
+  timelineDensity: 'comfortable',
+  timelineClipLabels: 'full',
+  timelineShowGrid: true,
 };
 
 /** Límites duros por campo: la UI y la normalización comparten la misma tabla. */
@@ -132,6 +141,12 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
     ),
     safeMargins: bool(source.safeMargins, DEFAULT_EDITOR_PREFERENCES.safeMargins),
     emojiStyle: source.emojiStyle === 'open' ? 'open' : 'android',
+    timelineDensity: source.timelineDensity === 'compact' ? 'compact' : 'comfortable',
+    timelineClipLabels: source.timelineClipLabels === 'minimal' ? 'minimal' : 'full',
+    timelineShowGrid: bool(
+      source.timelineShowGrid,
+      DEFAULT_EDITOR_PREFERENCES.timelineShowGrid,
+    ),
   };
 }
 

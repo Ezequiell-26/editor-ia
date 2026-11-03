@@ -3,6 +3,7 @@ import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
+import type { ProviderInfo } from '../../services/project-service';
 import {
   assembleVariant,
   generateVariant,
@@ -77,6 +78,49 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
   const [stage, setStage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<FactoryVariantResult[]>([]);
+  const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  const [providerLoading, setProviderLoading] = useState(true);
+  const [providerError, setProviderError] = useState<string | null>(null);
+
+  /**
+   * Estado del proveedor de guion **guardado**. La Fábrica escribe proyectos
+   * portables: si el proveedor es simulado el guion es una plantilla y no debe
+   * generar entregables que parezcan IA sin serlo.
+   */
+  useEffect(() => {
+    if (!store.service.available) {
+      setProvider(null);
+      setProviderError(store.service.unavailableReason);
+      setProviderLoading(false);
+      return;
+    }
+    let active = true;
+    setProviderLoading(true);
+    void store.service
+      .getProvider()
+      .then((info) => {
+        if (!active) return;
+        setProvider(info);
+        setProviderError(null);
+      })
+      .catch((failure: unknown) => {
+        if (!active) return;
+        setProvider(null);
+        setProviderError(
+          failure instanceof Error
+            ? `No se pudo leer el proveedor: ${failure.message}`
+            : 'No se pudo leer el proveedor de guion guardado.',
+        );
+      })
+      .finally(() => {
+        if (active) setProviderLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [store.service]);
+
+  const simulated = provider?.kind === 'mock';
 
   useEffect(() => {
     if (!project) return;
@@ -147,6 +191,18 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
   }
 
   async function generate(): Promise<void> {
+    if (providerError) {
+      setError(
+        `No se pudo comprobar el proveedor de guion guardado (${providerError}). Revisá Ajustes → IA antes de generar.`,
+      );
+      return;
+    }
+    if (simulated) {
+      setError(
+        'El proveedor de guion está en modo simulado: el guion sería una plantilla y la Fábrica no escribe variantes con contenido de plantilla. Configurá un proveedor real en Ajustes → IA.',
+      );
+      return;
+    }
     if (!brief.trim()) {
       setError('Escribí un brief o tema para las variantes.');
       return;
@@ -268,6 +324,11 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
   return (
     <section className="view factory-view">
       <ViewToolbar label="Fábrica">
+        {simulated ? (
+          <span className="status-pill dirty" title="El guion saldría de una plantilla, no de un modelo">
+            Proveedor simulado: guion de plantilla
+          </span>
+        ) : null}
         <span className={`status-pill ${busy ? 'saving' : 'saved'}`}>
           <span className={`status-pill-dot phase-${busy ? 'saving' : 'saved'}`} aria-hidden="true" />
           {busy ? 'Generando' : `${results.filter((item) => item.status === 'ok').length} listas`}
@@ -463,11 +524,37 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
                 type="button"
                 className="primary icon-text"
                 onClick={() => void generate()}
-                disabled={busy}
+                disabled={busy || providerLoading || simulated || providerError !== null}
+                title={
+                  simulated
+                    ? 'El proveedor guardado es simulado: el guion sería una plantilla y no se generan variantes. Configurá un proveedor real en Ajustes → IA.'
+                    : providerError
+                      ? 'No se pudo comprobar el proveedor guardado: revisá Ajustes → IA.'
+                      : providerLoading
+                        ? 'Leyendo el proveedor guardado…'
+                        : undefined
+                }
               >
                 <Icon name="layers" size={15} />
                 <span>{busy ? 'Generando variantes…' : `Generar ${variants} variante(s)`}</span>
               </button>
+              {simulated ? (
+                <p className="notice notice-warning" role="status">
+                  <strong>Proveedor simulado: el guion es plantilla.</strong> La Fábrica no escribe
+                  variantes con contenido de plantilla; configurá un proveedor real (Ollama, LM
+                  Studio o una API compatible) en Ajustes → IA y volvé a generar.
+                </p>
+              ) : null}
+              {providerLoading ? (
+                <p className="fine-print" role="status">
+                  Leyendo el proveedor de guion guardado…
+                </p>
+              ) : null}
+              {providerError ? (
+                <p className="notice notice-warning" role="status">
+                  {providerError} La generación queda bloqueada hasta poder comprobar el proveedor.
+                </p>
+              ) : null}
               {stage ? <p className="fine-print director-stage">{stage}</p> : null}
               {error ? <p className="notice notice-warning" role="status">{error}</p> : null}
             </div>
@@ -541,9 +628,30 @@ function FactoryWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
             </div>
             <div className="card">
               <p className="eyebrow">Proveedor actual</p>
-              <p className="fine-print">
-                La fábrica usa el proveedor de guion configurado y SAPI local para la voz del lote, sin consumir créditos externos. Con el proveedor simulado podés probar el flujo completo sin red.
-              </p>
+              {provider ? (
+                <>
+                  <p className="fine-print">
+                    {provider.kind === 'mock'
+                      ? 'Proveedor simulado: el guion es una plantilla. La Fábrica queda bloqueada para no generar variantes que parezcan IA sin serlo.'
+                      : `Guion por API compatible con OpenAI · ${provider.model || 'modelo sin definir'}${
+                          provider.baseUrl ? ` · ${provider.baseUrl}` : ''
+                        }. La voz del lote es SAPI local.`}
+                  </p>
+                  {provider.kind === 'mock' ? (
+                    <p className="notice notice-warning" role="status">
+                      Configurá un proveedor real en Ajustes → IA para generar variantes.
+                    </p>
+                  ) : null}
+                </>
+              ) : providerLoading ? (
+                <p className="fine-print" role="status">
+                  Leyendo el proveedor guardado…
+                </p>
+              ) : (
+                <p className="notice notice-warning" role="status">
+                  {providerError ?? 'No se pudo comprobar el proveedor de guion guardado.'}
+                </p>
+              )}
               <button type="button" className="ghost small" onClick={() => onNavigate('settings')}>
                 Revisar proveedores
               </button>

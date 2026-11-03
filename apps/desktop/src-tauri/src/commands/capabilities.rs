@@ -102,21 +102,35 @@ fn capability_label(capability: &str) -> String {
     }
 }
 
-/// Whisper local: la transcripción usa el CLI empaquetado si está instalado.
+/// Whisper local: el motor no viene empaquetado. Se informa disponible sólo si
+/// hay un Python verificado que pueda importar faster_whisper; si no, el motivo
+/// dice exactamente qué instalar y que hay que reiniciar la app.
 fn whisper_capability(state: &AppState) -> CapabilityInfo {
-    let available = super::background::whisper_cli_available();
+    let _ = state;
+    let status = super::transcribe::whisper_status();
+    let available = status.available();
+    let detail = match status.python.as_deref().and_then(|python| python.file_name()) {
+        Some(name) => format!(
+            "Python verificado con faster-whisper en el equipo ({})",
+            name.to_string_lossy()
+        ),
+        None => "Python del equipo con faster-whisper (el motor no viene empaquetado)".to_owned(),
+    };
     CapabilityInfo {
         id: "transcribe".to_owned(),
         label: "Transcribir audio y video".to_owned(),
         purpose: "Pasa la voz a texto con subtítulos por palabra, todo local.".to_owned(),
         backends: vec![backend_local(
-            "whisper-cli",
-            "Faster-Whisper empaquetado con la app".to_owned(),
+            "faster-whisper",
+            detail,
             available,
             if available {
                 None
             } else {
-                Some("Falta instalar el motor de transcripción (Inicio → herramientas)".to_owned())
+                Some(status.reason.clone().unwrap_or_else(|| {
+                    "falta un Python con faster-whisper; instalá el motor y reiniciá Olyvia"
+                        .to_owned()
+                }))
             },
         )],
         available,

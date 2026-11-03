@@ -22,6 +22,8 @@ interface AppShellProps {
   readonly onOpenPalette?: () => void;
   readonly onOpenShortcuts?: () => void;
   readonly onOpenTour?: () => void;
+  /** Franja opcional en el flujo del shell (aviso de modo navegador). */
+  readonly banner?: ReactNode;
   readonly content: ReactNode;
   readonly flush?: boolean;
 }
@@ -35,6 +37,7 @@ export function AppShell({
   onOpenPalette,
   onOpenShortcuts,
   onOpenTour,
+  banner = null,
   content,
   flush = false,
 }: AppShellProps) {
@@ -224,6 +227,7 @@ export function AppShell({
         </div>
         <WindowControls />
       </header>
+      {banner}
       {error ? (
         <div className="banner banner-error" role="alert">
           <span>{error}</span>
@@ -285,16 +289,6 @@ export function AppShell({
             className="statusbar-meta statusbar-btn"
             onClick={onOpenShortcuts}
             title="Ver atajos de teclado (Shift + ?)"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'inherit',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '0 6px',
-            }}
           >
             <Icon name="keyboard" size={12} />
             <span>Atajos (?)</span>
@@ -306,22 +300,14 @@ export function AppShell({
             className="statusbar-meta statusbar-btn"
             onClick={onOpenTour}
             title="Iniciar tour interactivo de Olyvia"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'inherit',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              padding: '0 6px',
-            }}
           >
             <Icon name="sparkles" size={12} />
             <span>Tour</span>
           </button>
         )}
-        <span className="statusbar-meta">{store.statusText}</span>
+        {/* El estado del proyecto ya se lee a la izquierda; sin proyecto abierto
+            evitamos repetir «Sin proyecto abierto» dos veces. */}
+        {project ? <span className="statusbar-meta">{store.statusText}</span> : null}
         <span className="statusbar-meta statusbar-local">FFmpeg local · sin nube</span>
       </footer>
     </div>

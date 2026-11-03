@@ -13,16 +13,12 @@ import {
 } from '../../state/markers';
 import { useProjectStore } from '../../state/project-store';
 
-/** Mismos colores que usa el timeline en `styles/app.css` (`.marker-*`). */
-const MARKER_COLOR_HEX: Record<MarkerColor, string> = {
-  mint: '#6fa8dc',
-  amber: '#f3b56b',
-  rose: '#f08a9a',
-  blue: '#6aa8ff',
-  violet: '#b39dff',
-  slate: '#9aa8b8',
-};
-
+/**
+ * Los colores de marcador son categorías semánticas, no hex fijos: el timeline
+ * y este panel pintan con las clases `.marker-*` de `styles/app.css`, que
+ * declaran `--marker-color` a partir de la paleta del tema. Así el panel y la
+ * timeline nunca muestran colores distintos entre sí.
+ */
 const MARKER_COLOR_LABELS: Record<MarkerColor, string> = {
   mint: 'Menta',
   amber: 'Ámbar',
@@ -266,9 +262,12 @@ export function MarkersPanel() {
           {markers.map((marker) => {
             const isEditing = editingId === marker.id;
             const isCurrent = currentMarkerId === marker.id;
-            const accent = MARKER_COLOR_HEX[marker.color ?? 'mint'];
             return (
-              <li key={marker.id} style={{ ...rowStyle, borderLeft: `3px solid ${accent}` }}>
+              <li
+                key={marker.id}
+                className={`marker-${marker.color ?? 'mint'}`}
+                style={{ ...rowStyle, borderLeft: '3px solid var(--marker-color)' }}
+              >
                 <div style={rowHeaderStyle}>
                   <button
                     type="button"
@@ -319,9 +318,10 @@ export function MarkersPanel() {
                         <button
                           key={color}
                           type="button"
+                          className={`marker-${color}`}
                           style={{
                             ...swatchStyle,
-                            background: MARKER_COLOR_HEX[color],
+                            background: 'var(--marker-color)',
                             outline: marker.color === color ? '2px solid var(--color-text)' : 'none',
                           }}
                           aria-pressed={marker.color === color}

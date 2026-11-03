@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -54,9 +55,37 @@ import {
   snapThreshold,
 } from '../../state/snapping';
 
-const HEADER = 168;
-const ROW_HEIGHT = 56;
+/**
+ * Ancho del header de pistas. La fuente de verdad es `--tl-track-head-w`
+ * (spec §7.5: 160 px); el fallback 160 es el mismo valor del token y mantiene
+ * la geometría del test de arrastre en jsdom (donde no hay CSS de la app).
+ */
+const HEADER_FALLBACK = 160;
+let cachedHeaderWidth: number | null = null;
+
+function headerWidth(): number {
+  if (cachedHeaderWidth !== null) return cachedHeaderWidth;
+  if (typeof document === 'undefined') return HEADER_FALLBACK;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--tl-track-head-w').trim();
+  const parsed = Number.parseFloat(raw);
+  cachedHeaderWidth = Number.isFinite(parsed) && parsed > 0 ? parsed : HEADER_FALLBACK;
+  return cachedHeaderWidth;
+}
+
+/** Alto por defecto de una pista: el del usuario (`--timeline-row`, 34–76). */
 const CAPTION_ROW_HEIGHT = 42;
+const ROW_HEIGHT_FALLBACK = 48;
+let cachedRowHeight: number | null = null;
+
+function defaultRowHeight(kind: string): number {
+  if (kind === 'caption') return CAPTION_ROW_HEIGHT;
+  if (cachedRowHeight !== null) return cachedRowHeight;
+  if (typeof document === 'undefined') return ROW_HEIGHT_FALLBACK;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--timeline-row').trim();
+  const parsed = Number.parseFloat(raw);
+  cachedRowHeight = Number.isFinite(parsed) && parsed > 0 ? parsed : ROW_HEIGHT_FALLBACK;
+  return cachedRowHeight;
+}
 
 type Drag =
   | {
@@ -805,12 +834,12 @@ export function Timeline() {
         const pointerX = event.clientX - rect.left;
         const anchor = Math.max(
           0,
-          (element.scrollLeft + pointerX - HEADER) / currentScale,
+          (element.scrollLeft + pointerX - headerWidth()) / currentScale,
         );
         const next = clamp(currentScale * (delta < 0 ? 1.16 : 1 / 1.16), 0.2, 14);
         setPxPerFrame(next);
         window.requestAnimationFrame(() => {
-          element.scrollLeft = Math.max(0, HEADER + anchor * next - pointerX);
+          element.scrollLeft = Math.max(0, headerWidth() + anchor * next - pointerX);
         });
         return;
       }
@@ -833,10 +862,10 @@ export function Timeline() {
     if (!preferences.followPlayhead || !store.state.playing) return;
     const element = scrollRef.current;
     if (!element) return;
-    const x = HEADER + store.state.playheadFrame * pxPerFrame;
+    const x = headerWidth() + store.state.playheadFrame * pxPerFrame;
     const left = element.scrollLeft;
     const margin = 80;
-    if (x < left + HEADER + margin || x > left + element.clientWidth - margin) {
+    if (x < left + headerWidth() + margin || x > left + element.clientWidth - margin) {
       element.scrollLeft = Math.max(0, x - element.clientWidth / 2);
     }
   }, [
@@ -863,7 +892,7 @@ export function Timeline() {
         const surface = surfaceRef.current;
         if (!surface) return;
         const rect = surface.getBoundingClientRect();
-        const frame = Math.max(0, Math.round((event.clientX - rect.left - HEADER) / scale));
+        const frame = Math.max(0, Math.round((event.clientX - rect.left - headerWidth()) / scale));
         scrubPendingRef.current = frame;
         if (scrubRafRef.current === 0) {
           scrubRafRef.current = window.requestAnimationFrame(() => {
@@ -1136,7 +1165,7 @@ export function Timeline() {
     const surface = surfaceRef.current;
     if (surface) {
       const rect = surface.getBoundingClientRect();
-      const frame = Math.max(0, Math.round((event.clientX - rect.left - HEADER) / pxPerFrame));
+      const frame = Math.max(0, Math.round((event.clientX - rect.left - headerWidth()) / pxPerFrame));
       store.setPlayhead(frame);
     }
   }
@@ -1262,8 +1291,18 @@ export function Timeline() {
     ? project.timeline.clips.find((clip) => clip.id === selectedClipId)
     : undefined;
 
+  // Paso de la rejilla del lane: una línea por marca mayor de la regla. Se pasa
+  // como variable para que el CSS no adivine píxeles fijos (antes eran 120 px).
+  const gridStepPx = Math.max(8, Math.round(majorFrames * pxPerFrame));
+
   return (
-    <div className="timeline">
+    <div
+      className={
+        `timeline density-${preferences.timelineDensity}` +
+        (preferences.timelineShowGrid ? '' : ' no-grid') +
+        (preferences.timelineClipLabels === 'minimal' ? ' labels-minimal' : '')
+      }
+    >
       <div
         className="timeline-resize"
         role="separator"
@@ -1366,6 +1405,8 @@ export function Timeline() {
             <Icon name="magnet" size={13} />
             <span className="tool-label">Magnética</span>
           </button>
+        </div>
+        <div className="timeline-tools timeline-tools-filters">
           <label className="color-filter-field">
             <span className="tool-label">Color</span>
             <select
@@ -1589,7 +1630,16 @@ export function Timeline() {
           if (event.button === 1) event.preventDefault();
         }}
       >
-        <div className="timeline-surface" ref={surfaceRef} style={{ width: surfaceWidth + HEADER }}>
+        <div
+          className="timeline-surface"
+          ref={surfaceRef}
+          style={
+            {
+              width: surfaceWidth + headerWidth(),
+              '--tl-grid-step': `${gridStepPx}px`,
+            } as CSSProperties
+          }
+        >
           <div className="ruler-row" onPointerDown={beginScrub}>
             <div className="ruler-corner">
               <span className="ruler-corner-title">Timeline</span>
@@ -1664,13 +1714,16 @@ export function Timeline() {
                 ? project.captions.cues.filter((cue) => cue.trackId === track.id)
                 : [];
             const collapsed = collapsedTracks.has(track.id);
-            const fallback = track.kind === 'caption' ? CAPTION_ROW_HEIGHT : ROW_HEIGHT;
-            const height = collapsed ? TRACK_MIN : (trackHeights[track.id] ?? fallback);
+            const storedHeight = trackHeights[track.id];
+            // Sin alto guardado, el alto lo pone el CSS con `--timeline-row`
+            // (spec §10.1: 34–76 px del usuario); sólo escribimos inline cuando
+            // la pista está plegada o el usuario ya la redimensionó.
+            const height = collapsed ? TRACK_MIN : storedHeight;
             return (
               <div
                 key={track.id}
                 className={`timeline-row${store.state.selection.kind === 'track' && store.state.selection.id === track.id ? ' selected' : ''}${collapsed ? ' collapsed' : ''}`}
-                style={{ height }}
+                style={height !== undefined ? { height } : undefined}
                 data-track-id={track.id}
               >
                 <div className="track-head">
@@ -1755,7 +1808,13 @@ export function Timeline() {
                     event.preventDefault();
                     event.stopPropagation();
                     const startY = event.clientY;
-                    const startHeight = collapsed ? fallback : height;
+                    // El alto real puede venir de CSS (densidad cómoda/compacta);
+                    // leerlo del DOM evita saltos al empezar a arrastrar.
+                    const row = event.currentTarget.closest('.timeline-row');
+                    const measured = row ? Math.round(row.getBoundingClientRect().height) : 0;
+                    const startHeight =
+                      storedHeight ??
+                      (measured > 0 ? measured : defaultRowHeight(track.kind));
                     const move = (pointer: PointerEvent): void => {
                       setTrackHeights((current) => ({
                         ...current,
@@ -1844,7 +1903,7 @@ export function Timeline() {
           {snapGuide ? (
             <div
               className="snap-guide"
-              style={{ left: HEADER + snapGuide.frame * pxPerFrame }}
+              style={{ left: headerWidth() + snapGuide.frame * pxPerFrame }}
               aria-hidden="true"
             >
               <span>{snapGuide.label}</span>
@@ -1853,7 +1912,7 @@ export function Timeline() {
 
           <div
             className="playhead-line"
-            style={{ left: HEADER + store.state.playheadFrame * pxPerFrame }}
+            style={{ left: headerWidth() + store.state.playheadFrame * pxPerFrame }}
           >
             <span
               className="playhead-grip"

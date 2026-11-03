@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NATIVE_UNAVAILABLE_REASON,
   baseName,
+  createDesktopService,
+  createNativeDesktopService,
   isLocalProviderUrl,
   joinProjectPath,
   providerUrlProblem,
@@ -43,5 +46,37 @@ describe('helpers del borde nativo', () => {
     expect(providerUrlProblem('https://user:pass@api.openai.com/v1')).toMatch(/usuario/);
     expect(providerUrlProblem('ftp://localhost/v1')).toMatch(/http/);
     expect(providerUrlProblem('no es una url')).toMatch(/válida/);
+  });
+});
+
+describe('probar conexión del proveedor', () => {
+  it('llama al comando nativo test_provider y devuelve el resultado tipado', async () => {
+    const calls: { command: string; args: unknown }[] = [];
+    const service = createNativeDesktopService(async (command, args) => {
+      calls.push({ command, args });
+      return {
+        status: 'ok',
+        ok: true,
+        httpStatus: 200,
+        latencyMs: 12,
+        model: 'llama3.1',
+        detail: 'conexión correcta: el modelo configurado «llama3.1» está disponible',
+        baseUrl: 'http://127.0.0.1:11434/v1',
+      };
+    });
+
+    await expect(service.testProvider()).resolves.toMatchObject({
+      status: 'ok',
+      ok: true,
+      httpStatus: 200,
+      model: 'llama3.1',
+    });
+    expect(calls).toEqual([{ command: 'test_provider', args: {} }]);
+  });
+
+  it('en navegador rechaza con el motivo nativo, sin simular una conexión', async () => {
+    const service = createDesktopService();
+    expect(service.available).toBe(false);
+    await expect(service.testProvider()).rejects.toThrow(NATIVE_UNAVAILABLE_REASON);
   });
 });

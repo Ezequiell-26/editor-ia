@@ -10,6 +10,61 @@ no es obligatoria.
 > `@editor-ia/*` y las claves de almacenamiento conservan el nombre técnico
 > anterior para no romper proyectos ni instalaciones existentes.
 
+## Requisitos reales: qué es nativo y qué no
+
+**Local-first no significa “sin instalar nada”.** Olyvia corre en tu equipo y no
+manda proyectos, medios ni claves a la nube, pero varias capacidades dependen de
+software del sistema o de motores externos. La lista medida:
+
+- **La app de escritorio es el requisito para el trabajo real.** Sólo la versión
+  nativa (`npm run tauri:dev` en desarrollo, o el instalador) puede abrir
+  diálogos, leer y escribir proyectos, importar medios, ejecutar FFmpeg, usar el
+  Administrador de credenciales de Windows y hablar con procesos MCP.
+- **El navegador es una demostración de interfaz.** `http://localhost:3000`
+  sirve la UI para revisar pantallas y muestra un banner de **modo navegador**:
+  no hay sistema de archivos ni backend, así que crear/guardar/importar/exportar,
+  la IA real y la transcripción no funcionan ahí. La app no simula que
+  funcionen: el servicio declara `available: false` y explica el motivo.
+- **FFmpeg y FFprobe**: necesarios para importar y medir medios, previews,
+  render y la mayoría de las herramientas. Se eligen en **Ajustes →
+  Herramientas**.
+- **yt-dlp**: la vista Descargar puede instalarlo y verifica el ejecutable
+  oficial por SHA-256.
+- **Voz local**: SAPI de Windows vía PowerShell. ElevenLabs requiere clave
+  propia y confirmación de consumo.
+- **IA de texto**: hay que configurar un proveedor OpenAI-compatible (OpenAI,
+  Ollama, LM Studio, vLLM, llama.cpp u otro) con URL base y modelo en **Ajustes
+  → IA**. El proveedor simulado no hace red. Ante un error de conexión, el
+  asistente ofrece **Probar proveedor** (`GET {base}/models` con timeout corto)
+  y devuelve estado, HTTP, latencia y modelo configurado contrastado con la
+  lista del proveedor, además de **Abrir Ajustes**.
+- **Transcripción (Faster-Whisper): no viene empaquetada.** Hace falta un Python
+  3.9+ con el módulo instalado:
+
+  ```powershell
+  python -m pip install faster-whisper
+  # o indicar un intérprete concreto antes de abrir Olyvia:
+  $env:EDITORIA_WHISPER_PYTHON = "C:\ruta\al\venv\Scripts\python.exe"
+  ```
+
+  La app verifica que ese Python pueda `import faster_whisper` (que exista un
+  `python` no alcanza) y, si no puede, **Ajustes → Capacidades** muestra
+  `available: false` con la instrucción exacta. El modelo de Whisper se descarga
+  de HuggingFace en el primer uso. El sondeo se cachea por proceso: después de
+  instalar el motor hay que reiniciar Olyvia.
+- **Modelos on-device**: Quitar fondo y Upscale necesitan sus pesos descargados
+  y `onnxruntime.dll` junto al ejecutable (o `ORT_DYLIB_PATH`). Los pesos se
+  bajan desde **Ajustes → Capacidades** con checksum y licencia visibles.
+- **MCP**: cliente stdio local y servidor HTTP local; los servidores basados en
+  Node requieren Node/npx instalados. No hay MCP remoto, OAuth, `resources/*` ni
+  `prompts/*`.
+- **Clonación de voz, lip-sync y Flow** dependen de motores, servidores o
+  extensiones externas; Flow además exige una sesión manual de Google y
+  créditos. La app explica qué falta en cada caso y no finge la integración.
+
+El detalle operativo está en [`docs/TUTORIAL.md`](docs/TUTORIAL.md) (§1 y §21) y
+la auditoría funcional en [`docs/APP-FEATURE-AUDIT.md`](docs/APP-FEATURE-AUDIT.md).
+
 ## Qué existe hoy (verificado)
 
 - **Aplicación de escritorio Tauri 2 + React + TypeScript estricto** con ventana
@@ -130,12 +185,16 @@ no es obligatoria.
   conservando los segundos; los clips con velocidad distinta de 1× se deben
   volver a 1× para conservar la identidad exacta. Cada proyecto recibe un perfil
   de exportación **“Formato del proyecto”** que sigue su canvas.
-- **Apariencia personalizable y persistente**: cinco temas (menta, ámbar,
-  violeta, océano, grafito), colores exactos de acento/secundario/fondo/
-  superficie/texto, familias tipográficas para interfaz, títulos y
-  monoespaciada, escala global 85–120 %, densidad, ancho y etiquetas del rail,
-  radio de esquinas, alto de filas de timeline, barra de estado y reducción de
-  animaciones. Se guarda sólo en `localStorage`, nunca en el proyecto.
+- **Color completamente configurable y persistente**: paleta de **34 colores**
+  editables en Ajustes → Apariencia (superficies, acento, estados, medios y
+  marca) con 7 presets, preview en vivo del shell, reporte de contraste WCAG con
+  «Corregir texto», exportar/importar un tema JSON (`olyvia-theme`) y restablecer
+  por token. La paleta se aplica como variables CSS (34 tokens + alias de marca y
+  de estados) y se guarda sólo en `localStorage`, nunca en el proyecto. Incluye
+  además tipografías para interfaz, títulos y monoespaciada, escala global
+  85–120 %, densidad, ancho y etiquetas del rail, radio de esquinas, alto de
+  filas de timeline, barra de estado y reducción de animaciones. Detalle técnico
+  en `docs/COLOR-CUSTOMIZATION.md`.
 - **Gestor de servidores MCP local**: agrega servidores stdio por comando y
   argumentos, guarda los **nombres** de las variables de entorno y sus valores
   en el Administrador de credenciales de Windows, prueba el handshake MCP,
@@ -449,6 +508,9 @@ no es obligatoria.
   **proveedor simulado** que no hace red. El plan se valida antes de aplicarse,
   se puede editar escena por escena y queda registrado como operación en
   `provenance`. Las llamadas a proveedores pagos requieren confirmación de costo.
+  El asistente incluye **Probar proveedor** en su estado de error: consulta la
+  lista de modelos con timeout corto y muestra estado, HTTP, latencia y si el
+  modelo configurado está disponible, con acceso directo a Ajustes.
 - **Vista Producción**: un flujo guiado de guion → recursos → voz → montaje →
   revisión. Genera narración local por escena (SAPI), asigna imágenes en orden o
   por coincidencia de prompt, aplica movimiento Ken Burns alternado y fades de
@@ -470,9 +532,11 @@ no es obligatoria.
   nombre y arma un storyboard determinista. Sin audio usa los segundos por
   imagen configurados (5 s por defecto); sin guion usa esa misma duración. No
   finge alineación palabra-imagen. Aplica Ken Burns y transiciones si se piden.
-- **Transcripción local con Faster-Whisper**: desde el clip de audio/video, un
-  botón transcribe en CPU con el modelo `small` y agrega los segmentos como
-  subtítulos en la posición exacta del clip. No usa red ni sube el material.
+- **Transcripción local con Faster-Whisper** (requiere instalar el motor, ver
+  [Requisitos reales](#requisitos-reales-qué-es-nativo-y-qué-no)): desde el clip
+  de audio/video, un botón transcribe en CPU con el modelo `small` y agrega los
+  segmentos como subtítulos en la posición exacta del clip. No usa red ni sube el
+  material; la app mide si el motor está disponible y explica cómo instalarlo.
 - **Detección de escenas y corte automático**: FFmpeg analiza cambios de escena
   en un video local, muestra los cortes y permite dividir el clip en varias
   partes sin subir el material a ningún servicio.
@@ -2489,7 +2553,8 @@ EDITOR_IA_RUN_RENDER_TESTS=1 node scripts/rust-env.mjs -- \
 apps/desktop/              React + Vite + Tauri 2
   src/                     UI, estado del proyecto, timeline, preview, IA
   src/features/mcp/        gestor de servidores MCP y ejecutor de herramientas
-  src/state/appearance.ts  temas, tipografía, escala y persistencia visual
+  src/state/theme-palette.ts  paleta de 34 colores, contraste WCAG y archivo de tema
+  src/state/appearance.ts  apariencia persistida: paleta, tipografía, escala, layout
   src/features/production/ vista Producción y montaje automático
   src/state/auto-edit.ts   asignación, voz por escena, subtítulos y timeline
   src-tauri/               Rust: proyecto, medios, render, proveedores, TTS

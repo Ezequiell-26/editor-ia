@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Clip } from '@editor-ia/project-schema';
 import { useProjectStore } from '../../state/project-store';
 import { applySpeakerSegments } from '../../state/speakers';
+import { InspectorSection } from './InspectorSection';
 
 /**
  * Hablantes por proveedor externo.
@@ -101,8 +102,7 @@ export function SpeakersSection({ clip }: { readonly clip: Clip }) {
   }
 
   return (
-    <section className="inspector-section" data-group="audio">
-      <h4>Hablantes</h4>
+    <InspectorSection title="Hablantes" group="audio">
       <p className="fine-print">
         Usa tu propia API de diarización. La clave se guarda en el almacén de Windows y no viaja en
         el proyecto.
@@ -168,6 +168,6 @@ export function SpeakersSection({ clip }: { readonly clip: Clip }) {
         </button>
       </div>
       {message ? <p className="fine-print">{message}</p> : null}
-    </section>
+    </InspectorSection>
   );
 }

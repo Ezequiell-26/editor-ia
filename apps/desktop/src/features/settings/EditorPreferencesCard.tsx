@@ -65,6 +65,44 @@ function RangeField({
   );
 }
 
+/**
+ * Segmented con el mismo lenguaje visual de Apariencia: el valor se aplica en
+ * el acto (la timeline escucha el evento de preferencias, sin recargar).
+ */
+function SegmentedPref<T extends string>({
+  label,
+  hint,
+  value,
+  options,
+  onChange,
+}: {
+  readonly label: string;
+  readonly hint: string;
+  readonly value: T;
+  readonly options: readonly { readonly value: T; readonly label: string }[];
+  readonly onChange: (value: T) => void;
+}) {
+  return (
+    <div className="appearance-field">
+      <span className="appearance-label">{label}</span>
+      <div className="segmented" role="group" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={value === option.value ? 'active' : ''}
+            aria-pressed={value === option.value}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <small className="prefs-hint">{hint}</small>
+    </div>
+  );
+}
+
 export function EditorPreferencesCard() {
   const preferences = useEditorPreferences();
 
@@ -144,9 +182,37 @@ export function EditorPreferencesCard() {
           format={(value) => `${value} frame${value === 1 ? '' : 's'}`}
           onChange={(value) => patch({ jumpStepFrames: value })}
         />
+        <SegmentedPref
+          label="Densidad del timeline"
+          hint="Compacta reduce un 20 % el alto de las pistas sin altura propia."
+          value={preferences.timelineDensity}
+          options={[
+            { value: 'comfortable', label: 'Cómoda' },
+            { value: 'compact', label: 'Compacta' },
+          ]}
+          onChange={(value) => patch({ timelineDensity: value })}
+        />
+        <SegmentedPref
+          label="Etiquetas de clip"
+          hint="Minimal deja sólo el nombre; completa suma inicio y fin."
+          value={preferences.timelineClipLabels}
+          options={[
+            { value: 'full', label: 'Completas' },
+            { value: 'minimal', label: 'Minimal' },
+          ]}
+          onChange={(value) => patch({ timelineClipLabels: value })}
+        />
       </div>
 
       <div className="appearance-checks prefs-checks">
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={preferences.timelineShowGrid}
+            onChange={(event) => patch({ timelineShowGrid: event.target.checked })}
+          />
+          Rejilla temporal alineada a la regla
+        </label>
         <label className="check">
           <input
             type="checkbox"

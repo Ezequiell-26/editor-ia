@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FlowQueueProvider } from '../../state/FlowQueueProvider';
 import { ProjectProvider } from '../../state/project-store';
 import { createFakeService } from '../../test/fake-service';
@@ -21,6 +21,16 @@ function renderView() {
     </ProjectProvider>,
   );
   return service;
+}
+
+function renderViewWith(service: ReturnType<typeof createFakeService>) {
+  render(
+    <ProjectProvider service={service}>
+      <FlowQueueProvider>
+        <McpView />
+      </FlowQueueProvider>
+    </ProjectProvider>,
+  );
 }
 
 describe('gestor MCP', () => {
@@ -176,5 +186,75 @@ describe('gestor MCP', () => {
 
     fireEvent.click(within(detail).getByRole('button', { name: /Cerrar sesión/i }));
     await waitFor(() => expect(within(detail).getByText(/Sin sesión abierta/i)).toBeTruthy());
+  });
+});
+
+describe('panel del servidor MCP propio', () => {
+  const SERVER = {
+    url: 'http://127.0.0.1:43567/mcp',
+    token: 'token-secreto-de-prueba',
+  };
+
+  it('muestra URL y estado, enmascara el token y sólo lo revela con acción explícita', async () => {
+    const service = createFakeService();
+    service.mcpServerStatus = async () => SERVER;
+    renderViewWith(service);
+
+    expect(await screen.findByText(SERVER.url)).toBeTruthy();
+    expect(screen.getByText('Activo')).toBeTruthy();
+    // Enmascarado por defecto: el token completo no está en el documento.
+    expect(screen.queryByText(SERVER.token)).toBeNull();
+    expect(screen.getByText(/••••/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Mostrar token/i }));
+    expect(await screen.findByText(SERVER.token)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Ocultar token/i })).toBeTruthy();
+  });
+
+  it('copia URL y token con acciones explícitas', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const service = createFakeService();
+    service.mcpServerStatus = async () => SERVER;
+    renderViewWith(service);
+    await screen.findByText(SERVER.url);
+
+    fireEvent.click(screen.getByRole('button', { name: /Copiar URL/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(SERVER.url));
+
+    fireEvent.click(screen.getByRole('button', { name: /Copiar token/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(SERVER.token));
+    expect(await screen.findByText(/Token copiado al portapapeles/i)).toBeTruthy();
+  });
+
+  it('si no hay endpoint activo ofrece iniciar el servidor y muestra la URL resultante', async () => {
+    const service = createFakeService();
+    service.mcpServerStatus = async () => null;
+    service.startMcpServer = async () => SERVER;
+    renderViewWith(service);
+    const start = vi.spyOn(service, 'startMcpServer');
+
+    expect(await screen.findByText(/Todavía no hay un endpoint MCP activo/i)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Iniciar servidor MCP/i }));
+
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(SERVER.url)).toBeTruthy();
+    expect(screen.getByText(/Iniciar sólo lo levanta|sólo lo levanta si/i)).toBeTruthy();
+  });
+
+  it('en modo navegador explica que el servidor sólo existe en la app nativa', async () => {
+    const service = {
+      ...createFakeService(),
+      available: false,
+      unavailableReason: 'Esta es la versión web de evaluación: no hay runtime nativo.',
+    };
+    renderViewWith(service as ReturnType<typeof createFakeService>);
+
+    expect(
+      await screen.findByText(/corre sólo en la app de escritorio/i),
+    ).toBeTruthy();
   });
 });

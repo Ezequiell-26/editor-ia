@@ -107,6 +107,7 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
+import { InspectorSection as Section } from './InspectorSection';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
@@ -269,23 +270,6 @@ function TextAreaField({
         onBlur={commit}
       />
     </label>
-  );
-}
-
-function Section({
-  title,
-  children,
-  group,
-}: {
-  readonly title: string;
-  readonly children: ReactNode;
-  readonly group?: 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'style';
-}) {
-  return (
-    <section className="inspector-section" data-group={group}>
-      <h4>{title}</h4>
-      {children}
-    </section>
   );
 }
 

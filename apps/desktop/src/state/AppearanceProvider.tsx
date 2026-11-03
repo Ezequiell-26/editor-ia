@@ -16,7 +16,14 @@ import {
   saveAppearance,
   type AppearanceSettings,
   type ThemeColors,
+  type ThemePresetId,
 } from './appearance';
+import {
+  THEME_PALETTES,
+  paletteBaseColors,
+  paletteFromBase,
+  type ThemePalette,
+} from './theme-palette';
 
 interface AppearanceContextValue {
   readonly appearance: AppearanceSettings;
@@ -30,7 +37,14 @@ interface AppearanceContextValue {
   preview(patch: Partial<AppearanceSettings>): void;
   /** Fija el último `preview` en el estado de React y lo persiste. */
   commitPreview(): void;
-  applyTheme(colors: ThemeColors, preset: AppearanceSettings['preset']): void;
+  /** Cambia un tema entero: actualiza el estado y persiste. */
+  setPalette(palette: ThemePalette, preset?: ThemePresetId): void;
+  /** Arrastrar un color: pinta la paleta en vivo y NO re-renderiza el árbol. */
+  previewPalette(palette: ThemePalette): void;
+  /** Aplica uno de los 7 presets completos (Olyvia, Resolve, …). */
+  applyThemePreset(preset: Exclude<ThemePresetId, 'custom'>): void;
+  /** Compatibilidad: aplica los 5 colores base y el preset elegido. */
+  applyTheme(colors: ThemeColors, preset: ThemePresetId): void;
   reset(): void;
 }
 
@@ -38,6 +52,13 @@ const AppearanceContext = createContext<AppearanceContextValue | null>(null);
 
 /** Agrupa ráfagas de guardado para no escribir localStorage en cada evento. */
 const SAVE_DEBOUNCE_MS = 280;
+
+/** Patch que reemplaza la paleta y mantiene sincronizados los 5 espejos base. */
+function palettePatch(
+  palette: ThemePalette,
+): Pick<AppearanceSettings, 'palette' | 'accent' | 'info' | 'background' | 'surface' | 'text'> {
+  return { palette, ...paletteBaseColors(palette) };
+}
 
 export function AppearanceProvider({ children }: { readonly children: ReactNode }) {
   const [appearance, setAppearance] = useState<AppearanceSettings>(loadAppearance);
@@ -99,9 +120,31 @@ export function AppearanceProvider({ children }: { readonly children: ReactNode 
     [scheduleSave],
   );
 
+  const setPalette = useCallback(
+    (palette: ThemePalette, preset: ThemePresetId = 'custom') => {
+      update({ ...palettePatch(palette), preset });
+    },
+    [update],
+  );
+
+  const previewPalette = useCallback(
+    (palette: ThemePalette) => {
+      preview({ ...palettePatch(palette), preset: 'custom' });
+    },
+    [preview],
+  );
+
+  const applyThemePreset = useCallback(
+    (preset: Exclude<ThemePresetId, 'custom'>) => {
+      update({ ...palettePatch(THEME_PALETTES[preset]), preset });
+    },
+    [update],
+  );
+
   const applyTheme = useCallback(
-    (colors: ThemeColors, preset: AppearanceSettings['preset']) => {
-      update({ ...colors, preset });
+    (colors: ThemeColors, preset: ThemePresetId) => {
+      const palette = preset === 'custom' ? paletteFromBase(colors) : THEME_PALETTES[preset];
+      update({ ...palettePatch(palette), ...colors, preset });
     },
     [update],
   );
@@ -111,8 +154,28 @@ export function AppearanceProvider({ children }: { readonly children: ReactNode 
   }, [update]);
 
   const value = useMemo<AppearanceContextValue>(
-    () => ({ appearance, update, preview, commitPreview, applyTheme, reset }),
-    [appearance, applyTheme, commitPreview, preview, reset, update],
+    () => ({
+      appearance,
+      update,
+      preview,
+      commitPreview,
+      setPalette,
+      previewPalette,
+      applyThemePreset,
+      applyTheme,
+      reset,
+    }),
+    [
+      appearance,
+      applyTheme,
+      applyThemePreset,
+      commitPreview,
+      preview,
+      previewPalette,
+      reset,
+      setPalette,
+      update,
+    ],
   );
 
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>;

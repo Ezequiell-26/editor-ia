@@ -50,6 +50,24 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
+    // Las herramientas de edición escriben con rename atómico y dejan carpetas
+    // temporales `.archivo.<pid>.<uuid>.tmpdir/` dentro de `src/styles`. En
+    // Windows el watcher de Vite puede quedar con EBUSY sobre ese temporal y
+    // tumbar el servidor entero; no hace falta vigilarlos. Lo mismo pasa con
+    // binarios de Rust/FFmpeg que otras herramientas abren (avdevice-63.dll):
+    // nada de `src-tauri/**`, `target*/**` ni DLLs necesita HMR.
+    watch: {
+      ignored: [
+        '**/.*.tmpdir/**',
+        '**/*.tmp',
+        '**/*.tmpdir/**',
+        '**/src-tauri/**',
+        '**/target/**',
+        '**/target-*/**',
+        '**/*.dll',
+        '**/dist/**',
+      ],
+    },
   },
   preview: {
     port: 4173,

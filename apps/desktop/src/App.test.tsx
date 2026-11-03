@@ -108,7 +108,7 @@ describe('shell de Olyvia', () => {
     ).toMatch(/Estado del estudio/i);
   });
 
-  it('guarda las herramientas avanzadas detrás de Más', async () => {
+  it('guarda las herramientas avanzadas detrás de Más, incluida la IA', async () => {
     renderApp();
     const navigation = screen.getByRole('navigation', { name: /vistas/i });
     expect(within(navigation).queryByRole('button', { name: 'Director' })).toBeNull();
@@ -117,9 +117,15 @@ describe('shell de Olyvia', () => {
     );
     expect(within(navigation).getByRole('button', { name: 'Director' })).toBeTruthy();
     expect(within(navigation).getByRole('button', { name: 'Motion' })).toBeTruthy();
-    expect(within(navigation).queryByRole('button', { name: 'AI Hub' })).toBeNull();
-    expect(within(navigation).queryByRole('button', { name: 'MCP' })).toBeNull();
+    // AI Hub y MCP ahora se descubren desde «Más» (antes sólo en la paleta o
+    // en Ajustes); siguen fuera del rail principal.
+    expect(within(navigation).getByRole('button', { name: 'AI Hub' })).toBeTruthy();
+    expect(within(navigation).getByRole('button', { name: 'MCP' })).toBeTruthy();
     expect(within(navigation).queryByRole('button', { name: 'Denoise' })).toBeNull();
+    fireEvent.click(within(navigation).getByRole('button', { name: 'AI Hub' }));
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('Skills compactas'),
+    );
   });
 
   it('abre en Inicio con la preparación y la extensión listas para configurar', async () => {

@@ -12,6 +12,7 @@ import {
   type NarrationCandidate,
 } from '../../state/auto-edit';
 import { useProjectStore } from '../../state/project-store';
+import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import { PublicationReadiness } from './PublicationReadiness';
 import { FolderQueuePanel } from './FolderQueuePanel';
@@ -124,12 +125,18 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
 
   if (!project) {
     return (
-      <section className="view production-view">
-        <p className="empty-state">No hay un proyecto abierto. Creá o abrí uno para producir.</p>
-        <div className="actions">
-          <button type="button" className="primary" onClick={() => onNavigate('projects')}>
-            Ir a Proyectos
-          </button>
+      <section className="view production-view view-empty-page">
+        <div className="empty-state view-empty">
+          <span className="view-empty-icon" aria-hidden="true">
+            <Icon name="production" size={20} />
+          </span>
+          <strong>No hay un proyecto abierto</strong>
+          <p>Creá o abrí uno para sintetizar la voz, montar el video y revisar los subtítulos.</p>
+          <div className="actions">
+            <button type="button" className="primary" onClick={() => onNavigate('projects')}>
+              Ir a Proyectos
+            </button>
+          </div>
         </div>
       </section>
     );

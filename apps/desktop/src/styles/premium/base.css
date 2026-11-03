@@ -1,0 +1,264 @@
+/* ==========================================================================
+   Olyvia · capa premium — BASE (Quiet Premium)
+   Documento de referencia: docs/PREMIUM-REDESIGN-SPEC.md §4 (principios),
+   §6 (fundamentos), §9.3 (jerarquía de 3 niveles), §9.4 (estados).
+   Sólo acabado y jerarquía: no cambia layout funcional ni semántica.
+   ========================================================================== */
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--type-13);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-body);
+  letter-spacing: 0;
+  color: var(--ink-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums;
+  /* Profundidad por capas, no por tinte de marca: viñeta neutra sutil. */
+  background:
+    radial-gradient(
+      1100px 460px at 50% -18%,
+      color-mix(in srgb, var(--color-text) 3.2%, transparent),
+      transparent 62%
+    ),
+    var(--color-bg);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  color: var(--ink-1);
+}
+
+/* --- Tipografía: escala corta, jerarquía por tamaño/peso/color ----------- */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  line-height: 1.25;
+  color: var(--ink-1);
+}
+
+h1 {
+  font-size: var(--type-24);
+  letter-spacing: var(--track-tight);
+}
+h2 {
+  font-size: var(--type-18);
+  letter-spacing: var(--track-tight);
+}
+h3 {
+  font-size: var(--type-15);
+}
+h4 {
+  font-size: var(--type-13);
+}
+
+p,
+li {
+  color: inherit;
+  line-height: var(--lh-body);
+  max-width: 72ch;
+}
+
+strong,
+b {
+  font-weight: var(--fw-strong);
+}
+
+small {
+  font-size: var(--type-11);
+  color: var(--ink-3);
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Micro-etiqueta en mayúscula: única aparición de tracking positivo. */
+.eyebrow {
+  font-size: var(--type-10) !important;
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: var(--track-caps) !important;
+  line-height: 1.3 !important;
+  text-transform: uppercase !important;
+  color: var(--ink-3) !important;
+}
+
+.muted {
+  color: var(--ink-2) !important;
+}
+
+.fine-print {
+  font-size: var(--type-11) !important;
+  line-height: var(--lh-ui) !important;
+  color: var(--ink-3) !important;
+}
+
+/* Los enlaces de contenido usan --ink-link (AA), no el acento crudo. */
+a,
+.link {
+  color: var(--ink-link);
+}
+
+a:hover,
+.link:hover {
+  color: color-mix(in srgb, var(--color-accent) 18%, var(--color-text));
+}
+
+/* --- Foco visible: 2 px + offset 2, nunca sin reemplazo ------------------ */
+:where(
+    button,
+    [role='button'],
+    a,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex='-1'])
+  ):focus-visible {
+  outline: none !important;
+  box-shadow: var(--focus-ring) !important;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  box-shadow: var(--focus-ring) !important;
+}
+
+/* --- Scrollbars: finas y neutras ----------------------------------------- */
+* {
+  scrollbar-width: thin !important;
+  scrollbar-color: color-mix(in srgb, var(--color-border-strong) 76%, transparent) transparent !important;
+}
+
+*::-webkit-scrollbar {
+  width: 10px !important;
+  height: 10px !important;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-border-strong) 72%, transparent) !important;
+  border: 3px solid transparent !important;
+  background-clip: padding-box !important;
+  border-radius: var(--rad-pill) !important;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--color-text-muted) 58%, transparent) !important;
+  background-clip: padding-box !important;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+}
+
+/* --- Superficies maestras: chrome acromático (nivel 1) ------------------- */
+.app-shell {
+  background: var(--color-bg);
+}
+
+.content {
+  background: transparent;
+}
+
+/* Entrada de vista sobria: 240 ms, ease-entrance, respeta reduce-motion. */
+@keyframes premium-view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.content > * {
+  animation: premium-view-enter var(--dur-5) var(--ease-entrance) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* --- Densidad: el contrato data-density ya lo escribe applyAppearance ---- */
+:root[data-density='compact'] {
+  --shell-topbar-h: 40px;
+  --shell-statusbar-h: 22px;
+  --shell-content-pad-x: 18px;
+  --shell-content-pad-top: 14px;
+  --shell-content-pad-bottom: 28px;
+  --ctl-h-lg: 28px;
+  --ctl-h-xl: 32px;
+  --row-h: 28px;
+  --tl-ruler-h: 24px;
+}
+
+:root[data-density='spacious'] {
+  --shell-topbar-h: 48px;
+  --shell-statusbar-h: 28px;
+  --shell-content-pad-x: 32px;
+  --shell-content-pad-top: 26px;
+  --shell-content-pad-bottom: 48px;
+  --ctl-h-lg: 36px;
+  --ctl-h-xl: 40px;
+  --row-h: 36px;
+  --tl-ruler-h: 32px;
+}
+
+/* --- Utilitarios compartidos --------------------------------------------- */
+.premium-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-12);
+}
+
+.premium-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-12);
+}
+
+.premium-spacer {
+  flex: 1;
+}
+
+.premium-dim {
+  color: var(--ink-2);
+}
+
+.premium-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.premium-divider {
+  height: 1px;
+  background: var(--hairline-color);
+  border: 0;
+}

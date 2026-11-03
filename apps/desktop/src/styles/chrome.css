@@ -807,7 +807,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-text) 18%, transparent) inset;
 }
 
 .theme-name {
@@ -823,7 +823,7 @@
   width: 8px;
   height: 8px;
   margin-left: -2px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid color-mix(in srgb, var(--color-text) 18%, transparent);
   border-radius: 50%;
 }
 

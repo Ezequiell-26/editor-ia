@@ -1,0 +1,1689 @@
+/* ==========================================================================
+   Olyvia · capa premium — LAUNCHER (Quiet Premium)
+   Dueño: agente de shell. Documento base: docs/PREMIUM-REDESIGN-SPEC.md
+   §6 (fundamentos), §8 (componentes), §9 (layout), §12 (cascada).
+
+   Qué domina: StartScreen completa (ventana del project manager, hero, tres
+   acciones, plantillas, herramientas IA, recientes, footer, diálogo de nuevo
+   proyecto y overlay de arrastre). Qué NO toca: AppUpdaterModal salvo el
+   contenedor visual (misma familia de vidrio), ni el shell del editor.
+
+   Reglas duras del rediseño (spec §4): acento sólido sin gradiente en CTAs,
+   cards en --chrome-4 + hairline (sin gradiente), hover sólo color/borde con
+   ≤110 ms y SIN translateY, glow prohibido, un único radio grande (>16) por
+   vista, vidrio sólo en chrome (ventana/diálogo/menú).
+   Cascada: `start-screen.css`/`commercial.css`/`olyvia.css` fijan fondos,
+   bordes, radios y sombras con `!important`; se repite `!important` sólo ahí y
+   se marca con `!impasse:`.
+   ========================================================================== */
+
+/* ═════════════════════════════════════════════════════ Lienzo launcher ══ */
+
+/* !impasse: olyvia.css:283-288 y commercial.css:675-682 fuerzan el fondo del
+ * lanzador con. Profundidad por viñeta neutra + tinte de acento
+ * mínimo (el acento no decora fondos, principio §4.2). */
+.start-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      1040px 560px at 50% -20%,
+      color-mix(in srgb, var(--color-text) 3.4%, transparent),
+      transparent 64%
+    ),
+    radial-gradient(
+      900px 520px at 88% 112%,
+      color-mix(in srgb, var(--color-accent) 4%, transparent),
+      transparent 66%
+    ),
+    var(--color-bg) !important;
+  user-select: none;
+}
+
+/* El emblema como marca de agua se retiró en Quiet Premium: en tema claro se
+ * leía como un rectángulo gris y competía con el hero. La marca vive en el
+ * logo del header y en el chip «Creation Studio» (spec §4.9). */
+.start-screen::before {
+  display: none;
+}
+
+.start-screen::after {
+  display: none;
+}
+
+.start-screen--exit {
+  animation: startFadeOut var(--dur-4) var(--ease-exit) forwards;
+}
+
+@keyframes startFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* ═════════════════════════════════════════════════════════ Ventana ══ */
+
+/* !impasse: commercial.css:684-689 y olyvia.css:290-297 fijan fondo, borde,
+ * radio y sombra de la ventana con. */
+.start-window {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 96vw);
+  height: min(820px, 94vh);
+  max-width: 100vw;
+  max-height: 100vh;
+  overflow: hidden;
+  border: var(--glass-border) !important;
+  border-radius: var(--rad-2xl) !important;
+  background: var(--glass-dialog-bg) !important;
+  box-shadow: var(--elev-4) !important;
+  backdrop-filter: var(--glass-dialog-blur);
+  -webkit-backdrop-filter: var(--glass-dialog-blur);
+}
+
+.start-window::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--color-text) 14%, transparent),
+    transparent
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ── Header de ventana: 44 px, vidrio de chrome ───────────────────────── */
+
+/* !impasse: commercial.css:691-695 y olyvia.css:299-306. */
+.start-window-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--shell-topbar-h);
+  min-height: var(--shell-topbar-h);
+  padding: 0 var(--gap-4) 0 var(--gap-12);
+  border-bottom: var(--hairline) !important;
+  background: transparent !important;
+  flex-shrink: 0;
+}
+
+.start-window-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+/* !impasse: olyvia.css:308-315 fija tamaño/radio/borde de la caja de marca. */
+.start-brand-box {
+  display: grid;
+  place-items: center;
+  width: 22px !important;
+  height: 22px !important;
+  overflow: hidden;
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-xs) !important;
+  background: var(--color-bg) !important;
+  box-shadow: none;
+}
+
+.start-brand-box img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.start-brand-titles {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+/* !impasse: commercial.css:703-710 y olyvia.css:324-331 fuerzan el wordmark
+ * con gradiente de marca y text-fill transparent. */
+.start-app-title {
+  background: none !important;
+  -webkit-background-clip: border-box !important;
+  background-clip: border-box !important;
+  -webkit-text-fill-color: var(--ink-1) !important;
+  color: var(--ink-1) !important;
+  font-family: var(--font-display);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* Chip de marca: único lugar con tinte de acento de marca (§4.9). */
+/* !impasse: commercial.css:712-716 y olyvia.css:333-337. */
+.start-app-pill {
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-h);
+  padding: 0 var(--gap-6);
+  border: 1px solid var(--state-selected-border) !important;
+  border-radius: var(--rad-pill);
+  background: var(--state-selected) !important;
+  color: var(--ink-2) !important;
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* !impasse: commercial.css:718-726 y olyvia.css:339-347. */
+.start-version-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  height: var(--ctl-h-xs);
+  margin-left: var(--gap-2);
+  padding: 0 var(--gap-6);
+  border: var(--hairline) !important;
+  border-radius: var(--rad-pill);
+  background: transparent !important;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out);
+}
+
+.start-version-btn:hover {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent);
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.start-version-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--rad-pill);
+  background: var(--color-success) !important;
+  box-shadow: none;
+}
+
+.start-window-drag-area {
+  flex: 1;
+  height: 100%;
+}
+
+.start-window-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+}
+
+.start-win-btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: var(--ctl-h-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-win-btn:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+.start-win-btn--close:hover {
+  background: var(--color-danger-strong);
+  color: var(--color-accent-ink);
+}
+
+/* ── Cuerpo a dos columnas ─────────────────────────────────────────────── */
+
+/* !impasse: commercial.css:691-695 fija el fondo del cuerpo. */
+.start-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: transparent;
+}
+
+/* ════════════════════════════════════════ Columna de acciones (izq.) ══ */
+
+/* Nivel 2: sidebar de acciones sobre --chrome-2 (spec §9.3). */
+/* !impasse: commercial.css:697-701 y olyvia.css:353-356. */
+.start-left-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-16);
+  width: 304px;
+  flex-shrink: 0;
+  padding: var(--gap-16) var(--gap-16) var(--gap-12);
+  overflow-y: auto;
+  border-right: var(--hairline) !important;
+  background: var(--chrome-2) !important;
+}
+
+.start-actions-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-8);
+}
+
+/* Tres acciones: cards nivel 3 (chrome-4 + hairline + elev-1). La jerarquía
+ * es por borde/icono, no por gradiente (spec §8.4). */
+/* !impasse: comercial.css:728-754 y olyvia.css:364-378 fijan fondos con
+ * gradiente de marca, bordes y radios de las tarjetas de acción. */
+.start-action-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--gap-12);
+  min-height: 56px;
+  padding: var(--gap-10) var(--gap-12);
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-md) !important;
+  background: var(--chrome-4) !important;
+  color: var(--ink-1);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--elev-1);
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-4) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out);
+}
+
+.start-action-card:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent) !important;
+  background: var(--chrome-3) !important;
+  box-shadow: var(--elev-2);
+}
+
+.start-action-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.start-action-card:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+.start-action-card--demo .start-action-icon {
+  color: var(--color-accent);
+}
+
+/* Crear proyecto no se marca en reposo: el acento identifica el activo real,
+ * no la recomendación (el orden de las tres acciones ya da la jerarquía). */
+.start-action-card--create {
+  background: var(--chrome-4) !important;
+  border-color: var(--hairline-strong-color) !important;
+}
+
+.start-action-card--create:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent) !important;
+}
+
+.start-action-card--open .start-action-icon {
+  color: var(--ink-2);
+}
+
+/* !impasse: commercial.css:752-754 y olyvia.css:376-378 fuerzan el color del
+ * icono de acción y su tamaño. */
+.start-action-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: var(--hairline) !important;
+  border-radius: var(--rad-sm) !important;
+  background: var(--chrome-3) !important;
+  color: var(--color-accent) !important;
+  box-shadow: none;
+}
+
+.start-action-text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  min-width: 0;
+}
+
+.start-action-title {
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-13);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  line-height: var(--lh-ui);
+}
+
+.start-action-desc {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Secciones: título técnico + lista de filas de 32 ─────────────────── */
+
+.start-pane-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-6);
+}
+
+.start-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  padding-bottom: var(--gap-6);
+  border-bottom: var(--hairline);
+}
+
+.start-section-header::after {
+  display: none;
+}
+
+/* !impasse: commercial.css:756-761 y olyvia.css:407-409 fuerzan tamaño,
+ * tracking y color del título de sección. */
+.start-section-title {
+  color: var(--ink-3) !important;
+  font-family: var(--font-ui);
+  font-size: var(--type-10) !important;
+  font-weight: var(--fw-strong) !important;
+  letter-spacing: var(--track-caps) !important;
+  text-transform: uppercase !important;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+/* Listas sin cajas: filas de 32 px separadas por hover, no por bordes. */
+.start-templates-list,
+.start-tools-chips {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-2);
+  margin: 0;
+  padding: 0;
+}
+
+/* !impasse: commercial.css:734-750 y olyvia.css:392-405 fuerzan fondo, borde,
+ * radio y hover de estas filas. */
+.start-template-row,
+.start-tool-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  height: var(--row-h);
+  min-height: var(--row-h);
+  padding: 0 var(--gap-8);
+  border: 0;
+  border-radius: var(--rad-sm) !important;
+  background: transparent !important;
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-template-row:hover:not(:disabled),
+.start-tool-chip:hover:not(:disabled) {
+  background: var(--state-hover) !important;
+  color: var(--ink-1) !important;
+}
+
+.start-template-row:disabled,
+.start-tool-chip:disabled {
+  opacity: var(--disabled-opacity);
+  cursor: not-allowed;
+}
+
+.start-template-row:focus-visible,
+.start-tool-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+
+.start-tpl-ratio {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  max-height: 18px;
+  flex-shrink: 0;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: var(--ink-3);
+}
+
+.start-tpl-name,
+.start-tool-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-1);
+  font-size: var(--type-12);
+  font-weight: var(--fw-regular);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-tpl-badge,
+.start-tool-tag {
+  flex: none;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.start-tool-chip svg {
+  flex: none;
+  color: var(--ink-3);
+  transition: color var(--dur-3) var(--ease-out);
+}
+
+.start-tool-chip:hover:not(:disabled) svg {
+  color: var(--ink-1);
+}
+
+.start-left-spacer {
+  flex: 1;
+  min-height: var(--gap-8);
+}
+
+.start-privacy-note {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  padding: var(--gap-8) 0 var(--gap-2);
+  border-top: var(--hairline);
+  color: var(--ink-4);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-regular);
+  letter-spacing: 0.01em;
+}
+
+.start-privacy-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: var(--rad-pill);
+  background: var(--color-success);
+  box-shadow: none;
+}
+
+/* ════════════════════════════════════════ Columna del proyecto (der.) ══ */
+
+/* !impasse: commercial.css:697-701 y olyvia.css:358-362. */
+.start-right-pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+}
+
+/* ── Hero: eyebrow 10, título 32, copy 13, chips 22 ───────────────────── */
+
+/* !impasse: start-screen.css:470-478 fija gradiente/padding del hero. */
+.start-welcome-banner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-8);
+  padding: var(--gap-24) var(--gap-24) var(--gap-20);
+  overflow: hidden;
+  border-bottom: var(--hairline);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.start-welcome-banner::before {
+  display: none;
+}
+
+.start-welcome-banner::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.start-welcome-eyebrow {
+  position: relative;
+  z-index: 1;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.start-welcome-title {
+  position: relative;
+  z-index: 1;
+  max-width: 26ch;
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-32);
+  font-weight: var(--fw-black);
+  letter-spacing: var(--track-tight);
+  line-height: 1.1;
+  text-wrap: balance;
+}
+
+.start-welcome-desc {
+  position: relative;
+  z-index: 1;
+  max-width: 72ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--type-13);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-body);
+}
+
+.start-welcome-features {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-6);
+  margin-top: var(--gap-4);
+}
+
+.start-feature-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  height: var(--chip-h);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* ── Barra de recientes: toolbar de 44 ────────────────────────────────── */
+
+/* !impasse: start-screen.css:521-530 fija alto y fondo de la toolbar. */
+.start-recents-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-16);
+  height: var(--shell-toolbar-h);
+  min-height: var(--shell-toolbar-h);
+  padding: 0 var(--gap-24);
+  border-bottom: var(--hairline);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.start-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+.start-toolbar-left .start-section-title {
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.start-count-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--badge-h);
+  height: var(--badge-h);
+  padding: 0 var(--gap-4);
+  border: var(--hairline);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 8%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  line-height: 1;
+}
+
+.start-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+/* Input de búsqueda: 28 px con borde de control (§8.2). */
+.start-search-box {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  height: var(--ctl-h-md);
+  padding: 0 var(--gap-8);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-surface));
+  color: var(--ink-3);
+  box-shadow: none;
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-search-box:focus-within {
+  border-color: var(--color-accent);
+  color: var(--ink-1);
+}
+
+.start-search-input {
+  width: 148px;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-12);
+}
+
+.start-search-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.start-search-input::placeholder {
+  color: var(--ink-3);
+}
+
+.start-search-clear {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.start-search-clear:hover {
+  color: var(--ink-1);
+}
+
+/* Ordenamiento: segmented de 28 px. */
+.start-sort-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-2);
+  height: var(--ctl-h-md);
+  padding: 2px;
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-md);
+  background: var(--chrome-3);
+  box-shadow: none;
+}
+
+.start-sort-btn {
+  height: calc(var(--ctl-h-md) - 6px);
+  padding: 0 var(--gap-8);
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-sort-btn:hover {
+  color: var(--ink-1);
+}
+
+.start-sort-btn.active {
+  background: var(--color-panel-3);
+  color: var(--ink-1);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--color-text) 6%, transparent),
+    var(--elev-1);
+}
+
+/* ── Grilla de recientes ──────────────────────────────────────────────── */
+
+/* !impasse: start-screen.css:635-646 fija padding y columnas. */
+/* Recientes: el contenedor scrollea y la franja de arrastre crece para ocupar
+ * el alto sobrante (feedback del Lead: el contenido debe llenar la ventana). */
+.start-projects-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: var(--gap-20) var(--gap-24) var(--gap-16);
+  overflow-y: auto;
+}
+
+.start-projects-grid {
+  display: grid;
+  flex: 0 0 auto;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--gap-16);
+  align-content: start;
+}
+
+/* Franja de arrastre: informa que el launcher acepta archivos y rellena el
+ * espacio libre cuando hay pocos recientes (arrastrar y soltar ya funciona
+ * en toda la ventana desde StartScreen). */
+.start-drop-hint {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-8);
+  min-height: 56px;
+  max-height: 168px;
+  margin-top: var(--gap-16);
+  padding: var(--gap-12);
+  border: 1px dashed var(--hairline-strong-color);
+  border-radius: var(--rad-md);
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  text-align: center;
+}
+
+.start-drop-hint svg {
+  color: var(--ink-4);
+  flex: none;
+}
+
+.start-drop-hint kbd {
+  height: var(--kbd-h);
+  min-width: 20px;
+  padding: 0 4px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: var(--kbd-h);
+}
+
+/* Card de proyecto: chrome-4 + hairline + elev-1; hover sube borde/elevación
+ * sin translateY (spec §8.4). */
+/* !impasse: commercial.css:734-750 y olyvia.css:392-405. */
+.start-project-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-md) !important;
+  background: var(--chrome-4) !important;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: var(--elev-1);
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    box-shadow var(--dur-4) var(--ease-out);
+}
+
+.start-project-card:hover {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent) !important;
+  box-shadow: var(--elev-2);
+}
+
+.start-project-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.start-thumb-box {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-bottom: var(--hairline);
+  background: var(--chrome-3);
+  color: var(--ink-4);
+}
+
+.start-thumb-box.has-image {
+  background: var(--color-bg);
+}
+
+.start-thumb-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Miniaturas sin portada: superficie neutra + icono de medio + patrón sutil +
+ * badge de tipo (feedback del Lead). Nada de tintes de medio bañando la card:
+ * el color identifica el tipo de clip en el editor, no un proyecto reciente. */
+.start-thumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-6);
+  background: var(--chrome-4);
+  color: var(--ink-3);
+}
+
+.start-thumb-fallback::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--color-text) 2.5%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 100% 16px;
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.start-thumb-icon {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: var(--hairline);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  color: var(--ink-3);
+}
+
+.start-thumb-badge {
+  position: absolute;
+  right: var(--gap-6);
+  bottom: var(--gap-6);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  height: var(--badge-h);
+  padding: 0 6px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-xs);
+  background: var(--glass-menu-bg);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+.start-thumb-initial {
+  position: relative;
+  z-index: 1;
+  color: var(--ink-2);
+  font-family: var(--font-display);
+  font-size: var(--type-24);
+  font-weight: var(--fw-strong);
+  line-height: 1;
+  text-shadow: none;
+}
+
+.start-thumb-hint {
+  position: relative;
+  z-index: 1;
+  color: var(--ink-4);
+  font-family: var(--font-ui);
+  font-size: var(--type-10);
+  font-weight: var(--fw-medium);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.start-project-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  padding: var(--gap-10) var(--gap-12) var(--gap-12);
+}
+
+.start-project-name {
+  overflow: hidden;
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-12);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-project-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+}
+
+.start-project-time {
+  color: var(--ink-3);
+  font-size: var(--type-10);
+  font-weight: var(--fw-regular);
+  white-space: nowrap;
+}
+
+.start-project-path {
+  max-width: 132px;
+  overflow: hidden;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-card-delete {
+  position: absolute;
+  top: var(--gap-6);
+  right: var(--gap-6);
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  color: var(--ink-2);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity var(--dur-3) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-project-card:hover .start-card-delete,
+.start-project-card:focus-within .start-card-delete {
+  opacity: 1;
+}
+
+.start-card-delete:hover {
+  border-color: color-mix(in srgb, var(--color-danger) 45%, transparent);
+  background: var(--state-danger-soft);
+  color: color-mix(in srgb, var(--color-danger) 68%, var(--color-text));
+}
+
+/* ── Estados vacíos ───────────────────────────────────────────────────── */
+
+.start-empty-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-8);
+  margin: var(--gap-8);
+  padding: var(--gap-32) var(--gap-24);
+  border: var(--hairline);
+  border-radius: var(--rad-lg);
+  background: color-mix(in srgb, var(--color-text) 2.5%, transparent);
+  color: var(--ink-2);
+  font-size: var(--type-12);
+  text-align: center;
+}
+
+.start-empty-notice svg {
+  color: var(--ink-4);
+}
+
+.start-empty-notice strong {
+  color: var(--ink-1);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+}
+
+.start-btn-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink-link);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.start-btn-link:hover {
+  color: color-mix(in srgb, var(--color-accent) 18%, var(--color-text));
+  text-decoration-thickness: 2px;
+}
+
+/* ═══════════════════════════════════════════════ Footer del launcher ══ */
+
+/* !impasse: commercial.css y start-screen.css:882-893 fijan fondo/borde. */
+.start-window-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-12);
+  height: 32px;
+  min-height: 32px;
+  padding: 0 var(--gap-10) 0 var(--gap-16);
+  border-top: var(--hairline);
+  background: var(--chrome-1);
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  flex-shrink: 0;
+}
+
+.start-footer-left {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  min-width: 0;
+  overflow: hidden;
+}
+
+.start-footer-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: var(--rad-pill);
+  background: var(--color-accent);
+  box-shadow: none;
+}
+
+.start-tip-text {
+  overflow: hidden;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  font-weight: var(--fw-regular);
+  letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-footer-right {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-2);
+  flex-shrink: 0;
+}
+
+.start-footer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gap-4);
+  height: var(--ctl-h-xs);
+  padding: 0 var(--gap-6);
+  border: 0;
+  border-radius: var(--rad-xs);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-footer-link:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+/* ═════════════════════════════════════════ Diálogo «Nuevo proyecto» ══ */
+
+/* !impasse: start-screen.css:943-956 y commercial.css:781-787 fijan fondo,
+ * borde, radio y sombra del backdrop/diálogo. */
+.start-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2200;
+  display: grid;
+  place-items: center;
+  padding: var(--gap-20);
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  animation: shell-fade var(--dur-4) var(--ease-out) both;
+}
+
+.start-create-dialog {
+  width: min(440px, 94vw);
+  overflow: hidden;
+  border: var(--glass-border) !important;
+  border-radius: var(--rad-2xl) !important;
+  background: var(--glass-dialog-bg) !important;
+  box-shadow: var(--elev-4) !important;
+  backdrop-filter: var(--glass-dialog-blur);
+  -webkit-backdrop-filter: var(--glass-dialog-blur);
+  animation: shell-dialog-in var(--dur-5) var(--ease-emphasized) both;
+}
+
+/* !impasse: commercial.css:789-792 y start-screen.css:958-965. */
+.start-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  min-height: 52px;
+  padding: 0 var(--gap-8) 0 var(--gap-16);
+  border-bottom: var(--hairline) !important;
+  background: transparent !important;
+}
+
+.start-dialog-title-group {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+.start-dialog-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+.start-dialog-title {
+  margin: 0;
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+}
+
+.start-dialog-close {
+  display: grid;
+  place-items: center;
+  width: var(--ctl-h-md);
+  height: var(--ctl-h-md);
+  padding: 0;
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-dialog-close:hover {
+  background: var(--state-hover);
+  color: var(--ink-1);
+}
+
+/* !impasse: start-screen.css:1006-1015 fija gaps/paddings del formulario. */
+.start-dialog-form {
+  display: grid;
+  gap: var(--gap-16);
+  padding: var(--gap-20);
+}
+
+.start-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-6);
+}
+
+.start-label {
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.start-create-dialog .start-input {
+  height: var(--ctl-h-lg);
+  padding: 0 var(--ctl-px);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-bg) 74%, var(--color-surface));
+  color: var(--ink-1);
+  font-size: var(--type-13);
+  box-shadow: none;
+}
+
+.start-create-dialog .start-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+/* Formatos: cards de chrome-4; activo con borde de selección. */
+.start-format-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--gap-6);
+}
+
+/* !impasse: commercial.css:794-805 y olyvia.css:411-419. */
+.start-format-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-4);
+  padding: var(--gap-8) var(--gap-4);
+  border: var(--hairline-strong) !important;
+  border-radius: var(--rad-sm) !important;
+  background: var(--chrome-4) !important;
+  color: var(--ink-2);
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-format-card:hover {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent) !important;
+  color: var(--ink-1);
+}
+
+.start-format-card.active {
+  border-color: var(--state-selected-border) !important;
+  background: var(--state-selected) !important;
+  color: var(--ink-1);
+}
+
+.start-format-frame {
+  width: 24px;
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-xs);
+  background: transparent;
+}
+
+.start-format-card.active .start-format-frame {
+  border-color: var(--color-accent);
+}
+
+.start-format-name {
+  color: inherit;
+  font-size: var(--type-10);
+  font-weight: var(--fw-strong);
+  white-space: nowrap;
+}
+
+.start-format-dim {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+}
+
+.start-fps-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-4);
+}
+
+.start-fps-chip {
+  height: var(--ctl-h-md);
+  min-width: 44px;
+  padding: 0 var(--gap-10);
+  border: 1px solid var(--ctl-border);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-4);
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    border-color var(--dur-3) var(--ease-out),
+    background-color var(--dur-3) var(--ease-out),
+    color var(--dur-3) var(--ease-out);
+}
+
+.start-fps-chip:hover {
+  border-color: color-mix(in srgb, var(--color-text) 16%, transparent);
+  color: var(--ink-1);
+}
+
+.start-fps-chip.active {
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+  color: var(--ink-1);
+}
+
+.start-error-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+  padding: var(--gap-8) var(--gap-10);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 38%, transparent);
+  border-radius: var(--rad-sm);
+  background: var(--state-danger-soft);
+  color: color-mix(in srgb, var(--color-danger) 64%, var(--color-text));
+  font-size: var(--type-11);
+}
+
+.start-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--gap-8);
+  margin-top: var(--gap-2);
+}
+
+/* Botones del diálogo: primary sólido + brillo interior; ghost con hairline. */
+.start-dialog-actions .start-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--gap-6);
+  height: var(--ctl-h-lg);
+  min-height: var(--ctl-h-lg);
+  padding: 0 var(--gap-12);
+  border-radius: var(--rad-sm);
+  font-size: var(--type-12);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.start-dialog-actions .start-btn--primary {
+  gap: var(--gap-6);
+}
+
+/* !impasse: commercial.css:763-779 y olyvia.css:380-390 fijan fondo/borde de
+ * los botones del diálogo con. */
+.start-create-dialog .start-btn--ghost {
+  border: var(--hairline-strong) !important;
+  background: var(--chrome-4) !important;
+  color: var(--ink-1) !important;
+}
+
+.start-create-dialog .start-btn--ghost:hover:not(:disabled) {
+  background: var(--chrome-3) !important;
+  border-color: color-mix(in srgb, var(--color-text) 14%, transparent) !important;
+}
+
+.start-create-dialog .start-btn--primary {
+  border: 1px solid var(--color-accent-strong) !important;
+  background: var(--color-accent) !important;
+  color: var(--color-accent-ink) !important;
+  font-weight: var(--fw-strong);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-accent-ink) 14%, transparent) !important;
+  filter: none;
+}
+
+.start-create-dialog .start-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 90%, var(--color-text)) !important;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-accent-ink) 16%, transparent) !important;
+  filter: none;
+}
+
+.start-create-dialog .start-btn--primary:disabled {
+  opacity: var(--disabled-opacity);
+  box-shadow: none !important;
+}
+
+.start-spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, var(--color-accent-ink) 30%, transparent);
+  border-top-color: var(--color-accent-ink);
+  border-radius: var(--rad-pill);
+  animation: startSpin 0.7s linear infinite;
+}
+
+/* ══════════════════════════════════ Arrastrar y soltar un archivo ══ */
+
+/* !impasse: start-screen.css:29-47 fija fondo y estilos del overlay. */
+.start-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+
+.start-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--gap-10);
+  padding: var(--gap-32) var(--gap-40);
+  border: 1.5px dashed var(--state-selected-border);
+  border-radius: var(--rad-xl);
+  background: var(--glass-dialog-bg);
+  box-shadow: var(--elev-3);
+}
+
+.start-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--state-selected-border);
+  border-radius: var(--rad-md);
+  background: var(--state-selected);
+  color: var(--color-accent);
+}
+
+.start-drop-title {
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+}
+
+.start-drop-desc {
+  color: var(--ink-2);
+  font-size: var(--type-12);
+}
+
+/* ═══════════════════════════════════ Actualizador (misma familia) ══ */
+
+.updater-backdrop {
+  background: var(--scrim);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.updater-dialog {
+  border: var(--glass-border);
+  border-radius: var(--rad-2xl);
+  background: var(--glass-dialog-bg);
+  box-shadow: var(--elev-4);
+  backdrop-filter: var(--glass-dialog-blur);
+  -webkit-backdrop-filter: var(--glass-dialog-blur);
+}
+
+.updater-header {
+  border-bottom: var(--hairline);
+  background: transparent;
+}
+
+.updater-title {
+  color: var(--ink-1);
+  font-family: var(--font-display);
+  font-size: var(--type-15);
+  font-weight: var(--fw-strong);
+  letter-spacing: 0;
+}
+
+.updater-icon-badge {
+  border: 0;
+  border-radius: var(--rad-sm);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+}
+
+/* ═══════════════════════════════════════ Adaptación a 900×580 (nativo) ══ */
+/* StartScreen fija la ventana nativa en 900×580 no redimensionable. El layout
+ * se compacta para esa medida real (spec §9.2: ventana mínima 1024×640 es del
+ * editor; el launcher vive en su propio tamaño). */
+
+@media (max-width: 1100px) {
+  .start-left-pane {
+    width: 280px;
+    padding: var(--gap-12) var(--gap-12) var(--gap-10);
+    gap: var(--gap-12);
+  }
+
+  .start-welcome-banner {
+    padding: var(--gap-20) var(--gap-20) var(--gap-16);
+  }
+
+  .start-welcome-title {
+    font-size: var(--type-24);
+    max-width: 30ch;
+  }
+
+  .start-welcome-desc {
+    font-size: var(--type-12);
+  }
+
+  .start-projects-scroll {
+    padding: var(--gap-16) var(--gap-20) var(--gap-20);
+  }
+
+  .start-projects-grid {
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: var(--gap-12);
+  }
+}
+
+@media (max-width: 980px) {
+  .start-window {
+    width: min(920px, 97vw);
+    height: min(700px, 95vh);
+  }
+
+  .start-left-pane {
+    width: 268px;
+  }
+
+  .start-action-card {
+    min-height: 50px;
+    padding: var(--gap-8) var(--gap-10);
+  }
+
+  .start-action-desc {
+    display: none;
+  }
+
+  .start-welcome-eyebrow {
+    font-size: 9px;
+  }
+
+  .start-welcome-title {
+    font-size: 22px;
+  }
+
+  .start-feature-chip:nth-child(n + 4) {
+    display: none;
+  }
+
+  .start-recents-toolbar {
+    height: 40px;
+    min-height: 40px;
+    padding: 0 var(--gap-16);
+  }
+
+  .start-projects-scroll {
+    padding: var(--gap-12) var(--gap-16) var(--gap-16);
+  }
+
+  .start-projects-grid {
+    grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  }
+}
+
+/* Movimiento sobrio y respeto por reduced-motion. */
+@media (prefers-reduced-motion: reduce) {
+  .start-window,
+  .start-create-dialog,
+  .start-modal-backdrop,
+  .start-project-card,
+  .start-action-card,
+  .start-template-row {
+    animation: none;
+    transition: none;
+  }
+}
+
+:root[data-reduce-motion='true'] .start-create-dialog,
+:root[data-reduce-motion='true'] .start-modal-backdrop,
+:root[data-reduce-motion='true'] .start-screen--exit {
+  animation: none;
+}

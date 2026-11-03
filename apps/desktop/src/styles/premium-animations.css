@@ -165,31 +165,11 @@
   animation: shimmer 1.5s ease-in-out infinite;
 }
 
-/* ===================== BUTTON RIPPLE EFFECT ===================== */
-
-button {
-  position: relative;
-  overflow: hidden;
-}
-
-button::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 0;
-  height: 0;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.3);
-  transform: translate(-50%, -50%);
-  transition: width 0.6s, height 0.6s;
-}
-
-button:active::after {
-  width: 300px;
-  height: 300px;
-  transition: 0s;
-}
+/* ===================== BUTTON FEEDBACK (rediseño premium) =====================
+   El ripple de 300 px y `button { overflow: hidden }` recortaban focus rings y
+   badges en TODOS los botones. La retroalimentación táctil ahora vive en la
+   capa premium (`styles/premium/components.css`): presión de 1 px + cambios de
+   superficie, sin pseudo-elementos que tapen contenido. */
 
 /* ===================== GLASSMORPHISM EFFECTS ===================== */
 
