@@ -239,3 +239,53 @@ describe('Timeline · paneo y zoom con mouse', () => {
     await waitFor(() => expect(container.textContent).toContain('2.78 px/frame'));
   });
 });
+
+describe('alto de la timeline', () => {
+  it('se puede achicar con el teclado y queda recordado', () => {
+    renderTimeline();
+    const handle = screen.getByRole('separator', { name: /alto de la timeline/i });
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('280px');
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('140px');
+    expect(window.localStorage.getItem('editoria.timeline-height.v1')).toBe('140');
+    fireEvent.keyDown(handle, { key: 'ArrowUp' });
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('164px');
+  });
+
+  it('el doble clic vuelve al alto por defecto', () => {
+    renderTimeline();
+    const handle = screen.getByRole('separator', { name: /alto de la timeline/i });
+    fireEvent.keyDown(handle, { key: 'End' });
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('720px');
+    fireEvent.doubleClick(handle);
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('280px');
+  });
+});
+
+describe('alto y plegado por pista', () => {
+  it('colapsa y expande una pista, y lo recuerda', () => {
+    renderTimeline();
+    const collapse = screen.getAllByRole('button', { name: /^Colapsar / })[0]!;
+    fireEvent.click(collapse);
+    const row = document.querySelector('.timeline-row.collapsed');
+    expect(row).toBeTruthy();
+    expect((row as HTMLElement).style.height).toBe('28px');
+    const stored = JSON.parse(window.localStorage.getItem('editoria.track-collapsed.v1') ?? '[]');
+    expect(stored.length).toBe(1);
+    const expand = screen.getAllByRole('button', { name: /^Expandir / })[0]!;
+    fireEvent.click(expand);
+    expect(document.querySelector('.timeline-row.collapsed')).toBeNull();
+  });
+
+  it('cambia el alto de una pista arrastrando su asa', () => {
+    renderTimeline();
+    const handle = screen.getAllByRole('separator', { name: /^Alto de la pista / })[0]!;
+    const row = handle.closest('.timeline-row') as HTMLElement;
+    const before = Number.parseInt(row.style.height || '48', 10);
+    fireEvent.pointerDown(handle, { clientY: 100 });
+    fireEvent.pointerMove(window, { clientY: 130 });
+    fireEvent.pointerUp(window);
+    expect(Number.parseInt(row.style.height || '0', 10)).toBe(before + 30);
+    expect(window.localStorage.getItem('editoria.track-heights.v1')).toContain('"');
+  });
+});

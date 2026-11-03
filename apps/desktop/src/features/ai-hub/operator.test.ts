@@ -422,6 +422,18 @@ describe('cerebro de edición en el operador', () => {
     });
   });
 
+  it('trata «editá» sin detalle como limpieza integral', () => {
+    for (const text of ['editá el video', 'edítame esto', 'hacelo', 'arreglalo', 'procesá el proyecto']) {
+      expect(parseOperatorCommand(text, views)).toMatchObject({ kind: 'auto_cleanup' });
+    }
+  });
+
+  it('no pisa pedidos específicos con la edición genérica', () => {
+    expect(parseOperatorCommand('editá los subtítulos', views).kind).not.toBe('auto_cleanup');
+    expect(parseOperatorCommand('editá el volumen', views).kind).not.toBe('auto_cleanup');
+    expect(parseOperatorCommand('editá los silencios', views).kind).not.toBe('auto_cleanup');
+  });
+
   it('reconoce el servidor MCP', () => {
     expect(parseOperatorCommand('abrí el servidor MCP', views)).toEqual({ kind: 'mcp_server' });
     expect(parseOperatorCommand('quiero conectar una IA', views)).toMatchObject({

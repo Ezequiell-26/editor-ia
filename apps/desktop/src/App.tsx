@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StartScreen } from './features/start/StartScreen';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize } from '@tauri-apps/api/dpi';
 import { AppShell } from './components/AppShell';
@@ -27,6 +28,7 @@ import {
   type DesktopService,
 } from './services/project-service';
 import { ProjectProvider, useProjectStore } from './state/project-store';
+import { McpBridgeRuntime } from './features/assistant/McpBridgeRuntime';
 import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
 import {
@@ -39,7 +41,7 @@ import {
   type GlobalSearchIndex,
 } from './state/global-search';
 import { recordViewVisit } from './state/learning-progress';
-import { emit } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import {
   SHORTCUTS_CHANGED_EVENT,
   bindingMatches,
@@ -363,6 +365,14 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     }
   }, []);
 
+  useEffect(() => {
+    const onMcpNavigate = (event: Event) => {
+      const view = (event as CustomEvent<unknown>).detail;
+      if (typeof view === 'string' && NAV_VIEWS.some((item) => item.id === view)) navigate(view as ViewId);
+    };
+    window.addEventListener('olyvia:mcp:navigate', onMcpNavigate);
+    return () => window.removeEventListener('olyvia:mcp:navigate', onMcpNavigate);
+  }, [navigate]);
   // Precalienta el motor de búsqueda en un momento ocioso: el chunk ya está
   // listo cuando el usuario abre la paleta, sin retrasar el arranque.
   useEffect(() => {
@@ -728,7 +738,8 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   );
 }
 
-export function App({ service = createDesktopService(), initialShowStart }: AppProps) {
+export function App({ service: suppliedService, initialShowStart }: AppProps) {
+  const [service] = useState<DesktopService>(() => suppliedService ?? createDesktopService());
   const editorPreferences = useEditorPreferences();
   const deepView = (() => {
     if (typeof window === 'undefined') return null;
@@ -746,6 +757,46 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
     return true;
   });
   const [initialView, setInitialView] = useState<ViewId>(deepView ?? 'home');
+  const [backgroundMode, setBackgroundMode] = useState(false);
+
+  // El modo background arranca MCP sin renderizar StartScreen ni Editor.
+  useEffect(() => {
+    if (!detectNativeRuntime()) return;
+    let active = true;
+    void invoke<boolean>('background_start_mode')
+      .then((background) => {
+        if (!active || !background) return;
+        setBackgroundMode(true);
+        setShowStart(false);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  // La bandeja puede volver a mostrar la UI sin reiniciar el servidor MCP.
+  useEffect(() => {
+    if (!detectNativeRuntime()) return;
+    let active = true;
+    let unlisten: (() => void) | null = null;
+    void listen('app-show-requested', () => {
+      setBackgroundMode(false);
+      setShowStart(false);
+    }).then((off) => {
+      if (active) unlisten = off;
+      else off();
+    }).catch(() => {});
+    return () => { active = false; unlisten?.(); };
+  }, []);
+
+  // Conserva una navegacion MCP solicitada mientras la ventana esta oculta.
+  useEffect(() => {
+    const onMcpNavigate = (event: Event) => {
+      const view = (event as CustomEvent<unknown>).detail;
+      if (typeof view === 'string' && NAV_VIEWS.some((item) => item.id === view)) setInitialView(view as ViewId);
+    };
+    window.addEventListener('olyvia:mcp:navigate', onMcpNavigate);
+    return () => window.removeEventListener('olyvia:mcp:navigate', onMcpNavigate);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.emojiStyle = editorPreferences.emojiStyle;
@@ -796,7 +847,8 @@ export function App({ service = createDesktopService(), initialShowStart }: AppP
         {/* La cola de Flow vive por encima de las vistas: una corrida larga no
             debe cortarse al cambiar de pantalla. */}
         <FlowQueueProvider>
-          {showStart ? (
+          <McpBridgeRuntime />
+          {backgroundMode ? null : showStart ? (
             <StartScreen onEnterApp={handleEnterApp} />
           ) : (
             <Shell initialView={initialView} onReturnToStart={handleReturnToStart} />

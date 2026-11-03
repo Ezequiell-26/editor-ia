@@ -45,6 +45,98 @@ pub struct Profile {
 }
 
 const HARDWARE_H264: [&str; 3] = ["h264_amf", "h264_nvenc", "h264_qsv"];
+
+/// Encoders de software en orden de preferencia.
+///
+/// Los builds LGPL de FFmpeg no incluyen `libx264` (es GPL). Sin este orden, el
+/// render fallaba con «Unknown encoder 'libx264'» aunque el binario tuviera
+/// `h264_mf` o `libopenh264`. Se elige el primero que el binario declare.
+const SOFTWARE_H264: [&str; 6] = [
+    "libx264",
+    "h264_mf",
+    "libopenh264",
+    "h264_nvenc",
+    "h264_qsv",
+    "h264_amf",
+];
+const SOFTWARE_H265: [&str; 5] = ["libx265", "hevc_mf", "hevc_nvenc", "hevc_qsv", "hevc_amf"];
+
+static ENCODER_CACHE: std::sync::Mutex<Option<(PathBuf, Vec<String>)>> =
+    std::sync::Mutex::new(None);
+
+/// `ffmpeg` que acompaña al `ffprobe` configurado; si no existe, el del PATH.
+fn sibling_ffmpeg(ffprobe: &Path) -> PathBuf {
+    let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let candidate = ffprobe.with_file_name(name);
+    if candidate.is_file() {
+        candidate
+    } else {
+        PathBuf::from("ffmpeg")
+    }
+}
+
+/// Lista de encoders de video que el binario declara (`-encoders`), cacheada.
+fn available_encoders(ffmpeg: &Path) -> Vec<String> {
+    let mut guard = match ENCODER_CACHE.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if let Some((path, list)) = guard.as_ref() {
+        if path == ffmpeg {
+            return list.clone();
+        }
+    }
+    let mut list = Vec::new();
+    if let Ok(output) = std::process::Command::new(ffmpeg)
+        .args(["-hide_banner", "-encoders"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        for line in text.lines() {
+            let mut parts = line.split_whitespace();
+            let (Some(flags), Some(name)) = (parts.next(), parts.next()) else {
+                continue;
+            };
+            // Formato: " V....D libx264   ..." (seis letras de capacidades).
+            if flags.len() == 6 && flags.starts_with('V') {
+                list.push(name.to_owned());
+            }
+        }
+    }
+    *guard = Some((ffmpeg.to_path_buf(), list.clone()));
+    list
+}
+
+/// Elige el encoder de software según lo que el binario realmente ofrece.
+fn choose_encoder(available: &[String], codec: &str) -> String {
+    let prefs: &[&str] = if codec == "h265" { &SOFTWARE_H265 } else { &SOFTWARE_H264 };
+    for name in prefs {
+        if available.iter().any(|candidate| candidate == name) {
+            return (*name).to_owned();
+        }
+    }
+    // Sin información (sondeo fallido): se mantiene el comportamiento histórico.
+    prefs[0].to_owned()
+}
+
+pub(crate) fn software_encoder(ffprobe: &Path, codec: &str) -> String {
+    let sibling = sibling_ffmpeg(ffprobe);
+    // En pruebas no se sondea el PATH: el resultado dependería de la máquina y
+    // los planes esperados dejarían de ser deterministas.
+    let target = if sibling.is_file() {
+        Some(sibling)
+    } else if cfg!(test) {
+        None
+    } else {
+        Some(PathBuf::from("ffmpeg"))
+    };
+    match target {
+        Some(ffmpeg) => choose_encoder(&available_encoders(&ffmpeg), codec),
+        None => choose_encoder(&[], codec),
+    }
+}
 const HARDWARE_HEVC: [&str; 3] = ["hevc_amf", "hevc_nvenc", "hevc_qsv"];
 
 fn validate_hardware_encoder(
@@ -4268,22 +4360,26 @@ pub(crate) fn build_plan_range(
     if let Some(mut hardware) = hardware_encoder_args(&profile) {
         args.append(&mut hardware);
     } else {
-        args.extend([
-            "-c:v".into(),
-            if profile.video_codec == "h265" {
-                "libx265"
-            } else {
-                "libx264"
+        let encoder = software_encoder(input.ffprobe, &profile.video_codec);
+        let software_x26 = encoder.starts_with("libx26");
+        // `-preset` sólo existe en x264/x265, NVENC y QSV. AMF usa `-quality` y
+        // MediaFoundation/OpenH264 no lo aceptan: pasarlo rompería el render.
+        let accepts_preset =
+            software_x26 || encoder.ends_with("nvenc") || encoder.ends_with("qsv");
+        args.extend(["-c:v".into(), encoder.clone()]);
+        if accepts_preset {
+            args.extend(["-preset".into(), profile.video_preset.clone()]);
+        }
+        if software_x26 {
+            if let Some(crf) = profile.crf {
+                args.extend(["-crf".into(), crf.to_string()]);
             }
-            .into(),
-            "-preset".into(),
-            profile.video_preset.clone(),
-        ]);
-        if let Some(crf) = profile.crf {
-            args.extend(["-crf".into(), crf.to_string()]);
         }
         if let Some(bps) = profile.target_bps {
             args.extend(["-b:v".into(), bps.to_string()]);
+        } else if !software_x26 {
+            // h264_mf/libopenh264 no aceptan CRF: sin bitrate no saben qué hacer.
+            args.extend(["-b:v".into(), "8000000".into()]);
         }
     }
     if profile.video_codec == "h265" {
@@ -11147,5 +11243,41 @@ mod tests {
             mitad < 1.0 && mitad > 0.0,
             "der(0.5) debe estar entre 0 y 1 para una ease-in, dio {mitad}"
         );
+    }
+}
+
+#[cfg(test)]
+mod encoder_tests {
+    use super::*;
+
+    fn list(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_owned()).collect()
+    }
+
+    #[test]
+    fn prefers_libx264_when_the_build_has_it() {
+        assert_eq!(choose_encoder(&list(&["libx264", "h264_mf"]), "h264"), "libx264");
+    }
+
+    #[test]
+    fn falls_back_to_media_foundation_without_libx264() {
+        let available = list(&["h264_mf", "libopenh264", "h264_nvenc"]);
+        assert_eq!(choose_encoder(&available, "h264"), "h264_mf");
+    }
+
+    #[test]
+    fn uses_openh264_when_it_is_the_only_one() {
+        assert_eq!(choose_encoder(&list(&["libopenh264"]), "h264"), "libopenh264");
+    }
+
+    #[test]
+    fn keeps_the_historical_default_when_probing_fails() {
+        assert_eq!(choose_encoder(&[], "h264"), "libx264");
+        assert_eq!(choose_encoder(&[], "h265"), "libx265");
+    }
+
+    #[test]
+    fn picks_hevc_alternatives_for_h265() {
+        assert_eq!(choose_encoder(&list(&["hevc_mf", "hevc_nvenc"]), "h265"), "hevc_mf");
     }
 }

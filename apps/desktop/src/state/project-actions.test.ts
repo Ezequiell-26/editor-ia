@@ -586,7 +586,7 @@ describe('cerrar huecos', () => {
 });
 
 describe('timeline magnética', () => {
-  it('mueve el clip y cierra el hueco de la pista', () => {
+  it('respeta el frame donde se suelta, sin compactar la pista', () => {
     const asset = videoAsset(300);
     const first = addClipFromAsset(addAsset(base(), asset), asset, {
       atFrame: 0,
@@ -602,7 +602,7 @@ describe('timeline magnética', () => {
     const clips = next.timeline.clips
       .filter((clip) => clip.trackId === first.trackId)
       .sort((a, b) => a.startFrame - b.startFrame);
-    expect(clips.map((clip) => clip.startFrame)).toEqual([0, 30]);
+    expect(clips.map((clip) => clip.startFrame)).toEqual([0, 200]);
     expect(clips[1]?.id).toBe(second.clipId);
   });
 

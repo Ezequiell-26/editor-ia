@@ -59,3 +59,9 @@ apps/desktop/e2e/lut-harness/*.mp4
 
 # Artefactos de Vite (config temporal)
 *.timestamp-*.mjs
+
+# Estado de otras herramientas (no es fuente del proyecto)
+.kiro/
+
+# Backups de hojas de estilo (app.css es la fuente)
+apps/desktop/src/styles/*.new

@@ -237,6 +237,46 @@ export function parseAutoPilotCommand(
 }
 
 /**
+ * Edición genérica.
+ *
+ * «editá», «arreglalo», «hacelo» no dicen qué hacer, y antes caían al modelo,
+ * que contestaba «listo» sin ejecutar nada. En esta app editar sin más detalle
+ * significa la limpieza integral: silencios, pausas, ruido, nivelado y zoom.
+ *
+ * No pisa pedidos específicos: si el texto nombra subtítulos, silencios, música,
+ * color, título o exportación, lo resuelve el parser que corresponde.
+ */
+export function parseGenericEditCommand(
+  raw: string,
+): Extract<OperatorAction, { kind: 'auto_cleanup' }> | null {
+  const text = normalize(raw);
+  const verb =
+    /\b(edita|editá|editame|edítame|arregla|arreglá|arreglalo|mejora|mejorá|mejoralo|procesa|procesá|hacelo|haceme|metele|dale)\b/.test(
+      text,
+    );
+  const target =
+    /\b(video|esto|todo|proyecto|clip|material|timeline|trabajo)\b/.test(text) ||
+    /^(editalo|editálo|hacelo|hacé|dale|metele|arreglalo)$/.test(text);
+  if (!verb || !target) return null;
+  if (
+    /\b(silencio|pausa|subtitulo|subtítulo|texto|musica|música|zoom|ruido|volumen|export\w*|titulo|título|color|hablante|marcador)\b/.test(
+      text,
+    )
+  ) {
+    return null;
+  }
+  return {
+    kind: 'auto_cleanup',
+    denoise: 'medium',
+    levelAudio: true,
+    zoomCuts: true,
+    cutSilences: true,
+    cutPauses: true,
+    targetLufs: -14,
+  };
+}
+
+/**
  * Servidor MCP local.
  *
  * «servidor MCP», «conectar una IA», «controlar desde fuera». Arranca el
@@ -392,6 +432,8 @@ export function parseOperatorCommand(
   if (autoPilot) return autoPilot;
   const autoCleanup = parseAutoCleanupCommand(text);
   if (autoCleanup) return autoCleanup;
+  const genericEdit = parseGenericEditCommand(text);
+  if (genericEdit) return genericEdit;
   const mcpServer = parseMcpServerCommand(text);
   if (mcpServer) return mcpServer;
   const autoSubtitles = parseAutoSubtitlesCommand(text);

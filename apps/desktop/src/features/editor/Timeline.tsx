@@ -410,6 +410,51 @@ function CueBlock({
   );
 }
 
+const TIMELINE_HEIGHT_KEY = 'editoria.timeline-height.v1';
+const TRACK_HEIGHTS_KEY = 'editoria.track-heights.v1';
+const TRACK_COLLAPSED_KEY = 'editoria.track-collapsed.v1';
+const TRACK_MIN = 28;
+const TRACK_MAX = 140;
+
+function clampTrackHeight(value: number): number {
+  return Math.min(TRACK_MAX, Math.max(TRACK_MIN, Math.round(value)));
+}
+
+function readTrackHeights(): Record<string, number> {
+  try {
+    const raw = window.localStorage.getItem(TRACK_HEIGHTS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const result: Record<string, number> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        result[key] = clampTrackHeight(value);
+      }
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function readCollapsedTracks(): string[] {
+  try {
+    const raw = window.localStorage.getItem(TRACK_COLLAPSED_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+const TIMELINE_MIN = 140;
+const TIMELINE_MAX = 720;
+const TIMELINE_DEFAULT = 280;
+
+function clampTimelineHeight(value: number): number {
+  return Math.min(TIMELINE_MAX, Math.max(TIMELINE_MIN, Math.round(value)));
+}
+
 export function Timeline() {
   const store = useProjectStore();
   const project = store.state.project;
@@ -418,6 +463,46 @@ export function Timeline() {
   // usuario manda con los controles de la barra de la timeline.
   const [pxPerFrame, setPxPerFrame] = useState(preferences.defaultZoom);
   const [newTrackKind, setNewTrackKind] = useState<Track['kind']>('video');
+  // Alto de la timeline: se arrastra desde la asa, se guarda y se recuerda.
+  const [timelineHeight, setTimelineHeight] = useState<number>(() => {
+    if (typeof window === 'undefined') return TIMELINE_DEFAULT;
+    const stored = Number(window.localStorage.getItem(TIMELINE_HEIGHT_KEY));
+    return Number.isFinite(stored) && stored > 0 ? clampTimelineHeight(stored) : TIMELINE_DEFAULT;
+  });
+
+  useEffect(() => {
+    document.documentElement.style.setProperty('--timeline-height', `${timelineHeight}px`);
+    try {
+      window.localStorage.setItem(TIMELINE_HEIGHT_KEY, String(timelineHeight));
+    } catch {
+      // Sin almacenamiento: el alto vale para esta sesión.
+    }
+  }, [timelineHeight]);
+
+  // Alto y plegado por pista: la timeline se ajusta a cómo trabaja cada uno.
+  const [trackHeights, setTrackHeights] = useState<Record<string, number>>(() =>
+    typeof window === 'undefined' ? {} : readTrackHeights(),
+  );
+  const [collapsedTracks, setCollapsedTracks] = useState<ReadonlySet<string>>(
+    () => new Set(typeof window === 'undefined' ? [] : readCollapsedTracks()),
+  );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TRACK_HEIGHTS_KEY, JSON.stringify(trackHeights));
+    } catch {
+      // Sin almacenamiento: vale para esta sesión.
+    }
+  }, [trackHeights]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TRACK_COLLAPSED_KEY, JSON.stringify([...collapsedTracks]));
+    } catch {
+      // Sin almacenamiento: vale para esta sesión.
+    }
+  }, [collapsedTracks]);
+
   const [preview, setPreview] = useState<Drag | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(preferences.snapEnabled);
   const [colorFilter, setColorFilter] = useState<ClipColorTag | 'all'>('all');
@@ -1179,6 +1264,52 @@ export function Timeline() {
 
   return (
     <div className="timeline">
+      <div
+        className="timeline-resize"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="Cambiar el alto de la timeline"
+        aria-valuemin={TIMELINE_MIN}
+        aria-valuemax={TIMELINE_MAX}
+        aria-valuenow={timelineHeight}
+        tabIndex={0}
+        title="Arrastrá para cambiar el alto · doble clic para restablecer"
+        onPointerDown={(event) => {
+          event.preventDefault();
+          const startY = event.clientY;
+          const startHeight = timelineHeight;
+          const move = (pointer: PointerEvent): void => {
+            setTimelineHeight(clampTimelineHeight(startHeight + (startY - pointer.clientY)));
+          };
+          const up = (): void => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            setTimelineHeight((value) => clampTimelineHeight(value + 24));
+          }
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            setTimelineHeight((value) => clampTimelineHeight(value - 24));
+          }
+          if (event.key === 'Home') {
+            event.preventDefault();
+            setTimelineHeight(TIMELINE_MIN);
+          }
+          if (event.key === 'End') {
+            event.preventDefault();
+            setTimelineHeight(TIMELINE_MAX);
+          }
+        }}
+        onDoubleClick={() => setTimelineHeight(TIMELINE_DEFAULT)}
+      />
       <div className="timeline-toolbar">
         <div className="timeline-tools">
           <button
@@ -1532,11 +1663,13 @@ export function Timeline() {
               track.kind === 'caption'
                 ? project.captions.cues.filter((cue) => cue.trackId === track.id)
                 : [];
-            const height = track.kind === 'caption' ? CAPTION_ROW_HEIGHT : ROW_HEIGHT;
+            const collapsed = collapsedTracks.has(track.id);
+            const fallback = track.kind === 'caption' ? CAPTION_ROW_HEIGHT : ROW_HEIGHT;
+            const height = collapsed ? TRACK_MIN : (trackHeights[track.id] ?? fallback);
             return (
               <div
                 key={track.id}
-                className={`timeline-row${store.state.selection.kind === 'track' && store.state.selection.id === track.id ? ' selected' : ''}`}
+                className={`timeline-row${store.state.selection.kind === 'track' && store.state.selection.id === track.id ? ' selected' : ''}${collapsed ? ' collapsed' : ''}`}
                 style={{ height }}
                 data-track-id={track.id}
               >
@@ -1551,6 +1684,23 @@ export function Timeline() {
                     <span>{track.label}</span>
                   </button>
                   <div className="track-flags">
+                    <button
+                      type="button"
+                      aria-label={collapsed ? `Expandir ${track.label}` : `Colapsar ${track.label}`}
+                      aria-pressed={collapsed}
+                      title={collapsed ? 'Expandir pista' : 'Colapsar pista'}
+                      className="flag"
+                      onClick={() =>
+                        setCollapsedTracks((current) => {
+                          const next = new Set(current);
+                          if (next.has(track.id)) next.delete(track.id);
+                          else next.add(track.id);
+                          return next;
+                        })
+                      }
+                    >
+                      <Icon name={collapsed ? 'chevron' : 'chevron-down'} size={12} />
+                    </button>
                     <button
                       type="button"
                       aria-label={`Silenciar ${track.label}`}
@@ -1595,6 +1745,40 @@ export function Timeline() {
                     </button>
                   </div>
                 </div>
+                <div
+                  className="track-resize"
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label={`Alto de la pista ${track.label}`}
+                  title="Arrastrá para cambiar el alto de esta pista · doble clic para restablecer"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const startY = event.clientY;
+                    const startHeight = collapsed ? fallback : height;
+                    const move = (pointer: PointerEvent): void => {
+                      setTrackHeights((current) => ({
+                        ...current,
+                        [track.id]: clampTrackHeight(startHeight + (pointer.clientY - startY)),
+                      }));
+                    };
+                    const up = (): void => {
+                      window.removeEventListener('pointermove', move);
+                      window.removeEventListener('pointerup', up);
+                      window.removeEventListener('pointercancel', up);
+                    };
+                    window.addEventListener('pointermove', move);
+                    window.addEventListener('pointerup', up);
+                    window.addEventListener('pointercancel', up);
+                  }}
+                  onDoubleClick={() =>
+                    setTrackHeights((current) => {
+                      const next = { ...current };
+                      delete next[track.id];
+                      return next;
+                    })
+                  }
+                />
                 <div
                   className="track-lane"
                   data-lane-track-id={track.id}

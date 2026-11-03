@@ -945,6 +945,32 @@ export function createFakeService(): FakeService {
         })),
       };
     },
+    async exportLossless() {
+      throw new Error('exportar sin recodificar no está disponible en las pruebas');
+    },
+    async remux() {
+      throw new Error('remux no está disponible en las pruebas');
+    },
+    async writeChapters() {
+      throw new Error('capítulos no está disponible en las pruebas');
+    },
+    async extractAudio() {
+      throw new Error('extraer audio no está disponible en las pruebas');
+    },
+    async listPlugins() {
+      return [];
+    },
+    async installPlugin() {
+      throw new Error('instalar plugins no está disponible en las pruebas');
+    },
+    async removePlugin() {},
+    async setPluginEnabled() {},
+    async getFlowProxies() {
+      return {};
+    },
+    async setFlowProxy() {
+      return {};
+    },
     async startMcpServer() {
       return { url: 'http://127.0.0.1:9999/mcp', token: 'token-de-prueba' };
     },

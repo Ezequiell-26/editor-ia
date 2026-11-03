@@ -20,6 +20,10 @@ const MAX_MESSAGES: usize = 16;
 const MAX_MESSAGE_CHARS: usize = 4_000;
 const MAX_CONTEXT_CHARS: usize = 3_000;
 const MAX_REPLY_CHARS: usize = 2_000;
+const MAX_ASSISTANT_ACTIONS: usize = 5;
+const MAX_ASSISTANT_MCP_ARGS_BYTES: usize = 12 * 1024;
+const MAX_ASSISTANT_MCP_CATALOG_BYTES: usize = 48 * 1024;
+const MAX_ASSISTANT_MCP_ARG_FIELDS: usize = 48;
 
 const VIEWS: [&str; 33] = [
     "home",
@@ -122,7 +126,10 @@ pub struct AssistantRequest {
 #[serde(rename_all = "camelCase")]
 pub struct AssistantReply {
     pub reply: String,
+    /// Primera acción para clientes antiguos que sólo conocen `action`.
     pub action: Option<Value>,
+    /// Secuencia validada y ordenada; máximo MAX_ASSISTANT_ACTIONS.
+    pub actions: Vec<Value>,
     pub provider_id: String,
     pub model: String,
     pub simulated: bool,
@@ -310,11 +317,54 @@ fn clean_action(value: Option<&Value>) -> Option<Value> {
         }
         "auto_pilot" => Some(json!({ "kind": "auto_pilot" })),
         "delete_selected" | "split_at_playhead" => Some(json!({ "kind": kind })),
-        "auto_pilot" | "play" | "pause" | "save" | "export" | "status" | "undo" | "redo" => {
+        "play" | "pause" | "save" | "export" | "status" | "undo" | "redo" => {
             Some(json!({ "kind": kind }))
+        }
+        "mcp_call" => {
+            let tool = clean_name(value, "tool", 80)?;
+            let arguments = value.get("arguments")?;
+            let fields = arguments.as_object()?;
+            if fields.len() > MAX_ASSISTANT_MCP_ARG_FIELDS
+                || serde_json::to_vec(arguments)
+                    .map(|bytes| bytes.len() > MAX_ASSISTANT_MCP_ARGS_BYTES)
+                    .unwrap_or(true)
+            {
+                return None;
+            }
+            Some(json!({
+                "kind": "mcp_call",
+                "tool": tool,
+                "arguments": arguments
+            }))
         }
         _ => None,
     }
+}
+
+/// Limpia una lista de acciones propuesta por el proveedor. Se mantiene el
+/// campo singular antiguo como fallback; no se aceptan acciones desconocidas,
+/// duplicadas ni más de MAX_ASSISTANT_ACTIONS por respuesta.
+fn clean_actions(value: &Value) -> Vec<Value> {
+    let candidates: Vec<&Value> = value
+        .get("actions")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .map(|items| items.iter().collect())
+        .unwrap_or_else(|| value.get("action").into_iter().collect());
+
+    let mut actions = Vec::with_capacity(MAX_ASSISTANT_ACTIONS);
+    for candidate in candidates.into_iter().take(MAX_ASSISTANT_ACTIONS * 4) {
+        let Some(action) = clean_action(Some(candidate)) else {
+            continue;
+        };
+        if !actions.contains(&action) {
+            actions.push(action);
+            if actions.len() == MAX_ASSISTANT_ACTIONS {
+                break;
+            }
+        }
+    }
+    actions
 }
 
 fn clean_reply(value: &str) -> String {
@@ -379,31 +429,43 @@ fn mock_reply(messages: &[AssistantMessage], model: &str) -> AssistantReply {
             None,
         )
     };
+    let actions = action.clone().into_iter().collect();
     AssistantReply {
         reply: reply.to_owned(),
         action,
+        actions,
         provider_id: "mock".to_owned(),
         model: model.to_owned(),
         simulated: true,
     }
 }
 
-/// Llamada real al proveedor OpenAI-compatible: arma el prompt del sistema,
-/// envía el chat y devuelve `(reply, action)` ya saneados. Separada del
-/// comando para poder medirla en una prueba live sin estado de Tauri.
+/// Llamada real al proveedor OpenAI-compatible: devuelve respuesta y
+/// secuencia de acciones ya saneadas. Separada del comando para poder probarla
+/// sin estado de Tauri.
 async fn call_provider(
     base_url: &str,
     model: &str,
     context: &str,
     messages: &[AssistantMessage],
     key: Option<String>,
-) -> Result<(String, Option<Value>), ProjectError> {
+) -> Result<(String, Vec<Value>), ProjectError> {
     let system = concat!(
         "Sos Olyvia, la asistente del estudio de creación local Olyvia: un editor de ",
         "video con guion, medios, voz, motion graphics y exportación FFmpeg, 100% sin nube. ",
         "Respondé breve, claro y en español rioplatense; no inventes datos del proyecto. ",
         "Devolvés SOLO un objeto JSON válido, sin markdown: ",
-        "{\"reply\": string, \"action\"?: object}. ",
+        "{\"reply\": string, \"actions\"?: [object, ...]}. ",
+        "Podés proponer entre 1 y 5 acciones ordenadas; se ejecutan en secuencia. ",
+        "Usá varias sólo cuando el pedido requiera pasos dependientes; no repitas acciones. ",
+        "El borrado siempre espera confirmación explícita. ",
+        "El catálogo completo con nombres, descripciones y JSON Schema está en la sección ",
+        "CATALOGO_MCP_JSON del contexto. Llamá una herramienta con ",
+        "{\"kind\":\"mcp_call\",\"tool\":\"nombre_exacto\",\"arguments\":{...}}. ",
+        "Elegí sólo herramientas presentes en ese catálogo y respetá inputSchema; ",
+        "la app rechazará herramientas desconocidas o argumentos inválidos. ",
+        "Las consultas read-only no requieren confirmación; las escrituras destructivas ",
+        "o las operaciones sobre archivos/servicios externos se detienen para autorización. ",
         "Acciones permitidas: {\"kind\":\"navigate\",\"view\":\"home|projects|script|assets|production|editor|download|director|auto-edit|youtube|factory|creator|compliance|convert|compare|compress|denoise|sharpen|thumbnails|localization|ai-hub|motion|visuals|background|upscale|text-edit|multicam|mixer|vfx|lab|learn|mcp|settings\"}, ",
         "{\"kind\":\"play\"}, {\"kind\":\"pause\"}, {\"kind\":\"save\"}, {\"kind\":\"export\"}, {\"kind\":\"status\"}, {\"kind\":\"undo\"}, {\"kind\":\"redo\"}, ",
         "{\"kind\":\"motion\",\"templateId\":\"title-card|lower-third|end-card|stat-callout\",\"text\":string,\"secondary\"?:string}, ",
@@ -439,8 +501,8 @@ async fn call_provider(
         "resuelve, importa y monta. No digas que la abrirás: usá la acción. ",
         "Para editar la timeline necesitás saber qué hay: si el contexto no alcanza, ",
         "preguntá antes de proponer un corte o un borrado. Borrar y cortar se pueden deshacer. ",
-        "No propongas acciones destructivas ni inventes rutas ni nombres de material. ",
-        "Si no hace falta una acción, omití action. Contexto del proyecto: "
+        "No inventes rutas, nombres de material, IDs ni argumentos de herramientas. ",
+        "Si no hace falta una acción, omití actions. Contexto del proyecto: "
     );
     let system = format!("{system}{context}");
     let mut body_messages = vec![json!({ "role": "system", "content": system })];
@@ -502,18 +564,57 @@ async fn call_provider(
                 "la respuesta no trae choices[0].message.content",
             )
         })?;
-    let (reply, action) = if let Some(json_text) = extract_json(content) {
+    let (reply, actions) = if let Some(json_text) = extract_json(content) {
         match serde_json::from_str::<Value>(json_text) {
             Ok(value) => (
                 clean_reply(value.get("reply").and_then(Value::as_str).unwrap_or("")),
-                clean_action(value.get("action")),
+                clean_actions(&value),
             ),
-            Err(_) => (clean_reply(content), None),
+            Err(_) => (clean_reply(content), Vec::new()),
         }
     } else {
-        (clean_reply(content), None)
+        (clean_reply(content), Vec::new())
     };
-    Ok((reply, action))
+    Ok((reply, actions))
+}
+
+/// El catálogo MCP viaja separado del contexto del proyecto para que el
+/// límite breve de contexto nunca recorte los esquemas de herramientas.
+fn assistant_context(context: Option<&Value>) -> String {
+    let Some(value) = context else {
+        return "{}".to_owned();
+    };
+
+    let mcp_catalog = value
+        .get("mcpTools")
+        .and_then(Value::as_array)
+        .filter(|items| !items.is_empty())
+        .and_then(|items| serde_json::to_string(items).ok())
+        .filter(|serialized| serialized.len() <= MAX_ASSISTANT_MCP_CATALOG_BYTES);
+
+    let brain = value
+        .get("brain")
+        .and_then(Value::as_str)
+        .map(|brief| brief.chars().take(MAX_CONTEXT_CHARS).collect::<String>());
+
+    let mut rest = value.clone();
+    if let Some(map) = rest.as_object_mut() {
+        map.remove("brain");
+        map.remove("mcpTools");
+    }
+    let rest: String = rest.to_string().chars().take(MAX_CONTEXT_CHARS).collect();
+
+    let mut sections = Vec::with_capacity(3);
+    if let Some(catalog) = mcp_catalog {
+        sections.push(format!(
+            "CATALOGO_MCP_JSON (nombres, descripciones y JSON Schema):\n{catalog}"
+        ));
+    }
+    if let Some(brief) = brain {
+        sections.push(format!("CONTEXTO DEL CEREBRO DE EDICION:\n{brief}"));
+    }
+    sections.push(format!("CONTEXTO DEL PROYECTO:\n{rest}"));
+    sections.join("\n\n")
 }
 
 #[tauri::command]
@@ -548,31 +649,10 @@ pub async fn assistant_chat(
             "falta la clave del proveedor en el almacén de Windows",
         ));
     }
-    // El brief del cerebro va primero y como texto legible, no como campo JSON
-    // escapado: es la parte que el modelo tiene que leer antes de proponer nada.
-    let brain = request
-        .context
-        .as_ref()
-        .and_then(|value| value.get("brain"))
-        .and_then(|value| value.as_str())
-        .map(str::to_owned);
-    let context = request
-        .context
-        .as_ref()
-        .map(|value| {
-            let mut rest = value.clone();
-            if let Some(map) = rest.as_object_mut() {
-                map.remove("brain");
-            }
-            rest.to_string()
-        })
-        .unwrap_or_else(|| "{}".to_owned());
-    let context = match brain {
-        Some(brief) => format!("{brief}\n\n{context}"),
-        None => context,
-    };
-    let context: String = context.chars().take(MAX_CONTEXT_CHARS).collect();
-    let (reply, action) = call_provider(
+    // El catálogo de herramientas y sus esquemas se conserva separado del
+    // resumen del proyecto: el límite de contexto breve no debe truncarlo.
+    let context = assistant_context(request.context.as_ref());
+    let (reply, actions) = call_provider(
         &provider.base_url,
         &provider.model,
         &context,
@@ -580,9 +660,11 @@ pub async fn assistant_chat(
         key,
     )
     .await?;
+    let action = actions.first().cloned();
     Ok(AssistantReply {
         reply,
         action,
+        actions,
         provider_id: "openai-compatible".to_owned(),
         model: provider.model,
         simulated: false,
@@ -1093,6 +1175,118 @@ mod tests {
     }
 
     #[test]
+    fn sanitizes_ordered_multi_action_plans_and_keeps_legacy_action() {
+        let legacy = clean_actions(&json!({
+            "action": { "kind": "navigate", "view": "editor" }
+        }));
+        assert_eq!(
+            legacy,
+            vec![json!({ "kind": "navigate", "view": "editor" })]
+        );
+
+        let actions = clean_actions(&json!({
+            "actions": [
+                { "kind": "navigate", "view": "editor" },
+                { "kind": "navigate", "view": "motion" },
+                { "kind": "unknown" },
+                { "kind": "navigate", "view": "motion" },
+                { "kind": "save" },
+                { "kind": "undo" },
+                { "kind": "redo" },
+                { "kind": "export" }
+            ],
+            "action": { "kind": "pause" }
+        }));
+        assert_eq!(actions.len(), 5);
+        assert_eq!(actions[0], json!({ "kind": "navigate", "view": "editor" }));
+        assert_eq!(actions[1], json!({ "kind": "navigate", "view": "motion" }));
+        assert_eq!(actions[2], json!({ "kind": "save" }));
+        assert_eq!(actions[3], json!({ "kind": "undo" }));
+        assert_eq!(actions[4], json!({ "kind": "redo" }));
+        assert!(!actions.contains(&json!({ "kind": "pause" })));
+    }
+
+    #[test]
+    fn assistant_context_preserves_catalog_separately_from_project_limit() {
+        let context = json!({
+            "view": "editor",
+            "brain": "CEREBRO DE EDICION",
+            "mcpTools": [{
+                "name": "app_status",
+                "description": "Estado de la app",
+                "inputSchema": { "type": "object", "properties": {} },
+                "annotations": { "readOnly": true }
+            }],
+            "largeProjectField": "x".repeat(MAX_CONTEXT_CHARS + 1_000)
+        });
+        let packed = assistant_context(Some(&context));
+        assert!(packed.contains("CATALOGO_MCP_JSON"));
+        assert!(packed.contains("app_status"));
+        assert!(packed.contains("inputSchema"));
+        assert!(packed.contains("CEREBRO DE EDICION"));
+        assert!(packed.contains("CONTEXTO DEL PROYECTO"));
+        assert!(!packed.contains("mcpTools\\\":"));
+    }
+
+    #[test]
+    fn assistant_context_omits_catalog_if_it_exceeds_the_safe_budget() {
+        let context = json!({
+            "mcpTools": [{
+                "name": "oversized",
+                "schema": "x".repeat(MAX_ASSISTANT_MCP_CATALOG_BYTES)
+            }]
+        });
+        let packed = assistant_context(Some(&context));
+        assert!(!packed.contains("CATALOGO_MCP_JSON"));
+        assert!(packed.contains("CONTEXTO DEL PROYECTO"));
+    }
+
+    #[test]
+    fn mcp_action_requires_a_bounded_tool_name_and_object_arguments() {
+        assert_eq!(
+            clean_action(Some(&json!({
+                "kind": "mcp_call",
+                "tool": "app_status",
+                "arguments": {}
+            }))),
+            Some(json!({
+                "kind": "mcp_call",
+                "tool": "app_status",
+                "arguments": {}
+            }))
+        );
+        assert!(clean_action(Some(&json!({
+            "kind": "mcp_call",
+            "tool": "",
+            "arguments": {}
+        })))
+        .is_none());
+        assert!(clean_action(Some(&json!({
+            "kind": "mcp_call",
+            "tool": "app_status",
+            "arguments": []
+        })))
+        .is_none());
+
+        let oversized = json!({
+            "kind": "mcp_call",
+            "tool": "settings_set",
+            "arguments": { "payload": "x".repeat(MAX_ASSISTANT_MCP_ARGS_BYTES) }
+        });
+        assert!(clean_action(Some(&oversized)).is_none());
+
+        let many_fields = (0..=MAX_ASSISTANT_MCP_ARG_FIELDS)
+            .map(|index| (format!("key_{index}"), json!(index)))
+            .collect::<serde_json::Map<String, Value>>();
+        assert!(clean_action(Some(&json!({
+            "kind": "mcp_call",
+            "tool": "settings_set",
+            "arguments": Value::Object(many_fields)
+        })))
+        .is_none());
+    }
+
+    #[test]
     fn mock_mode_returns_a_navigation_action() {
         let reply = mock_reply(
             &[AssistantMessage {
@@ -1136,12 +1330,12 @@ mod tests {
             .enable_all()
             .build()
             .expect("runtime de tokio");
-        let (reply, action) = runtime
+        let (reply, actions) = runtime
             .block_on(call_provider(&base_url, &model, "{}", &messages, None))
             .expect("el proveedor local debe responder");
         let elapsed = started.elapsed();
 
-        eprintln!("ronda real {model} en {elapsed:.1?}: “{reply}” (action={action:?})");
+        eprintln!("ronda real {model} en {elapsed:.1?}: “{reply}” (actions={actions:?})");
         assert!(!reply.trim().is_empty(), "la respuesta quedó vacía");
         assert_ne!(
             reply, "Listo. ¿Qué querés hacer ahora?",

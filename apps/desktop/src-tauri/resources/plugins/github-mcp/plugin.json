@@ -1,0 +1,14 @@
+{
+  "id": "github-mcp",
+  "name": "GitHub",
+  "version": "1.0.0",
+  "description": "Conector: registra el servidor MCP oficial de GitHub. Necesita GITHUB_PERSONAL_ACCESS_TOKEN.",
+  "author": "Olyvia",
+  "official": true,
+  "kind": "connector",
+  "mcp": {
+    "command": "npx",
+    "args": ["-y", "@modelcontextprotocol/server-github"],
+    "env": ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+  }
+}

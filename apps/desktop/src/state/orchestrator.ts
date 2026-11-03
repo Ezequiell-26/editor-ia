@@ -91,11 +91,13 @@ export interface OrchestratorJob {
   readonly schema: typeof ORCHESTRATOR_SCHEMA;
   readonly id: string;
   readonly name: string;
+  readonly source?: 'mcp' | 'ui';
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly status: OrchestratorStatus;
   readonly stage: OrchestratorStage;
   readonly progress: number;
+  readonly cancelRequested?: boolean;
   readonly options: OrchestratorOptions;
   readonly log: readonly OrchestratorLogEntry[];
   readonly projectPath?: string;
@@ -229,6 +231,7 @@ async function generateSceneMedia(
   deps: OrchestratorDeps,
   project: ProjectDocument,
   log: (level: OrchestratorLogEntry['level'], message: string) => void,
+  onProgress?: (completed: number, total: number) => void,
 ): Promise<{ project: ProjectDocument; mediaByScene: Record<string, string>; generations: number }> {
   const options = job.options;
   if (!options.generateMedia) return { project, mediaByScene: {}, generations: 0 };
@@ -276,6 +279,7 @@ async function generateSceneMedia(
     const prompt = sceneVisualPrompt(scene);
     if (!prompt) {
       log('warn', `Escena ${index + 1} sin prompt visual; se omite la generación.`);
+      onProgress?.(index + 1, scenes.length);
       continue;
     }
     log('info', `Flow ${index + 1}/${scenes.length}: ${prompt.slice(0, 110)}`);
@@ -351,6 +355,8 @@ async function generateSceneMedia(
           cause instanceof Error ? cause.message : 'error desconocido'
         }`,
       );
+    } finally {
+      onProgress?.(index + 1, scenes.length);
     }
   }
 
@@ -476,7 +482,16 @@ export async function runOrchestratorJob(
       if (job.options.generateMedia) {
         emit({ stage: 'media', progress: 0.33 });
         if (stopIfCancelled()) return job;
-        const generated = await generateSceneMedia(job, deps, next, log);
+        const generated = await generateSceneMedia(
+          job,
+          deps,
+          next,
+          log,
+          (completed, total) => {
+            emit({ progress: 0.33 + (0.33 * completed) / Math.max(1, total) });
+          },
+        );
+        if (stopIfCancelled()) return job;
         next = generated.project;
         mediaByScene = generated.mediaByScene;
         generations = generated.generations;
@@ -554,6 +569,9 @@ export async function runOrchestratorJob(
         progress: 0.98,
       });
     }
+
+    // Una cancelación durante FFmpeg se confirma al terminar la operación no interrumpible.
+    if (stopIfCancelled()) return job;
 
     if (!project && !job.projectPath) {
       throw new Error('el trabajo terminó sin proyecto');

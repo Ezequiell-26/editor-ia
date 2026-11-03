@@ -188,7 +188,12 @@ export type AssistantAction =
    * `safe` aplica sólo lo que no puede romper nada y `all` aplica todo lo que
    * tenga operación disponible.
    */
-  | { readonly kind: 'brain'; readonly mode: 'safe' | 'all' | 'report' };
+  | { readonly kind: 'brain'; readonly mode: 'safe' | 'all' | 'report' }
+  | {
+      readonly kind: 'mcp_call';
+      readonly tool: string;
+      readonly arguments: Readonly<Record<string, unknown>>;
+    };
 
 export interface AssistantChatRequest {
   readonly messages: readonly AssistantMessage[];
@@ -198,7 +203,10 @@ export interface AssistantChatRequest {
 
 export interface AssistantChatReply {
   readonly reply: string;
+  /** Primera acción para compatibilidad con servicios antiguos. */
   readonly action: AssistantAction | null;
+  /** Acciones ordenadas y saneadas; opcional para clientes anteriores. */
+  readonly actions?: readonly AssistantAction[];
   readonly providerId: string;
   readonly model: string;
   readonly simulated: boolean;
@@ -1199,6 +1207,40 @@ export interface TranscriptionWord {
   readonly probability: number;
 }
 
+export interface LosslessResult {
+  readonly path: string;
+  readonly bytes: number;
+  readonly requestedSeconds: number;
+  readonly actualSeconds: number;
+  readonly startShiftSeconds: number;
+}
+
+export interface PluginCommandInfo {
+  readonly id: string;
+  readonly label: string;
+  readonly steps: readonly string[];
+}
+
+export interface PluginInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly version: string;
+  readonly description: string;
+  readonly author: string;
+  readonly official: boolean;
+  readonly kind: 'plugin' | 'skill' | 'connector';
+  readonly mcp: { readonly command: string; readonly args: readonly string[]; readonly env: readonly string[] } | null;
+  readonly enabled: boolean;
+  readonly directory: string;
+  readonly error: string | null;
+  readonly presets: {
+    readonly effects: readonly unknown[];
+    readonly exportProfiles: readonly unknown[];
+    readonly captionStyles: readonly unknown[];
+  };
+  readonly commands: readonly PluginCommandInfo[];
+}
+
 export interface McpServerInfo {
   readonly url: string;
   readonly token: string;
@@ -1795,6 +1837,33 @@ export interface DesktopService {
   }): Promise<DiarizeProviderInfo>;
   /** Hablantes por proveedor externo (Deepgram o AssemblyAI). */
   diarizeAudio(path: string, language?: string): Promise<DiarizeResult>;
+  /** Corta un rango de un archivo sin recodificar (copia de paquetes). */
+  exportLossless(input: {
+    input: string;
+    output: string;
+    startSeconds: number;
+    endSeconds: number;
+    exact?: boolean;
+  }): Promise<LosslessResult>;
+  /** Escribe capítulos y título en una copia, sin recodificar. */
+  writeChapters(input: {
+    input: string;
+    output: string;
+    title?: string;
+    chapters: readonly { startSeconds: number; endSeconds: number; title: string }[];
+  }): Promise<{ path: string; bytes: number; chapters: number }>;
+  /** Extrae la pista de audio sin recodificar. */
+  extractAudio(input: { input: string; output: string }): Promise<{ path: string; bytes: number; codec: string }>;
+  /** Cambia el contenedor sin recodificar. */
+  remux(input: { input: string; output: string }): Promise<LosslessResult>;
+  /** Plugins instalados (oficiales y de usuario). */
+  listPlugins(): Promise<readonly PluginInfo[]>;
+  installPlugin(path: string): Promise<PluginInfo>;
+  removePlugin(id: string): Promise<void>;
+  setPluginEnabled(id: string, enabled: boolean): Promise<void>;
+  /** Proxy por cuenta de Google Flow (se escribe en proxies.json del MCP). */
+  getFlowProxies(): Promise<Record<string, string>>;
+  setFlowProxy(accountId: string, proxy: string | null): Promise<Record<string, string>>;
   /** Servidor MCP local para que una IA externa maneje la app. */
   startMcpServer(): Promise<McpServerInfo>;
   mcpServerStatus(): Promise<McpServerInfo | null>;
@@ -2061,6 +2130,16 @@ export const PROJECT_COMMANDS = {
   getDiarizeProvider: 'get_diarize_provider',
   saveDiarizeProvider: 'save_diarize_provider',
   diarizeAudio: 'diarize_audio',
+  exportLossless: 'export_lossless',
+  remux: 'remux',
+  writeChapters: 'write_chapters',
+  extractAudio: 'extract_audio',
+  listPlugins: 'list_plugins',
+  installPlugin: 'install_plugin',
+  removePlugin: 'remove_plugin',
+  setPluginEnabled: 'set_plugin_enabled',
+  getFlowProxies: 'get_flow_proxies',
+  setFlowProxy: 'set_flow_proxy',
   startMcpServer: 'start_mcp_server',
   mcpServerStatus: 'mcp_server_status',
   mcpRespond: 'mcp_respond',
@@ -2891,6 +2970,47 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         apiKey: input.apiKey,
       })) as DiarizeProviderInfo;
     },
+    async exportLossless(input) {
+      return (await call(PROJECT_COMMANDS.exportLossless, { ...input })) as LosslessResult;
+    },
+    async remux(input) {
+      return (await call(PROJECT_COMMANDS.remux, { ...input })) as LosslessResult;
+    },
+    async writeChapters(input) {
+      return (await call(PROJECT_COMMANDS.writeChapters, { ...input })) as {
+        path: string;
+        bytes: number;
+        chapters: number;
+      };
+    },
+    async extractAudio(input) {
+      return (await call(PROJECT_COMMANDS.extractAudio, { ...input })) as {
+        path: string;
+        bytes: number;
+        codec: string;
+      };
+    },
+    async listPlugins() {
+      return (await call(PROJECT_COMMANDS.listPlugins, {})) as PluginInfo[];
+    },
+    async installPlugin(path) {
+      return (await call(PROJECT_COMMANDS.installPlugin, { path })) as PluginInfo;
+    },
+    async removePlugin(id) {
+      await call(PROJECT_COMMANDS.removePlugin, { id });
+    },
+    async setPluginEnabled(id, enabled) {
+      await call(PROJECT_COMMANDS.setPluginEnabled, { id, enabled });
+    },
+    async getFlowProxies() {
+      return (await call(PROJECT_COMMANDS.getFlowProxies, {})) as Record<string, string>;
+    },
+    async setFlowProxy(accountId, proxy) {
+      return (await call(PROJECT_COMMANDS.setFlowProxy, {
+        accountId,
+        proxy,
+      })) as Record<string, string>;
+    },
     async startMcpServer() {
       return (await call(PROJECT_COMMANDS.startMcpServer, {})) as McpServerInfo;
     },
@@ -3364,6 +3484,16 @@ function createUnavailableService(): DesktopService {
     getDiarizeProvider: async () => unavailable(),
     saveDiarizeProvider: async () => unavailable(),
     diarizeAudio: async () => unavailable(),
+    exportLossless: async () => unavailable(),
+    remux: async () => unavailable(),
+    writeChapters: async () => unavailable(),
+    extractAudio: async () => unavailable(),
+    listPlugins: async () => [],
+    installPlugin: async () => unavailable(),
+    removePlugin: async () => unavailable(),
+    setPluginEnabled: async () => unavailable(),
+    getFlowProxies: async () => ({}),
+    setFlowProxy: async () => ({}),
     startMcpServer: async () => unavailable(),
     mcpServerStatus: async () => null,
     mcpRespond: async () => false,

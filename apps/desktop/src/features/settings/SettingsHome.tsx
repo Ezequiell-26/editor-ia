@@ -16,6 +16,7 @@ import { useProjectStore } from '../../state/project-store';
 import { AudioProviderCard } from './AudioProviderCard';
 import { CapabilitiesCard } from './CapabilitiesCard';
 import { AppearanceCard } from './AppearanceCard';
+import { PluginsCard } from './PluginsCard';
 import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
@@ -313,6 +314,7 @@ export function SettingsHome({
 
           <SettingsSection section={sectionById('apariencia')} active={activeSection === 'apariencia'}>
             <AppearanceCard />
+            <PluginsCard />
           </SettingsSection>
 
           <SettingsSection section={sectionById('editor')} active={activeSection === 'editor'}>

@@ -73,6 +73,73 @@ Referencia: auditoría de `CutWire-Studios/Drift` en `docs/DRIFT-PARITY.md`.
   de `LottiePanel` vienen del WIP previo en `motion/`, comprobado con `git
   stash`; la de `EmojiPicker.focus` pasa al reintentar).
 
+## Corte sin recodificar (2026-11-03)
+
+Aprendido de LosslessCut (MIT): para sacar un rango no hace falta renderizar.
+
+- `[done]` **`export_lossless`** — `commands/lossless.rs`: `ffmpeg -ss -to -c copy` sobre el archivo
+  original. Devuelve duración real, bytes y **corrimiento por keyframe**, en vez de fingir precisión
+  al milisegundo.
+- `[done]` **Herramienta MCP** — `export_lossless` en el catálogo, disponible desde el asistente y
+  desde una IA externa.
+- `[pending]` **UI** — botón en el inspector de medios con inicio/fin y aviso del keyframe.
+- **Verificación**: Rust `commands::lossless` **2** (rango válido/invertido); `mcp-tools` **20**.
+  Suite **1738** verde.
+
+## Plugins (2026-11-02)
+
+- `[done]` **Gestor** — `commands/plugins.rs`: un plugin es una carpeta con `plugin.json`
+  (id, nombre, versión, autor, presets y comandos). Se instala copiándola al directorio de datos,
+  se activa/desactiva y se quita; los oficiales viven en `resources/plugins` y no se borran.
+  Ids validados (minúsculas, números, guiones, puntos): nada de rutas.
+- `[done]` **Manifiesto declarativo** — sin ejecución de código de terceros: el plugin describe
+  presets (efectos, perfiles, estilos) y comandos con pasos en lenguaje del operador. Un plugin no
+  puede leer archivos ni tocar la red.
+- `[done]` **UI** — Ajustes → Plugins: instalar desde carpeta, lista con insignia «oficial»,
+  activar/desactivar y quitar.
+- `[done]` **Plugin oficial de ejemplo** — `limpieza-rapida` con dos comandos.
+- `[pending]` **Ejecutar comandos y aplicar presets** desde la UI (requiere extraer el ejecutor del
+  asistente a un módulo compartido).
+- **Verificación**: Rust `commands::plugins` **3** (ids seguros, manifiesto válido, id inválido);
+  `PluginsCard.test` **3** (listado, activar, instalar). Suite **1736** verde.
+
+## Timeline: alto y plegado por pista (2026-11-02)
+
+- `[done]` **Alto por pista** — asa en el borde inferior de cada fila (28–140 px), doble clic
+  restablece el valor por defecto. Se guarda por id de pista en `localStorage`.
+- `[done]` **Plegar pistas** — botón de chevron en la cabecera: deja la fila en 28 px y oculta el
+  carril sin borrar clips. Persistido; sirve para trabajar con muchas pistas en pantalla chica.
+- **Verificación**: `Timeline.test` **12** (incluye plegado, persistencia y arrastre del asa).
+  Typecheck verde.
+- Patrones tomados de editores MIT tipo OpenCut/Etro: altura por pista, plegado y persistencia de
+  la vista local, sin servidor.
+
+## Timeline redimensionable y arrastre corregido (2026-11-02)
+
+- `[fixed]` **El clip volvía a su lugar** — `magneticMoveClip` cerraba los huecos de la pista de
+  destino, y eso arrastraba el clip recién soltado junto a su vecino. Ahora respeta el frame donde
+  se suelta; compactar es una acción aparte («cerrar huecos»). El test que consagraba el bug se
+  actualizó.
+- `[done]` **Alto redimensionable** — asa en la parte superior de la timeline: arrastrar cambia el
+  alto (140–720 px), `Home`/`End` van a los extremos, flechas ±24 px, doble clic restablece 280.
+  Se guarda en `localStorage` y se aplica con la variable `--timeline-height` en `.editor-grid`.
+- **Verificación**: `Timeline.test` **10** (incluye alto y persistencia); `project-actions.test`
+  **98** con la nueva expectativa de arrastre. Typecheck verde.
+
+## Perfiles y proxy por cuenta de Flow (2026-11-02)
+
+- `[done]` **Proxy por cuenta** — parche al MCP (`src/proxy-store.ts`): lee `proxies.json` del
+  directorio de datos y agrega `--proxy-server=<url>` al lanzar Chrome para esa cuenta. Sin proxy,
+  conexión directa. El MCP es MIT; el parche hay que reaplicarlo si se actualiza el repo.
+- `[done]` **Comandos en la app** — `get_flow_proxies` / `set_flow_proxy` escriben ese archivo con
+  validación de esquema (`http`, `https`, `socks5`) y sin espacios.
+- `[done]` **UI** — panel Flow: un campo de proxy por cuenta conectada; se guarda al salir del campo
+  y avisa que se aplica la próxima vez que la cuenta abra el navegador.
+- **Verificación**: Rust `commands::flow_profiles` **2**; prueba real del `proxy-store` compilado
+  (válido, sin esquema, sin entrada, ftp rechazado); typecheck verde.
+- `[pending]` **Fingerprint spoofing** (canvas/WebGL/UA): no se implementa. Es evasión de detección
+  de la plataforma, no aislamiento.
+
 ## Cuentas múltiples de Google Flow (2026-11-02)
 
 - `[done]` **Rotación** — `state/flow-accounts.ts`: lee `flow_list_accounts`, normaliza las cuentas

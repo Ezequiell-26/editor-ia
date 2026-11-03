@@ -1000,22 +1000,23 @@ export function moveClip(
  * Movimiento magnético: mueve el clip y cierra los huecos de la pista destino.
  * Es el gesto de una timeline magnética cuando el imán está activo.
  */
+/**
+ * Movimiento con imán.
+ *
+ * Antes cerraba los huecos de la pista de destino, y eso arrastraba el clip
+ * recién soltado junto a su vecino: se sentía como «vuelve al lugar de donde
+ * estaba». Ahora respeta el frame donde lo soltás; compactar es una acción
+ * aparte («cerrar huecos»).
+ *
+ * El imán real (a qué borde se pega) lo calcula la interfaz con `snapSpan`.
+ */
 export function magneticMoveClip(
   project: ProjectDocument,
   clipId: string,
   targetStart: number,
   targetTrackId?: string,
 ): ProjectDocument | null {
-  const sourceTrackId = project.timeline.clips.find((item) => item.id === clipId)?.trackId;
-  const moved = moveClip(project, clipId, targetStart, targetTrackId);
-  if (!moved) return null;
-  const clip = moved.timeline.clips.find((item) => item.id === clipId);
-  if (!clip) return moved;
-  let next = moved;
-  if (sourceTrackId && sourceTrackId !== clip.trackId) {
-    next = closeGaps(next, sourceTrackId).project;
-  }
-  return closeGaps(next, clip.trackId).project;
+  return moveClip(project, clipId, targetStart, targetTrackId);
 }
 
 export function applySpeedRamp(

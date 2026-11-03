@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
 import { readyAsset, createFakeService } from '../test/fake-service';
 import { addAsset, addClipFromAsset, ensureDelivery } from './project-actions';
@@ -63,6 +63,28 @@ describe('herramientas MCP', () => {
     expect(summary.clips).toBe(1);
     expect(summary.width).toBe(1920);
     expect(summary.durationSeconds).toBe(3);
+  });
+
+  it('devuelve un snapshot consolidado y permite filtrar secciones', async () => {
+    const { context } = fixture();
+    const full = JSON.parse(await executeMcpTool('project_snapshot', {}, context));
+    expect(full.schemaVersion).toBe(1);
+    expect(full.project.name).toBe('MCP');
+    expect(full.counts.clips).toBe(1);
+    expect(full.sections.clips.items).toHaveLength(1);
+    expect(full.sections.assets.items).toHaveLength(1);
+    expect(full.sections.tracks.items.length).toBeGreaterThan(0);
+    expect(
+      full.sections.tracks.items.reduce((sum: number, track: { clips: number }) => sum + track.clips, 0),
+    ).toBe(full.counts.clips);
+    expect(full.sections.profiles.items.length).toBeGreaterThan(0);
+
+    const compact = JSON.parse(
+      await executeMcpTool('project_snapshot', { include: ['clips'], limit: 1 }, context),
+    );
+    expect(Object.keys(compact.sections)).toEqual(['clips']);
+    expect(compact.sections.clips.items).toHaveLength(1);
+    expect(compact.sections.clips.truncated).toBe(false);
   });
 
   it('lista clips, pistas, assets y perfiles', async () => {
@@ -144,6 +166,26 @@ describe('herramientas MCP', () => {
     expect(reply).toBe('eco: cortá los silencios');
   });
 
+  it('expone un diagnóstico sin secretos', async () => {
+    const { context } = fixture();
+    const info = JSON.parse(await executeMcpTool('diagnostics', {}, context));
+    expect(info.app).toBe('olyvia');
+    expect(info.tools).toBeGreaterThan(20);
+    expect(info.project?.clips).toBe(1);
+    expect(JSON.stringify(info)).not.toMatch(/apiKey|sk-/);
+  });
+
+  it('marca las herramientas de lectura como readOnly', async () => {
+    const { context } = fixture();
+    const catalog = JSON.parse(await executeMcpTool('__catalog', {}, context));
+    const reads = catalog.filter((tool: { annotations?: { readOnlyHint?: boolean } }) => tool.annotations?.readOnlyHint);
+    const names = reads.map((tool: { name: string }) => tool.name);
+    for (const required of ['project_summary', 'timeline_clips', 'diagnostics', 'critic_run']) {
+      expect(names).toContain(required);
+    }
+    expect(names).not.toContain('clip_delete');
+  });
+
   it('publica el catálogo completo de herramientas', async () => {
     const { context } = fixture();
     const catalog = JSON.parse(await executeMcpTool('__catalog', {}, context));
@@ -151,6 +193,7 @@ describe('herramientas MCP', () => {
     expect(names.length).toBeGreaterThanOrEqual(30);
     for (const required of [
       'project_new',
+      'project_snapshot',
       'clip_add',
       'clip_effects',
       'audio_mix',
@@ -166,11 +209,71 @@ describe('herramientas MCP', () => {
       'package_project',
       'multicam_build',
       'factory_run',
+      'factory_job_status',
+      'factory_job_list',
+      'factory_job_cancel',
       'caption_style_update',
       'settings_set_tools',
     ]) {
       expect(names).toContain(required);
     }
+  });
+
+  it('expone consulta y cancelación de trabajos MCP sin bloquear la sesión', async () => {
+    const { context } = fixture();
+    const jobs = JSON.parse(await executeMcpTool('factory_job_list', {}, context));
+    expect(Array.isArray(jobs)).toBe(true);
+    await expect(
+      executeMcpTool('factory_job_status', { jobId: 'missing-job' }, context),
+    ).rejects.toThrow(/no existe un trabajo/);
+    const cancelled = JSON.parse(
+      await executeMcpTool('factory_job_cancel', { jobId: 'missing-job' }, context),
+    );
+    expect(cancelled).toMatchObject({
+      accepted: false,
+      jobId: 'missing-job',
+      status: 'not_found',
+      cooperative: true,
+    });
+  });
+
+  it('factory_run devuelve un jobId inmediatamente y se completa desde la cola MCP', async () => {
+    const { context } = fixture();
+    const accepted = JSON.parse(
+      await executeMcpTool(
+        'factory_run',
+        {
+          brief: 'Crear un video corto de prueba sobre un faro.',
+          outputDir: 'C:/salida',
+          scenes: 1,
+          render: false,
+        },
+        context,
+      ),
+    );
+
+    expect(accepted.ok).toBe(true);
+    expect(accepted.jobId).toEqual(expect.any(String));
+    expect(accepted.status).toBe('queued');
+
+    let final: Record<string, unknown> | null = null;
+    await vi.waitFor(async () => {
+      const current = JSON.parse(
+        await executeMcpTool('factory_job_status', { jobId: accepted.jobId }, context),
+      ) as Record<string, unknown>;
+      if (current.status === 'done' || current.status === 'error') final = current;
+      expect(final).not.toBeNull();
+    }, { timeout: 5000, interval: 20 });
+
+    const completed = final as Record<string, unknown> | null;
+    expect(completed?.error ?? undefined, JSON.stringify(completed)).toBeUndefined();
+    expect(completed).toMatchObject({
+      id: accepted.jobId,
+      source: 'mcp',
+      status: 'done',
+      progress: 1,
+    });
+    expect(final).toHaveProperty('projectPath');
   });
 
   it('agrega pistas y clips, y cambia la velocidad', async () => {

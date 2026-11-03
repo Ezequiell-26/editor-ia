@@ -52,7 +52,6 @@ import { useProjectStore } from '../../state/project-store';
 import { runSilenceCuts } from '../../state/silence-cuts';
 import { autoCleanupSummary, runAutoCleanup } from '../../state/auto-cleanup';
 import { autoPilotSummary, runAutoPilot } from '../../state/auto-pilot';
-import { executeMcpTool } from '../../state/mcp-tools';
 import {
   applySpeechCuts,
   cuesForClip,
@@ -65,6 +64,9 @@ import {
   type OperatorAction,
 } from '../ai-hub/operator';
 import { PetCompanion, type PetMood } from './PetCompanion';
+import { executeMcpTool, type McpToolContext } from '../../state/mcp-tools';
+import { MCP_TOOL_BY_NAME, MCP_TOOLS } from '../../state/mcp-catalog';
+import { validateMcpToolArguments } from '../../state/mcp-validation';
 
 interface ChatEntry {
   readonly role: 'user' | 'assistant';
@@ -85,6 +87,27 @@ function audioDurationFrames(asset: Asset): number {
 
 function byLabel(left: Asset, right: Asset): number {
   return left.label.localeCompare(right.label, 'es', { numeric: true, sensitivity: 'base' });
+}
+
+/**
+ * ¿La respuesta afirma que hizo algo?
+ *
+ * El modelo a veces contesta «listo, ya lo hice» sin devolver ninguna acción.
+ * Detectarlo permite decir la verdad en vez de dejar a la persona esperando un
+ * cambio que nunca ocurrió.
+ */
+const QUICK_ACTIONS: readonly { readonly label: string; readonly command: string }[] = [
+  { label: 'Limpiar', command: 'limpiá el video' },
+  { label: 'Silencios', command: 'cortá los silencios' },
+  { label: 'Subtítulos', command: 'subtitulá el clip' },
+  { label: 'Piloto', command: 'piloto automático' },
+];
+
+const COMPLETION_CLAIM =
+  /\b(listo|hecho|ya (lo )?hice|ya est[aá]|aplicad[oa]|apliqu[eé]|ediqu[eé]|edit[eé]|export[eé]|cort[eé]|limpi[eé]|borr[eé]|agregu[eé]|gener[eé])\b/i;
+
+function claimsCompletion(text: string): boolean {
+  return COMPLETION_CLAIM.test(text);
 }
 
 function motionProps(
@@ -147,6 +170,10 @@ export function AssistantDock({
   const [error, setError] = useState<string | null>(null);
   /** Acción destructiva que el modelo propuso y que espera confirmación. */
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [pendingMcpCall, setPendingMcpCall] = useState<{
+    readonly tool: string;
+    readonly arguments: Readonly<Record<string, unknown>>;
+  } | null>(null);
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
   const [consent, setConsent] = useState(false);
   const [listening, setListening] = useState(false);
@@ -1072,37 +1099,48 @@ export function AssistantDock({
     return `Proyecto «${clean}» creado (1920×1080 a 30 fps).`;
   }
 
+  /** Atajo: ejecuta un comando local sin pasar por el modelo. */
+  async function runQuick(command: string): Promise<void> {
+    if (busy) return;
+    append({ role: 'user', text: command });
+    try {
+      const reply = await runLocalCommand(command);
+      append({ role: 'assistant', text: reply });
+      flashReply();
+    } catch (error) {
+      append({
+        role: 'assistant',
+        text: error instanceof Error ? error.message : 'no pude ejecutar la acción',
+      });
+    }
+  }
+
   /**
-   * Puente MCP: una IA externa manda un comando, se ejecuta con el mismo
-   * operador que el chat y la respuesta vuelve por el canal pendiente.
+   * Puente para plugins y skills: cualquier parte de la app puede pedir un
+   * comando con `window.dispatchEvent(new CustomEvent('olyvia:run-command'))`.
+   * Se ejecuta con el mismo operador local que el chat, sin pasar por el modelo.
    */
   useEffect(() => {
-    let dispose: (() => void) | null = null;
-    void store.service
-      .onMcpCall((payload) => {
-        void (async () => {
-          try {
-            const reply = await executeMcpTool(payload.tool, payload.args, {
-              store,
-              selectView: (view) => onSelect(view as Parameters<typeof onSelect>[0]),
-              runCommand: runLocalCommand,
-            });
-            append({ role: 'assistant', text: `[MCP] ${payload.tool}: ${reply}` });
-            await store.service.mcpRespond(payload.id, true, reply);
-          } catch (error) {
-            await store.service.mcpRespond(
-              payload.id,
-              false,
-              error instanceof Error ? error.message : 'la herramienta falló',
-            );
-          }
-        })();
-      })
-      .then((unlisten) => {
-        dispose = unlisten;
-      })
-      .catch(() => {});
-    return () => dispose?.();
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<{ text?: unknown }>).detail;
+      const text = typeof detail?.text === 'string' ? detail.text.trim() : '';
+      if (!text) return;
+      void (async () => {
+        append({ role: 'user', text });
+        try {
+          const reply = await runLocalCommand(text);
+          append({ role: 'assistant', text: reply });
+          flashReply();
+        } catch (error) {
+          append({
+            role: 'assistant',
+            text: error instanceof Error ? error.message : 'no pude ejecutar el comando',
+          });
+        }
+      })();
+    };
+    window.addEventListener('olyvia:run-command', handler);
+    return () => window.removeEventListener('olyvia:run-command', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store]);
 
@@ -1132,7 +1170,7 @@ export function AssistantDock({
       '```json',
       JSON.stringify(config, null, 2),
       '```',
-      'Herramientas: run_command (lenguaje natural) y app_status.',
+      'Herramientas: proyectos, timeline, clips, pistas, subtitulos, automatizaciones, navegacion y render.',
     ].join('\n');
   }
 
@@ -1258,7 +1296,79 @@ export function AssistantDock({
     return `${outcome.summary} Salud ${plan.score.now} → ${plan.score.potential}/100.`;
   }
 
+  function mcpActionNeedsConfirmation(tool: string): boolean {
+    const definition = MCP_TOOL_BY_NAME.get(tool);
+    if (!definition || definition.annotations?.readOnlyHint === true) return false;
+    return (
+      definition.annotations?.destructiveHint === true ||
+      definition.annotations?.openWorldHint === true
+    );
+  }
+
+  function mcpContext(): McpToolContext {
+    return {
+      store,
+      selectView: (view) => {
+        const target = NAV_VIEWS.find((item) => item.id === view);
+        if (target) onSelect(target.id);
+      },
+      runCommand: async (command) => {
+        const parsed = parseOperatorCommand(command, NAV_VIEWS);
+        if (parsed.kind === 'unknown') throw new Error('no reconocí el comando del operador');
+        return executeOperator(parsed);
+      },
+    };
+  }
+
+  function compactMcpResult(result: string): string {
+    const normalized = result.trim();
+    return normalized.length > 1_200
+      ? `${normalized.slice(0, 1_200)}… (resultado recortado)`
+      : normalized;
+  }
+
+  async function confirmPendingMcpCall(): Promise<void> {
+    const pending = pendingMcpCall;
+    setPendingMcpCall(null);
+    if (!pending) return;
+    const definition = MCP_TOOL_BY_NAME.get(pending.tool);
+    if (!definition) {
+      append({ role: 'assistant', text: `La herramienta MCP «${pending.tool}» ya no existe en el catálogo.` });
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await executeMcpTool(pending.tool, pending.arguments, mcpContext());
+      append({
+        role: 'assistant',
+        text: `${definition.annotations?.title ?? pending.tool}: ${compactMcpResult(result)}`,
+      });
+      flashReply();
+    } catch (cause) {
+      append({
+        role: 'assistant',
+        text: cause instanceof Error ? `No se pudo ejecutar ${pending.tool}: ${cause.message}` : `No se pudo ejecutar ${pending.tool}.`,
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function runAssistantAction(action: AssistantAction): Promise<string | null> {
+    if (action.kind === 'mcp_call') {
+      const definition = MCP_TOOL_BY_NAME.get(action.tool);
+      if (!definition) return `Herramienta MCP desconocida: «${action.tool}».`;
+      try {
+        const argumentsValue = validateMcpToolArguments(action.tool, action.arguments);
+        const result = await executeMcpTool(action.tool, argumentsValue, mcpContext());
+        return `${definition.annotations?.title ?? action.tool}: ${compactMcpResult(result)}`;
+      } catch (cause) {
+        return cause instanceof Error
+          ? `No ejecuté ${definition.annotations?.title ?? action.tool}: ${cause.message}`
+          : `No ejecuté ${definition.annotations?.title ?? action.tool}.`;
+      }
+    }
     if (action.kind === 'brain') {
       return brainEdit(action.mode);
     }
@@ -1394,6 +1504,10 @@ export function AssistantDock({
   async function send(): Promise<void> {
     const text = input.trim();
     if (!text || busy) return;
+    if (pendingDelete || pendingMcpCall) {
+      setError('Primero confirmá o cancelá la operación pendiente.');
+      return;
+    }
     if (needsConsent && !consent) {
       setError('Marcá “Permitir llamada remota” para usar el proveedor configurado.');
       return;
@@ -1426,7 +1540,7 @@ export function AssistantDock({
 
     setBusy(true);
     try {
-      const context = store.state.project
+      const projectContext = store.state.project
         ? {
             projectName: store.state.project.name,
             clips: store.state.project.timeline.clips.length,
@@ -1438,6 +1552,21 @@ export function AssistantDock({
             brain: brainBrief(planEdits(store.state.project, { intent: assistantIntent() })),
           }
         : { view: activeId };
+      const context = {
+        ...projectContext,
+        // El proveedor recibe las definiciones JSON Schema exactas; la IA
+        // puede elegir una herramienta real y la app valida antes de invocarla.
+        mcpTools: MCP_TOOLS.map(({ name, description, inputSchema, annotations }) => ({
+          name,
+          description: description.slice(0, 220),
+          inputSchema,
+          annotations: {
+            readOnly: annotations?.readOnlyHint === true,
+            destructive: annotations?.destructiveHint === true,
+            openWorld: annotations?.openWorldHint === true,
+          },
+        })),
+      };
       const history = [...messages, { role: 'user' as const, text }]
         .filter((entry) => entry.text !== GREETING.text)
         .slice(-12)
@@ -1447,9 +1576,60 @@ export function AssistantDock({
         context,
         approvedCost: consent,
       });
-      const summary = result.action ? await runAssistantAction(result.action) : null;
+      // Compatibilidad: proveedores/servidores anteriores sólo envían `action`.
+      // El backend nuevo envía `actions` ya saneadas y ordenadas.
+      const actions = (
+        result.actions?.length
+          ? result.actions
+          : result.action
+            ? [result.action]
+            : []
+      ).slice(0, 5);
+      const summaries: string[] = [];
+      for (const [index, action] of actions.entries()) {
+        if (action.kind === 'mcp_call' && mcpActionNeedsConfirmation(action.tool)) {
+          const definition = MCP_TOOL_BY_NAME.get(action.tool);
+          try {
+            validateMcpToolArguments(action.tool, action.arguments);
+            if (definition) {
+              setPendingMcpCall({ tool: action.tool, arguments: action.arguments });
+              summaries.push(
+                `«${definition.annotations?.title ?? action.tool}» necesita confirmación por su nivel de riesgo. Detuve el resto del plan hasta que autorices o canceles esta herramienta.`,
+              );
+            } else {
+              summaries.push(`Herramienta MCP desconocida: «${action.tool}».`);
+            }
+          } catch (cause) {
+            summaries.push(
+              cause instanceof Error ? `No ejecuté ${action.tool}: ${cause.message}` : `No ejecuté ${action.tool}.`,
+            );
+          }
+          break;
+        }
+
+        const summary = await runAssistantAction(action);
+        if (summary) summaries.push(summary);
+
+        // El borrado abre una confirmación. No se ejecuta ninguna acción que
+        // venga detrás hasta que la persona confirme esa operación.
+        if (action.kind === 'delete_selected') {
+          if (index < actions.length - 1) {
+            summaries.push('Detuve el resto del plan: primero tenés que confirmar el borrado.');
+          }
+          break;
+        }
+      }
+
       append({ role: 'assistant', text: result.reply });
-      if (summary) append({ role: 'assistant', text: summary });
+      if (summaries.length > 0) {
+        append({ role: 'assistant', text: summaries.join('\n') });
+      }
+      if (actions.length === 0 && claimsCompletion(result.reply)) {
+        append({
+          role: 'assistant',
+          text: 'Ojo: no ejecuté ningún cambio, el modelo no devolvió una acción. Probá «limpiá el video», «cortá los silencios» o usá los botones rápidos.',
+        });
+      }
       flashReply();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'no se pudo contactar al asistente');
@@ -1574,6 +1754,36 @@ export function AssistantDock({
             </p>
           ) : null}
 
+          {pendingMcpCall ? (
+            <div className="assistant-confirm" role="alertdialog" aria-label="Confirmar acción MCP">
+              <p>
+                La IA solicita ejecutar <strong>{MCP_TOOL_BY_NAME.get(pendingMcpCall.tool)?.annotations?.title ?? pendingMcpCall.tool}</strong>.
+              </p>
+              <p>
+                {MCP_TOOL_BY_NAME.get(pendingMcpCall.tool)?.description ?? 'Operación del catálogo MCP.'}
+              </p>
+              <p>Esta herramienta está marcada como operación de riesgo. No se ejecutó todavía.</p>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => void confirmPendingMcpCall()}
+                >
+                  Sí, ejecutar
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  disabled={busy}
+                  onClick={() => setPendingMcpCall(null)}
+                >
+                  No, cancelar
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {pendingDelete ? (
             <div className="assistant-confirm" role="alertdialog" aria-label="Confirmar borrado">
               <p>
@@ -1616,6 +1826,20 @@ export function AssistantDock({
             </label>
           ) : null}
 
+          <div className="assistant-quick" role="group" aria-label="Acciones rápidas">
+            {QUICK_ACTIONS.map((action) => (
+              <button
+                key={action.command}
+                type="button"
+                className="small ghost"
+                disabled={busy}
+                onClick={() => void runQuick(action.command)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+
           <form
             className="assistant-composer"
             onSubmit={(event) => {
@@ -1640,7 +1864,12 @@ export function AssistantDock({
               onFocus={() => setListening(true)}
               onBlur={() => setListening(false)}
             />
-            <button type="submit" className="primary" aria-label="Enviar mensaje" disabled={busy || !input.trim()}>
+            <button
+              type="submit"
+              className="primary"
+              aria-label="Enviar mensaje"
+              disabled={busy || !input.trim() || Boolean(pendingDelete) || Boolean(pendingMcpCall)}
+            >
               <Icon name="send" size={15} />
             </button>
           </form>

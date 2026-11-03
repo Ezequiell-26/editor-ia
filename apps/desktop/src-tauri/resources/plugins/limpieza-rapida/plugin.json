@@ -1,0 +1,21 @@
+{
+  "id": "limpieza-rapida",
+  "name": "Limpieza rápida",
+  "version": "1.0.0",
+  "description": "Un comando que deja el video listo: silencios, pausas, ruido y nivelado.",
+  "author": "Olyvia",
+  "official": true,
+  "presets": { "effects": [], "exportProfiles": [], "captionStyles": [] },
+  "commands": [
+    {
+      "id": "limpiar",
+      "label": "Limpiar el video completo",
+      "steps": ["limpiá el video"]
+    },
+    {
+      "id": "solo-silencios",
+      "label": "Cortar sólo los silencios",
+      "steps": ["cortá los silencios"]
+    }
+  ]
+}

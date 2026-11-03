@@ -16,6 +16,11 @@ pub mod state;
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 static BACKGROUND_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+#[tauri::command]
+fn background_start_mode() -> bool {
+    BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 #[cfg(windows)]
 fn claim_single_instance() -> bool {
     use std::ffi::c_void;
@@ -51,6 +56,7 @@ fn hide_splash_for_background(app: &tauri::App) {
 fn hide_splash_for_background(_app: &tauri::App) {}
 
 fn show_main_window(app: &tauri::AppHandle) {
+    let _ = app.emit("app-show-requested", ());
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -375,10 +381,21 @@ pub fn run() {
             commands::diarize::get_diarize_provider,
             commands::diarize::save_diarize_provider,
             commands::diarize::diarize_audio,
+            background_start_mode,
             commands::mcp_server::start_mcp_server,
             commands::mcp_server::mcp_server_status,
             commands::mcp_server::mcp_respond,
             commands::system::set_tool_paths,
+            commands::flow_profiles::get_flow_proxies,
+            commands::flow_profiles::set_flow_proxy,
+            commands::plugins::list_plugins,
+            commands::plugins::install_plugin,
+            commands::plugins::remove_plugin,
+            commands::plugins::set_plugin_enabled,
+            commands::lossless::export_lossless,
+            commands::lossless::remux,
+            commands::lossless::write_chapters,
+            commands::lossless::extract_audio,
             commands::mcp::inspect_flow_install,
             commands::audio::hardware_encoders,
             commands::downloader::downloader_status,

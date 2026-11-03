@@ -1,0 +1,16 @@
+{
+  "id": "guion-30s",
+  "name": "Short de 30 segundos",
+  "version": "1.0.0",
+  "description": "Skill: limpia, corta silencios y deja los subtítulos listos para un short.",
+  "author": "Olyvia",
+  "official": true,
+  "kind": "skill",
+  "commands": [
+    {
+      "id": "preparar",
+      "label": "Preparar el short",
+      "steps": ["limpiá el video", "cortá los silencios", "subtitulá el clip"]
+    }
+  ]
+}

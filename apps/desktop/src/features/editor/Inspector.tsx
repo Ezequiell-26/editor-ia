@@ -106,6 +106,7 @@ import {
   updateTrack,
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { LosslessCutCard } from './LosslessCutCard';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
@@ -6365,7 +6366,13 @@ export function Inspector() {
     if (cue) body = <CueInspector cue={cue} />;
   } else if (selection.kind === 'asset') {
     const asset = project.assets.find((item) => item.id === selection.id);
-    if (asset) body = <AssetInspector asset={asset} />;
+    if (asset)
+      body = (
+        <>
+          <AssetInspector asset={asset} />
+          <LosslessCutCard asset={asset} />
+        </>
+      );
   } else if (selection.kind === 'scene') {
     const scene = project.scenes.find((item) => item.id === selection.id);
     if (scene) body = <SceneInspector scene={scene} />;

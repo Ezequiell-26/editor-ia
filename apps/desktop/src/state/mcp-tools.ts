@@ -24,10 +24,12 @@ import {
 import { applySpeakerSegments } from './speakers';
 import { applyCriticFixes, critiqueTimeline } from './timeline-critic';
 import { MCP_TOOLS } from './mcp-catalog';
+import { validateMcpToolArguments } from './mcp-validation';
 import { addMarker, deleteMarker } from './markers';
 import { addAsset, removeAsset } from './project-actions';
 import { applyReviewItems, buildReviewItems } from './review-queue';
-import { createOrchestratorJob, runOrchestratorJob } from './orchestrator';
+import { createOrchestratorJob } from './orchestrator';
+import { FACTORY_JOB_MANAGER } from './mcp-orchestrator-jobs';
 import { autoCutByActivity, buildMulticamProject, envelopeFromPeaks } from '../features/multicam/multicam';
 import { updateCaptionStyle } from './project-actions';
 
@@ -121,7 +123,8 @@ export async function executeMcpTool(
   rawArgs: unknown,
   context: McpToolContext,
 ): Promise<string> {
-  const args = (rawArgs && typeof rawArgs === 'object' ? rawArgs : {}) as Args;
+  if (tool === '__catalog') return JSON.stringify(MCP_TOOLS);
+  const args = validateMcpToolArguments(tool, rawArgs);
   switch (tool) {
     case 'multicam_build': {
       const project = projectOf(context);
@@ -167,6 +170,15 @@ export async function executeMcpTool(
     case 'factory_run': {
       const project = projectOf(context);
       const brief = text(args, 'brief');
+      const mediaIds = project.assets
+        .filter(
+          (asset) =>
+            asset.status === 'ready' && (asset.kind === 'image' || asset.kind === 'video'),
+        )
+        .map((asset) => asset.id);
+      if (mediaIds.length === 0) {
+        throw new Error('factory_run necesita al menos una imagen o un video confirmado en el proyecto abierto');
+      }
       const fps = project.video.frameRate;
       const job = createOrchestratorJob({
         name: brief.slice(0, 80) || 'Video automático',
@@ -179,7 +191,7 @@ export async function executeMcpTool(
           fpsNum: fps.num,
           fpsDen: fps.den,
           outputDir: outputDir(context, args),
-          mediaIds: [],
+          mediaIds,
           voiceProvider: 'windows-sapi',
           photoMotion: 'auto',
           transitionFrames: 12,
@@ -194,20 +206,63 @@ export async function executeMcpTool(
           confirmRights: true,
         },
       });
-      const done = await runOrchestratorJob(job, {
+      const queued = FACTORY_JOB_MANAGER.start(job, {
         service: context.store.service,
         baseProject: project,
         onUpdate: () => {},
       });
       return JSON.stringify({
-        ok: done.status === 'done',
-        status: done.status,
-        projectPath: done.projectPath ?? null,
-        videoPath: done.videoPath ?? null,
-        error: done.error ?? null,
-        warnings: done.result?.warnings ?? [],
+        ok: true,
+        jobId: queued.id,
+        status: queued.status,
+        message: 'Trabajo aceptado. Consultá factory_job_status para ver el progreso y factory_job_cancel para solicitar cancelación.',
       });
     }
+
+    case 'factory_job_status': {
+      const jobId = text(args, 'jobId');
+      const job = FACTORY_JOB_MANAGER.status(jobId);
+      if (!job) throw new Error('no existe un trabajo de fábrica con ese ID');
+      return JSON.stringify({
+        id: job.id,
+        name: job.name,
+        source: job.source ?? null,
+        status: job.status,
+        stage: job.stage,
+        progress: job.progress,
+        cancelRequested: job.cancelRequested ?? false,
+        createdAt: job.createdAt,
+        updatedAt: job.updatedAt,
+        projectPath: job.projectPath ?? null,
+        videoPath: job.videoPath ?? null,
+        videoBytes: job.videoBytes ?? null,
+        profileId: job.profileId ?? null,
+        error: job.error ?? null,
+        result: job.result ?? null,
+        cost: job.cost,
+        log: job.log.slice(-20),
+      });
+    }
+
+    case 'factory_job_list':
+      return JSON.stringify(
+        FACTORY_JOB_MANAGER.list(optionalNumber(args, 'limit') ?? 20).map((job) => ({
+          id: job.id,
+          name: job.name,
+          source: job.source ?? null,
+          status: job.status,
+          stage: job.stage,
+          progress: job.progress,
+          cancelRequested: job.cancelRequested ?? false,
+          updatedAt: job.updatedAt,
+          projectPath: job.projectPath ?? null,
+          videoPath: job.videoPath ?? null,
+          error: job.error ?? null,
+        })),
+      );
+
+    case 'factory_job_cancel':
+      return JSON.stringify(FACTORY_JOB_MANAGER.cancel(text(args, 'jobId')));
 
     case 'caption_style_update': {
       const project = projectOf(context);
@@ -238,6 +293,50 @@ export async function executeMcpTool(
         ...(ffprobe ? { ffprobe } : {}),
       });
       return JSON.stringify({ ok: true });
+    }
+
+    case 'extract_audio': {
+      const result = await context.store.service.extractAudio({
+        input: text(args, 'input'),
+        output: text(args, 'output'),
+      });
+      return JSON.stringify(result);
+    }
+
+    case 'write_chapters': {
+      const chapters = Array.isArray(args.chapters)
+        ? (args.chapters as Record<string, unknown>[]).map((item) => ({
+            startSeconds: Number(item.startSeconds) || 0,
+            endSeconds: Number(item.endSeconds) || 0,
+            title: typeof item.title === 'string' ? item.title : 'Capítulo',
+          }))
+        : [];
+      const result = await context.store.service.writeChapters({
+        input: text(args, 'input'),
+        output: text(args, 'output'),
+        ...(optionalText(args, 'title') ? { title: optionalText(args, 'title')! } : {}),
+        chapters,
+      });
+      return JSON.stringify(result);
+    }
+
+    case 'remux': {
+      const result = await context.store.service.remux({
+        input: text(args, 'input'),
+        output: text(args, 'output'),
+      });
+      return JSON.stringify(result);
+    }
+
+    case 'export_lossless': {
+      const result = await context.store.service.exportLossless({
+        input: text(args, 'input'),
+        output: text(args, 'output'),
+        startSeconds: optionalNumber(args, 'startSeconds') ?? 0,
+        endSeconds: optionalNumber(args, 'endSeconds') ?? 0,
+        exact: optionalBoolean(args, 'exact') ?? false,
+      });
+      return JSON.stringify(result);
     }
 
     case 'asset_import': {
@@ -361,8 +460,43 @@ export async function executeMcpTool(
       return JSON.stringify({ ok: true, applied: accepted.size });
     }
 
-    case '__catalog':
-      return JSON.stringify(MCP_TOOLS);
+    case 'diagnostics': {
+      const project = context.store.state.project;
+      let provider: Record<string, unknown> | null = null;
+      try {
+        const info = (await context.store.service.getProvider()) as unknown as Record<string, unknown>;
+        provider = {
+          kind: typeof info.kind === 'string' ? info.kind : null,
+          model: typeof info.model === 'string' ? info.model : null,
+          baseUrl: typeof info.baseUrl === 'string' ? info.baseUrl : null,
+          hasKey: info.hasKey === true,
+        };
+      } catch {
+        provider = null;
+      }
+      let plugins = 0;
+      try {
+        plugins = (await context.store.service.listPlugins()).length;
+      } catch {
+        plugins = 0;
+      }
+      return JSON.stringify({
+        app: 'olyvia',
+        tools: MCP_TOOLS.length,
+        project: project
+          ? {
+              name: project.name,
+              clips: project.timeline.clips.length,
+              tracks: project.timeline.tracks.length,
+              captions: project.captions.cues.length,
+              fps: fpsOf(project),
+            }
+          : null,
+        provider,
+        plugins,
+        bridge: 'mcp-call',
+      });
+    }
 
     case 'project_new': {
       const fps = Math.max(1, Math.round(optionalNumber(args, 'fps') ?? 30));
@@ -555,6 +689,129 @@ export async function executeMcpTool(
         captions: project.captions.cues.length,
         assets: project.assets.length,
         path: context.store.state.opened?.path ?? null,
+      });
+    }
+
+    case 'project_snapshot': {
+      const project = projectOf(context);
+      const fps = fpsOf(project);
+      const durationFrames = project.timeline.clips.reduce(
+        (max, clip) => Math.max(max, clip.startFrame + clip.durationFrames),
+        0,
+      );
+      const allSections = ['tracks', 'clips', 'captions', 'assets', 'markers', 'profiles'] as const;
+      const requested = Array.isArray(args.include)
+        ? new Set(
+            args.include.filter(
+              (item): item is (typeof allSections)[number] =>
+                typeof item === 'string' && allSections.includes(item as (typeof allSections)[number]),
+            ),
+          )
+        : new Set<string>(allSections);
+      const limit = Math.max(1, Math.min(500, Math.round(optionalNumber(args, 'limit') ?? 200)));
+      const page = <T,>(items: T[]) => ({
+        items: items.slice(0, limit),
+        total: items.length,
+        truncated: items.length > limit,
+      });
+      const sections: Record<string, unknown> = {};
+
+      if (requested.has('tracks')) {
+        // Un solo recorrido de clips evita volver a filtrar toda la timeline por cada pista.
+        const clipCountsByTrack = new Map<string, number>();
+        for (const clip of project.timeline.clips) {
+          clipCountsByTrack.set(
+            clip.trackId,
+            (clipCountsByTrack.get(clip.trackId) ?? 0) + 1,
+          );
+        }
+        sections.tracks = page(
+          project.timeline.tracks.map((track) => ({
+            id: track.id,
+            kind: track.kind,
+            label: track.label,
+            locked: track.locked,
+            muted: track.muted,
+            hidden: track.hidden ?? false,
+            clips: clipCountsByTrack.get(track.id) ?? 0,
+          })),
+        );
+      }
+      if (requested.has('clips')) sections.clips = page(clipsJson(project));
+      if (requested.has('captions')) {
+        sections.captions = page(
+          project.captions.cues.map((cue) => ({
+            id: cue.id,
+            startFrame: cue.startFrame,
+            endFrame: cue.endFrame,
+            text: cue.text,
+            speaker: cue.speaker ?? null,
+          })),
+        );
+      }
+      if (requested.has('assets')) {
+        sections.assets = page(
+          project.assets.map((asset) => {
+            const media = 'media' in asset ? asset.media : undefined;
+            return {
+              id: asset.id,
+              label: asset.label,
+              kind: asset.kind,
+              path: asset.source.path,
+              status: asset.status,
+              durationFrames:
+                media && 'durationFrames' in media ? media.durationFrames : null,
+              width: media && 'width' in media ? media.width : null,
+              height: media && 'height' in media ? media.height : null,
+            };
+          }),
+        );
+      }
+      if (requested.has('markers')) {
+        sections.markers = page(
+          project.markers.map((marker) => ({
+            id: marker.id,
+            frame: marker.frame,
+            endFrame: marker.endFrame ?? null,
+            label: marker.label,
+            color: marker.color ?? null,
+          })),
+        );
+      }
+      if (requested.has('profiles')) {
+        sections.profiles = page(
+          project.renderProfiles.map((profile) => ({
+            id: profile.id,
+            name: profile.name,
+            aspectRatio: profile.aspectRatio,
+            width: profile.resolution.width,
+            height: profile.resolution.height,
+            bitrate: profile.bitrate,
+          })),
+        );
+      }
+
+      return JSON.stringify({
+        schemaVersion: 1,
+        project: {
+          name: project.name,
+          width: project.video.width,
+          height: project.video.height,
+          fps,
+          durationFrames,
+          durationSeconds: Number((durationFrames / fps).toFixed(2)),
+          path: context.store.state.opened?.path ?? null,
+        },
+        counts: {
+          tracks: project.timeline.tracks.length,
+          clips: project.timeline.clips.length,
+          captions: project.captions.cues.length,
+          assets: project.assets.length,
+          markers: project.markers.length,
+          profiles: project.renderProfiles.length,
+        },
+        limitPerSection: limit,
+        sections,
       });
     }
 

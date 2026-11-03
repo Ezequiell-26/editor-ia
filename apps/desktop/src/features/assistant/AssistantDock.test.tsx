@@ -8,6 +8,7 @@ import { ProjectProvider } from '../../state/project-store';
 import { addAsset, addCaptionCue, addClipFromAsset, ensureDelivery, newId } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
 import { AssistantDock } from './AssistantDock';
+import { MCP_TOOLS } from '../../state/mcp-catalog';
 
 const NOW = '2025-01-01T00:00:00.000Z';
 
@@ -189,6 +190,156 @@ describe('Olyvia Assistant', () => {
     expect(await screen.findByText(/Soy Olyvia en modo simulado/i)).toBeTruthy();
   });
 
+  it('ejecuta una secuencia de acciones del proveedor en el orden recibido', async () => {
+    const service = createFakeService();
+    service.assistantChat = async () => ({
+      reply: 'Abro primero el Editor y después Motion.',
+      action: null,
+      actions: [
+        { kind: 'navigate', view: 'editor' },
+        { kind: 'navigate', view: 'motion' },
+      ],
+      providerId: 'real',
+      model: 'modelo-real',
+      simulated: false,
+    });
+    const onNavigate = vi.fn();
+    render(
+      <ProjectProvider service={service}>
+        <AssistantDock activeId="home" onSelect={onNavigate} />
+      </ProjectProvider>,
+    );
+    openAssistant();
+    send('abrí editor y luego motion');
+    expect(await screen.findByText('Abro primero el Editor y después Motion.')).toBeTruthy();
+    await waitFor(() => {
+      expect(onNavigate).toHaveBeenNthCalledWith(1, 'editor');
+      expect(onNavigate).toHaveBeenNthCalledWith(2, 'motion');
+    });
+  });
+
+  it('detiene un plan multiacción cuando el borrado queda pendiente de confirmación', async () => {
+    const base = ensureDelivery(createEmptyProject('Plan', NOW));
+    const project = addAsset(base, readyAsset({ label: 'Toma' }));
+    const service = createFakeService();
+    const onNavigate = vi.fn();
+    render(
+      <ProjectProvider service={service} initial={{ project, opened: null }}>
+        <AssistantDock activeId="home" onSelect={onNavigate} />
+      </ProjectProvider>,
+    );
+    openAssistant();
+
+    // Selecciona un clip real: el plan debe detenerse ante la confirmación,
+    // no por falta de selección.
+    send('agregá el clip de toma');
+    expect(await screen.findByText(/Toma agregado a la timeline al final/)).toBeTruthy();
+    onNavigate.mockClear();
+
+    service.assistantChat = async () => ({
+      reply: 'Borro la selección y luego abro Motion.',
+      action: { kind: 'delete_selected' },
+      actions: [
+        { kind: 'delete_selected' },
+        { kind: 'navigate', view: 'motion' },
+      ],
+      providerId: 'real',
+      model: 'modelo-real',
+      simulated: false,
+    });
+    send('borralo');
+    expect(await screen.findByRole('alertdialog', { name: 'Confirmar borrado' })).toBeTruthy();
+    expect(screen.getByText(/Detuve el resto del plan/)).toBeTruthy();
+    expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it('muestra la respuesta si el proveedor no devuelve acciones', async () => {
+    const service = createFakeService();
+    service.assistantChat = async () => ({
+      reply: 'El proyecto está listo para revisar.',
+      action: null,
+      actions: [],
+      providerId: 'real',
+      model: 'modelo-real',
+      simulated: false,
+    });
+    render(<App service={service} />);
+    openAssistant();
+    send('¿cómo está?');
+    expect(await screen.findByText('El proyecto está listo para revisar.')).toBeTruthy();
+  });
+
+  it('invoca una herramienta MCP de lectura sin pedir confirmación', async () => {
+    const service = createFakeService();
+    service.assistantChat = async () => ({
+      reply: 'Consulté el estado de Olyvia.',
+      action: null,
+      actions: [{ kind: 'mcp_call', tool: 'app_status', arguments: {} }],
+      providerId: 'real',
+      model: 'modelo-real',
+      simulated: false,
+    });
+    render(<App service={service} />);
+    openAssistant();
+    send('invocá app_status usando el catálogo MCP');
+    expect(await screen.findByText('Consulté el estado de Olyvia.')).toBeTruthy();
+    expect(await screen.findByText(/"app":"olyvia".*"open":false/)).toBeTruthy();
+    expect(screen.queryByRole('alertdialog', { name: 'Confirmar acción MCP' })).toBeNull();
+  });
+
+  it('exige confirmación antes de una escritura MCP y la ejecuta al autorizar', async () => {
+    const service = createFakeService();
+    const setPaths = vi.spyOn(service, 'setToolPaths');
+    service.assistantChat = async () => ({
+      reply: 'Voy a configurar la ruta de FFmpeg.',
+      action: null,
+      actions: [{
+        kind: 'mcp_call',
+        tool: 'settings_set_tools',
+        arguments: { ffmpeg: 'C:\\Tools\\ffmpeg.exe' },
+      }],
+      providerId: 'real',
+      model: 'modelo-real',
+      simulated: false,
+    });
+    render(<App service={service} />);
+    openAssistant();
+    send('configurá la ruta de FFmpeg mediante MCP');
+    expect(await screen.findByRole('alertdialog', { name: 'Confirmar acción MCP' })).toBeTruthy();
+    expect(screen.getByText(/no se ejecutó todavía/i)).toBeTruthy();
+    expect(setPaths).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sí, ejecutar' }));
+    await waitFor(() => expect(setPaths).toHaveBeenCalledWith({ ffmpeg: 'C:\\Tools\\ffmpeg.exe' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog', { name: 'Confirmar acción MCP' })).toBeNull(),
+    );
+  });
+
+  it('no ejecuta una escritura MCP cuando la persona cancela la confirmación', async () => {
+    const service = createFakeService();
+    const setPaths = vi.spyOn(service, 'setToolPaths');
+    service.assistantChat = async () => ({
+      reply: 'Voy a configurar FFmpeg.',
+      action: null,
+      actions: [{
+        kind: 'mcp_call',
+        tool: 'settings_set_tools',
+        arguments: { ffmpeg: 'C:\\Tools\\ffmpeg.exe' },
+      }],
+      providerId: 'real',
+      model: 'modelo-real',
+      simulated: false,
+    });
+    render(<App service={service} />);
+    openAssistant();
+    send('configurá FFmpeg con MCP');
+    expect(await screen.findByRole('alertdialog', { name: 'Confirmar acción MCP' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'No, cancelar' }));
+    expect(screen.queryByRole('alertdialog', { name: 'Confirmar acción MCP' })).toBeNull();
+    expect(setPaths).not.toHaveBeenCalled();
+  });
+
   it('muestra el peluche dentro del chat y reacciona al foco', () => {
     render(<App service={createFakeService()} />);
     expect(document.querySelector('.pet-avatar')).toBeNull();
@@ -273,6 +424,20 @@ describe('contexto del cerebro de edición', () => {
     const request = spy.mock.calls[0]?.[0] as { context?: Record<string, unknown> } | undefined;
     expect(request?.context?.brain).toEqual(expect.stringContaining('CEREBRO DE EDICIÓN'));
     expect(request?.context?.brain).toEqual(expect.stringContaining('salud'));
+
+    const tools = request?.context?.mcpTools as
+      | readonly { name: string; inputSchema: Record<string, unknown> }[]
+      | undefined;
+    expect(tools).toHaveLength(MCP_TOOLS.length);
+    expect(new TextEncoder().encode(JSON.stringify(tools)).byteLength).toBeLessThan(48 * 1024);
+    expect(tools?.find((tool) => tool.name === 'clip_add')?.inputSchema).toEqual(
+      expect.objectContaining({
+        type: 'object',
+        properties: expect.objectContaining({
+          assetId: expect.objectContaining({ type: 'string' }),
+        }),
+      }),
+    );
   });
 
   it('no borra nada si lo pide el modelo sin confirmación', async () => {
@@ -289,6 +454,17 @@ describe('contexto del cerebro de edición', () => {
     openAssistant();
     send('agregá el clip de toma');
     await screen.findByText(/Toma agregado a la timeline al final/);
+
+    // El modelo dice que hizo algo pero no devuelve acción: el dock lo admite.
+    service.assistantChat = async () => ({
+      reply: 'Listo, ya lo hice.',
+      action: null,
+      providerId: 'mock',
+      model: 'modelo',
+      simulated: true,
+    });
+    send('contame un chiste');
+    expect(await screen.findByText(/no ejecuté ningún cambio/)).toBeTruthy();
 
     // El modelo pide borrar: el dock muestra la confirmación en vez de ejecutar.
     service.assistantChat = async () => ({
@@ -651,5 +827,24 @@ describe('subtítulos automáticos del asistente', () => {
     expect(
       await screen.findByText(/No hay clips con audio en pistas desbloqueadas/),
     ).toBeTruthy();
+  });
+});
+
+describe('acciones rápidas del asistente', () => {
+  it('ejecutan sin llamar al modelo', async () => {
+    const service = createFakeService();
+    const spy = vi.spyOn(service, 'assistantChat');
+    const asset = readyImage('Toma');
+    let project = addAsset(ensureDelivery(createEmptyProject('Rápidas', NOW)), asset);
+    project = addClipFromAsset(project, asset, { atFrame: 0, durationFrames: 90 }).project;
+    render(
+      <ProjectProvider service={service} initial={{ project, opened: null }}>
+        <AssistantDock activeId="home" onSelect={() => {}} />
+      </ProjectProvider>,
+    );
+    openAssistant();
+    fireEvent.click(screen.getByRole('button', { name: 'Silencios' }));
+    await screen.findByText(/No hay clips con audio/);
+    expect(spy).not.toHaveBeenCalled();
   });
 });

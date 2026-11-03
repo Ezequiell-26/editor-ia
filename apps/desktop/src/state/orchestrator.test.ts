@@ -253,6 +253,9 @@ describe('autopiloto de contenido', () => {
     expect(final.status).toBe('done');
     expect(final.cost.generations).toBe(2);
     expect(final.cost.creditsApproved).toBe(true);
+    expect(
+      tracker.seen.some((seen) => seen.stage === 'media' && seen.progress > 0.33 && seen.progress < 0.66),
+    ).toBe(true);
     expect(run.calls.mcp.mock.calls[0]?.[1]).toBe('flow_connect');
     expect(run.calls.mcp.mock.calls.filter((call) => call[1] === 'flow_generate_image')).toHaveLength(2);
     expect(run.calls.importPaths).toHaveBeenCalledTimes(2);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ProjectDocument } from '@editor-ia/project-schema';
 import type { DesktopService, McpServerConfig } from '../../services/project-service';
 import { Icon } from '../../components/Icon';
@@ -6,12 +6,15 @@ import {
   createOrchestratorJob,
   loadOrchestratorJobs,
   orchestratorMedia,
-  runOrchestratorJob,
   saveOrchestratorJobs,
   upsertOrchestratorJob,
   type OrchestratorJob,
   type OrchestratorOptions,
 } from '../../state/orchestrator';
+import {
+  FACTORY_JOB_MANAGER,
+  MCP_ORCHESTRATOR_JOBS_UPDATED,
+} from '../../state/mcp-orchestrator-jobs';
 
 export interface AutopilotDefaults {
   readonly brief: string;
@@ -81,9 +84,13 @@ export function AutopilotPanel({
   const [rights, setRights] = useState(defaults.confirmRights);
   const effectiveRights = rights || defaults.confirmRights;
   const [jobs, setJobs] = useState<OrchestratorJob[]>(() => loadOrchestratorJobs());
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const cancelRef = useRef(false);
+
+  useEffect(() => {
+    const refreshJobs = () => setJobs(loadOrchestratorJobs());
+    window.addEventListener(MCP_ORCHESTRATOR_JOBS_UPDATED, refreshJobs);
+    return () => window.removeEventListener(MCP_ORCHESTRATOR_JOBS_UPDATED, refreshJobs);
+  }, []);
 
   useEffect(() => {
     setSelected(new Set(media.map((item) => item.id)));
@@ -121,33 +128,34 @@ export function AutopilotPanel({
     });
   }
 
-  async function start(job: OrchestratorJob, resume?: { stage: 'render' }): Promise<void> {
-    cancelRef.current = false;
-    setBusyId(job.id);
+  function start(job: OrchestratorJob, resume?: { stage: 'render' }): void {
     setError(null);
-    persist(upsertOrchestratorJob(jobs, job));
-    const final = await runOrchestratorJob(
-      job,
-      {
-        service,
-        baseProject: project,
-        onUpdate: (updated) =>
-          setJobs((current) => {
-            const next = upsertOrchestratorJob(current, updated);
-            saveOrchestratorJobs(next);
-            return next;
-          }),
-        shouldCancel: () => cancelRef.current,
-      },
-      resume ?? {},
-    );
-    setBusyId(null);
-    if (final.status === 'done') {
-      setError(null);
-    } else if (final.status === 'error') {
-      setError(final.error ?? 'el autopiloto falló');
+    try {
+      FACTORY_JOB_MANAGER.start(
+        job,
+        {
+          service,
+          baseProject: project,
+          onUpdate: () => {},
+        },
+        resume,
+        'ui',
+      );
+    } catch (failure) {
+      const message =
+        failure instanceof Error ? failure.message : 'no se pudo iniciar el trabajo de fábrica';
+      const rejected: OrchestratorJob = {
+        ...job,
+        source: 'ui',
+        status: 'error',
+        stage: 'done',
+        progress: 1,
+        error: message,
+        updatedAt: new Date().toISOString(),
+      };
+      persist(upsertOrchestratorJob(loadOrchestratorJobs(), rejected));
+      setError(message);
     }
-    persist(upsertOrchestratorJob(loadOrchestratorJobs(), final));
   }
 
   function create(): void {
@@ -194,16 +202,20 @@ export function AutopilotPanel({
       flowDuration,
       approveCredits: credits,
       confirmRights: true,
-    };    const job = createOrchestratorJob({
+    };
+    const job = createOrchestratorJob({
       name: defaults.brief.trim().slice(0, 80) || 'Video automático',
       options,
     });
-    persist(upsertOrchestratorJob(jobs, job));
-    void start(job);
+    start(job);
   }
 
-  const activeJob = jobs.find((job) => job.id === busyId) ?? null;
-  const canStart = busyId === null;
+  const activeJob =
+    jobs.find((job) => job.status === 'running') ??
+    jobs.find((job) => job.status === 'queued') ??
+    null;
+  const isBusy = activeJob !== null;
+  const canStart = !isBusy;
 
   return (
     <section className="card autopilot" aria-label="Autopiloto de contenido">
@@ -212,9 +224,9 @@ export function AutopilotPanel({
           <p className="eyebrow">Autopiloto IA</p>
           <h3>Del brief al MP4, sin pasos manuales</h3>
         </div>
-        <span className={`status-pill ${busyId ? 'saving' : 'saved'}`}>
-          <span className={`status-pill-dot phase-${busyId ? 'saving' : 'saved'}`} aria-hidden="true" />
-          {busyId ? `${STAGE_LABEL[activeJob?.stage ?? 'script']}…` : `${jobs.length} trabajo(s)`}
+        <span className={`status-pill ${isBusy ? 'saving' : 'saved'}`}>
+          <span className={`status-pill-dot phase-${isBusy ? 'saving' : 'saved'}`} aria-hidden="true" />
+          {isBusy ? `${STAGE_LABEL[activeJob?.stage ?? 'script']}…` : `${jobs.length} trabajo(s)`}
         </span>
       </div>
 
@@ -357,15 +369,14 @@ export function AutopilotPanel({
           <Icon name="sparkles" size={15} />
           <span>{canStart ? 'Ejecutar autopiloto' : 'Trabajo en curso…'}</span>
         </button>
-        {busyId ? (
+        {activeJob ? (
           <button
             type="button"
             className="small danger-ghost"
-            onClick={() => {
-              cancelRef.current = true;
-            }}
+            onClick={() => FACTORY_JOB_MANAGER.cancel(activeJob.id)}
+            disabled={Boolean(activeJob.cancelRequested)}
           >
-            Cancelar al terminar la etapa
+            {activeJob.cancelRequested ? 'Cancelación solicitada' : 'Cancelar trabajo'}
           </button>
         ) : null}
         <button type="button" className="small ghost" onClick={onNavigateMcp}>
@@ -428,7 +439,7 @@ export function AutopilotPanel({
                         <button
                           type="button"
                           className="small"
-                          disabled={Boolean(busyId)}
+                          disabled={isBusy}
                           onClick={() => {
                             if (
                               window.confirm(

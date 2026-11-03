@@ -200,6 +200,7 @@ export function McpView() {
   const [flowRights, setFlowRights] = useState(false);
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowAccounts, setFlowAccounts] = useState<readonly FlowAccount[]>([]);
+  const [flowProxies, setFlowProxies] = useState<Record<string, string>>({});
   const [flowAccountId, setFlowAccountId] = useState('');
   const [flowRotate, setFlowRotate] = useState(true);
   const [flowError, setFlowError] = useState<string | null>(null);
@@ -359,6 +360,12 @@ export function McpView() {
         if (cancelled || result.isError) return;
         const snapshot = parseFlowAccounts(toolPayload(result.result));
         setFlowAccounts(snapshot.accounts);
+        try {
+          const proxies = await store.service.getFlowProxies();
+          if (!cancelled) setFlowProxies(proxies);
+        } catch {
+          // Sin proxies configurados se usa la conexión directa.
+        }
         setFlowAccountId(
           (current) =>
             current ||
@@ -375,6 +382,21 @@ export function McpView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.id, isFlowServer]);
+
+  /** Guarda el proxy de una cuenta en el archivo que lee el MCP al lanzar. */
+  async function saveFlowProxy(accountId: string, value: string): Promise<void> {
+    try {
+      const next = await store.service.setFlowProxy(accountId, value.trim() || null);
+      setFlowProxies(next);
+      store.setNotice(
+        value.trim()
+          ? 'Proxy guardado: la cuenta saldrá por esa IP la próxima vez que abra el navegador.'
+          : 'Proxy quitado de la cuenta.',
+      );
+    } catch (error) {
+      setFlowError(error instanceof Error ? error.message : 'no pude guardar el proxy');
+    }
+  }
 
   async function remove(id: string): Promise<void> {
     setBusyId(id);
@@ -953,6 +975,23 @@ export function McpView() {
                         />
                         <span>Si se agotan los créditos, probar con otra cuenta</span>
                       </label>
+                    </div>
+                  ) : null}
+                  {flowAccounts.filter((account) => account.connected).length > 0 ? (
+                    <div className="form-grid flow-fields">
+                      {flowAccounts
+                        .filter((account) => account.connected)
+                        .map((account) => (
+                          <label className="field" key={`proxy-${account.id}`}>
+                            <span>Proxy de {account.label}</span>
+                            <input
+                              type="text"
+                              defaultValue={flowProxies[account.id] ?? ''}
+                              placeholder="http://usuario:clave@host:puerto"
+                              onBlur={(event) => void saveFlowProxy(account.id, event.target.value)}
+                            />
+                          </label>
+                        ))}
                     </div>
                   ) : null}
                   <div className="form-grid flow-fields">
