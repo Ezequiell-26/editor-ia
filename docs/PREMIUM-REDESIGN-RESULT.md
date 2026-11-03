@@ -187,14 +187,30 @@ Ver `docs/PREMIUM-POLISH-SPEC.md`. Implementado y verificado:
   (158,53 MiB). Sólo warnings de Rust previos y «No signature found» al
   timestampear DLLs de terceros; exe e instalador firmados correctamente.
 - **Instalación en la PC** (pedido explícito del usuario): se cerró la app
-  instalada anterior (PID 11680), `Olyvia_0.2.0_x64-setup.exe /S` → exit 0;
-  exe instalado en `C:\Users\ofici\AppData\Local\Olyvia\editor-ia-desktop.exe`
-  (0.2.0, 38.971.360 B, 19:53:28) y app abierta (PID 30196, ~39,5 MB). La app
-  anterior en uso no se había inspeccionado/cerrado hasta que el usuario pidió
-  instalar; después de instalar no se modificó nada más fuera del repo.
-- **Límite**: la verificación visual/nativa de esta build la hace el agente de
-  QA con captura de ventana (PrintWindow) contra la instalación; el runtime
-  nativo de IA/transcripción sigue sujeto al checklist de `FOLLOW-UPS.md`.
+  instalada anterior, `Olyvia_0.2.0_x64-setup.exe /S` → exit 0 (reinstalado
+  desde el NSIS de 19:56 para dejar artefacto e instalación alineados); exe
+  instalado en `C:\Users\ofici\AppData\Local\Olyvia\editor-ia-desktop.exe`
+  (0.2.0, 38.971.360 B, hash SHA-256 `4127E8C3…`, firma **Válida**
+  CN=Editor IA Self-Signed) y app abierta (PID 38880, ~36 MB). La app anterior
+  en uso no se había inspeccionado/cerrado hasta que el usuario pidió instalar;
+  después de instalar no se modificó nada más fuera del repo.
+- **Aclaración de integridad**: el `target-polish/release/editor-ia-desktop.exe`
+  es **NotSigned** (38.969.856 B, hash `445D242E…`) porque Tauri firma la copia
+  que empaqueta en el NSIS; el instalado es el firmado (+1.504 B de firma). La
+  diferencia de bytes/hash es por la firma, no por un build viejo.
+- **Verificación visual nativa** (agente QA con captura de ventana real,
+  `.tmp-redesign/polish/installed/`, 27 PNG + `INDEX.md`): launcher con chip
+  v0.2.0 y **sin banner de modo navegador** (0 coincidencias por UI Automation);
+  editor + timeline demo con 4 pistas, thumbs/waveforms, zoom real 2.40→6.59
+  px/frame, selección de clip y playhead; Ajustes→Apariencia con 34 colores; y
+  Ajustes→Editor con las 3 prefs nuevas («Densidad del timeline» cómoda/compacta,
+  «Etiquetas de clip» completas/minimal, rejilla alineada). Sin crashes tras
+  ~10 min. La verificación nativa de IA/transcripción sigue en el checklist de
+  `FOLLOW-UPS.md`.
+- **Límite de tema claro nativo**: los 7 presets son oscuros; el tema claro se
+  logra con paleta custom / importar `olyvia-theme` (el contrato `color-scheme`
+  está implementado y verificado en navegador con e2e). No se tocó la paleta
+  violeta del usuario.
 
 ## 8. Alcance del worktree
 
