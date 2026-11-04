@@ -13569,3 +13569,64 @@ textarea::placeholder {
   gap: 10px;
   justify-content: center;
 }
+
+/* ── Ajustes de densidad del editor ───────────────────────────────────────
+ * El rail de medios mide ~210 px y el visor comparte la fila superior con la
+ * barra de herramientas. Antes el contenido se cortaba contra el borde: el
+ * botón «Importar», el selector de filtro y el chip «Vista previa aproximada»
+ * quedaban tapados. En vez de recortar, los controles envuelven. */
+
+.rail-head {
+  flex-wrap: wrap;
+}
+
+.rail-head > div {
+  min-width: 0;
+}
+
+.rail-browser {
+  flex-wrap: wrap;
+}
+
+.rail-browser > * {
+  min-width: 0;
+}
+
+.rail-foot {
+  height: auto;
+  min-height: 26px;
+  white-space: normal;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.preview-hud {
+  flex-wrap: wrap;
+  max-width: min(45%, 240px);
+}
+
+.preview-hud-chip {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* La barra de herramientas y el HUD flotan arriba del visor. Sin este alto
+ * reservado, un video vertical arrancaba debajo de ellos y los controles
+ * tapaban el primer plano. En 1:1 no se aplica: ahí manda el tamaño real. */
+.preview-stage:not(.pixel-perfect) {
+  padding-top: 44px;
+}
+
+/* La regla del timeline tiene que quedar por encima de las cabeceras de pista
+ * (`.track-head`, z-index 10). El workspace premium fija 9, así que se sube la
+ * especificidad en vez de pelear con el orden de carga: sin esto, al scrollear
+ * «TIMELINE» y «CAP C1» se dibujaban uno encima del otro. */
+.app-shell .timeline .ruler-row {
+  z-index: 14;
+}
+
+.app-shell .timeline .ruler-corner {
+  z-index: 15;
+}

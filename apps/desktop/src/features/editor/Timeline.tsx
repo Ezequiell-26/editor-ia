@@ -78,15 +78,26 @@ import {
  * la geometría del test de arrastre en jsdom (donde no hay CSS de la app).
  */
 const HEADER_FALLBACK = 160;
-let cachedHeaderWidth: number | null = null;
 
+/**
+ * Ancho real de la columna de cabecera.
+ *
+ * Antes se leía el token `--tl-track-head-w`, que no está definido en ningún
+ * CSS: caía siempre en 160 aunque la columna mida 152, así que el cabezal
+ * quedaba 8 px a la izquierda del clic. Se mide el DOM —la esquina de la regla
+ * siempre existe— y el token queda sólo como respaldo.
+ */
 function headerWidth(): number {
-  if (cachedHeaderWidth !== null) return cachedHeaderWidth;
   if (typeof document === 'undefined') return HEADER_FALLBACK;
-  const raw = getComputedStyle(document.documentElement).getPropertyValue('--tl-track-head-w').trim();
+  const corner = document.querySelector<HTMLElement>('.timeline .ruler-corner');
+  const head = corner ?? document.querySelector<HTMLElement>('.timeline .track-head');
+  const measured = head?.offsetWidth ?? 0;
+  if (measured > 0) return measured;
+  const raw = getComputedStyle(document.documentElement)
+    .getPropertyValue('--tl-track-head-w')
+    .trim();
   const parsed = Number.parseFloat(raw);
-  cachedHeaderWidth = Number.isFinite(parsed) && parsed > 0 ? parsed : HEADER_FALLBACK;
-  return cachedHeaderWidth;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : HEADER_FALLBACK;
 }
 
 /** Alto por defecto de una pista: el del usuario (`--timeline-row`, 34–76). */

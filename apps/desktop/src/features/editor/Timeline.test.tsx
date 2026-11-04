@@ -291,3 +291,24 @@ describe('alto y plegado por pista', () => {
     expect(window.localStorage.getItem('editoria.track-heights.v1')).toContain('"');
   });
 });
+
+describe('sincronía del cabezal', () => {
+  it('usa el ancho medido de la cabecera, no el fallback', () => {
+    const view = renderTimeline();
+    const corner = view.container.querySelector('.timeline .ruler-corner');
+    if (!(corner instanceof HTMLElement)) throw new Error('se esperaba la esquina de la regla');
+    // La columna real mide 152 px; el token --tl-track-head-w no existe, así que
+    // antes se usaba 160 y el frame quedaba 8 px corrido.
+    Object.defineProperty(corner, 'offsetWidth', { value: 152, configurable: true });
+
+    const readout = view.container.querySelector('.zoom-readout');
+    const scale = Number.parseFloat(readout?.textContent ?? '2.4');
+    const ruler = view.container.querySelector('.ruler-row');
+    if (!(ruler instanceof HTMLElement)) throw new Error('se esperaba la regla');
+
+    fireEvent.pointerDown(ruler, { clientX: 152 + 20 * scale, button: 0 });
+
+    const grip = view.container.querySelector('.playhead-grip');
+    expect(grip?.getAttribute('aria-valuenow')).toBe('20');
+  });
+});
