@@ -22,6 +22,13 @@ import { PluginsCard } from './PluginsCard';
 import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
+import {
+  DEFAULT_ASSISTANT_TOKEN_BUDGET,
+  MAX_ASSISTANT_TOKEN_BUDGET,
+  MIN_ASSISTANT_TOKEN_BUDGET,
+  loadAssistantTokenBudget,
+  saveAssistantTokenBudget,
+} from '../../state/assistant-budget';
 
 type SettingsSectionId =
   | 'apariencia'
@@ -191,6 +198,7 @@ export function SettingsHome({
   const [testResult, setTestResult] = useState<ProviderTestResult | null>(null);
   const [testError, setTestError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionId>('apariencia');
+  const [tokenBudget, setTokenBudget] = useState(loadAssistantTokenBudget);
 
   // Antes las secciones se apilaban y un IntersectionObserver marcaba la activa.
   // Ahora se muestra una sola por vez dentro de un panel compacto: sin scroll
@@ -548,6 +556,46 @@ export function SettingsHome({
             {provider?.keyringAvailable
               ? 'Almacén de Windows disponible. La clave se lee sólo al hacer una llamada.'
               : 'El almacén de credenciales no respondió; las claves no se guardarán hasta que esté disponible.'}
+              </p>
+            </article>
+            <article className="card">
+              <p className="eyebrow">Asistente</p>
+              <h3>Presupuesto de tokens</h3>
+              <p className="muted">
+                El asistente estima el tamaño de la conversación (~4 caracteres por token) y
+                muestra un aviso cuando supera este umbral. Es sólo un aviso: no recorta el
+                mensaje ni bloquea el envío; el contexto del proyecto no se cuenta en la
+                estimación.
+              </p>
+              <div className="form-grid">
+                <label className="field">
+                  <span>Avisar a partir de (tokens estimados)</span>
+                  <input
+                    type="number"
+                    min={MIN_ASSISTANT_TOKEN_BUDGET}
+                    max={MAX_ASSISTANT_TOKEN_BUDGET}
+                    step={500}
+                    value={tokenBudget}
+                    onChange={(event) => setTokenBudget(Number(event.target.value))}
+                    onBlur={() => setTokenBudget(saveAssistantTokenBudget(tokenBudget))}
+                  />
+                </label>
+              </div>
+              <div className="actions">
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() =>
+                    setTokenBudget(saveAssistantTokenBudget(DEFAULT_ASSISTANT_TOKEN_BUDGET))
+                  }
+                >
+                  Restablecer ({DEFAULT_ASSISTANT_TOKEN_BUDGET.toLocaleString('es-AR')})
+                </button>
+              </div>
+              <p className="fine-print">
+                Rango permitido: {MIN_ASSISTANT_TOKEN_BUDGET.toLocaleString('es-AR')}–
+                {MAX_ASSISTANT_TOKEN_BUDGET.toLocaleString('es-AR')} tokens estimados. Se guarda
+                sólo en este equipo.
               </p>
             </article>
             <article className="card">

@@ -5,6 +5,7 @@ import type {
   AlphaFramesRequest,
   AlphaSequenceRequest,
   AssetFileInfo,
+  AssistantStreamHandle,
   AudioProviderInfo,
   CreateProjectRequest,
   DesktopService,
@@ -1554,6 +1555,14 @@ export function createFakeService(): FakeService {
         model: 'mock',
         simulated: true,
       };
+    },
+    async assistantChatStream(): Promise<AssistantStreamHandle> {
+      // El fake no tiene red ni SSE: la UI debe caer al camino no-streaming.
+      // Los tests que ejercitan streaming pisan este método a propósito.
+      throw new Error('el servicio de prueba no streamea respuestas; usá assistantChat');
+    },
+    async cancelAssistantChat() {
+      return false;
     },
     async translateSubtitles(request) {
       return {

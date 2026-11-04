@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -39,7 +40,6 @@ import {
   pasteClip,
   splitClip,
   trimClip,
-  rippleDeleteClip,
   totalFrames,
   updateCaptionCue,
   updateClip,
@@ -47,13 +47,30 @@ import {
 } from '../../state/project-actions';
 import { addMarker, deleteMarker, markerAtFrame } from '../../state/markers';
 import { useProjectStore } from '../../state/project-store';
+import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
+import { TimelineOverview } from './TimelineOverview';
+import { createRafCoalescer } from './timeline-raf';
 import {
-  collectSnapTargets,
-  snapFrame,
-  snapSpan,
+  deleteClips,
+  moveClipsBy,
+  rippleMoveClip,
+  rippleTrim,
+} from './timeline-edits';
+import {
+  beatFramesFromPeaks,
+  collectTimelineSnapTargets,
+  sceneSnapPoints,
+  snapFrameTo,
+  snapSpanTo,
   snapThreshold,
-} from '../../state/snapping';
+} from './timeline-snap';
+import {
+  spanIntersectsWindow,
+  visibleFrameWindow,
+  visibleTrackWindow,
+  type FrameWindow,
+} from './timeline-viewport';
 
 /**
  * Ancho del header de pistas. La fuente de verdad es `--tl-track-head-w`
@@ -101,6 +118,10 @@ type Drag =
       previewStart: number;
       previewDuration: number;
       previewTrackId: string;
+      /** Multi-selección: ids que se mueven junto con el clip arrastrado. */
+      groupIds?: readonly string[];
+      /** Desplazamiento en frames del grupo (sólo modo move). */
+      groupDelta?: number;
     }
   | {
       kind: 'cue';
@@ -148,7 +169,7 @@ function applyFadeFrames(
   return updateClip(project, clipId, { effects });
 }
 
-function ClipBlock({
+function ClipBlockView({
   clip,
   track,
   pxPerFrame,
@@ -169,7 +190,7 @@ function ClipBlock({
   readonly preview: Drag | null;
   readonly showThumbnail: boolean;
   readonly showWaveform: boolean;
-  readonly onSelect: () => void;
+  readonly onSelect: (event?: ReactPointerEvent | ReactMouseEvent) => void;
   readonly onDrag: (event: ReactPointerEvent, mode: 'move' | 'trim-start' | 'trim-end') => void;
   readonly onContextMenu: (event: ReactMouseEvent) => void;
 }) {
@@ -187,7 +208,19 @@ function ClipBlock({
   );
   const activePreview =
     preview && preview.kind === 'clip' && preview.clipId === clip.id ? preview : null;
-  const start = activePreview?.previewStart ?? clip.startFrame;
+  // Arrastre de grupo: los clips no primarios siguen el mismo delta en preview.
+  const groupPreview =
+    preview &&
+    preview.kind === 'clip' &&
+    preview.mode === 'move' &&
+    preview.groupDelta !== undefined &&
+    preview.groupIds?.includes(clip.id) &&
+    preview.clipId !== clip.id
+      ? preview
+      : null;
+  const start =
+    activePreview?.previewStart ??
+    (groupPreview ? clip.startFrame + (groupPreview.groupDelta ?? 0) : clip.startFrame);
   const duration = activePreview?.previewDuration ?? clip.durationFrames;
   const left = start * pxPerFrame;
   const width = Math.max(3, duration * pxPerFrame);
@@ -228,16 +261,22 @@ function ClipBlock({
     const startX = event.clientX;
     const initial = side === 'in' ? fade.inFrames : fade.outFrames;
     let last = initial;
-    target.setPointerCapture?.(event.pointerId);
-    const onMove = (moveEvent: PointerEvent): void => {
-      const delta = (moveEvent.clientX - startX) / Math.max(0.0001, pxPerFrame);
+    // Mismo coalescing que el arrastre: un solo update por frame. Cada update
+    // re-renderiza el inspector completo, así que aplicar 100/s es caro.
+    const coalescer = createRafCoalescer<number>((clientX) => {
+      const delta = (clientX - startX) / Math.max(0.0001, pxPerFrame);
       last = fadeFramesForDrag(side, initial, delta, clip.durationFrames);
       store.update(
         (current) => applyFadeFrames(current, clip.id, side, last, fade.audioOnly),
         { history: false },
       );
+    });
+    target.setPointerCapture?.(event.pointerId);
+    const onMove = (moveEvent: PointerEvent): void => {
+      coalescer.push(moveEvent.clientX);
     };
     const finish = (): void => {
+      coalescer.flush();
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', finish);
       target.removeEventListener('pointercancel', finish);
@@ -277,14 +316,14 @@ function ClipBlock({
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.stopPropagation();
-        onSelect();
+        onSelect(event);
         if (!track.locked) onDrag(event, 'move');
       }}
       onContextMenu={onContextMenu}
       onKeyDown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          onSelect();
+          onSelect(event as unknown as ReactPointerEvent);
         }
       }}
     >
@@ -337,7 +376,7 @@ function ClipBlock({
             aria-label="Recortar el inicio"
             onPointerDown={(event) => {
               event.stopPropagation();
-              onSelect();
+              onSelect(event);
               onDrag(event, 'trim-start');
             }}
           />
@@ -347,7 +386,7 @@ function ClipBlock({
             aria-label="Recortar el final"
             onPointerDown={(event) => {
               event.stopPropagation();
-              onSelect();
+              onSelect(event);
               onDrag(event, 'trim-end');
             }}
           />
@@ -396,6 +435,33 @@ function ClipBlock({
     </div>
   );
 }
+
+/**
+ * Comparador del memo del clip: durante el paneo/zoom el Timeline re-renderiza
+ * por la ventana de virtualización, pero un clip cuyas props visuales no
+ * cambiaron no necesita renderizarse de nuevo. Los callbacks se ignoran a
+ * propósito: el padre los crea inline y siempre delega en refs con la versión
+ * más nueva del handler (así el memo no los deja "stale").
+ */
+type ClipBlockProps = Parameters<typeof ClipBlockView>[0];
+
+function clipBlockPropsEqual(
+  previous: Readonly<ClipBlockProps>,
+  next: Readonly<ClipBlockProps>,
+): boolean {
+  return (
+    previous.clip === next.clip &&
+    previous.track === next.track &&
+    previous.pxPerFrame === next.pxPerFrame &&
+    previous.selected === next.selected &&
+    previous.dimmed === next.dimmed &&
+    previous.preview === next.preview &&
+    previous.showThumbnail === next.showThumbnail &&
+    previous.showWaveform === next.showWaveform
+  );
+}
+
+const ClipBlock = memo(ClipBlockView, clipBlockPropsEqual);
 
 function CueBlock({
   cue,
@@ -476,6 +542,9 @@ function readCollapsedTracks(): string[] {
     return [];
   }
 }
+/** Alto de la regla (token --tl-ruler-h) para convertir scrollTop en filas. */
+const RULER_VIEWPORT_H = 28;
+
 const TIMELINE_MIN = 140;
 const TIMELINE_MAX = 720;
 const TIMELINE_DEFAULT = 280;
@@ -488,6 +557,10 @@ export function Timeline() {
   const store = useProjectStore();
   const project = store.state.project;
   const preferences = useEditorPreferences();
+  const selectedClipId =
+    store.state.selection.kind === 'clip' ? store.state.selection.id : null;
+  const selectedCueId =
+    store.state.selection.kind === 'cue' ? store.state.selection.id : null;
   // El zoom y el imán arrancan con lo elegido en Ajustes → Editor; después el
   // usuario manda con los controles de la barra de la timeline.
   const [pxPerFrame, setPxPerFrame] = useState(preferences.defaultZoom);
@@ -534,6 +607,25 @@ export function Timeline() {
 
   const [preview, setPreview] = useState<Drag | null>(null);
   const [snapEnabled, setSnapEnabled] = useState(preferences.snapEnabled);
+  // Edición ripple: ahora es una preferencia del editor (Ajustes → Editor),
+  // con migración retrocompatible desde la clave histórica del timeline.
+  // Multi-selección: estado local del timeline (no cambia el contrato del store).
+  const [selectedClipIds, setSelectedClipIds] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [beatState, setBeatState] = useState<{
+    readonly frames: readonly number[];
+    readonly bpm: number;
+    readonly clipLabel: string;
+  } | null>(null);
+  // Métricas del scroll para virtualización y minimapa.
+  const [viewport, setViewport] = useState({
+    scrollLeft: 0,
+    scrollTop: 0,
+    clientWidth: 0,
+    clientHeight: 0,
+  });
+  const timelineRootRef = useRef<HTMLDivElement>(null);
   const [colorFilter, setColorFilter] = useState<ClipColorTag | 'all'>('all');
   const [clipQuery, setClipQuery] = useState('');
   const [snapGuide, setSnapGuide] = useState<{ frame: number; label: string } | null>(
@@ -554,6 +646,122 @@ export function Timeline() {
   const [attributesReady, setAttributesReady] = useState(hasClipAttributesClipboard);
   const latest = useRef({ project, pxPerFrame, store, snapEnabled, snapPixels: preferences.snapPixels });
   latest.current = { project, pxPerFrame, store, snapEnabled, snapPixels: preferences.snapPixels };
+
+  // Snap a escenas (el frame de inicio de sus clips): se calcula con el
+  // proyecto y se lee desde el handler de arrastre, que vive fuera del render.
+  const scenePoints = useMemo(
+    () => (project ? sceneSnapPoints(project) : []),
+    [project],
+  );
+  const rippleRef = useRef(preferences.timelineRipple);
+  rippleRef.current = preferences.timelineRipple;
+  const multiSelectionRef = useRef<ReadonlySet<string>>(selectedClipIds);
+  multiSelectionRef.current = selectedClipIds;
+  // Callbacks estables para los ClipBlock memoizados: las props visuales se
+  // comparan, los handlers se resuelven siempre contra la última versión acá.
+  const clipHandlersRef = useRef<{
+    select: (
+      clipId: string,
+      event?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
+    ) => void;
+    drag: (
+      event: ReactPointerEvent,
+      clip: Clip,
+      mode: 'move' | 'trim-start' | 'trim-end',
+    ) => void;
+    menu: (event: ReactMouseEvent, clip: Clip) => void;
+  }>({
+    select: () => undefined,
+    drag: () => undefined,
+    menu: () => undefined,
+  });
+  const scenesRef = useRef<readonly { frame: number; label: string }[]>(scenePoints);
+  scenesRef.current = scenePoints;
+  const beatsRef = useRef<readonly number[]>(beatState?.frames ?? []);
+  beatsRef.current = beatState?.frames ?? [];
+  const beatLabelRef = useRef<string>('Beat');
+  beatLabelRef.current = beatState ? `Beat ${beatState.bpm} bpm` : 'Beat';
+
+  // La selección primaria del store (Inspector, atajos, menús) manda cuando no
+  // hay multi-selección; agregar un clip con Shift/Ctrl la deja como primaria.
+  useEffect(() => {
+    const selection = store.state.selection;
+    if (selection.kind === 'clip') {
+      setSelectedClipIds((current) =>
+        current.has(selection.id) ? current : new Set([selection.id]),
+      );
+    } else if (selection.kind === 'none') {
+      setSelectedClipIds((current) => (current.size === 0 ? current : new Set()));
+    }
+  }, [store.state.selection]);
+
+  // Métricas del scroll: alimentan virtualización y minimapa. Un solo update
+  // por frame; ResizeObserver cubre resize de ventana y cambios de densidad.
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const coalescer = createRafCoalescer<{
+      scrollLeft: number;
+      scrollTop: number;
+      clientWidth: number;
+      clientHeight: number;
+    }>((next) => setViewport(next));
+    const measure = (): void => {
+      // Cuantización del scroll horizontal: la ventana visible ya tiene un
+      // overscan de un viewport a cada lado, así que actualizar la ventana cada
+      // ~1/3 de pantalla no deja huecos y evita re-renderizar la timeline en
+      // cada píxel de un paneo. El overview conserva una precisión de ~1 %.
+      const quantum = Math.max(120, Math.round(element.clientWidth / 3));
+      const quantizedLeft = Math.round(element.scrollLeft / quantum) * quantum;
+      coalescer.push({
+        scrollLeft: quantizedLeft,
+        scrollTop: element.scrollTop,
+        clientWidth: element.clientWidth,
+        clientHeight: element.clientHeight,
+      });
+    };
+    measure();
+    element.addEventListener('scroll', measure, { passive: true });
+    window.addEventListener('resize', measure);
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(measure);
+      observer.observe(element);
+    }
+    return () => {
+      coalescer.cancel();
+      element.removeEventListener('scroll', measure);
+      window.removeEventListener('resize', measure);
+      observer?.disconnect();
+    };
+  }, [project]);
+
+  // Waveform del clip que se usa para detectar beats de snap. Se decodifica
+  // sólo cuando el usuario pide "Beats" (el hook comparte caché con la waveform
+  // de los clips, así que normalmente es un hit).
+  const root = store.state.opened?.root ?? '';
+  const beatSource = useMemo(() => {
+    if (!project) return null;
+    const candidates = project.timeline.clips.filter(
+      (clip) =>
+        (clip.kind === 'audio' || clip.kind === 'video') &&
+        clip.source.type === 'asset' &&
+        'inFrame' in clip.source &&
+        'outFrame' in clip.source,
+    );
+    const preferred =
+      candidates.find((clip) => clip.id === selectedClipId) ??
+      candidates.find((clip) => clip.kind === 'audio') ??
+      candidates[0];
+    if (!preferred) return null;
+    const source = preferred.source;
+    if (source.type !== 'asset') return null;
+    const asset = project.assets.find((item) => item.id === source.assetId);
+    return asset ? { clip: preferred, asset } : null;
+  }, [project, selectedClipId]);
+  const beatWaveform = useWaveform(store.service, root || null, beatSource?.asset ?? null);
+
+  /** Coalescing del scrub (legacy): un setPlayhead por frame. */
   // Coalescing del scrub: pointermove puede dispararse >100 veces por segundo
   // y cada setPlayhead re-renderiza el editor entero (incluida la vista
   // previa). Aplicamos a lo sumo UN setPlayhead por frame de pantalla; el
@@ -580,10 +788,54 @@ export function Timeline() {
     [project],
   );
 
-  const selectedClipId =
-    store.state.selection.kind === 'clip' ? store.state.selection.id : null;
-  const selectedCueId =
-    store.state.selection.kind === 'cue' ? store.state.selection.id : null;
+  // Virtualización: ventana de frames visibles y ventana de filas visibles.
+  // Ambas devuelven `null` sin layout medible (jsdom): en ese caso se renderiza
+  // todo, conservando el contrato de tests y e2e.
+  const frameWindow = useMemo<FrameWindow | null>(
+    () =>
+      visibleFrameWindow(
+        viewport.scrollLeft,
+        viewport.clientWidth,
+        pxPerFrame,
+        headerWidth(),
+      ),
+    [viewport.scrollLeft, viewport.clientWidth, pxPerFrame],
+  );
+  const trackRows = useMemo(
+    () =>
+      tracks.map((track) => ({
+        id: track.id,
+        height: collapsedTracks.has(track.id)
+          ? TRACK_MIN
+          : (trackHeights[track.id] ?? defaultRowHeight(track.kind)),
+      })),
+    [tracks, collapsedTracks, trackHeights],
+  );
+  const trackWindow = useMemo(
+    () =>
+      visibleTrackWindow(
+        Math.max(0, viewport.scrollTop - RULER_VIEWPORT_H),
+        viewport.clientHeight,
+        trackRows.map((row) => row.height),
+      ),
+    [viewport.scrollTop, viewport.clientHeight, trackRows],
+  );
+  const visibleTracks = trackWindow ? tracks.slice(trackWindow.first, trackWindow.last) : tracks;
+  const overviewClips = useMemo(
+    () =>
+      project
+        ? project.timeline.clips.map((clip) => ({
+            id: clip.id,
+            kind: clip.kind,
+            startFrame: clip.startFrame,
+            durationFrames: clip.durationFrames,
+          }))
+        : [],
+    [project],
+  );
+  const contentWidth = surfaceWidth + headerWidth();
+  const overviewVisible =
+    viewport.clientWidth > 0 && duration > 0 && contentWidth > viewport.clientWidth + 80;
 
   function copySelectedClip(): void {
     const clip = project?.timeline.clips.find((item) => item.id === selectedClipId);
@@ -688,11 +940,129 @@ export function Timeline() {
     }
   }
 
-  function rippleDeleteSelected(): void {
-    if (!selectedClipId) return;
-    store.update((current) => rippleDeleteClip(current, selectedClipId));
+  /**
+   * Selección de clip con multi-selección: clic normal reemplaza, Shift/Ctrl/
+   * Cmd alternan. La selección primaria (la que ve el Inspector) es el último
+   * clip clickeado; el resto se resalta en la timeline y se mueve en grupo.
+   */
+  function selectClip(
+    clipId: string,
+    event?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
+  ): void {
+    const additive = Boolean(event?.shiftKey || event?.ctrlKey || event?.metaKey);
+    if (!additive) {
+      setSelectedClipIds(new Set([clipId]));
+      store.setSelection({ kind: 'clip', id: clipId });
+      return;
+    }
+    const wasSelected = selectedClipIds.has(clipId);
+    setSelectedClipIds((current) => {
+      const next = new Set(current);
+      if (next.has(clipId)) next.delete(clipId);
+      else next.add(clipId);
+      return next;
+    });
+    if (wasSelected) {
+      // Se quitó el clip: la primaria pasa a otro seleccionado o a ninguna.
+      const remaining = [...selectedClipIds].filter((id) => id !== clipId);
+      const primary = remaining[remaining.length - 1];
+      store.setSelection(primary ? { kind: 'clip', id: primary } : { kind: 'none' });
+    } else {
+      store.setSelection({ kind: 'clip', id: clipId });
+    }
+  }
+
+  function isClipSelected(clipId: string): boolean {
+    return selectedClipIds.has(clipId) || selectedClipId === clipId;
+  }
+
+  function currentSelectedIds(): string[] {
+    if (selectedClipIds.size > 0) return [...selectedClipIds];
+    return selectedClipId ? [selectedClipId] : [];
+  }
+
+  function toggleRippleMode(): void {
+    const next = !preferences.timelineRipple;
+    updateEditorPreferences({ timelineRipple: next });
+    store.setNotice(
+      next
+        ? 'Ripple activo: mover y recortar desplaza los clips posteriores (Shift+R).'
+        : 'Ripple desactivado.',
+    );
+  }
+
+  /**
+   * Detecta beats del clip de audio/video seleccionado (o del primer audio)
+   * a partir de su forma de onda cacheada y los usa como puntos de snap.
+   * Si el medio no expone waveform (navegador sin Web Audio, medio largo o sin
+   * archivo accesible) avisa con un notice honesto en vez de inventar beats.
+   */
+  function analyzeBeats(): void {
+    if (beatState) {
+      setBeatState(null);
+      store.setNotice('Beats desactivados del imán.');
+      return;
+    }
+    if (!beatSource || !beatWaveform || beatWaveform.length === 0) {
+      store.setNotice(
+        beatSource
+          ? 'La forma de onda todavía no está disponible para ese medio; esperá un momento o probá con otro clip.'
+          : 'No hay un clip de audio o video con medio asociado para analizar beats.',
+      );
+      return;
+    }
+    const { clip, asset } = beatSource;
+    const source = clip.source;
+    if (source.type !== 'asset' || !('inFrame' in source) || !('outFrame' in source)) {
+      store.setNotice('Ese clip no tiene una ventana de audio analizable.');
+      return;
+    }
+    const media = 'media' in asset ? asset.media : undefined;
+    const totalFrames =
+      media && 'durationFrames' in media ? media.durationFrames : source.outFrame;
+    const frames = beatFramesFromPeaks(beatWaveform, {
+      clipStartFrame: clip.startFrame,
+      inFrame: source.inFrame,
+      outFrame: source.outFrame,
+      totalFrames,
+      fps,
+    });
+    if (frames.length === 0) {
+      store.setNotice('No se detectaron beats claros en ese medio.');
+      return;
+    }
+    const averageGap =
+      frames.length > 1
+        ? (frames[frames.length - 1]! - frames[0]!) / (frames.length - 1)
+        : fps / 2;
+    const bpm = Math.max(30, Math.min(300, Math.round((60 * fps) / Math.max(1, averageGap))));
+    setBeatState({ frames, bpm, clipLabel: clip.label ?? 'clip' });
+    store.setNotice(`${frames.length} beats detectados (≈${bpm} bpm) para el imán.`);
+  }
+
+  /** Borra todos los clips seleccionados; ripple cierra los huecos. */
+  function deleteSelectedClips(ripple: boolean): void {
+    const ids = currentSelectedIds();
+    if (ids.length === 0) return;
+    let nextDuration = 0;
+    store.update((current) => {
+      const next = deleteClips(current, ids, ripple);
+      if (!next) return current;
+      nextDuration = totalFrames(next);
+      return next;
+    });
     store.setSelection({ kind: 'none' });
-    store.setNotice('Clip borrado y hueco cerrado en su pista.');
+    setSelectedClipIds(new Set());
+    store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+    store.setNotice(
+      ripple
+        ? `${ids.length} clip(s) borrados con ripple.`
+        : `${ids.length} clip(s) borrados.`,
+    );
+  }
+
+  function rippleDeleteSelected(): void {
+    deleteSelectedClips(true);
   }
 
   const contextClip =
@@ -816,11 +1186,42 @@ export function Timeline() {
       } else if (!command && !event.altKey && event.key.toLowerCase() === 'h') {
         event.preventDefault();
         setPanMode((value) => !value);
+      } else if (
+        event.shiftKey &&
+        !command &&
+        !event.altKey &&
+        event.key.toLowerCase() === 'r'
+      ) {
+        // Atajo local del timeline (coordinado con functional-ai): libre en el
+        // registro global. No actúa si hay un diálogo abierto.
+        if (document.querySelector('[role="dialog"], .modal, .settings-window')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        toggleRippleMode();
+      } else if (
+        event.altKey &&
+        event.shiftKey &&
+        !command &&
+        selectedClipIds.size > 1 &&
+        (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+      ) {
+        // Mover el grupo seleccionado frame a frame (combianción libre; no pisa
+        // Alt+flecha del registro global, que no se ejecuta para el editor).
+        if (document.querySelector('[role="dialog"], .modal, .settings-window')) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const delta = event.key === 'ArrowRight' ? 1 : -1;
+        const ids = [...selectedClipIds];
+        store.update((current) => {
+          const next = moveClipsBy(current, ids, delta);
+          if (!next) return current;
+          return next;
+        });
       }
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [selectedClipId, project]);
+  }, [selectedClipId, selectedClipIds, project, preferences.timelineRipple]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -876,7 +1277,13 @@ export function Timeline() {
   ]);
 
   useEffect(() => {
-    const onMove = (event: PointerEvent) => {
+    /**
+     * Procesa el ÚLTIMO pointermove del frame. El listener de `pointermove`
+     * sólo guarda el evento (ver `onMove` abajo): 100+ eventos/s ya no
+     * re-renderizan la timeline 100 veces. `flush()` en pointerup garantiza que
+     * la posición final sea exactamente la del mouse al soltar.
+     */
+    const processDragMove = (event: PointerEvent): void => {
       const current = dragRef.current;
       const {
         project: doc,
@@ -913,15 +1320,18 @@ export function Timeline() {
         let nextStart = current.originalStart + shift;
         let guide: { frame: number; label: string } | null = null;
         if (snapActive) {
-          const snapped = snapSpan(
+          const snapped = snapSpanTo(
             nextStart,
             length,
-            collectSnapTargets(doc, {
+            collectTimelineSnapTargets(doc, {
               playhead: state.state.playheadFrame,
+              scenes: scenesRef.current,
+              beats: beatsRef.current,
+              beatLabel: beatLabelRef.current,
             }),
             threshold,
           );
-          nextStart = Math.max(0, snapped.start);
+          nextStart = Math.max(0, snapped.frame);
           if (snapped.target) {
             guide = { frame: snapped.target.frame, label: snapped.target.label };
           }
@@ -941,21 +1351,38 @@ export function Timeline() {
         let nextStart = Math.max(0, current.originalStart + delta);
         let guide: { frame: number; label: string } | null = null;
         if (snapActive) {
-          const snapped = snapSpan(
+          const snapped = snapSpanTo(
             nextStart,
             current.originalDuration,
-            collectSnapTargets(doc, {
+            collectTimelineSnapTargets(doc, {
               excludeClipId: current.clipId,
               playhead: state.state.playheadFrame,
+              scenes: scenesRef.current,
+              beats: beatsRef.current,
+              beatLabel: beatLabelRef.current,
             }),
             threshold,
           );
-          nextStart = Math.max(0, snapped.start);
+          nextStart = Math.max(0, snapped.frame);
           if (snapped.target) {
             guide = { frame: snapped.target.frame, label: snapped.target.label };
           }
         }
         setSnapGuide(guide);
+        const groupIds = current.groupIds ?? [];
+        const isGroup = groupIds.length > 1;
+        if (isGroup) {
+          // El grupo se mueve en bloque sobre las mismas pistas; el preview
+          // aplica el mismo delta a todos los clips seleccionados.
+          const next: Drag = {
+            ...current,
+            previewStart: nextStart,
+            groupDelta: nextStart - current.originalStart,
+          };
+          dragRef.current = next;
+          setPreview(next);
+          return;
+        }
         const hovered = document
           .elementFromPoint(event.clientX, event.clientY)
           ?.closest('[data-lane-track-id]') as HTMLElement | null;
@@ -988,11 +1415,14 @@ export function Timeline() {
         );
         let guide: { frame: number; label: string } | null = null;
         if (snapActive) {
-          const snapped = snapFrame(
+          const snapped = snapFrameTo(
             nextStart,
-            collectSnapTargets(doc, {
+            collectTimelineSnapTargets(doc, {
               excludeClipId: current.clipId,
               playhead: state.state.playheadFrame,
+              scenes: scenesRef.current,
+              beats: beatsRef.current,
+              beatLabel: beatLabelRef.current,
             }),
             threshold,
           );
@@ -1018,11 +1448,14 @@ export function Timeline() {
         let guide: { frame: number; label: string } | null = null;
         if (snapActive) {
           const targetEnd = current.originalStart + nextDuration;
-          const snapped = snapFrame(
+          const snapped = snapFrameTo(
             targetEnd,
-            collectSnapTargets(doc, {
+            collectTimelineSnapTargets(doc, {
               excludeClipId: current.clipId,
               playhead: state.state.playheadFrame,
+              scenes: scenesRef.current,
+              beats: beatsRef.current,
+              beatLabel: beatLabelRef.current,
             }),
             threshold,
           );
@@ -1048,7 +1481,19 @@ export function Timeline() {
       }
     };
 
+    // El listener de move sólo guarda el evento; el trabajo pesado se hace una
+    // vez por frame. En pointerup se vuelca el último evento antes de commitear.
+    const dragMoveCoalescer = createRafCoalescer<PointerEvent>(processDragMove);
+    const onMove = (event: PointerEvent): void => {
+      if (!dragRef.current) return;
+      dragMoveCoalescer.push(event);
+    };
+
     const onUp = (event: PointerEvent) => {
+      // Vuelca el último move pendiente para que el commit use la posición
+      // exacta del mouse al soltar (antes se perdía el último evento).
+      dragMoveCoalescer.flush();
+      dragMoveCoalescer.cancel();
       const current = dragRef.current;
       const { store: state, project: doc } = latest.current;
       dragRef.current = null;
@@ -1079,6 +1524,22 @@ export function Timeline() {
       }
       if (!doc) return;
       if (current.mode === 'move') {
+        const groupIds = current.groupIds ?? [];
+        if (groupIds.length > 1) {
+          const delta = current.previewStart - current.originalStart;
+          if (delta === 0) return;
+          state.update((projectDoc) => {
+            const next = moveClipsBy(projectDoc, groupIds, delta);
+            if (!next) {
+              throw new ProjectActionError(
+                'el grupo no se puede mover: pista bloqueada o superposición',
+              );
+            }
+            return next;
+          });
+          state.setNotice(`${groupIds.length} clips movidos ${delta} frames.`);
+          return;
+        }
         const currentClip = doc.timeline.clips.find(
           (item) => item.id === current.clipId,
         );
@@ -1094,10 +1555,13 @@ export function Timeline() {
           ?.closest('[data-lane-track-id]') as HTMLElement | null;
         const targetTrackId = hovered?.dataset.laneTrackId ?? current.previewTrackId;
         const magnetic = latest.current.snapEnabled && !event.altKey;
+        const ripple = rippleRef.current;
         state.update((projectDoc) => {
-          const next = magnetic
-            ? magneticMoveClip(projectDoc, current.clipId, current.previewStart, targetTrackId)
-            : moveClip(projectDoc, current.clipId, current.previewStart, targetTrackId);
+          const next = ripple
+            ? rippleMoveClip(projectDoc, current.clipId, current.previewStart, targetTrackId)
+            : magnetic
+              ? magneticMoveClip(projectDoc, current.clipId, current.previewStart, targetTrackId)
+              : moveClip(projectDoc, current.clipId, current.previewStart, targetTrackId);
           if (!next) {
             throw new ProjectActionError(
               'ese movimiento se superpone con otro clip o la pista no acepta el clip',
@@ -1108,15 +1572,15 @@ export function Timeline() {
         state.setSelection({ kind: 'clip', id: current.clipId });
         return;
       }
+      const trimEdge = current.mode === 'trim-start' ? 'start' : 'end';
+      const trimTarget =
+        current.mode === 'trim-start'
+          ? current.previewStart
+          : current.previewStart + current.previewDuration;
       state.update((projectDoc) => {
-        const next = trimClip(
-          projectDoc,
-          current.clipId,
-          current.mode === 'trim-start' ? 'start' : 'end',
-          current.mode === 'trim-start'
-            ? current.previewStart
-            : current.previewStart + current.previewDuration,
-        );
+        const next = rippleRef.current
+          ? rippleTrim(projectDoc, current.clipId, trimEdge, trimTarget)
+          : trimClip(projectDoc, current.clipId, trimEdge, trimTarget);
         if (!next) {
           throw new ProjectActionError(
             'ese recorte no es válido para la ventana de origen del clip',
@@ -1131,6 +1595,7 @@ export function Timeline() {
     return () => {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
+      dragMoveCoalescer.cancel();
       if (scrubRafRef.current) {
         window.cancelAnimationFrame(scrubRafRef.current);
         scrubRafRef.current = 0;
@@ -1176,6 +1641,9 @@ export function Timeline() {
     mode: 'move' | 'trim-start' | 'trim-end',
   ): void {
     event.preventDefault();
+    const multi = multiSelectionRef.current;
+    const groupIds =
+      mode === 'move' && multi.has(clip.id) && multi.size > 1 ? [...multi] : undefined;
     const drag: Drag = {
       kind: 'clip',
       clipId: clip.id,
@@ -1186,6 +1654,7 @@ export function Timeline() {
       previewStart: clip.startFrame,
       previewDuration: clip.durationFrames,
       previewTrackId: clip.trackId,
+      ...(groupIds ? { groupIds, groupDelta: 0 } : {}),
     };
     dragRef.current = drag;
     setPreview(drag);
@@ -1295,8 +1764,16 @@ export function Timeline() {
   // como variable para que el CSS no adivine píxeles fijos (antes eran 120 px).
   const gridStepPx = Math.max(8, Math.round(majorFrames * pxPerFrame));
 
+  // Handlers "vivos" para los clips memoizados (ver clipHandlersRef).
+  clipHandlersRef.current = {
+    select: selectClip,
+    drag: beginClipDrag,
+    menu: openClipMenu,
+  };
+
   return (
     <div
+      ref={timelineRootRef}
       className={
         `timeline density-${preferences.timelineDensity}` +
         (preferences.timelineShowGrid ? '' : ' no-grid') +
@@ -1404,6 +1881,42 @@ export function Timeline() {
           >
             <Icon name="magnet" size={13} />
             <span className="tool-label">Magnética</span>
+          </button>
+          <button
+            type="button"
+            className={
+              preferences.timelineRipple
+                ? 'small ghost ripple-toggle active'
+                : 'small ghost ripple-toggle'
+            }
+            aria-label="Activar o desactivar edición ripple"
+            aria-pressed={preferences.timelineRipple}
+            aria-keyshortcuts="Shift+R"
+            title="Ripple (Shift+R): mover y recortar desplaza los clips posteriores para no dejar huecos"
+            onClick={toggleRippleMode}
+          >
+            <Icon name="ripple" size={13} />
+            <span className="tool-label">Ripple</span>
+          </button>
+          <button
+            type="button"
+            className={
+              beatState ? 'small ghost beat-toggle active' : 'small ghost beat-toggle'
+            }
+            aria-label="Detectar beats para el imán"
+            aria-pressed={Boolean(beatState)}
+            title={
+              beatState
+                ? `${beatState.frames.length} beats de ${beatState.clipLabel} (≈${beatState.bpm} bpm); clic para quitarlos del imán`
+                : 'Analiza la forma de onda del clip seleccionado y usa sus beats como puntos de imán'
+            }
+            onClick={analyzeBeats}
+            disabled={!beatSource}
+          >
+            <Icon name="audio" size={13} />
+            <span className="tool-label">
+              {beatState ? `Beats · ${beatState.frames.length}` : 'Beats'}
+            </span>
           </button>
         </div>
         <div className="timeline-tools timeline-tools-filters">
@@ -1518,18 +2031,8 @@ export function Timeline() {
             type="button"
             className="small danger-ghost icon-text"
             aria-label="Borrar clip"
-            disabled={!selectedClip}
-            onClick={() => {
-              if (!selectedClip) return;
-              let nextDuration = 0;
-              store.update((current) => {
-                const next = deleteClip(current, selectedClip.id);
-                nextDuration = totalFrames(next);
-                return next;
-              });
-              store.setSelection({ kind: 'none' });
-              store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
-            }}
+            disabled={selectedClipIds.size === 0 && !selectedClip}
+            onClick={() => deleteSelectedClips(preferences.timelineRipple)}
           >
             <Icon name="trash" size={13} />
             <span className="tool-label">Borrar clip</span>
@@ -1560,8 +2063,8 @@ export function Timeline() {
             type="button"
             className="small danger-ghost icon-text"
             aria-label="Borrar clip y cerrar el hueco"
-            title="Borra el clip y mueve los siguientes para cerrar el hueco"
-            disabled={!selectedClip}
+            title="Borra el clip (o los seleccionados) y mueve los siguientes para cerrar el hueco"
+            disabled={selectedClipIds.size === 0 && !selectedClipId}
             onClick={rippleDeleteSelected}
           >
             <Icon name="ripple" size={13} />
@@ -1614,6 +2117,22 @@ export function Timeline() {
           <span className="duration-tracks"> · {project.timeline.tracks.length} pistas</span>
         </span>
       </div>
+
+      {overviewVisible ? (
+        <TimelineOverview
+          durationFrames={duration}
+          fps={fps}
+          clips={overviewClips}
+          playheadFrame={store.state.playheadFrame}
+          contentWidth={contentWidth}
+          clientWidth={viewport.clientWidth}
+          scrollLeft={viewport.scrollLeft}
+          onScrollTo={(next) => {
+            const element = scrollRef.current;
+            if (element) element.scrollLeft = next;
+          }}
+        />
+      ) : null}
 
       <div
         ref={scrollRef}
@@ -1707,12 +2226,28 @@ export function Timeline() {
             </div>
           ) : null}
 
-          {tracks.map((track) => {
+          {trackWindow && trackWindow.topPad > 0 ? (
+            <div
+              className="timeline-spacer"
+              style={{ height: trackWindow.topPad }}
+              aria-hidden="true"
+            />
+          ) : null}
+          {visibleTracks.map((track) => {
             const trackClips = project.timeline.clips.filter((clip) => clip.trackId === track.id);
             const trackCues =
               track.kind === 'caption'
                 ? project.captions.cues.filter((cue) => cue.trackId === track.id)
                 : [];
+            // Virtualización de contenido: sólo los clips/cues que intersectan
+            // la ventana visible (+overscan). Sin layout medible (jsdom),
+            // `frameWindow` es null y se renderiza todo.
+            const visibleClips = trackClips.filter((clip) =>
+              spanIntersectsWindow(clip.startFrame, clip.durationFrames, frameWindow),
+            );
+            const visibleCues = trackCues.filter((cue) =>
+              spanIntersectsWindow(cue.startFrame, cue.endFrame - cue.startFrame, frameWindow),
+            );
             const collapsed = collapsedTracks.has(track.id);
             const storedHeight = trackHeights[track.id];
             // Sin alto guardado, el alto lo pone el CSS con `--timeline-row`
@@ -1851,13 +2386,13 @@ export function Timeline() {
                     store.setPlayhead(Math.max(0, Math.round((event.clientX - rect.left) / pxPerFrame)));
                   }}
                 >
-                  {trackClips.map((clip) => (
+                  {visibleClips.map((clip) => (
                     <ClipBlock
                       key={clip.id}
                       clip={clip}
                       track={track}
                       pxPerFrame={pxPerFrame}
-                      selected={selectedClipId === clip.id}
+                      selected={isClipSelected(clip.id)}
                       dimmed={
                         !clipMatchesColorFilter(clip.colorTag, colorFilter) ||
                         !matchesClipSearch(
@@ -1874,12 +2409,14 @@ export function Timeline() {
                       preview={preview}
                       showThumbnail={preferences.showThumbnails}
                       showWaveform={preferences.showWaveforms}
-                      onSelect={() => store.setSelection({ kind: 'clip', id: clip.id })}
-                      onDrag={(event, mode) => beginClipDrag(event, clip, mode)}
-                      onContextMenu={(event) => openClipMenu(event, clip)}
+                      onSelect={(event) => clipHandlersRef.current.select(clip.id, event)}
+                      onDrag={(event, mode) =>
+                        clipHandlersRef.current.drag(event, clip, mode)
+                      }
+                      onContextMenu={(event) => clipHandlersRef.current.menu(event, clip)}
                     />
                   ))}
-                  {trackCues.map((cue) => (
+                  {visibleCues.map((cue) => (
                     <CueBlock
                       key={cue.id}
                       cue={cue}
@@ -1899,6 +2436,14 @@ export function Timeline() {
               </div>
             );
           })}
+
+          {trackWindow && trackWindow.bottomPad > 0 ? (
+            <div
+              className="timeline-spacer"
+              style={{ height: trackWindow.bottomPad }}
+              aria-hidden="true"
+            />
+          ) : null}
 
           {snapGuide ? (
             <div

@@ -39,8 +39,10 @@
    Conserva estructura/layout (display/flex/grid/posición/tamaños de layout y
    scrollbars). NO se tocó editor/timeline/preview/transporte (Ola 2) ni
    `.asset-rail/.preview-panel/.inspector/.timeline-panel` (workspace/shell).
-   Quedan a propósito: ruedas de color (§40, dato de matiz + VFX) y bloques
-   muertos del rail del editor (§ stickers/SFX/transiciones, sin uso en TSX).
+   Quedan a propósito: ruedas de color (§40, dato de matiz + VFX). En la Ola 4
+   (2026-11-03) se eliminaron los 127 `!important` de los bloques muertos del
+   rail del editor (stickers/SFX/transiciones/ajustes; sus clases sólo las usa
+   EditorAssets.tsx, que no monta la app).
 
    Fuente de verdad visual: `styles/premium/` (components/shell/views).
 
@@ -159,219 +161,14 @@
 /* NEUTRALIZADO en la Ola 2: el ratio select (24 px, --rad-sm, fondo de pozo)
  * vive en `premium/workspace.css`. */
 
-/* Stickers grid */
-.rail-stickers {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 8px !important;
-  padding: 8px !important;
-  overflow-y: auto !important;
-  flex: 1 !important;
-}
-
-.sticker-filter-pills {
-  display: flex !important;
-  gap: 4px !important;
-  overflow-x: auto !important;
-  scrollbar-width: none !important;
-  padding-bottom: 4px !important;
-}
-
-.sticker-filter-pills::-webkit-scrollbar {
-  display: none !important;
-}
-
-.sticker-filter-pills button {
-  flex: 0 0 auto !important;
-  padding: 3px 8px !important;
-  border-radius: 12px !important;
-  border: 1px solid var(--color-border) !important;
-  background: var(--color-panel-2) !important;
-  color: var(--color-text-muted) !important;
-  font-size: 9.5px !important;
-  cursor: pointer !important;
-  transition: background 0.1s ease, color 0.1s ease !important;
-}
-
-.sticker-filter-pills button.active {
-  background: var(--color-accent) !important;
-  color: var(--color-accent-ink) !important;
-  font-weight: 600 !important;
-  border-color: var(--color-accent) !important;
-}
-
-.sticker-grid {
-  display: grid !important;
-  grid-template-columns: repeat(3, 1fr) !important;
-  gap: 6px !important;
-}
-
-.sticker-card {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 4px !important;
-  padding: 10px 4px !important;
-  background: var(--color-panel-2) !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 3px !important;
-  cursor: pointer !important;
-  transition: background 0.1s ease, border-color 0.1s ease !important;
-}
-
-.sticker-card:hover {  color: var(--color-text) !important;
-}
-
-.sticker-emoji {
-  font-size: 24px !important;
-  line-height: 1 !important;
-}
-
-.sticker-label {
-  font-size: 9px !important;
-  color: var(--color-text-muted) !important;
-  text-align: center !important;
-  white-space: nowrap !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  max-width: 100% !important;
-}
-
-/* Audio SFX list */
-.rail-audio-section {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 12px !important;
-  padding: 8px !important;
-  overflow-y: auto !important;
-  flex: 1 !important;
-}
-
-.rail-subheading {
-  font-size: 9.5px !important;
-  font-weight: 700 !important;
-  text-transform: uppercase !important;
-  letter-spacing: 0.08em !important;
-  color: var(--color-text-muted) !important;
-  margin: 0 0 6px 0 !important;
-}
-
-.sfx-list {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 4px !important;
-}
-
-.sfx-card {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  padding: 6px 8px !important;
-  background: var(--color-panel-2) !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 3px !important;
-}
-
-.sfx-info {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 2px !important;
-}
-
-.sfx-info strong {
-  font-size: 11px !important;
-  color: var(--color-text) !important;
-}
-
-.sfx-info span {
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-}
-
-/* Transitions grid */
-.rail-transitions {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 10px !important;
-  padding: 8px !important;
-  overflow-y: auto !important;
-  flex: 1 !important;
-}
-
-.transition-settings-bar {
-  background: var(--color-panel-2) !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 3px !important;
-  padding: 8px !important;
-}
-
-.transition-grid {
-  display: grid !important;
-  grid-template-columns: repeat(2, 1fr) !important;
-  gap: 6px !important;
-}
-
-.transition-card {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: center !important;
-  text-align: center !important;
-  gap: 4px !important;
-  padding: 8px 6px !important;
-  background: var(--color-panel-2) !important;
-  border: 1px solid var(--color-border) !important;
-  border-radius: 3px !important;
-}
-
-.transition-icon-wrap {
-  width: 32px !important;
-  height: 32px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  background: var(--color-panel-3) !important;
-  border-radius: 3px !important;
-  border: 1px solid var(--color-border) !important;
-}
-
-.transition-symbol {
-  font-size: 16px !important;
-  color: var(--color-accent) !important;
-}
-
-.transition-card strong {
-  font-size: 11px !important;
-  color: var(--color-text) !important;
-}
-
-.transition-card p {
-  font-size: 9px !important;
-  color: var(--color-empty) !important;
-  margin: 0 !important;
-  line-height: 1.2 !important;
-}
-
-.transition-actions {
-  display: flex !important;
-  gap: 4px !important;
-  margin-top: 4px !important;
-}
-
-.transition-actions button {
-  padding: 2px 6px !important;
-  font-size: 9px !important;
-}
-
-/* Adjustments rail */
-.rail-adjustments {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 12px !important;
-  padding: 10px !important;
-  overflow-y: auto !important;
-  flex: 1 !important;
-}
+/* OLA 4 (2026-11-03): se eliminaron los bloques VISUALES muertos del rail del
+ * editor que todavía forzaban el look plano con 127 `!important` (214 líneas):
+ * stickers, audio SFX, transiciones y ajustes. Sus clases
+ * (`rail-stickers`, `sticker-*`, `rail-audio-section`, `sfx-*`,
+ * `rail-transitions`, `transition-*`, `rail-adjustments`) sólo las usa
+ * `features/editor/EditorAssets.tsx`, componente que no monta la app (sólo lo
+ * importa su test). La app estiliza el rail real desde `premium/workspace.css`.
+ */
 
 /* ─── 11 · Preview ───
  * NEUTRALIZADO en la Ola 2: el pozo del monitor, el marco del canvas, el HUD

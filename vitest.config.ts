@@ -13,6 +13,9 @@ export default defineConfig({
       '.tmp-vitest/**',
       // Worktrees locales de experimentos: duplican la suite sin node_modules.
       '.worktrees/**',
+      // Los worktrees de seguridad viven dentro de .git y duplicaban la suite
+      // (incluidos specs de Playwright que Vitest no puede ejecutar).
+      '**/.git/**',
     ],
   },
 });

@@ -153,6 +153,7 @@ function preset(value: unknown): ThemePresetId {
     value === 'violet' ||
     value === 'ocean' ||
     value === 'graphite' ||
+    value === 'light' ||
     value === 'custom'
     ? value
     : DEFAULT_APPEARANCE.preset;

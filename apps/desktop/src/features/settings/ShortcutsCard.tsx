@@ -4,17 +4,23 @@ import {
   DEFAULT_SHORTCUTS,
   SHORTCUT_CATEGORIES,
   SHORTCUT_LABELS,
+  assignShortcut,
   eventToBinding,
-  isBindable,
   loadShortcuts,
-  normalizeBinding,
   resetShortcuts,
   saveShortcuts,
   type ShortcutId,
   type ShortcutMap,
 } from '../../state/shortcuts';
 
-const CATEGORY_ORDER = ['General', 'Navegación', 'Archivo', 'Editar', 'Reproducción'] as const;
+const CATEGORY_ORDER = [
+  'General',
+  'Navegación',
+  'Archivo',
+  'Editar',
+  'Reproducción',
+  'Timeline',
+] as const;
 
 const ALL_IDS = Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[];
 
@@ -45,21 +51,19 @@ export function ShortcutsCard() {
         return;
       }
       const binding = eventToBinding(event);
-      if (!isBindable(binding)) {
-        setError('Usá Ctrl o Alt, o una tecla especial (F1-F12, Espacio…).');
+      const assignment = assignShortcut(map, listening, binding);
+      if (!assignment.ok) {
+        if (assignment.reason === 'not-bindable') {
+          setError('Usá Ctrl o Alt, o una tecla especial (F1-F12, Espacio…).');
+        } else {
+          setError(
+            `"${assignment.binding}" ya lo usa "${SHORTCUT_LABELS[assignment.conflictId!]}".`,
+          );
+        }
         return;
       }
-      const conflict = (Object.entries(map) as [ShortcutId, string][]).find(
-        ([id, value]) =>
-          id !== listening && normalizeBinding(value) === normalizeBinding(binding),
-      );
-      if (conflict) {
-        setError(`"${binding}" ya lo usa "${SHORTCUT_LABELS[conflict[0]]}".`);
-        return;
-      }
-      const next: ShortcutMap = { ...map, [listening]: normalizeBinding(binding) };
-      setMap(next);
-      saveShortcuts(next);
+      setMap(assignment.map);
+      saveShortcuts(assignment.map);
       setListening(null);
       setError(null);
     };

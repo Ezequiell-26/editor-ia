@@ -1,0 +1,13 @@
+/* Entry de estilos del EDITOR (workspace/timeline).
+ *
+ * Se carga por `import()` dinámico desde `App.tsx` cuando la primera vista es
+ * de editor (editor, texto, multicámara, mezcla, VFX, motion, efectos) o en
+ * ocioso antes de navegar a ella. El launcher y el shell arrancan sólo con el
+ * CSS crítico de `main.tsx`; ver `docs/CSS-PERF-NOTES.md` §5.
+ *
+ * Orden heredado: capa premium del workspace al final (gana la cascada sobre
+ * las hojas legacy que ya están cargadas por main.tsx).
+ */
+@import '../premium/workspace.css';
+@import '../effect-studio.css';
+@import '../brain.css';

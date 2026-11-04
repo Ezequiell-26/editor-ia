@@ -1,0 +1,12 @@
+/* Entry de estilos de CONTENIDO (Home, Proyectos, herramientas y vistas).
+ *
+ * Se carga por `import()` dinámico desde `App.tsx` cuando la primera vista es
+ * de contenido o en ocioso antes de navegar a una. El launcher y el shell
+ * arrancan sólo con el CSS crítico de `main.tsx`; ver
+ * `docs/CSS-PERF-NOTES.md` §5.
+ *
+ * Orden heredado: legacy de Home antes de la capa premium de vistas (que gana
+ * la cascada).
+ */
+@import '../home.css';
+@import '../premium/views.css';

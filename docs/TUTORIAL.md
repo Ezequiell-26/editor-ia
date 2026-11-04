@@ -604,6 +604,23 @@ leé siempre la política oficial enlazada.
   variables CSS y se guarda sólo en este equipo (`localStorage`), nunca dentro
   del proyecto. Detalle técnico en
   [`COLOR-CUSTOMIZATION.md`](COLOR-CUSTOMIZATION.md).
+
+### Atajos personalizables
+
+**Ajustes → Atajos** lista todos los atajos agrupados por área (General,
+Navegación, Archivo, Editar, Reproducción y Timeline). Hacé clic en una
+combinación y presioná la nueva: se normaliza al formato `Ctrl+Alt+K`, se
+aplica al instante y la paleta de comandos muestra el atajo nuevo. Reglas:
+
+- Un atajo se asigna sólo con `Ctrl`/`Alt` o una tecla especial (F1–F12,
+  Espacio, flechas, Inicio/Fin…): una letra o número pelado rompería la escritura.
+- Si la combinación ya la usa otro atajo, la app lo dice con el nombre del
+  conflicto y no la aplica; tampoco se puede duplicar un mismo atajo.
+- **↺** restaura un atajo puntual y **Restablecer todo** vuelve a los valores de
+  fábrica. Los cambios se guardan en este equipo (`localStorage`): sólo viaja lo
+  que personalizaste, así un default nuevo llega si nunca tocaste ese atajo.
+- Los atajos de fábrica se mantienen y el detalle por área está en
+  [`ATAJOS-PRO.md`](ATAJOS-PRO.md).
 - **Perfil (abajo a la izquierda)**: foto, nombre y rol. La foto se recorta a
   256 px y se guarda en este equipo.
 - **Iconos**: las barras de herramientas usan iconos con texto accesible y
@@ -916,5 +933,16 @@ aparece el peluche de Olyvia.
 - Esos comandos se ejecutan localmente, sin tokens.
 - Para preguntas libres, configurá un proveedor OpenAI-compatible en Ajustes.
   Si es remoto, marcá **Permitir llamada remota** antes de enviar.
+- **Respuesta en streaming**: con un proveedor OpenAI-compatible que soporte
+  SSE, la respuesta se escribe en vivo en el chat y podés cortarla con
+  **Detener respuesta**; el backend deja de generar y no se aplican acciones a
+  medias. Si el endpoint no soporta streaming (o falla antes del primer token),
+  la app reintenta automáticamente por el camino normal, sin cambiar el
+  resultado. El proveedor simulado no hace red.
+- **Presupuesto de tokens visible**: debajo del compositor se muestra una
+  estimación de la conversación (~4 caracteres por token, sin contar el contexto
+  del proyecto) y una advertencia cuando supera el umbral configurado en
+  **Ajustes → IA → Presupuesto de tokens** (por defecto 4.000). Es sólo un aviso:
+  no recorta el mensaje ni bloquea el envío.
 - El asistente puede navegar, guardar, exportar o crear un gráfico, pero no
   borra archivos, no publica ni ejecuta comandos del sistema.

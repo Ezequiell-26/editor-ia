@@ -256,6 +256,14 @@ export function EditorPreferencesCard() {
         <label className="check">
           <input
             type="checkbox"
+            checked={preferences.timelineRipple}
+            onChange={(event) => patch({ timelineRipple: event.target.checked })}
+          />
+          Ripple: mover y recortar corre los clips posteriores
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
             checked={preferences.safeMargins}
             onChange={(event) => patch({ safeMargins: event.target.checked })}
           />

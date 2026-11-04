@@ -25,13 +25,11 @@ describe('README.md', () => {
   const readme = read('README.md');
   const scripts = Object.keys(JSON.parse(read('package.json')).scripts);
 
-  it('declara que existe hoy y que todavia no', () => {
-    expect(readme).toMatch(/^## .*existe hoy/m);
-    expect(readme).toMatch(/^## .*no existe|^## .*todavia no/m);
-    for (const term of ['render', 'IA', 'UI', 'CI']) {
-      expect(readme.toLowerCase(), `debe marcar ${term} como pendiente`).toContain(
-        term.toLowerCase(),
-      );
+  it('declara qué es real hoy y qué requiere la app nativa', () => {
+    expect(readme).toMatch(/^## Requisitos reales/m);
+    expect(readme.toLowerCase()).toContain('modo navegador');
+    for (const term of ['nativo', 'navegador', 'ia', 'mcp']) {
+      expect(readme.toLowerCase(), `debe explicar ${term}`).toContain(term);
     }
   });
 
@@ -75,7 +73,7 @@ describe('README.md', () => {
   });
 
   it('limita la licencia al codigo propio', () => {
-    expect(mentions(readme, ['MIT', 'Remotion', 'terceros', 'stock'])).toEqual([]);
+    expect(mentions(readme, ['MIT', 'terceros', 'THIRD-PARTY-NOTICES'])).toEqual([]);
   });
 });
 

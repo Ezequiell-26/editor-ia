@@ -24,6 +24,17 @@ describe('tarjeta de preferencias del editor', () => {
     expect(loadEditorPreferences().loopPlayback).toBe(true);
   });
 
+  it('expone el toggle de Ripple y lo persiste en las preferencias', () => {
+    render(<EditorPreferencesCard />);
+    const ripple = screen.getByLabelText(
+      'Ripple: mover y recortar corre los clips posteriores',
+    ) as HTMLInputElement;
+    expect(ripple.checked).toBe(false);
+    fireEvent.click(ripple);
+    expect(loadEditorPreferences().timelineRipple).toBe(true);
+    expect(ripple.checked).toBe(true);
+  });
+
   it('persiste el slider recién al soltarlo', () => {
     render(<EditorPreferencesCard />);
     const slider = screen.getByLabelText('Autoguardado') as HTMLInputElement;

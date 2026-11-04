@@ -71,6 +71,24 @@ export const THEME_PALETTES: Readonly<Record<Exclude<ThemePresetId,'custom'>, Th
   brandBlue #4f8dff, brandViolet #8b5cf6, brandMagenta #d35cff`.
 - `resolve`, `mint`, `ember`, `violet`, `ocean`, `graphite` se construyen con
   `paletteFromBase(THEME_PRESETS[preset])` (mismas 5 bases que hoy).
+- `light` (**«Claro neutro»**) es el único preset nativo de tema claro y también
+  es **explícito** (no derivado: `paletteFromBase` reutilizaría los estados
+  oscuros del contrato, ilegibles sobre fondo claro). Valores:
+  `bg #eef0f3, surface #f7f8fa, panel #f2f3f6, panel2 #e9ebef, panel3 #e1e4ea,
+  panelRaised #ffffff, surfaceRaised #fbfbfd, border #d5d9e0, borderStrong #7f8896,
+  text #15181e, textMuted #4b5563, textSecondary #5d6673, textFaint #5f6874,
+  empty #68717d, accent #1f5eff, accentLight #4a83ff, accentStrong #1748c9,
+  accentInk #f8fffc, info #15803d, success #15803d, warning #b45309, danger #dc2626,
+  dangerStrong #b91c1c, cta #c2410c, video #2563eb, image #7c3aed, audio #0d9488,
+  narration #15803d, caption #b45309, graphic #be185d, brandCyan #0891b2,
+  brandBlue #1f5eff, brandViolet #7c3aed, brandMagenta #c026d3`.
+  `bg` tiene luminancia relativa 0.87 → `colorSchemeFor` emite `light`.
+  Contraste medido con `contrastRatio`: texto 15.6:1 sobre bg, 16.7:1 sobre
+  surface, 16.0:1 sobre panel; `textMuted` 7.1:1, `textSecondary` 5.5:1,
+  `textFaint` 5.3:1 y `empty` 4.65:1 sobre surface; tinta del acento sobre acento
+  5.0:1; estados y medios ≥4.5:1 sobre surface; `borderStrong` 3.4:1 (no textual).
+  Todos los pares de `themeContrastReport` pasan y `fixTextContrast` no cambia
+  ningún token (preset estable).
 - `THEME_PRESETS` se conserva exportado (compatibilidad de la UI actual).
 
 ### 2.3 Derivación (`paletteFromBase(base: ThemeColors): ThemePalette`)
@@ -166,6 +184,10 @@ export function fixTextContrast(palette: ThemePalette): ThemePalette; // sube te
 Pares mínimos del reporte: texto/fondo 4.5; texto/superficie 4.5; texto/panel 4.5;
 texto tenue/superficie 4.5; vacío/superficie 3; acento/fondo 3; tinta de acento/acento
 4.5; éxito/superficie 3; aviso/superficie 3; peligro/superficie 3.
+
+El preset nativo `light` («Claro neutro») pasa los 10 pares del reporte y además
+`fixTextContrast` es idempotente sobre él (no modifica ningún token). Los presets
+oscuros conservan la deuda de contraste previa documentada en §7.
 
 ### 2.7 Archivo de tema (exportar / importar)
 
@@ -286,10 +308,12 @@ Playwright):
   ese motivo.
 - **Datos del proyecto**: `clip.colorTag` (etiqueta de color por clip) es dato
   del usuario, no tema. Los marcadores sí son semánticos y se pintan con tokens.
-- **Tema claro**: un fondo claro completo funciona (superficies, texto, bordes y
-  `color-scheme` siguen la paleta) pero no está prometido al 100 %: quedan
-  botones de acento oscuros (son el acento elegido) y 13+8 pares de texto de
-  estado/tenue por debajo de WCAG AA (mín. 2.36:1).
+- **Tema claro**: el preset nativo «Claro neutro» está medido AA (0 pares por
+  debajo en `themeContrastReport` y `fixTextContrast` estable), y `color-scheme`
+  pasa a `light` solo por la luminancia de `bg`. Un tema claro *personalizado*
+  puede seguir teniendo pares por debajo de AA: el estudio de color los reporta
+  y «Corregir texto» los sube, pero el motor no impone correcciones automáticas
+  sobre la paleta guardada del usuario.
 - **Contraste del tema por defecto**: 50 pares por debajo de AA (mín. 3.37:1,
   acento `#1f5eff` sobre superficie `#181b20`) es deuda de diseño previa a esta
   iteración; el estudio de color permite corregirla.
@@ -307,6 +331,7 @@ Implementado y verificado en el árbol `3a886f0` + cambios sin commitear:
 | Tokenización CSS | `tokens.css`, `commercial.css`, `olyvia.css`, `flat.css`, `chrome.css`, `resolve-theme.css`, `app.css`, `home.css`, `start-screen.css`, `settings.css` | Literales de rol que ganan cascada: **24 → 0**; hex por archivo: commercial 29→1, olyvia 87→6, start-screen 261→0, resolve-theme 162→7, app.css 497→243 (los restantes son sombras, fallbacks y secciones legacy pisadas) |
 | Marcadores | `features/editor/MarkersPanel.tsx` + `.marker-*` en `app.css` | Panel y timeline usan la misma `--marker-color`, 6 categorías distinguibles |
 | E2E | `e2e/theme.spec.ts` (nuevo), `playwright.config.ts` | 7/7 en 22,6 s; `settings.spec` 4/4; config alineada al puerto 3000 |
+| Preset claro nativo | `state/theme-palette.ts` (`light` + `LIGHT_PALETTE`), `state/appearance.ts`, `features/settings/AppearanceCard.tsx`, `premium/shell.css` (deuda chips/sub-tabs) | 42 tests de motor (34 tokens, AA, round-trip `olyvia-theme`), 4 de `AppearanceCard` (aplica, persiste, vuelve a oscuro), e2e «Claro neutro» 1/1 (color-scheme, superficies, AA, persistencia tras recargar) |
 | Docs | `README.md`, este documento | Bullet de apariencia y arquitectura actualizados |
 
 Medición final (`.tmp-theme-shots/after/report.json` y `METHOD.md`,

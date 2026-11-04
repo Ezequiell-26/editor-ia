@@ -4,6 +4,7 @@ import {
   COLOR_TOKENS,
   THEME_FILE_KIND,
   THEME_PALETTES,
+  THEME_PRESET_LABELS,
   THEME_PRESETS,
   colorSchemeFor,
   contrastInk,
@@ -64,6 +65,47 @@ const OLYVIA_EXPECTED: ThemePalette = {
 
 const HEX = /^#[0-9a-f]{6}$/;
 
+/**
+ * Valores exactos del preset «Claro neutro»: es la referencia del único tema
+ * claro nativo y está medido para AA (docs/COLOR-CUSTOMIZATION.md §2.6).
+ */
+const LIGHT_EXPECTED: ThemePalette = {
+  bg: '#eef0f3',
+  surface: '#f7f8fa',
+  panel: '#f2f3f6',
+  panel2: '#e9ebef',
+  panel3: '#e1e4ea',
+  panelRaised: '#ffffff',
+  surfaceRaised: '#fbfbfd',
+  border: '#d5d9e0',
+  borderStrong: '#7f8896',
+  text: '#15181e',
+  textMuted: '#4b5563',
+  textSecondary: '#5d6673',
+  textFaint: '#5f6874',
+  empty: '#68717d',
+  accent: '#1f5eff',
+  accentLight: '#4a83ff',
+  accentStrong: '#1748c9',
+  accentInk: '#f8fffc',
+  info: '#15803d',
+  success: '#15803d',
+  warning: '#b45309',
+  danger: '#dc2626',
+  dangerStrong: '#b91c1c',
+  cta: '#c2410c',
+  video: '#2563eb',
+  image: '#7c3aed',
+  audio: '#0d9488',
+  narration: '#15803d',
+  caption: '#b45309',
+  graphic: '#be185d',
+  brandCyan: '#0891b2',
+  brandBlue: '#1f5eff',
+  brandViolet: '#7c3aed',
+  brandMagenta: '#c026d3',
+};
+
 function expectCompletePalette(palette: ThemePalette): void {
   expect(Object.keys(palette).sort()).toEqual([...TOKEN_IDS].sort());
   for (const id of TOKEN_IDS) {
@@ -117,7 +159,7 @@ describe('presets completos', () => {
     expectCompletePalette(THEME_PALETTES.olyvia);
   });
 
-  it('los 7 presets están completos, con hex válido y sin custom', () => {
+  it('los 8 presets están completos, con hex válido y sin custom', () => {
     expect(Object.keys(THEME_PALETTES)).toEqual([
       'olyvia',
       'resolve',
@@ -126,8 +168,30 @@ describe('presets completos', () => {
       'violet',
       'ocean',
       'graphite',
+      'light',
     ]);
     for (const palette of Object.values(THEME_PALETTES)) expectCompletePalette(palette);
+  });
+
+  it('«Claro neutro» es explícito, claro y espeja sus 5 colores base', () => {
+    expect(THEME_PALETTES.light).toEqual(LIGHT_EXPECTED);
+    expectCompletePalette(THEME_PALETTES.light);
+    expect(colorSchemeFor(THEME_PALETTES.light)).toBe('light');
+    expect(THEME_PALETTES.light.bg).toBe(THEME_PRESETS.light.background);
+    expect(THEME_PALETTES.light.surface).toBe(THEME_PRESETS.light.surface);
+    expect(THEME_PALETTES.light.text).toBe(THEME_PRESETS.light.text);
+    expect(THEME_PALETTES.light.accent).toBe(THEME_PRESETS.light.accent);
+    expect(THEME_PALETTES.light.info).toBe(THEME_PRESETS.light.info);
+    // El acento oscuro del contrato sobrevive al cambio de tema.
+    expect(THEME_PALETTES.light.accent).toBe(THEME_PALETTES.olyvia.accent);
+  });
+
+  it('cada preset tiene etiqueta de UI y «Claro neutro» se llama así', () => {
+    expect(Object.keys(THEME_PRESET_LABELS)).toEqual(Object.keys(THEME_PALETTES));
+    expect(THEME_PRESET_LABELS.light).toBe('Claro neutro');
+    for (const label of Object.values(THEME_PRESET_LABELS)) {
+      expect(label.trim().length).toBeGreaterThan(2);
+    }
   });
 
   it('el resto de los presets se deriva de sus 5 colores base', () => {
@@ -356,6 +420,18 @@ describe('color-scheme', () => {
     expect(colorSchemeFor({ ...THEME_PALETTES.olyvia, bg: '#ffffff' })).toBe('light');
     expect(colorSchemeFor({ ...THEME_PALETTES.olyvia, bg: '#8a8a8a' })).toBe('dark');
   });
+
+  it('«Claro neutro» es el único preset nativo con color-scheme light', () => {
+    expect(colorSchemeFor(THEME_PALETTES.light)).toBe('light');
+    for (const [id, palette] of Object.entries(THEME_PALETTES)) {
+      if (id === 'light') continue;
+      expect(colorSchemeFor(palette), id).toBe('dark');
+    }
+    // El preset emite sus 34 variables, incluida la de fondo.
+    const variables = paletteCssVariables(THEME_PALETTES.light);
+    expect(variables['--color-bg']).toBe(LIGHT_EXPECTED.bg);
+    expect(variables['--color-text']).toBe(LIGHT_EXPECTED.text);
+  });
 });
 
 describe('contraste WCAG', () => {
@@ -402,6 +478,27 @@ describe('contraste WCAG', () => {
     expect(textBg.pass).toBe(false);
     expect(textBg.ratio).toBe(1);
     expect(textBg.minimum).toBe(4.5);
+  });
+
+  it('el preset claro pasa los pares AA del contrato y «Corregir texto» no lo cambia', () => {
+    const light = THEME_PALETTES.light;
+    for (const check of themeContrastReport(light)) {
+      expect(check.pass, `${check.id} (${check.ratio})`).toBe(true);
+    }
+    // Pares extra que usa la interfaz clara (tinta terciaria y bordes).
+    expect(contrastRatio(light.textSecondary, light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(light.textFaint, light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(light.empty, light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(light.borderStrong, light.surface)).toBeGreaterThanOrEqual(3);
+    // Estados y medios oscurecidos: legibles sobre superficie clara.
+    for (const id of ['success', 'warning', 'danger', 'video', 'audio', 'caption'] as const) {
+      expect(
+        contrastRatio(light[id], light.surface),
+        `contraste de ${id} sobre surface`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+    // Estable: «Corregir texto» no tiene nada que corregir en este preset.
+    expect(fixTextContrast(light)).toEqual(light);
   });
 });
 
@@ -470,6 +567,20 @@ describe('archivo de tema', () => {
       expect(parsed.palette).toEqual(palette);
       expect(parsed.name).toBe('Tema');
     }
+  });
+
+  it('exporta e importa «Claro neutro» como archivo olyvia-theme válido', () => {
+    const text = serializeThemeFile(THEME_PALETTES.light, 'Claro neutro');
+    const raw = JSON.parse(text) as { kind: string; name: string; palette: Record<string, string> };
+    expect(raw.kind).toBe('olyvia-theme');
+    expect(raw.name).toBe('Claro neutro');
+    expect(raw.palette.bg).toBe(LIGHT_EXPECTED.bg);
+    expect(raw.palette.text).toBe(LIGHT_EXPECTED.text);
+    const parsed = parseThemeFile(text);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.name).toBe('Claro neutro');
+    expect(parsed.palette).toEqual(LIGHT_EXPECTED);
   });
 
   it('acepta también el objeto ya parseado', () => {

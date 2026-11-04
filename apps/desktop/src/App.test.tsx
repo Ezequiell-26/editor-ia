@@ -1370,7 +1370,13 @@ describe('shell de Olyvia', () => {
     render(<App service={service} />);
     await createProject('Obra export');
     fireEvent.click(screen.getByRole('button', { name: /Exportar video/i }));
-    const dialog = await screen.findByRole('dialog', { name: /Render MP4 verificado/i });
+    // Bajo suite serial (CPU saturada) el chunk lazy del diálogo de exportación
+    // puede tardar más de 1 s; el flujo real sigue siendo el mismo.
+    const dialog = await screen.findByRole(
+      'dialog',
+      { name: /Render MP4 verificado/i },
+      { timeout: 10_000 },
+    );
     expect(dialog).toBeTruthy();
     expect(within(dialog).getAllByText(/YouTube 1080p/).length).toBeGreaterThan(0);
     expect(within(dialog).getByRole('button', { name: /Elegir destino y exportar/i })).toBeTruthy();
@@ -1409,16 +1415,22 @@ describe('menú principal por flujo de trabajo', () => {
     expect(railLabels()).not.toContain('Fábrica');
   });
 
-  it('abre AI Hub desde Ajustes sin un acceso propio en el rail', async () => {
-    renderApp();
-    await openAiHub();
-    await waitFor(() =>
-      expect(screen.getByRole('main').textContent).toContain(
-        'Skills compactas para no gastar tokens',
-      ),
-    );
-    expect(railLabels()).not.toContain('AI Hub');
-  });
+  it(
+    'abre AI Hub desde Ajustes sin un acceso propio en el rail',
+    async () => {
+      renderApp();
+      await openAiHub();
+      await waitFor(() =>
+        expect(screen.getByRole('main').textContent).toContain(
+          'Skills compactas para no gastar tokens',
+        ),
+      );
+      expect(railLabels()).not.toContain('AI Hub');
+    },
+    // Bajo suite serial (CPU saturada) este flujo con lazy chunks + gate de CSS
+    // supera los 5 s por defecto; aislado tarda ~2,3 s.
+    20_000,
+  );
 
   it('abre Director y Fábrica sin licencia ni bloqueo Pro', async () => {
     const service = createFakeService();

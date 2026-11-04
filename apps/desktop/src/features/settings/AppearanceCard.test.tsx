@@ -79,6 +79,41 @@ describe('AppearanceCard', () => {
     );
   });
 
+  it('aplica el preset claro nativo, cambia color-scheme y lo persiste', async () => {
+    renderCard();
+
+    expect(screen.getByRole('button', { name: 'Tema Claro neutro' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Tema Claro neutro' }));
+
+    await waitFor(() =>
+      expect(document.documentElement.style.getPropertyValue('--color-bg')).toBe(
+        THEME_PALETTES.light.bg,
+      ),
+    );
+    expect(document.documentElement.style.getPropertyValue('--color-text')).toBe(
+      THEME_PALETTES.light.text,
+    );
+    expect(document.documentElement.style.colorScheme).toBe('light');
+
+    await waitFor(
+      () => {
+        const saved = savedAppearance();
+        expect(saved.preset).toBe('light');
+        const palette = saved.palette as Record<string, string>;
+        expect(palette.bg).toBe(THEME_PALETTES.light.bg);
+        expect(palette.surface).toBe(THEME_PALETTES.light.surface);
+        expect(palette.text).toBe(THEME_PALETTES.light.text);
+      },
+      { timeout: 2_000 },
+    );
+
+    // Volver a un preset oscuro restaura color-scheme dark (mismo motor).
+    fireEvent.click(screen.getByRole('button', { name: 'Tema Olyvia' }));
+    await waitFor(() =>
+      expect(document.documentElement.style.colorScheme).toBe('dark'),
+    );
+  });
+
   it('sigue ofreciendo densidad, escala, esquinas, filas y comprobaciones', () => {
     renderCard();
 

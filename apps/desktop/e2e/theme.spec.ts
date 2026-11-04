@@ -55,6 +55,19 @@ async function enterSettingsPage(page: Page): Promise<void> {
 const STORAGE_KEY = 'editor-ia.appearance.v4';
 const THEME_FILE_NAME = 'olyvia-tema.json';
 
+/**
+ * Preset nativo «Claro neutro» (fuente: src/state/theme-palette.ts →
+ * LIGHT_PALETTE). Se replican sólo los tokens que este e2e verifica; el resto
+ * lo cubren los tests unitarios de theme-palette.
+ */
+const NATIVE_LIGHT = {
+  name: 'Claro neutro',
+  bg: '#eef0f3',
+  surface: '#f7f8fa',
+  panel: '#f2f3f6',
+  text: '#15181e',
+} as const;
+
 /** Los 34 tokens editables, en el orden que publica docs/COLOR-CUSTOMIZATION.md §2.1. */
 const TOKEN_IDS = [
   // superficies (14)
@@ -910,6 +923,129 @@ test('exporta un archivo olyvia-theme con los 34 tokens', async ({ page }) => {
     fileName: download.suggestedFilename(),
     tokens: Object.keys(parsed.palette ?? {}).length,
     paletteHead: Object.fromEntries(Object.entries(parsed.palette ?? {}).slice(0, 6)),
+  });
+});
+
+test('el preset nativo «Claro neutro» cambia color-scheme, persiste y mantiene AA', async ({
+  page,
+}) => {
+  await enterSettingsPage(page);
+
+  // El selector de apariencia ofrece el preset claro junto a los 7 oscuros.
+  const presetButton = page.getByRole('button', { name: `Tema ${NATIVE_LIGHT.name}` });
+  await expect(presetButton).toBeVisible();
+  await presetButton.click();
+
+  // Los 34 tokens se aplican en vivo desde el preset nativo.
+  await waitForVar(page, '--color-bg', NATIVE_LIGHT.bg);
+  await expect.poll(async () => cssVar(page, '--color-surface')).toBe(NATIVE_LIGHT.surface);
+  await expect.poll(async () => cssVar(page, '--color-text')).toBe(NATIVE_LIGHT.text);
+
+  // El estudio de color nombra el preset activo con su etiqueta de UI.
+  await expect(page.locator('.color-studio-reference')).toHaveText(
+    /Referencia:\s*Claro neutro/i,
+  );
+
+  // color-scheme se deriva de la luminancia del fondo (contrato §2.4).
+  await expect
+    .poll(() => page.evaluate(() => getComputedStyle(document.documentElement).colorScheme.trim()), {
+      timeout: 10_000,
+    })
+    .toBe('light');
+  expect(await page.evaluate(() => document.documentElement.style.colorScheme)).toBe('light');
+
+  // Persistencia del preset (sólo se agrega el preset: no toca datos previos).
+  // El proveedor agrupa escrituras con debounce (280 ms).
+  await expect
+    .poll(
+      () =>
+        page.evaluate((key) => {
+          const raw = window.localStorage.getItem(key);
+          return raw ? ((JSON.parse(raw) as { preset?: string }).preset ?? null) : null;
+        }, STORAGE_KEY),
+      { timeout: 10_000, message: 'el preset elegido se persiste en localStorage' },
+    )
+    .toBe('light');
+  const palette = await storedPalette(page);
+  expect(palette?.bg).toBe(NATIVE_LIGHT.bg);
+  expect(palette?.text).toBe(NATIVE_LIGHT.text);
+
+  // El reporte de contraste del estudio de color queda todo en is-pass.
+  const contrast = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('.contrast-row'));
+    return {
+      count: rows.length,
+      fails: rows.filter((row) => /is-fail/.test(row.className)).length,
+      states: Array.from(document.querySelectorAll('.contrast-state')).map((state) =>
+        (state.textContent ?? '').trim(),
+      ),
+    };
+  });
+  expect(contrast.count).toBeGreaterThanOrEqual(10);
+  expect(contrast.fails).toBe(0);
+
+  // Superficies reales del shell pintadas en claro (no sólo variables).
+  await closeSettings(page);
+  const surfaces = await page.evaluate(() => {
+    const channelsOf = (value: string): readonly [number, number, number] | null => {
+      // Chrome computa color-mix() como color(srgb 0..1 …); rgb() para sólidos.
+      const srgb = value.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+      if (srgb) {
+        return [Number(srgb[1]) * 255, Number(srgb[2]) * 255, Number(srgb[3]) * 255] as const;
+      }
+      const rgb = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+      return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] as const : null;
+    };
+    const sample = (selector: string): { background: string; luminance: number } => {
+      const element = document.querySelector(selector);
+      if (!element) return { background: '', luminance: -1 };
+      const background = getComputedStyle(element).backgroundColor;
+      const channels = channelsOf(background);
+      if (!channels) return { background, luminance: -1 };
+      const channel = (value: number): number => {
+        const c = value / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+      };
+      const luminance =
+        0.2126 * channel(channels[0]) +
+        0.7152 * channel(channels[1]) +
+        0.0722 * channel(channels[2]);
+      return { background, luminance };
+    };
+    return {
+      app: sample('.app-shell'),
+      sidebar: sample('.sidebar'),
+      statusbar: sample('.app-statusbar'),
+      topbar: sample('.topbar'),
+    };
+  });
+  expect(surfaces.app.background).toBe('rgb(238, 240, 243)');
+  for (const key of ['sidebar', 'statusbar', 'topbar'] as const) {
+    expect(surfaces[key].background, `${key} tiene fondo computado`).not.toBe('');
+    expect(surfaces[key].background, `${key} no es transparente`).not.toMatch(/rgba\(0, 0, 0, 0\)/);
+    expect(surfaces[key].luminance, `${key} es claro`).toBeGreaterThan(0.5);
+  }
+
+  await page.screenshot({ path: shot('13-preset-claro-nativo.png') });
+
+  // Persiste tras recargar: al reentrar al shell sigue claro y AA.
+  await page.reload();
+  await enterShell(page);
+  await waitForVar(page, '--color-bg', NATIVE_LIGHT.bg);
+  expect(
+    await page.evaluate(() => getComputedStyle(document.documentElement).colorScheme.trim()),
+  ).toBe('light');
+  await page.screenshot({ path: shot('14-preset-claro-persistido.png') });
+
+  recordEvidence({
+    test: 'el preset nativo «Claro neutro» cambia color-scheme, persiste y mantiene AA',
+    preset: 'light',
+    bg: NATIVE_LIGHT.bg,
+    surface: NATIVE_LIGHT.surface,
+    colorScheme: 'light',
+    contrastRows: contrast.count,
+    contrastFails: contrast.fails,
+    surfaces,
   });
 });
 

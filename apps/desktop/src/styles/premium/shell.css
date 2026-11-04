@@ -1715,6 +1715,23 @@ body {
   border-color: color-mix(in srgb, var(--color-text) 14%, transparent);
 }
 
+/* ── Deuda visual de Ajustes (pulido de la Ola 5) ───────────────────────
+ * `docs/PREMIUM-POLISH-SPEC.md` midió chips de 9,5 px y sub-tabs (segmented)
+ * de 22 px en Ajustes: por debajo del mínimo de 10 px de texto y del hit
+ * target de 24 px. Se corrige acotado a la ventana de Ajustes. */
+.settings-window .segmented button {
+  height: 24px !important;
+  min-height: 24px !important;
+}
+
+.settings-window .theme-preview-topbar-chip,
+.settings-window .theme-preview-panel-head,
+.settings-window .theme-preview-badge,
+.settings-window .contrast-state {
+  font-size: var(--type-10);
+  line-height: 1.25;
+}
+
 /* ══════════════════════════════════════════ Paleta de comandos ══ */
 
 /* Overlay a pantalla completa: único caso de elevación 5 (spec §6.5). */

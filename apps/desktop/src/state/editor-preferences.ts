@@ -12,6 +12,12 @@
 
 export const EDITOR_PREFS_STORAGE_KEY = 'editoria.editor-prefs.v1';
 export const EDITOR_PREFS_CHANGED_EVENT = 'editoria:editor-prefs-changed';
+/**
+ * Clave histórica del toggle Ripple (vivía en la timeline). Se conserva para
+ * migrar el valor a `timelineRipple` en la primera lectura; el toggle ahora
+ * vive en Ajustes → Editor con el resto de preferencias.
+ */
+export const LEGACY_TIMELINE_RIPPLE_KEY = 'editoria.timeline-ripple.v1';
 
 export interface EditorPreferences {
   readonly version: 1;
@@ -45,6 +51,11 @@ export interface EditorPreferences {
   readonly timelineClipLabels: 'full' | 'minimal';
   /** Rejilla temporal sutil alineada con las marcas mayores de la regla. */
   readonly timelineShowGrid: boolean;
+  /**
+   * Ripple editing: mover/recortar desplaza los clips posteriores para no dejar
+   * huecos. Default false (retrocompatible; migra `editoria.timeline-ripple.v1`).
+   */
+  readonly timelineRipple: boolean;
 }
 
 /** Almacenamiento mínimo que necesitan estas preferencias. */
@@ -71,6 +82,7 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   timelineDensity: 'comfortable',
   timelineClipLabels: 'full',
   timelineShowGrid: true,
+  timelineRipple: false,
 };
 
 /** Límites duros por campo: la UI y la normalización comparten la misma tabla. */
@@ -147,6 +159,10 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
       source.timelineShowGrid,
       DEFAULT_EDITOR_PREFERENCES.timelineShowGrid,
     ),
+    timelineRipple: bool(
+      source.timelineRipple,
+      DEFAULT_EDITOR_PREFERENCES.timelineRipple,
+    ),
   };
 }
 
@@ -158,14 +174,38 @@ function safeStorage(): PreferencesStorage | null {
   }
 }
 
+function readLegacyRipple(
+  storage: Pick<PreferencesStorage, 'getItem'> | null,
+): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(LEGACY_TIMELINE_RIPPLE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
 export function loadEditorPreferences(
   storage: Pick<PreferencesStorage, 'getItem'> | null = safeStorage(),
 ): EditorPreferences {
   if (!storage) return DEFAULT_EDITOR_PREFERENCES;
   try {
     const text = storage.getItem(EDITOR_PREFS_STORAGE_KEY);
-    if (!text) return DEFAULT_EDITOR_PREFERENCES;
-    return normalizeEditorPreferences(JSON.parse(text));
+    if (!text) {
+      // Primera lectura sin preferencias nuevas: si el usuario tenía el toggle
+      // Ripple viejo activo, se migra sin cambiar el resto (defaults).
+      return readLegacyRipple(storage)
+        ? { ...DEFAULT_EDITOR_PREFERENCES, timelineRipple: true }
+        : DEFAULT_EDITOR_PREFERENCES;
+    }
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const preferences = normalizeEditorPreferences(parsed);
+    // Migración retrocompatible: sólo si las preferencias nuevas todavía no
+    // tienen el campo (proyectos/instalaciones previas a la Ola 2b).
+    if (parsed.timelineRipple === undefined && readLegacyRipple(storage)) {
+      return { ...preferences, timelineRipple: true };
+    }
+    return preferences;
   } catch {
     return DEFAULT_EDITOR_PREFERENCES;
   }
@@ -182,6 +222,9 @@ export function saveEditorPreferences(
   const normalized = normalizeEditorPreferences(preferences);
   try {
     storage?.setItem(EDITOR_PREFS_STORAGE_KEY, JSON.stringify(normalized));
+    // Una vez que el valor vive en las preferencias nuevas, la clave histórica
+    // del timeline se descarta para no re-migrar valores viejos al restablecer.
+    storage?.removeItem?.(LEGACY_TIMELINE_RIPPLE_KEY);
   } catch {
     // Sin cuota o en modo privado: la sesión sigue con los valores en memoria.
   }

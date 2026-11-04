@@ -1,0 +1,264 @@
+name: release
+
+# Release reproducible de Olyvia para Windows x64 (Tauri + NSIS).
+#
+# Disparadores:
+#   - workflow_dispatch: prueba manual. `allow_unsigned=true` permite compilar
+#     sin firma SÓLO para probar el runner; no publica release.
+#   - push de un tag `vX.Y.Z`: release pública. La firma Authenticode es
+#     OBLIGATORIA y la versión del tag debe coincidir con
+#     `apps/desktop/src-tauri/tauri.conf.json`.
+#
+# Firma: se configura con los secrets documentados en `docs/RELEASE.md` §4.
+# No hay certificado ni claves en el repositorio: si faltan los secrets, un tag
+# falla antes de construir y explica cómo configurarlos.
+#
+# Este workflow no se ejecuta desde el repo local; se valida como YAML y se
+# prueba en GitHub Actions.
+
+on:
+  workflow_dispatch:
+    inputs:
+      allow_unsigned:
+        description: 'Permitir build SIN firma (sólo prueba; no publica release)'
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-windows:
+    name: Olyvia Windows x64 (NSIS)
+    runs-on: windows-2022
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Toma el commit exacto
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node fijado por package.json
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Restaura el registro de crates
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: crates-release-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: crates-release-${{ runner.os }}-
+
+      - name: Instala las dependencias del lockfile
+        run: npm ci
+
+      - name: Aplica el toolchain fijado por rust-toolchain.toml
+        run: rustup show
+
+      - name: Prepara FFmpeg dev y libclang para video-rs
+        run: bash scripts/ci-ffmpeg-dev.sh
+
+      - name: Prepara recursos empaquetados (FFmpeg, yt-dlp, ONNX y Piper)
+        run: bash scripts/ci-bundle-resources.sh
+
+      - name: Typecheck, tests seriales, extensión y puertas de verify.yml
+        run: npm run verify
+
+      - name: Build de producción del frontend
+        run: npm --workspace @editor-ia/desktop run build
+
+      - name: Formato de Rust
+        run: node scripts/rust-env.mjs -- cargo fmt --all -- --check
+
+      - name: Comprueba la versión del tag contra tauri.conf.json
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          conf_version="$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")"
+          echo "tag=$tag_version tauri.conf=$conf_version"
+          if [ "$tag_version" != "$conf_version" ]; then
+            echo "::error::El tag v$tag_version no coincide con la versión de la app ($conf_version). Actualizá tauri.conf.json antes de etiquetar."
+            exit 1
+          fi
+
+      - name: Detecta credenciales de firma Authenticode
+        id: signing
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $mode = 'unsigned'
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERTIFICATE_BASE64)) {
+            Write-Output '::notice::No hay WINDOWS_CERTIFICATE_BASE64: el build queda sin firma Authenticode.'
+          } else {
+            if ([string]::IsNullOrEmpty($env:WINDOWS_CERTIFICATE_PASSWORD)) {
+              throw 'Falta el secret WINDOWS_CERTIFICATE_PASSWORD (obligatorio junto a WINDOWS_CERTIFICATE_BASE64). Ver docs/RELEASE.md §4.'
+            }
+            $pfx = Join-Path $env:RUNNER_TEMP 'olyvia-codesign.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+            try {
+              $secure = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+              $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation 'Cert:\CurrentUser\My' -Password $secure
+            } finally {
+              Remove-Item -LiteralPath $pfx -Force -ErrorAction SilentlyContinue
+            }
+            if (-not $cert -or -not $cert.Thumbprint) {
+              throw 'No se pudo importar el certificado PFX para firmar.'
+            }
+            "WINDOWS_CERT_THUMBPRINT=$($cert.Thumbprint)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            "WINDOWS_CERT_SUBJECT=$($cert.Subject)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            $mode = 'certificate'
+            Write-Output "::notice::Certificado importado: $($cert.Subject)"
+          }
+          "mode=$mode" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Exige firma real antes de construir un release
+        if: steps.signing.outputs.mode != 'certificate' && inputs.allow_unsigned != true
+        run: |
+          cat <<'MSG'
+          ::error::Este workflow no publica un release sin firma Authenticode. Configurá los secrets WINDOWS_CERTIFICATE_BASE64 y WINDOWS_CERTIFICATE_PASSWORD (ver docs/RELEASE.md §4). Para una prueba SIN publicar usá workflow_dispatch con allow_unsigned=true.
+          MSG
+          exit 1
+
+      - name: Prepara la configuración de firma para Tauri
+        if: steps.signing.outputs.mode == 'certificate'
+        shell: pwsh
+        env:
+          TIMESTAMP_URL: ${{ vars.WINDOWS_TIMESTAMP_URL }}
+          TIMESTAMP_TSP: ${{ vars.WINDOWS_TIMESTAMP_TSP }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CERT_THUMBPRINT)) {
+            throw 'Falta WINDOWS_CERT_THUMBPRINT en el entorno: el paso de importación no se ejecutó bien.'
+          }
+          $timestampUrl = if ([string]::IsNullOrWhiteSpace($env:TIMESTAMP_URL)) { 'http://timestamp.digicert.com' } else { $env:TIMESTAMP_URL }
+          $tsp = ($env:TIMESTAMP_TSP -eq 'true')
+          $config = @{
+            bundle = @{
+              windows = @{
+                certificateThumbprint = $env:WINDOWS_CERT_THUMBPRINT
+                digestAlgorithm = 'sha256'
+                timestampUrl = $timestampUrl
+                tsp = $tsp
+              }
+            }
+          } | ConvertTo-Json -Depth 6
+          $configPath = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/tauri.release-signing.json'
+          $config | Set-Content -LiteralPath $configPath -Encoding utf8
+          "TAURI_SIGNING_CONFIG_PATH=$($configPath.Replace('\', '/'))" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "::notice::Firma Authenticode con timestamp $timestampUrl (tsp=$tsp)."
+
+      - name: Prepara la firma de artefactos de updater (opcional)
+        env:
+          UPDATER_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          UPDATER_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${UPDATER_KEY:-}" ]; then
+            printf 'TAURI_SIGNING_PRIVATE_KEY=%s\n' "$UPDATER_KEY" >> "$GITHUB_ENV"
+            if [ -n "${UPDATER_KEY_PASSWORD:-}" ]; then
+              printf 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD=%s\n' "$UPDATER_KEY_PASSWORD" >> "$GITHUB_ENV"
+            fi
+            echo "::notice::Firma de updater configurada (sólo produce .sig si bundle.createUpdaterArtifacts=true)."
+          else
+            echo "::notice::Sin TAURI_SIGNING_PRIVATE_KEY: no se firman artefactos de updater."
+          fi
+
+      - name: Construye el instalador NSIS firmado
+        if: steps.signing.outputs.mode == 'certificate'
+        run: node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --config "$TAURI_SIGNING_CONFIG_PATH"
+
+      - name: Construye el instalador NSIS sin firma (sólo allow_unsigned)
+        if: steps.signing.outputs.mode != 'certificate'
+        run: node scripts/rust-env.mjs -- npm --workspace @editor-ia/desktop run tauri:build -- --no-sign
+
+      - name: Verifica artefactos, firma y hashes
+        shell: pwsh
+        env:
+          SIGNING_MODE: ${{ steps.signing.outputs.mode }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = 'target/release/editor-ia-desktop.exe'
+          $installer = Get-ChildItem -Path 'target/release/bundle/nsis' -Filter '*.exe' -File |
+            Where-Object { $_.Length -gt 1MB } |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if (-not (Test-Path -LiteralPath $exe)) { throw "Falta el ejecutable de release: $exe" }
+          if (-not $installer) { throw 'Falta el instalador NSIS en target/release/bundle/nsis' }
+          $files = @((Resolve-Path -LiteralPath $exe).Path, $installer.FullName)
+          $lines = @()
+          foreach ($file in $files) {
+            $name = [IO.Path]::GetFileName($file)
+            if ($env:SIGNING_MODE -eq 'certificate') {
+              $signature = Get-AuthenticodeSignature -FilePath $file
+              if ($signature.Status -ne 'Valid') {
+                throw "Firma Authenticode inválida en ${name}: $($signature.Status) $($signature.StatusMessage)"
+              }
+              Write-Output "firmado: $name => $($signature.SignerCertificate.Subject)"
+              if (-not $signature.TimeStamperCertificate) {
+                Write-Warning "El artefacto $name no tiene sello de tiempo."
+              }
+            }
+            $hash = (Get-FileHash -FilePath $file -Algorithm SHA256).Hash
+            $lines += "$hash  $name"
+            Write-Output "sha256 $hash  $name"
+          }
+          $lines | Set-Content -LiteralPath 'target/release/SHA256SUMS.txt' -Encoding ascii
+          Get-Content -LiteralPath 'target/release/SHA256SUMS.txt'
+
+      - name: Publica los artefactos del workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: olyvia-windows-x64-${{ github.run_number }}
+          path: |
+            target/release/editor-ia-desktop.exe
+            target/release/bundle/nsis/*.exe
+            target/release/SHA256SUMS.txt
+            target/release/*.sig
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publica el GitHub Release (sólo tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              target/release/editor-ia-desktop.exe \
+              target/release/bundle/nsis/*.exe \
+              target/release/SHA256SUMS.txt \
+              --clobber
+          else
+            gh release create "$tag" \
+              --title "Olyvia $tag" \
+              --generate-notes \
+              --verify-tag \
+              target/release/editor-ia-desktop.exe \
+              target/release/bundle/nsis/*.exe \
+              target/release/SHA256SUMS.txt
+          fi
+
+      - name: Limpia la configuración temporal de firma
+        if: always()
+        run: rm -f apps/desktop/tauri.release-signing.json

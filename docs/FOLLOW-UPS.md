@@ -23,6 +23,47 @@ tiene superficie de UI** o requiere otra ola, con evidencia verificable.
 
 ---
 
+## 1b. Ola 4c — atajos endurecidos e IA en streaming (2026-11-03)
+
+| Cambio | Archivo | Evidencia |
+|---|---|---|
+| Persistencia de atajos **sólo de overrides** `id -> binding` distintos del default, merge al cargar y lectura del formato legado | `apps/desktop/src/state/shortcuts.ts` | `shortcuts-config.test.ts`: 15 tests (round-trip, legado, reset, corrupto, eventos, `getShortcut`). |
+| Helpers puros `assignShortcut`/`findShortcutConflict` (normalización, `isBindable`, sin duplicados) usados por la UI | `state/shortcuts.ts`, `features/settings/ShortcutsCard.tsx` | Tests de conflicto/no-bindable/mismo binding; la card ya no duplica la lógica. Grupo «Timeline» ordenado en Ajustes. |
+| Streaming del asistente con SSE OpenAI-compatible y cancelación | `src-tauri/src/commands/assistant.rs`, `lib.rs`; `services/project-service.ts`; `features/assistant/AssistantDock.tsx` | Eventos `assistant-stream-{delta,completed,failed,cancelled}`; comandos `assistant_chat_stream` + `cancel_assistant_stream`. Rust: parser SSE incremental, cancelación y servidor SSE local; TS: burbuja en vivo (`reply` parcial), botón **Detener respuesta**, fallback al camino no-streaming. |
+| Presupuesto de tokens visible y configurable | `state/assistant-budget.ts`, `AssistantDock.tsx`, `SettingsHome.tsx` | Estimación ~4 caracteres/token en el compositor + aviso al superar el umbral de **Ajustes → IA → Presupuesto de tokens** (default 4.000, rango 500–50.000). Tests de módulo y de componente. |
+| Documentación | `docs/TUTORIAL.md` (atajos y asistente), `docs/ATAJOS-PRO.md` | Comportamiento y límites explicados sin prometer de más. |
+
+**Límites de la ola 4c (verificar en la app nativa):**
+
+- El streaming se probó con tests Rust (SSE local) y con un fake de componente;
+  **no** se lanzó contra Ollama/OpenAI reales en esta sesión. Verificación
+  sugerida: `npm run tauri:dev` con Ollama encendido → pedir algo al asistente y
+  comprobar (a) deltas visibles, (b) **Detener respuesta** corta el flujo y no
+  aplica acciones, (c) con un endpoint que ignore `stream:true` cae al camino
+  normal sin duplicar texto.
+- La cancelación se aplica al próximo chunk leído (la lectura HTTP es bloqueante
+  en el hilo del backend): con proveedores locales el corte es casi instantáneo;
+  con uno remoto que tarde en mandar el próximo token puede demorar ese intervalo.
+- El fallback no-streaming sólo se dispara si el fallo ocurre **antes del primer
+  delta** (`retryable: true`); un corte a mitad de respuesta muestra el error en
+  vez de repetir la llamada (evita duplicar costo y texto).
+- La estimación de tokens es aproximada (4 caracteres/token) y no incluye el
+  contexto del proyecto; sirve como aviso, no como facturación.
+- Categoría «Timeline» del registro ya ordenada; sigue pendiente que los handlers
+  hardcodeados de `Timeline.tsx`/`EditorWorkspace.tsx` lean el registro para que
+  reasignar `S`/`M`/`Alt+…` cambie también el editor (exige tocar esos archivos,
+  fuera de esta ola). El cableado global de los atajos 🟡 sigue en `App.tsx`,
+  también fuera de alcance.
+- La fase de timeline pro agregó atajos **locales** en `Timeline.tsx`
+  (`Shift+R` ripple, `Alt+Shift+←/→` mover grupo, `Shift/Ctrl+clic`
+  multi-selección). No están en el registro y no son reasignables; están
+  documentados en `ATAJOS-PRO.md` §«Atajos locales del timeline (no
+  reasignables)». `Esc` no tiene handler local: la multi-selección depende de
+  `edit.deselect` del registro; migrar a `selection: { kind: 'clips', ids }` en
+  el store queda para otra ola.
+
+---
+
 ## 2. Backend sin UI (deuda P1-3 del audit)
 
 Verificado el 2026-11-03 con:
@@ -77,7 +118,7 @@ Mientras no exista el motor Demucs empaquetado ni una UI, el estado honesto es
 
 | # | Pendiente | Archivo objetivo (dueño de la ola de UI) | Nota |
 |---|---|---|---|
-| 1 | Botón **«Probar conexión»** persistente en Ajustes → IA (hoy existe sólo dentro del estado de error del asistente) | `features/settings/SettingsHome.tsx` | Usar `store.service.testProvider()` ya implementado; el contrato devuelve `status`, `httpStatus`, `latencyMs`, `model`, `detail`. |
+| 1 | ✅ Resuelto (ola 4b/4c): **«Probar conexión»** persistente en Ajustes → IA y en el error del asistente, con resultado tipado | `features/settings/SettingsHome.tsx`, `features/assistant/AssistantDock.tsx` | Usa `store.service.testProvider()`; devuelve `status`, `httpStatus`, `latencyMs`, `model`, `detail`. |
 | 2 | Chip «proveedor simulado» y aviso en Fábrica; corregir el texto «Con el proveedor simulado podés probar el flujo completo sin red» (ahora es falso: la Fábrica rechaza el mock) | `features/factory/FactoryView.tsx` | El rechazo en `state/batch-factory.ts` ya está implementado y testeado. |
 | 3 | Inicio en navegador: quitar los checks de capacidades en verde hardcodeados | `features/home/HomeView.tsx` | El banner global de modo navegador ya existe (`components/BrowserModeBanner.tsx` montado en `App.tsx`). |
 | 4 | `StartScreen`: mostrar `store.state.error` (hoy el fallo es invisible) y eliminar/implementar los CTAs `demo://` y `proyectos/demo-*` | `features/start/StartScreen.tsx`, `features/editor/EditorWorkspace.tsx` | P0-3 del audit. |
@@ -116,3 +157,68 @@ La Ola 4b no levantó la app Tauri. Para cerrar el círculo en la próxima sesi�
 4. **Texto/Subtítulos automáticos** con y sin el motor.
 5. **Fábrica** con proveedor simulado: debe rechazar la variante con el error de
    `state/batch-factory.ts` y no escribir archivos.
+
+---
+
+## 5. Firma de código real y release firmado (task-13, 2026-11-03)
+
+Estado del frente: **preparado y verificado, bloqueado por un recurso externo**
+(certificado de firma de código de una CA pública). No se puede comprar ni
+obtener desde el repositorio ni desde el agente; el pedido «firma real» queda
+cubierto hasta donde es técnicamente posible sin credenciales.
+
+### 5.1 Hecho y verificado en esta ola
+
+| Pieza | Archivo | Evidencia |
+|---|---|---|
+| Workflow de release reproducible Windows x64 (Tauri + NSIS) | `.github/workflows/release.yml` | YAML válido (`js-yaml`), 20 pasos y **43/43 checks** offline (`.tmp-redesign/shell/release-validation.json`). Corre `npm ci`, toolchain de `rust-toolchain.toml`, FFmpeg dev, recursos, `npm run verify` (typecheck + tests seriales + extensión), build del frontend, `cargo fmt --check` y build Tauri NSIS. |
+| Triggers y publicación | `.github/workflows/release.yml` | `workflow_dispatch` (con `allow_unsigned` sólo para pruebas) + tags `v*`; en tag verifica versión contra `tauri.conf.json`, sube artefactos y crea/actualiza GitHub Release con `gh` + `SHA256SUMS.txt`. |
+| Firma Authenticode condicional | `.github/workflows/release.yml` | Si existen `WINDOWS_CERTIFICATE_BASE64`/`WINDOWS_CERTIFICATE_PASSWORD`: importa el PFX, firma con `certificateThumbprint` vía `--config` temporal, exige `Get-AuthenticodeSignature = Valid` en exe e instalador y advierte si falta timestamp. Si no existen y es tag: **falla con instrucciones** (nunca publica un release sin firma). |
+| Documentación de build/versionado/firma/SmartScreen | `docs/RELEASE.md` | Procedimiento local y CI, requisitos OV/EV, timestamp, secrets y variables, verificación con `Get-AuthenticodeSignature`/`signtool`, diferencia self-signed vs. real, hashes y tamaños de la release 0.2.0 actual. |
+| Estado self-signed local (honesto) | `tauri.conf.json` + `docs/RELEASE.md` §4.1 | Certificado `CN=Editor IA (Self-Signed)` con thumbprint `5820…3954`: firma `Valid` sólo en la máquina que lo tiene instalado; **no** es de confianza en otras PCs y **no** evita SmartScreen. |
+| Hashes medidos de la release actual | `docs/RELEASE.md` §6.1 | Exe firmado 38.971.360 B SHA-256 `4127E8C3…C3883E` (Valid, self-signed); instalador NSIS 166.227.272 B SHA-256 `29AB73E6…C5CBB2` (Valid); exe sin firmar del mismo build `445D242E…15286D` (NotSigned; +1.504 B de firma en el empaquetado). |
+
+El workflow **no** se ejecutó desde este entorno (no hay runner de GitHub ni
+certificado): se validó su YAML y su contrato de forma offline. No se commiteó
+ningún secreto, clave ni ruta absoluta de una máquina personal.
+
+### 5.2 Pendiente (bloqueo externo / requiere acción humana)
+
+| # | Pendiente | Requiere | Estado |
+|---|---|---|---|
+| 1 | Comprar certificado **OV o EV** de code signing Authenticode | CA pública (identidad legal + pago + credenciales) | **BLOQUEADO (externo)** |
+| 2 | Configurar secrets de firma en el repo | `WINDOWS_CERTIFICATE_BASE64`, `WINDOWS_CERTIFICATE_PASSWORD` y URL de timestamp | PENDIENTE |
+| 3 | Ejecutar un release real por tag | GitHub Actions + secrets del punto 2 | PENDIENTE (no se corre desde acá) |
+| 4 | Verificar SmartScreen en Windows 11 limpio | VM sin historial + certificado real | PENDIENTE |
+| 5 | Firma con EV por token/HSM o cloud | proveedor (Azure Trusted Signing, SSL.com eSigner…) + adaptar `bundle.windows.signCommand` | OPCIONAL (sólo si el cert no es PFX exportable) |
+| 6 | Firma de artefactos de updater (`.sig`) | adoptar updater de Tauri + `bundle.createUpdaterArtifacts` + `TAURI_SIGNING_PRIVATE_KEY` | PENDIENTE (la app no usa el plugin updater hoy) |
+| 7 | Actualizar hashes de `docs/RELEASE.md` §6.1 con el artefacto firmado real | release del punto 3 | PENDIENTE |
+
+### 5.3 Criterio de aceptación (verificable, para cerrar el follow-up)
+
+1. **Firma válida y de confianza:** `Get-AuthenticodeSignature` del `.exe` y del
+   instalador NSIS devuelve `Status = Valid`, firmante con CA pública (no
+   `Self-Signed`) y certificado dentro de fecha.
+2. **Sello de tiempo:** `TimeStamperCertificate` presente en ambos artefactos y
+   `signtool verify /pa /v` con código de salida 0.
+3. **SmartScreen:** en una VM Windows 11 limpia (sin el certificado instalado,
+   sin historial de descargas) el instalador no queda bloqueado; con OV se
+   documenta el período de reputación, con EV no debe aparecer «Unknown
+   publisher». Evidencia: captura de pantalla.
+4. **Instalación y app:** instalación silenciosa `/S` con exit 0, la app abre, la
+   versión mostrada coincide con el tag y funciona el flujo mínimo (launcher →
+   abrir proyecto demo → exportar un clip corto).
+5. **Integridad:** SHA-256 del instalador y del exe firmado coinciden con
+   `SHA256SUMS.txt` publicado en el release.
+6. **CI reproducible:** un tag `vX.Y.Z` ejecutado con los secrets configurados
+   produce artefactos + GitHub Release; el workflow falla en tags sin firma
+   (comportamiento ya implementado y validado offline); el repo no contiene
+   secretos ni rutas absolutas.
+7. **Evidencia registrada:** captura de SmartScreen, salidas de firma/hashes,
+   link al run de GitHub Actions y hashes finales actualizados en
+   `docs/RELEASE.md` §6.1 y en esta sección.
+
+**Bloqueo actual:** los puntos 1–4 dependen de obtener el certificado real; no
+hay certificado ni credenciales disponibles en este entorno. Hasta entonces, el
+estado honesto es «release reproducible preparado y documentado; firma real
+pendiente de certificado», no «app firmada».

@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Command } from '../app/commands';
+import { ProjectProvider } from '../state/project-store';
+import { createFakeService } from '../test/fake-service';
 import { CommandPalette } from './CommandPalette';
 
 function comandos(accion = vi.fn()): Command[] {
@@ -10,6 +12,11 @@ function comandos(accion = vi.fn()): Command[] {
     { id: 'file.save', label: 'Guardar proyecto', category: 'Archivo', action: accion },
     { id: 'nav.editor', label: 'Editor de video', category: 'Navegar', action: vi.fn() },
   ];
+}
+
+/** La paleta usa el store real para abrir proyectos recientes. */
+function conProveedor(ui: React.ReactNode) {
+  return <ProjectProvider service={createFakeService()}>{ui}</ProjectProvider>;
 }
 
 /** Página con un disparador que monta la paleta, como hace App con Ctrl+K. */
@@ -38,7 +45,7 @@ afterEach(() => cleanup());
 describe('paleta de comandos · trampa de foco', () => {
   it('al abrir enfoca la búsqueda, el Tab cicla dentro del diálogo y Escape devuelve el foco al disparador', () => {
     const onClose = vi.fn();
-    const utils = render(<Pagina onClose={onClose} />);
+    const utils = render(conProveedor(<Pagina onClose={onClose} />));
     const disparador = utils.getByRole('button', { name: 'abrir paleta' });
     disparador.focus();
     fireEvent.click(disparador);
@@ -68,7 +75,7 @@ describe('paleta de comandos · trampa de foco', () => {
 
   it('Enter sobre el buscador sigue ejecutando el comando seleccionado', async () => {
     const accion = vi.fn();
-    render(<CommandPalette commands={comandos(accion)} onClose={vi.fn()} />);
+    render(conProveedor(<CommandPalette commands={comandos(accion)} onClose={vi.fn()} />));
 
     // La acción se difiere un tick para que el modal desaparezca primero.
     await waitFor(() => {

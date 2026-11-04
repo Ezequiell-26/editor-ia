@@ -456,6 +456,8 @@ pub fn run() {
             commands::providers::test_provider,
             commands::providers::generate_script,
             commands::assistant::assistant_chat,
+            commands::assistant::assistant_chat_stream,
+            commands::assistant::cancel_assistant_stream,
             commands::assistant::match_media_plan,
             commands::providers::translate_subtitles,
             commands::localization::save_localized_subtitle,

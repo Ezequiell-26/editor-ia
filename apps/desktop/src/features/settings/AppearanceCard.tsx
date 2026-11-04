@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useAppearance } from '../../state/AppearanceProvider';
 import {
   contrastInk,
@@ -8,27 +8,26 @@ import {
   type Density,
   type ThemePresetId,
 } from '../../state/appearance';
-import { THEME_PALETTES, type ThemePalette } from '../../state/theme-palette';
+import { THEME_PALETTES, THEME_PRESET_LABELS, type ThemePalette } from '../../state/theme-palette';
 
-const PRESET_NAMES: Record<Exclude<ThemePresetId, 'custom'>, string> = {
-  olyvia: 'Olyvia',
-  resolve: 'Resolve',
-  mint: 'Menta',
-  ember: 'Ámbar',
-  violet: 'Violeta',
-  ocean: 'Océano',
-  graphite: 'Grafito',
-};
+/**
+ * Color de la muestra de cada preset. El resto usa su acento; el preset claro
+ * usa el fondo claro para que se lea como tema claro a simple vista.
+ */
+function presetSwatch(preset: Exclude<ThemePresetId, 'custom'>): string {
+  const palette = THEME_PALETTES[preset];
+  return preset === 'light' ? palette.bg : palette.accent;
+}
 
 const DENSITIES: readonly { readonly id: Density; readonly label: string }[] = [
   { id: 'compact', label: 'Compacta' },
-  { id: 'comfortable', label: 'Cómoda' },
+  { id: 'comfortable', label: 'CÃ³moda' },
   { id: 'spacious', label: 'Amplia' },
 ];
 
 /**
  * Deriva la paleta al mover el matiz: el acento y sus derivados cambian juntos
- * para que el botón primario, la tinta y los alias de marca sigan siendo
+ * para que el botÃ³n primario, la tinta y los alias de marca sigan siendo
  * coherentes. El resto de los 34 tokens se conserva.
  */
 function paletteWithAccent(palette: ThemePalette, accent: string): ThemePalette {
@@ -39,7 +38,7 @@ function paletteWithAccent(palette: ThemePalette, accent: string): ThemePalette 
     accentLight,
     accentStrong: mixHex(accent, palette.bg, 0.24),
     accentInk: contrastInk(accent),
-    // Mismos derivados que paletteFromBase: la marca acompaña al acento.
+    // Mismos derivados que paletteFromBase: la marca acompaÃ±a al acento.
     brandCyan: accentLight,
     brandBlue: accent,
   };
@@ -59,7 +58,7 @@ export function AppearanceCard() {
   // Espejos locales: los sliders son controlados por el estado local para que
   // el pulgar avance en tiempo real mientras se arrastra; `appearance` (React)
   // solo se actualiza al soltar. Sin esto, el input controlado pelea contra el
-  // arrastre y el cambio "aparece después".
+  // arrastre y el cambio "aparece despuÃ©s".
   const [hue, setHue] = useState(() => hueOf(appearance.palette.accent));
   const [scale, setScale] = useState(appearance.scale);
   const [radius, setRadius] = useState(appearance.radius);
@@ -105,18 +104,18 @@ export function AppearanceCard() {
             type="button"
             className={`theme-dot${appearance.preset === preset ? ' active' : ''}`}
             aria-pressed={appearance.preset === preset}
-            aria-label={`Tema ${PRESET_NAMES[preset]}`}
-            title={PRESET_NAMES[preset]}
+            aria-label={`Tema ${THEME_PRESET_LABELS[preset]}`}
+            title={THEME_PRESET_LABELS[preset]}
             onClick={() => {
               setHue(hueOf(THEME_PALETTES[preset].accent));
               applyThemePreset(preset);
             }}
           >
-            <span style={{ background: THEME_PALETTES[preset].accent }} />
+            <span style={{ background: presetSwatch(preset) }} />
           </button>
         ))}
         <span className="appearance-preset-name">
-          {appearance.preset === 'custom' ? 'Personalizado' : PRESET_NAMES[appearance.preset]}
+          {appearance.preset === 'custom' ? 'Personalizado' : THEME_PRESET_LABELS[appearance.preset]}
         </span>
       </div>
 

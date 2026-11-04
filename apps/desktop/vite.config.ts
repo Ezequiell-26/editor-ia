@@ -34,6 +34,12 @@ export default defineConfig({
         splash: fileURLToPath(new URL('./splash.html', import.meta.url)),
       },
       output: {
+        // Chunking explícito (autorizado por el Lead): separa vendors de terceros
+        // y paquetes compartidos del bundle de la aplicación. El objetivo es que
+        // `main` quede con código propio (cacheable por release) y que los
+        // vendors se carguen en paralelo; además los paquetes pesados que sólo
+        // usan vistas lazy (emojibase/lottie/effect-kit) no contaminan el
+        // arranque. Ver docs/CSS-PERF-NOTES.md §5.2.
         manualChunks(id) {
           if (id.includes('node_modules')) {
             if (id.includes('react') || id.includes('scheduler')) {
@@ -42,7 +48,26 @@ export default defineConfig({
             if (id.includes('@tauri-apps')) {
               return 'vendor-tauri';
             }
+            if (id.includes('lottie-web')) {
+              return 'vendor-lottie';
+            }
+            if (id.includes('emojibase')) {
+              return 'vendor-emojibase';
+            }
+            if (id.includes('minisearch')) {
+              return 'vendor-search';
+            }
+            if (id.includes('zod')) {
+              return 'vendor-zod';
+            }
           }
+          if (id.includes('/packages/project-schema/')) {
+            return 'vendor-schema';
+          }
+          if (id.includes('/packages/effect-kit/')) {
+            return 'vendor-effect';
+          }
+          return undefined;
         },
       },
     },

@@ -54,6 +54,45 @@ import {
   type ShortcutMap,
 } from './state/shortcuts';
 
+// ── CSS no crítico por contexto de vista ───────────────────────────────────
+// El launcher arranca sólo con el CSS crítico importado en `main.tsx`. La capa
+// premium del editor (workspace) y la de contenido (views) — junto con sus
+// hojas legacy — viven en un entry dinámico cada una: se cargan antes de montar
+// la primera vista (sin FOUC) y el otro contexto se prefetcha en ocioso. Ver
+// docs/CSS-PERF-NOTES.md §5.
+const EDITOR_STYLE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
+  'editor',
+  'text-edit',
+  'multicam',
+  'mixer',
+  'vfx',
+  'motion',
+  'visuals',
+]);
+const viewStyleLoaders = {
+  editor: () => import('./styles/entries/editor.css'),
+  content: () => import('./styles/entries/content.css'),
+} as const;
+type ViewStyleKind = keyof typeof viewStyleLoaders;
+const viewStyleCache = new Map<ViewStyleKind, Promise<unknown>>();
+
+function styleKindForView(view: ViewId): ViewStyleKind {
+  return EDITOR_STYLE_VIEWS.has(view) ? 'editor' : 'content';
+}
+
+function ensureViewStyles(kind: ViewStyleKind): Promise<unknown> {
+  let pending = viewStyleCache.get(kind);
+  if (!pending) {
+    pending = viewStyleLoaders[kind]().catch((error: unknown) => {
+      // Un CSS que no carga no debe romper la vista: se registra y sigue con el
+      // CSS crítico (peor look, nunca pantalla en blanco).
+      console.error('No se pudieron cargar los estilos de las vistas', error);
+    });
+    viewStyleCache.set(kind, pending);
+  }
+  return pending;
+}
+
 // Cada vista se carga una vez y se precarga en segundo plano apenas la app
 // arranca. Antes, la primera visita a cada herramienta descargaba y evaluaba su
 // chunk al hacer clic, con el cartel "Cargando herramienta…" a la vista; ahora
@@ -298,6 +337,39 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   // Precarga de todos los chunks de vista en tiempo ocioso: cuando el usuario
   // hace clic, el módulo ya está evaluado y el cambio no espera nada.
   useEffect(() => preloadViews(), []);
+
+  // Estilo de la vista activa: se pide antes de renderizarla para que el primer
+  // frame de esa vista ya salga con la capa premium aplicada (sin FOUC). El
+  // contexto opuesto se prefetcha en ocioso para que la próxima navegación no
+  // espere. En tests no hay fetch real: arranca resuelto para no cambiar el
+  // render síncrono de los casos existentes.
+  const firstStyleKind = styleKindForView(activeId);
+  const [styledKind, setStyledKind] = useState<ViewStyleKind | null>(() =>
+    import.meta.env.MODE === 'test' ? styleKindForView(initialView) : null,
+  );
+
+  useEffect(() => {
+    const kind = styleKindForView(activeId);
+    if (import.meta.env.MODE === 'test') {
+      setStyledKind(kind);
+      return;
+    }
+    let active = true;
+    void ensureViewStyles(kind).then(() => {
+      if (active) setStyledKind(kind);
+    });
+    const other: ViewStyleKind = kind === 'editor' ? 'content' : 'editor';
+    const timer = window.setTimeout(() => {
+      void ensureViewStyles(other);
+    }, 1_200);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [activeId]);
+
+  const viewStylesReady =
+    import.meta.env.MODE === 'test' || styledKind === firstStyleKind;
 
   useEffect(() => {
     try {
@@ -688,8 +760,9 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
 
   // Una sola vista activa: el cambio es inmediato porque el chunk ya está
   // precargado en memoria, y así ninguna vista oculta conserva estado, timers
-  // ni audio. El fallback no muestra texto de carga.
-  const content = (
+  // ni audio. El fallback no muestra texto de carga. Si el CSS de esa vista aún
+  // no está aplicado se muestra el mismo fallback: nunca un frame sin estilos.
+  const content = viewStylesReady ? (
     <ViewErrorBoundary
       resetKey={activeId}
       onHome={() => navigate('home')}
@@ -697,6 +770,8 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     >
       <Suspense fallback={<ViewFallback />}>{renderView(activeId)}</Suspense>
     </ViewErrorBoundary>
+  ) : (
+    <ViewFallback />
   );
 
   return (

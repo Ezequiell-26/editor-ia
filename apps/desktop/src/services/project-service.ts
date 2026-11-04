@@ -243,6 +243,47 @@ export interface AssistantChatReply {
   readonly simulated: boolean;
 }
 
+/** Delta de texto de un streaming de asistente (SSE OpenAI-compatible). */
+export interface AssistantStreamDelta {
+  readonly streamId: string;
+  readonly delta: string;
+}
+
+export interface AssistantStreamCompleted {
+  readonly streamId: string;
+  readonly reply: string;
+  readonly action: AssistantAction | null;
+  readonly actions?: readonly AssistantAction[];
+  readonly providerId: string;
+  readonly model: string;
+  readonly simulated: boolean;
+}
+
+export interface AssistantStreamFailed {
+  readonly streamId: string;
+  readonly message: string;
+  /** Falló antes del primer delta: se puede reintentar sin streaming. */
+  readonly retryable: boolean;
+}
+
+export interface AssistantStreamCancelled {
+  readonly streamId: string;
+}
+
+/** Handlers del streaming; el cierre siempre llega por alguno de los cuatro. */
+export interface AssistantStreamHandlers {
+  readonly onDelta: (delta: string) => void;
+  readonly onCompleted: (reply: AssistantChatReply) => void;
+  readonly onFailed: (failure: { readonly message: string; readonly retryable: boolean }) => void;
+  readonly onCancelled: () => void;
+}
+
+export interface AssistantStreamHandle {
+  readonly streamId: string;
+  /** Pide al backend que corte; el cierre llega por `onCancelled`. */
+  cancel(): void;
+}
+
 export interface VoiceInfo {
   readonly id: string;
   readonly name: string;
@@ -2021,6 +2062,17 @@ export interface DesktopService {
   generateVideoEffect(request: EffectRequest): Promise<EffectRecipe>;
   generateMotion(request: GenerateMotionRequest): Promise<MotionSuggestion>;
   assistantChat(request: AssistantChatRequest): Promise<AssistantChatReply>;
+  /**
+   * Streaming del asistente por eventos. Si el backend no lo soporta o falla
+   * antes del primer delta, el llamador conserva `assistantChat` como fallback.
+   */
+  assistantChatStream(
+    request: AssistantChatRequest,
+    handlers: AssistantStreamHandlers,
+    streamId?: string,
+  ): Promise<AssistantStreamHandle>;
+  /** Cancela un streaming en curso; `true` si estaba activo. */
+  cancelAssistantChat(streamId: string): Promise<boolean>;
   listVoices(): Promise<VoiceInfo[]>;
   synthesizeNarration(input: {
     text: string;
@@ -2279,6 +2331,8 @@ export const PROJECT_COMMANDS = {
   generateVideoEffect: 'generate_video_effect',
   generateMotion: 'generate_motion',
   assistantChat: 'assistant_chat',
+  assistantChatStream: 'assistant_chat_stream',
+  cancelAssistantChat: 'cancel_assistant_stream',
   listVoices: 'list_voices',
   synthesizeNarration: 'synthesize_narration',
   startRender: 'start_render',
@@ -2300,6 +2354,15 @@ declare global {
 
 export function detectNativeRuntime(): boolean {
   return typeof window !== 'undefined' && typeof window.__TAURI_INTERNALS__?.invoke === 'function';
+}
+
+/** Id corto y único por streaming; correlaciona los eventos del backend. */
+function newAssistantStreamId(): string {
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `s-${random}`.slice(0, 80);
 }
 
 const FAILED_PHRASE: Record<string, string> = {
@@ -3379,6 +3442,82 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async assistantChat(request) {
       return (await call(PROJECT_COMMANDS.assistantChat, { request })) as AssistantChatReply;
     },
+    async assistantChatStream(request, handlers, streamId) {
+      // El id viaja en cada evento: dos chats abiertos no se mezclan.
+      const id = streamId?.trim() ? streamId.trim() : newAssistantStreamId();
+      const unlisteners: UnlistenFn[] = [];
+      const cleanup = (): void => {
+        while (unlisteners.length > 0) unlisteners.pop()?.();
+      };
+      try {
+        unlisteners.push(
+          await listen<AssistantStreamDelta>('assistant-stream-delta', (event) => {
+            if (event.payload?.streamId === id && typeof event.payload.delta === 'string') {
+              handlers.onDelta(event.payload.delta);
+            }
+          }),
+        );
+        unlisteners.push(
+          await listen<AssistantStreamCompleted>('assistant-stream-completed', (event) => {
+            if (event.payload?.streamId !== id) return;
+            cleanup();
+            handlers.onCompleted({
+              reply: typeof event.payload.reply === 'string' ? event.payload.reply : '',
+              action: event.payload.action ?? null,
+              actions: Array.isArray(event.payload.actions) ? event.payload.actions : [],
+              providerId: event.payload.providerId ?? 'openai-compatible',
+              model: event.payload.model ?? '',
+              simulated: event.payload.simulated === true,
+            });
+          }),
+        );
+        unlisteners.push(
+          await listen<AssistantStreamFailed>('assistant-stream-failed', (event) => {
+            if (event.payload?.streamId !== id) return;
+            cleanup();
+            handlers.onFailed({
+              message: event.payload.message || 'el streaming falló sin detalle',
+              retryable: event.payload.retryable === true,
+            });
+          }),
+        );
+        unlisteners.push(
+          await listen<AssistantStreamCancelled>('assistant-stream-cancelled', (event) => {
+            if (event.payload?.streamId !== id) return;
+            cleanup();
+            handlers.onCancelled();
+          }),
+        );
+      } catch (cause) {
+        cleanup();
+        throw cause instanceof Error ? cause : new Error('no se pudo escuchar el streaming');
+      }
+      try {
+        await call(PROJECT_COMMANDS.assistantChatStream, {
+          request: {
+            messages: [...request.messages],
+            ...(request.context ? { context: request.context } : {}),
+            approvedCost: request.approvedCost,
+          },
+          streamId: id,
+        });
+      } catch (cause) {
+        cleanup();
+        throw cause;
+      }
+      return {
+        streamId: id,
+        cancel() {
+          void call(PROJECT_COMMANDS.cancelAssistantChat, { streamId: id }).catch(() => {
+            // Si el streaming ya terminó, cancelar no es un error de usuario.
+          });
+        },
+      } satisfies AssistantStreamHandle;
+    },
+    async cancelAssistantChat(streamId) {
+      const raw = await call(PROJECT_COMMANDS.cancelAssistantChat, { streamId });
+      return raw === true;
+    },
     async listVoices() {
       const raw = await call(PROJECT_COMMANDS.listVoices);
       return Array.isArray(raw) ? (raw as VoiceInfo[]) : [];
@@ -3658,6 +3797,8 @@ function createUnavailableService(): DesktopService {
     generateVideoEffect: async () => unavailable(),
     generateMotion: async () => unavailable(),
     assistantChat: async () => unavailable(),
+    assistantChatStream: async () => unavailable(),
+    cancelAssistantChat: async () => unavailable(),
     listVoices: async () => unavailable(),
     synthesizeNarration: async () => unavailable(),
     startRender: async () => unavailable(),

@@ -218,12 +218,30 @@ export function loadShortcuts(): ShortcutMap {
 }
 
 export function saveShortcuts(map: ShortcutMap): void {
+  // Se guardan sólo los overrides: si un default cambia en una versión nueva,
+  // quien nunca personalizó ese atajo recibe el default nuevo en vez de quedar
+  // con el viejo congelado en localStorage.
   try {
-    window.localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify(map));
+    window.localStorage.setItem(
+      SHORTCUTS_STORAGE_KEY,
+      JSON.stringify(shortcutOverrides(map)),
+    );
   } catch {
     // sin almacenamiento: los atajos viven solo en la sesión
   }
   window.dispatchEvent(new CustomEvent(SHORTCUTS_CHANGED_EVENT, { detail: { ...map } }));
+}
+
+/** Overrides actuales: sólo los bindings que difieren del default de fábrica. */
+export function shortcutOverrides(map: ShortcutMap): Partial<Record<ShortcutId, string>> {
+  const overrides: Partial<Record<ShortcutId, string>> = {};
+  for (const id of ALL_IDS) {
+    const value = normalizeBinding(map[id] ?? '');
+    if (value && value !== DEFAULT_SHORTCUTS[id]) {
+      overrides[id] = value;
+    }
+  }
+  return overrides;
 }
 
 /** Vuelve a los defaults de fábrica y avisa. */
@@ -372,4 +390,53 @@ export function isBindable(binding: string): boolean {
     return false;
   }
   return parts.some((part) => part === 'Ctrl' || part === 'Alt');
+}
+
+// ---------------------------------------------------------------------------
+// Validación de una reasignación (sin duplicados)
+// ---------------------------------------------------------------------------
+
+export type ShortcutAssignment =
+  | { readonly ok: true; readonly map: ShortcutMap; readonly binding: string }
+  | {
+      readonly ok: false;
+      readonly reason: 'not-bindable' | 'conflict';
+      readonly binding: string;
+      readonly conflictId?: ShortcutId;
+    };
+
+/** Otro atajo activo que ya usa ese binding, o `null` si está libre. */
+export function findShortcutConflict(
+  map: ShortcutMap,
+  id: ShortcutId,
+  binding: string,
+): ShortcutId | null {
+  const normalized = normalizeBinding(binding);
+  if (!normalized) return null;
+  for (const other of ALL_IDS) {
+    if (other === id) continue;
+    if (normalizeBinding(map[other] ?? '') === normalized) return other;
+  }
+  return null;
+}
+
+/**
+ * Valida y aplica una reasignación: normaliza, exige un binding usable y
+ * rechaza duplicados. No muta el mapa recibido; el llamador decide persistir.
+ * Es la misma validación que usa Ajustes → Atajos, extraída para poder probarla.
+ */
+export function assignShortcut(
+  map: ShortcutMap,
+  id: ShortcutId,
+  binding: string,
+): ShortcutAssignment {
+  const normalized = normalizeBinding(binding);
+  if (!isBindable(normalized)) {
+    return { ok: false, reason: 'not-bindable', binding: normalized };
+  }
+  const conflictId = findShortcutConflict(map, id, normalized);
+  if (conflictId) {
+    return { ok: false, reason: 'conflict', binding: normalized, conflictId };
+  }
+  return { ok: true, map: { ...map, [id]: normalized }, binding: normalized };
 }

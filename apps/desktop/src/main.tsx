@@ -13,26 +13,23 @@ import './styles/panda.css';
 import './styles/compliance.css';
 import './styles/scopes.css';
 import './styles/settings.css';
-import './styles/home.css';
 import './styles/start-screen.css';
 import './styles/resolve-theme.css';
 import './styles/olyvia.css';
-import './styles/effect-studio.css';
-import './styles/brain.css';
 import './styles/commercial.css';
 import './styles/shortcuts-and-tour.css';
 
 // ── Capa de rediseño premium (última: gana la cascada) ─────────────────────
-// Tokens y base primero, luego shell/launcher/workspace/vistas. Cada archivo
-// tiene dueño y se importa en este orden fijo. Ver
-// docs/PREMIUM-REDESIGN-PLAN.md §3.
+// Tokens y base primero, luego shell/launcher. La capa de editor
+// (premium/workspace) y la de contenido (premium/views) NO se importan acá:
+// viven en `styles/entries/{editor,content}.css` y `App.tsx` las carga en un
+// entry dinámico antes de montar la primera vista, para que el launcher no
+// pague ~145 KB de CSS que no usa. Ver docs/CSS-PERF-NOTES.md §5.
 import './styles/premium/tokens.css';
 import './styles/premium/base.css';
 import './styles/premium/components.css';
 import './styles/premium/shell.css';
 import './styles/premium/launcher.css';
-import './styles/premium/workspace.css';
-import './styles/premium/views.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.

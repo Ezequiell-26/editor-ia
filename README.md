@@ -107,8 +107,8 @@ El detalle está en [`docs/TUTORIAL.md`](docs/TUTORIAL.md) (§1 y §21) y en la
 ### Requisitos
 
 - Windows 10 u 11 con WebView2.
-- Node.js **22 o superior** (el proyecto fija Node 24 en `.nvmrc`).
-- Rust stable.
+- Node.js **>= 22** (el proyecto fija Node 24 en `.nvmrc`).
+- Rust stable (el toolchain del workspace se normaliza con `node scripts/rust-env.mjs`).
 - Toolchain MSVC de Visual Studio y Windows SDK para compilar Tauri.
 - FFmpeg y FFprobe disponibles en `PATH` o configurados desde **Ajustes → Herramientas**.
 
@@ -131,9 +131,16 @@ Para generar el instalador de Windows:
 npm run tauri:build
 ```
 
-Para ejecutar las verificaciones del proyecto:
+Para desarrollo de la interfaz en el navegador (modo de evaluación de la UI, sin backend nativo):
 
 ```powershell
+npm run dev
+```
+
+Para compilar sólo el frontend y para ejecutar las verificaciones del proyecto:
+
+```powershell
+npm run build
 npm run verify
 ```
 

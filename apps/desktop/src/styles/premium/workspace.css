@@ -3037,6 +3037,120 @@
   }
 }
 
+/* ───────────────── 13b · Timeline · overview y estados pro ────────────── */
+
+/* Estados de los toggles nuevos (ripple / beats): misma piel que snap-toggle. */
+.app-shell .ripple-toggle.active,
+.app-shell .beat-toggle.active {
+  color: var(--color-accent);
+  border-color: var(--state-selected-border);
+  background: var(--state-selected);
+}
+
+.app-shell .ripple-toggle.active svg,
+.app-shell .beat-toggle.active svg {
+  color: var(--color-accent);
+}
+
+/* Minimapa / overview: barra fina sobre el scroll, sólo en proyectos largos. */
+.app-shell .timeline-overview {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  flex: 0 0 auto;
+  height: 30px;
+  padding: 0 var(--gap-10);
+  border-bottom: var(--hairline);
+  background: color-mix(in srgb, var(--color-bg) 26%, var(--chrome-2));
+}
+
+.app-shell .timeline-overview-label {
+  flex: none;
+  min-width: 34px;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-shell .timeline-overview-bar {
+  position: relative;
+  flex: 1 1 auto;
+  height: 16px;
+  border: var(--hairline);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-bg) 52%, var(--color-panel-2));
+  cursor: pointer;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.app-shell .timeline-overview-bar:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.app-shell .timeline-overview-clips {
+  position: absolute;
+  inset: 0;
+}
+
+.app-shell .timeline-overview-clip {
+  position: absolute;
+  top: 9px;
+  height: 5px;
+  min-width: 1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-video) 65%, var(--color-panel));
+  opacity: 0.85;
+}
+
+.app-shell .timeline-overview-clip.kind-image {
+  background: color-mix(in srgb, var(--color-image) 65%, var(--color-panel));
+}
+
+.app-shell .timeline-overview-clip.kind-audio,
+.app-shell .timeline-overview-clip.kind-narration {
+  background: color-mix(in srgb, var(--color-audio) 65%, var(--color-panel));
+}
+
+.app-shell .timeline-overview-clip.kind-graphic {
+  background: color-mix(in srgb, var(--color-graphic) 65%, var(--color-panel));
+}
+
+.app-shell .timeline-overview-clip.kind-adjustment,
+.app-shell .timeline-overview-clip.kind-freeze {
+  background: color-mix(in srgb, var(--color-warning) 65%, var(--color-panel));
+}
+
+.app-shell .timeline-overview-window {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  min-width: 3px;
+  border: 1px solid var(--premium-accent-line);
+  border-radius: var(--rad-xs);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  pointer-events: none;
+}
+
+.app-shell .timeline-overview-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--color-accent);
+  pointer-events: none;
+}
+
+/* Spacers de virtualización de pistas (conservan el alto real del scroll). */
+.app-shell .timeline-spacer {
+  position: relative;
+  flex: none;
+  pointer-events: none;
+}
+
 /* Movimiento reducido: el contrato lo escribe applyAppearance. */
 :root[data-reduce-motion='true'] .app-shell .editor-workspace *,
 :root[data-reduce-motion='true'] .app-shell .editor-workspace *::before,

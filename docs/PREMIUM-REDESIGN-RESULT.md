@@ -170,6 +170,104 @@ Ver `docs/PREMIUM-POLISH-SPEC.md`. Implementado y verificado:
    `resolve-theme.css` (sin consumidores en TSX) y reducción fina de
    `components.css` (201) ahora que las capas legacy están neutralizadas.
 
+## 6.5 Ola 2 «hazlo todo»: rendimiento, timeline pro, tema claro e IA streaming
+
+Segunda ola ejecutada tras el pedido del usuario de no parar hasta terminar la
+lista completa. Todo verificado; detalles en `docs/CSS-PERF-NOTES.md`,
+`docs/RELEASE.md`, `docs/COLOR-CUSTOMIZATION.md`, `docs/ATAJOS-PRO.md` y
+`docs/FOLLOW-UPS.md`.
+
+### Rendimiento medido y reducción de bundle
+- **CDP nativo de WebView2** (app instalada, demo real de 62 clips/4 pistas):
+  proceso→load **1.035 ms**, proceso→FCP **1.290 ms**; timeline con 8.755 de
+  10.127 nodos (86,4 % del DOM). Baseline honesto de frames lentos: pan 22,8 %,
+  zoom 10,5 %, scrub 4,9 %, drag 4,4 %, playback 7,2 %.
+- **CSS splitting** (`styles/entries/editor.css` y `content.css`, gate de render
+  sin FOUC + prefetch a 1,2 s): CSS crítico **624.844→501.656 B (−19,7 %)**;
+  gzip **94,3→78,4 KB (−16,9 %)**; FCP de editor/proyectos **−20 a −44 ms**;
+  launcher pixel-idéntico al baseline (mismo sha). 33 vistas comparadas.
+- **manualChunks** (`vite.config.ts`): `main` JS 633→**524,7 KB** (gzip
+  187→160,5 KB); vendors separados (react, tauri, zod, schema, effect-kit,
+  lottie, emojibase, search); EmojiPicker dejó de ser un chunk de 718 KB
+  (emojibase 514 + picker 238 lazy); JS inicial gzip 260→253 KB.
+- **Limpieza legacy**: eliminados los 127 `!important` de bloques muertos del
+  editor rail en `resolve-theme.css` (152→**25**), −214 líneas y −3.820 B de
+  CSS; 33/37 capturas pixel-idénticas (resto ruido animado ≤0,13 %).
+- Se estabilizaron bajo carga los tests de `App.test` más sensibles a chunks
+  lazy (timeouts explícitos; aislados ya pasaban) y el descubrimiento de la
+  suite raíz dejó de escanear worktrees de `.git` (219 archivos reales).
+
+### Timeline pro
+- **Fluidez**: coalescing de `pointermove` con `requestAnimationFrame`
+  (`timeline-raf.ts`) para arrastre/trim/fades, flush en pointerup (antes se
+  perdía el último evento), sin trabajo nuevo por frame.
+- **Virtualización**: sólo clips/cues en la ventana visible ±1 viewport y filas
+  de pista visibles con spacers; contrato `.timeline-clip`/`[data-kind]`/aria
+  intacto. Proyecto sintético 12.394 frames/62 clips: **7–11 clips de 62**
+  renderizados y **~1,53 k nodos** (↓82–84 % del DOM de timeline); 24 pistas:
+  12/24 filas + 2 spacers, ~1,77 k nodos, paneo 48,7 fps / p95 50 ms.
+- **Ripple real, multi-selección (Shift/Ctrl+clic, arrastre de grupo, nudge),
+  snap a escenas/beats medidas y minimapa/overview** con click/arrastre.
+- **Memo de clips** (`React.memo` + handlers por refs): paneo largo **42,8→45,4
+  fps**, p95 **66,6→50 ms**, long tasks **6/351 ms→3/203 ms**; demo corta
+  arrastre 59,2 fps, scrub 58,4, zoom 59,1.
+- **Ripple en Ajustes→Editor** (`timelineRipple`, default false, migración de
+  la clave histórica) junto a densidad/etiquetas/rejilla.
+
+### Tema claro nativo y deuda visual
+- Preset **«Claro neutro»** con los 34 tokens explícitos y **AA medido**
+  (texto 15,57:1; muted 7,11; faint 5,31; empty 4,65; accentInk 5,04; estados
+  ≥4,54; 10/10 pares en pass). `color-scheme` derivado de luminancia; la paleta
+  guardada del usuario no se toca. Export/import `olyvia-theme` con round-trip
+  cubierto. Tests 71/71 + e2e theme **8/8** (nuevo test del preset y
+  persistencia) y capturas en claro 38×1440 + 37×1280.
+- Chips de Ajustes 9,5→10 px y sub-tabs 22→24 px; 0 overflow 1280/1440.
+
+### Atajos e IA
+- **Atajos configurables**: persistencia sólo de overrides con migración del
+  formato legado, helpers puros de conflicto/asignación, `CATEGORY_ORDER` con
+  Timeline, docs actualizadas; e2e de reasignación **4/4**.
+- **IA streaming/abort**: comando Rust `assistant_chat_stream` +
+  `cancel_assistant_stream` con SSE incremental (chunks partidos, `[DONE]`,
+  keep-alive), reintento sin `response_format` sólo antes del primer delta y
+  fallback no-streaming; `AssistantDock` con burbuja en vivo y botón Detener.
+  **Rust 549 passed / 49 ignored**; tests de componente 109.
+- **Presupuesto de tokens visible** (estimación 4 chars/token, umbral
+  configurable 500–50.000 en Ajustes→IA, aviso sin bloquear).
+- **Home contextual** (con/sin proyecto, CTA reales sin datos falsos),
+  **búsqueda de proyectos recientes en la paleta** (abre con `openProjectAt`) y
+  **autosave visible** en statusbar con la señal real (`phase`/`lastSavedAt`).
+  Tests 20/20 y regresión App 66/66.
+
+### Release reproducible y firma
+- `.github/workflows/release.yml` (workflow_dispatch + tags `v*`, puertas
+  typecheck/tests seriales/`npm run verify`, FFmpeg dev, versión tag vs
+  `tauri.conf.json`, firma Authenticode condicional con PFX desde secrets,
+  falla en tags sin firma, `SHA256SUMS.txt`, GitHub Release con `gh`) validado
+  offline (YAML 0 errores, 45/45 checks, sin secretos/rutas absolutas).
+- `docs/RELEASE.md` (build/versionado/firma OV-EV/timestamp/SmartScreen/
+  verificación/hashes) y criterio de aceptación de firma real en
+  `FOLLOW-UPS.md` §5. **Bloqueo externo**: comprar/gestionar un certificado
+  OV/EV y cargar secrets; imposible desde el repo.
+
+### Verificación final de la ola 2
+- `npm run typecheck` (4 proyectos): **exit 0**.
+- `npm run build`: **exit 0** (main CSS 501,64 KB / 79,21 KB gzip; main JS
+  524,74 KB / 160,50 KB gzip).
+- `npm run test:serial`: **1940 passed, 3 skipped** en 219 archivos (218 passed
+  +1 skipped); sin worktrees duplicados.
+- `cargo test --lib`: **549 passed, 0 failed, 49 ignored**.
+- `npx playwright test`: **22 passed, 1 skipped** (52 s, exit 0).
+- Capturas/perf: `.tmp-redesign/perf/` (CDP nativo + prod antes/después),
+  `.tmp-redesign/shell/claro/` (tema claro 38+37 PNG), `.tmp-redesign/workspace/`
+  (timeline pro), `.tmp-redesign/context/` (Home/paleta/autosave).
+
+### Nueva ola en curso (pedido posterior del usuario)
+Waveform de frecuencia real en el timeline, inspector derecho redimensionable,
+preview sin franjas (fit/fill/zoom), layout compacto tipo CapCut/Filmora y
+matriz de paridad de features. Plan/auditoría en `.tmp-redesign/capcut/`;
+estado y límites se documentarán al cerrar esa ola.
+
 ## 7. Artefactos, publicación e instalación (2026-11-03)
 
 - **Repositorio publicado**: `main` subido a

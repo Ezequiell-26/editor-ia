@@ -4,11 +4,15 @@
 //! validates the action again and executes it through the same store/navigation
 //! APIs as the UI. This module never mutates a project directly.
 
+use std::collections::HashMap;
+use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::providers::{
     chat_completion, chat_endpoint, extract_json, is_local_endpoint, json_repair_messages, read_key,
@@ -441,16 +445,9 @@ fn mock_reply(messages: &[AssistantMessage], model: &str) -> AssistantReply {
     }
 }
 
-/// Llamada real al proveedor OpenAI-compatible: devuelve respuesta y
-/// secuencia de acciones ya saneadas. Separada del comando para poder probarla
-/// sin estado de Tauri.
-async fn call_provider(
-    base_url: &str,
-    model: &str,
-    context: &str,
-    messages: &[AssistantMessage],
-    key: Option<String>,
-) -> Result<(String, Vec<Value>), ProjectError> {
+/// Prompt de sistema del asistente. Vive separado para que el streaming use el
+/// mismo contrato sin duplicar el texto.
+fn assistant_system_prompt(context: &str) -> String {
     let system = concat!(
         "Sos Olyvia, la asistente del estudio de creación local Olyvia: un editor de ",
         "video con guion, medios, voz, motion graphics y exportación FFmpeg, 100% sin nube. ",
@@ -506,7 +503,43 @@ async fn call_provider(
         "No inventes rutas, nombres de material, IDs ni argumentos de herramientas. ",
         "Si no hace falta una acción, omití actions. Contexto del proyecto: "
     );
-    let system = format!("{system}{context}");
+    format!("{system}{context}")
+}
+
+/// Mensajes de la llamada: system + historial ya limpiado.
+fn assistant_body_messages(context: &str, messages: &[AssistantMessage]) -> Vec<Value> {
+    let mut body_messages = vec![json!({
+        "role": "system",
+        "content": assistant_system_prompt(context),
+    })];
+    for message in messages {
+        body_messages.push(json!({ "role": message.role, "content": message.content }));
+    }
+    body_messages
+}
+
+/// Parsea la respuesta estructurada del asistente. `None` cuando vino texto
+/// plano o JSON roto: el llamador decide el fallback tolerante de siempre.
+fn parse_reply_content(content: &str) -> Option<(String, Vec<Value>)> {
+    let json_text = extract_json(content)?;
+    let value: Value = serde_json::from_str(json_text).ok()?;
+    Some((
+        clean_reply(value.get("reply").and_then(Value::as_str).unwrap_or("")),
+        clean_actions(&value),
+    ))
+}
+
+/// Llamada real al proveedor OpenAI-compatible: devuelve respuesta y
+/// secuencia de acciones ya saneadas. Separada del comando para poder probarla
+/// sin estado de Tauri.
+async fn call_provider(
+    base_url: &str,
+    model: &str,
+    context: &str,
+    messages: &[AssistantMessage],
+    key: Option<String>,
+) -> Result<(String, Vec<Value>), ProjectError> {
+    let system = assistant_system_prompt(context);
     let mut body_messages = vec![json!({ "role": "system", "content": system })];
     for message in messages {
         body_messages.push(json!({ "role": message.role, "content": message.content }));
@@ -519,15 +552,7 @@ async fn call_provider(
         key: key.clone(),
     })
     .await?;
-    let parse = |content: &str| -> Option<(String, Vec<Value>)> {
-        let json_text = extract_json(content)?;
-        let value: Value = serde_json::from_str(json_text).ok()?;
-        Some((
-            clean_reply(value.get("reply").and_then(Value::as_str).unwrap_or("")),
-            clean_actions(&value),
-        ))
-    };
-    let (reply, actions) = match parse(&first) {
+    let (reply, actions) = match parse_reply_content(&first) {
         Some(parsed) => parsed,
         None => {
             // Respondió texto plano o JSON roto: un reintento de reparación con
@@ -541,7 +566,7 @@ async fn call_provider(
                 key,
             })
             .await?;
-            parse(&repaired).unwrap_or_else(|| (clean_reply(&repaired), Vec::new()))
+            parse_reply_content(&repaired).unwrap_or_else(|| (clean_reply(&repaired), Vec::new()))
         }
     };
     Ok((reply, actions))
@@ -681,6 +706,453 @@ pub async fn assistant_chat(
         model: provider.model,
         simulated: false,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Streaming del asistente (SSE) con cancelación
+//
+// Mismo contrato/validaciones que `assistant_chat`, pero la respuesta viaja
+// como Server-Sent Events y se emite por eventos de Tauri para que la UI la
+// pinte en vivo y pueda detenerla. Si el endpoint no es SSE, la UI cae al
+// comando no-streaming de siempre.
+// ---------------------------------------------------------------------------
+
+const STREAM_TIMEOUT: Duration = Duration::from_secs(120);
+const MAX_STREAM_ID_CHARS: usize = 80;
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssistantStreamRequest {
+    pub messages: Vec<AssistantMessage>,
+    #[serde(default)]
+    pub context: Option<Value>,
+    #[serde(default)]
+    pub approved_cost: bool,
+    pub stream_id: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamDeltaEvent {
+    stream_id: String,
+    delta: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamCompletedEvent {
+    stream_id: String,
+    reply: String,
+    action: Option<Value>,
+    actions: Vec<Value>,
+    provider_id: String,
+    model: String,
+    simulated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamFailedEvent {
+    stream_id: String,
+    message: String,
+    /// El fallo ocurrió antes de cualquier delta: la UI puede reintentar con el
+    /// camino no-streaming sin duplicar texto en pantalla.
+    retryable: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StreamCancelledEvent {
+    stream_id: String,
+}
+
+fn active_streams() -> &'static Mutex<HashMap<String, Arc<AtomicBool>>> {
+    static ACTIVE: OnceLock<Mutex<HashMap<String, Arc<AtomicBool>>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn clean_stream_id(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > MAX_STREAM_ID_CHARS {
+        return None;
+    }
+    if !trimmed
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | ':'))
+    {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+/// Entrada en el registro de cancelación; se limpia sola al terminar (incluso
+/// si la task entra en pánico).
+struct StreamRegistration {
+    stream_id: String,
+}
+
+impl StreamRegistration {
+    fn new(stream_id: &str) -> Self {
+        if let Ok(mut map) = active_streams().lock() {
+            map.insert(stream_id.to_owned(), Arc::new(AtomicBool::new(false)));
+        }
+        Self {
+            stream_id: stream_id.to_owned(),
+        }
+    }
+
+    fn cancel_flag(&self) -> Arc<AtomicBool> {
+        active_streams()
+            .lock()
+            .ok()
+            .and_then(|map| map.get(&self.stream_id).cloned())
+            .unwrap_or_else(|| Arc::new(AtomicBool::new(false)))
+    }
+}
+
+impl Drop for StreamRegistration {
+    fn drop(&mut self) {
+        if let Ok(mut map) = active_streams().lock() {
+            map.remove(&self.stream_id);
+        }
+    }
+}
+
+/// Detiene un streaming en curso. Devuelve `false` si ya terminó o el id no es
+/// válido (la UI no necesita tratarlo como error).
+#[tauri::command]
+pub fn cancel_assistant_stream(stream_id: String) -> bool {
+    let Some(stream_id) = clean_stream_id(&stream_id) else {
+        return false;
+    };
+    if let Ok(map) = active_streams().lock() {
+        if let Some(flag) = map.get(&stream_id) {
+            flag.store(true, Ordering::SeqCst);
+            return true;
+        }
+    }
+    false
+}
+
+/// Parser SSE incremental: el cuerpo llega en chunks arbitrarios, así que sólo
+/// se procesan las líneas completas y el resto queda para el próximo chunk.
+#[derive(Debug, Default)]
+struct SseStreamParser {
+    buffer: String,
+    done: bool,
+}
+
+impl SseStreamParser {
+    fn push_chunk(&mut self, chunk: &[u8]) -> Vec<String> {
+        self.buffer.push_str(&String::from_utf8_lossy(chunk));
+        let mut deltas = Vec::new();
+        while let Some(index) = self.buffer.find('\n') {
+            let line = self.buffer[..index].trim_end_matches('\r').to_owned();
+            self.buffer.drain(..=index);
+            if let Some(delta) = self.consume_line(&line) {
+                deltas.push(delta);
+            }
+            if self.done {
+                break;
+            }
+        }
+        deltas
+    }
+
+    fn finish(&mut self) -> Vec<String> {
+        let rest = self.buffer.trim().to_owned();
+        self.buffer.clear();
+        self.consume_line(&rest).into_iter().collect()
+    }
+
+    fn consume_line(&mut self, line: &str) -> Option<String> {
+        let line = line.trim();
+        // Comentarios/keep-alive (": ping"), `event:` y líneas vacías.
+        if line.is_empty() || line.starts_with(':') {
+            return None;
+        }
+        let payload = line.strip_prefix("data:")?.trim();
+        if payload == "[DONE]" {
+            self.done = true;
+            return None;
+        }
+        let value: Value = serde_json::from_str(payload).ok()?;
+        let choice = &value["choices"][0];
+        let content = choice["delta"]["content"]
+            .as_str()
+            .or_else(|| choice["message"]["content"].as_str())?;
+        if content.is_empty() {
+            return None;
+        }
+        Some(content.to_owned())
+    }
+}
+
+/// Consume una respuesta SSE completa. Devuelve el contenido acumulado y si se
+/// cortó por pedido del usuario. `on_delta` permite emitir cada fragmento.
+fn consume_sse_stream<R: Read>(
+    reader: &mut R,
+    cancel: &AtomicBool,
+    mut on_delta: impl FnMut(&str),
+) -> Result<(String, bool), String> {
+    let mut parser = SseStreamParser::default();
+    let mut content = String::new();
+    let mut buffer = [0u8; 8 * 1024];
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return Ok((content, true));
+        }
+        match reader.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                for delta in parser.push_chunk(&buffer[..read]) {
+                    content.push_str(&delta);
+                    on_delta(&delta);
+                }
+                if parser.done {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => return Err("se cortó la conexión con el proveedor".to_owned()),
+        }
+    }
+    for delta in parser.finish() {
+        content.push_str(&delta);
+        on_delta(&delta);
+    }
+    Ok((content, cancel.load(Ordering::SeqCst)))
+}
+
+/// Mismo criterio que `providers::should_retry_without_json_mode`: sólo se
+/// reintenta sin `response_format` cuando el rechazo es por el parámetro.
+fn retry_without_json_mode(status: u16) -> bool {
+    matches!(status, 400 | 415 | 422)
+}
+
+/// Cuerpo de la petición de streaming (OpenAI-compatible).
+fn stream_request_body(model: &str, messages: &[Value], json_mode: bool) -> Value {
+    let mut body = json!({
+        "model": model,
+        "temperature": 0.3,
+        "stream": true,
+        "messages": messages,
+    });
+    if json_mode {
+        body["response_format"] = json!({ "type": "json_object" });
+    }
+    body
+}
+
+fn emit_stream_failed(app: &AppHandle, stream_id: &str, message: &str, retryable: bool) {
+    let _ = app.emit(
+        "assistant-stream-failed",
+        StreamFailedEvent {
+            stream_id: stream_id.to_owned(),
+            message: message.to_owned(),
+            retryable,
+        },
+    );
+}
+
+/// Trabajo de streaming: corre en un hilo propio porque la respuesta HTTP se
+/// lee con `std::io::Read` (reqwest blocking, ya habilitado) sin sumar crates.
+fn run_stream_worker(
+    app: AppHandle,
+    registration: StreamRegistration,
+    base_url: String,
+    model: String,
+    messages: Vec<Value>,
+    key: Option<String>,
+) {
+    let stream_id = registration.stream_id.clone();
+    let cancel = registration.cancel_flag();
+    if cancel.load(Ordering::SeqCst) {
+        let _ = app.emit(
+            "assistant-stream-cancelled",
+            StreamCancelledEvent {
+                stream_id: stream_id.clone(),
+            },
+        );
+        return;
+    }
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(STREAM_TIMEOUT)
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => {
+            emit_stream_failed(&app, &stream_id, "no se pudo preparar la conexión", false);
+            return;
+        }
+    };
+    for attempt in 1..=2u8 {
+        let json_mode = attempt == 1;
+        let body = stream_request_body(&model, &messages, json_mode);
+        let mut call = client
+            .post(chat_endpoint(&base_url))
+            .json(&body)
+            .header("Accept", "text/event-stream");
+        if let Some(secret) = key.as_deref() {
+            call = call.bearer_auth(secret);
+        }
+        let response = match call.send() {
+            Ok(response) => response,
+            Err(error) => {
+                let message = if error.is_timeout() {
+                    format!(
+                        "el proveedor no respondió en {} segundos",
+                        STREAM_TIMEOUT.as_secs()
+                    )
+                } else if error.is_connect() {
+                    "no se pudo conectar con el proveedor; revisá que Ollama/servicio esté encendido"
+                        .to_owned()
+                } else {
+                    "la conexión con el proveedor falló".to_owned()
+                };
+                emit_stream_failed(&app, &stream_id, &message, true);
+                return;
+            }
+        };
+        let status = response.status();
+        if json_mode && retry_without_json_mode(status.as_u16()) {
+            continue;
+        }
+        if !status.is_success() {
+            emit_stream_failed(
+                &app,
+                &stream_id,
+                &format!(
+                    "el proveedor rechazó el mensaje (HTTP {})",
+                    status.as_u16()
+                ),
+                false,
+            );
+            return;
+        }
+        let is_sse = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(|value| value.contains("text/event-stream"))
+            .unwrap_or(false);
+        if !is_sse {
+            // Algunos endpoints ignoran `stream:true`; la UI reintenta sin
+            // streaming en vez de mostrar un error definitivo.
+            emit_stream_failed(
+                &app,
+                &stream_id,
+                "el proveedor no devolvió un stream SSE interpretable",
+                true,
+            );
+            return;
+        }
+        let mut response = response;
+        let outcome = consume_sse_stream(&mut response, &cancel, |delta| {
+            let _ = app.emit(
+                "assistant-stream-delta",
+                StreamDeltaEvent {
+                    stream_id: stream_id.clone(),
+                    delta: delta.to_owned(),
+                },
+            );
+        });
+        match outcome {
+            Ok((_content, true)) => {
+                let _ = app.emit(
+                    "assistant-stream-cancelled",
+                    StreamCancelledEvent {
+                        stream_id: stream_id.clone(),
+                    },
+                );
+            }
+            Ok((content, false)) => {
+                let (reply, actions) = parse_reply_content(&content)
+                    .unwrap_or_else(|| (clean_reply(&content), Vec::new()));
+                let action = actions.first().cloned();
+                let _ = app.emit(
+                    "assistant-stream-completed",
+                    StreamCompletedEvent {
+                        stream_id: stream_id.clone(),
+                        reply,
+                        action,
+                        actions,
+                        provider_id: "openai-compatible".to_owned(),
+                        model: model.clone(),
+                        simulated: false,
+                    },
+                );
+            }
+            Err(message) => emit_stream_failed(&app, &stream_id, &message, false),
+        }
+        return;
+    }
+}
+
+/// Streaming del asistente. Devuelve en cuanto el trabajo quedó encolado; los
+/// deltas y el cierre llegan por los eventos `assistant-stream-*`. Mismas
+/// validaciones que `assistant_chat`; el proveedor simulado completa al instante.
+#[tauri::command]
+pub async fn assistant_chat_stream(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    request: AssistantStreamRequest,
+) -> Result<(), ProjectError> {
+    let Some(stream_id) = clean_stream_id(&request.stream_id) else {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "el identificador de streaming no es válido",
+        ));
+    };
+    let messages = clean_messages(&request.messages)?;
+    let settings = state.settings_snapshot()?;
+    let provider = settings.provider.clone();
+    if provider.kind == "mock" {
+        let reply = mock_reply(&messages, &provider.model);
+        let _ = app.emit(
+            "assistant-stream-completed",
+            StreamCompletedEvent {
+                stream_id,
+                reply: reply.reply,
+                action: reply.action,
+                actions: reply.actions,
+                provider_id: reply.provider_id,
+                model: reply.model,
+                simulated: true,
+            },
+        );
+        return Ok(());
+    }
+    if provider.base_url.is_empty() || provider.model.is_empty() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "configurá un proveedor en Ajustes o usá el simulador",
+        ));
+    }
+    validate_provider_base_url(&provider.base_url)?;
+    let local = is_local_endpoint(&provider.base_url);
+    if !local && !request.approved_cost {
+        return Err(ProjectError::message(
+            ProjectErrorCode::CostNotApproved,
+            "confirmá que esta llamada puede consumir cuota antes de enviar el mensaje",
+        ));
+    }
+    let key = read_key();
+    if !local && key.is_none() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "falta la clave del proveedor en el almacén de Windows",
+        ));
+    }
+    let context = assistant_context(request.context.as_ref());
+    let body_messages = assistant_body_messages(&context, &messages);
+    let registration = StreamRegistration::new(&stream_id);
+    let base_url = provider.base_url.clone();
+    let model = provider.model.clone();
+    std::thread::spawn(move || {
+        run_stream_worker(app, registration, base_url, model, body_messages, key);
+    });
+    Ok(())
 }
 
 const MAX_MATCH_SENTENCES: usize = 300;
@@ -1387,5 +1859,165 @@ mod tests {
             reply, "Listo. ¿Qué querés hacer ahora?",
             "la respuesta cayó al texto de fallback: el proveedor no contestó contenido"
         );
+    }
+
+    // --- Streaming SSE -----------------------------------------------------
+
+    #[test]
+    fn stream_request_body_asks_for_sse_and_json_mode() {
+        let messages = vec![json!({ "role": "user", "content": "hola" })];
+        let with_json = stream_request_body("modelo", &messages, true);
+        assert_eq!(with_json["stream"], true);
+        assert_eq!(with_json["response_format"]["type"], "json_object");
+        assert_eq!(with_json["messages"][0]["content"], "hola");
+
+        let plain = stream_request_body("modelo", &messages, false);
+        assert!(plain.get("response_format").is_none());
+        assert_eq!(plain["stream"], true);
+    }
+
+    #[test]
+    fn retry_without_json_mode_only_for_parameter_rejections() {
+        for status in [400, 415, 422] {
+            assert!(retry_without_json_mode(status), "{status}");
+        }
+        for status in [401, 403, 404, 429, 500, 503] {
+            assert!(!retry_without_json_mode(status), "{status}");
+        }
+    }
+
+    #[test]
+    fn sse_parser_handles_incremental_chunks_and_done() {
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"Hola\"}}]}\n\n",
+            ": keep-alive\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\" \"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"mundo\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let mut parser = SseStreamParser::default();
+        let mut deltas = Vec::new();
+        // Un byte por vez: el caso más hostil de chunks partidos.
+        for byte in sse.as_bytes() {
+            deltas.extend(parser.push_chunk(std::slice::from_ref(byte)));
+        }
+        assert_eq!(deltas, vec!["Hola", " ", "mundo"]);
+        assert!(parser.done);
+        assert!(parser.finish().is_empty());
+    }
+
+    #[test]
+    fn sse_parser_ignores_empty_deltas_comments_and_crlf() {
+        let sse = concat!(
+            ": ping\r\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"\"}}]}\r\n",
+            "data: {\"choices\":[{\"delta\":{}}]}\r\n",
+            "event: message\r\n",
+            "data: {\"choices\":[{\"message\":{\"content\":\"final\"}}]}\r\n"
+        );
+        let mut parser = SseStreamParser::default();
+        let deltas = parser.push_chunk(sse.as_bytes());
+        assert_eq!(deltas, vec!["final"]);
+        assert!(!parser.done);
+    }
+
+    #[test]
+    fn sse_parser_finish_returns_the_last_line_without_newline() {
+        let mut parser = SseStreamParser::default();
+        assert!(parser
+            .push_chunk(b"data: {\"choices\":[{\"delta\":{\"content\":\"parcial\"}}]}")
+            .is_empty());
+        assert_eq!(parser.finish(), vec!["parcial"]);
+    }
+
+    #[test]
+    fn consume_sse_stream_accumulates_and_observes_cancellation() {
+        let sse = concat!(
+            "data: {\"choices\":[{\"delta\":{\"content\":\"uno\"}}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"dos\"}}]}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let cancel = AtomicBool::new(false);
+        let mut reader = std::io::Cursor::new(sse.as_bytes().to_vec());
+        let mut seen: Vec<String> = Vec::new();
+        let (content, cancelled) =
+            consume_sse_stream(&mut reader, &cancel, |delta| seen.push(delta.to_owned()))
+                .expect("stream válido");
+        assert_eq!(content, "unodos");
+        assert_eq!(seen, vec!["uno", "dos"]);
+        assert!(!cancelled);
+
+        // Cancelado de antemano: no consume nada y avisa que fue cancelación.
+        let cancel = AtomicBool::new(true);
+        let mut reader = std::io::Cursor::new(sse.as_bytes().to_vec());
+        let (content, cancelled) =
+            consume_sse_stream(&mut reader, &cancel, |_| {}).expect("cancelación");
+        assert!(content.is_empty());
+        assert!(cancelled);
+    }
+
+    #[test]
+    fn stream_registry_cancels_and_cleans_up() {
+        let registration = StreamRegistration::new("stream-test-1");
+        assert!(cancel_assistant_stream("stream-test-1".to_owned()));
+        assert!(registration.cancel_flag().load(Ordering::SeqCst));
+        drop(registration);
+        // Al terminar el trabajo el registro se limpia: cancelar ya no encuentra nada.
+        assert!(!cancel_assistant_stream("stream-test-1".to_owned()));
+        assert!(!cancel_assistant_stream("id con espacios".to_owned()));
+        assert_eq!(clean_stream_id(" abc-123_ok:1 ").as_deref(), Some("abc-123_ok:1"));
+        assert!(clean_stream_id("").is_none());
+        assert!(clean_stream_id("x".repeat(MAX_STREAM_ID_CHARS + 1).as_str()).is_none());
+    }
+
+    #[test]
+    fn consumes_a_real_sse_response_from_a_local_server() {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("puerto de prueba");
+        let address = listener.local_addr().expect("dirección");
+        let server = std::thread::spawn(move || {
+            let Ok((mut socket, _)) = listener.accept() else {
+                return;
+            };
+            // Leer hasta el final de los headers antes de responder.
+            let mut received = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while !received.windows(4).any(|window| window == b"\r\n\r\n") {
+                match socket.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(read) => received.extend_from_slice(&chunk[..read]),
+                }
+            }
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"Hola\"}}]}\n\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\" SSE\"}}]}\n\n",
+                "data: [DONE]\n\n"
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = socket.write_all(response.as_bytes());
+        });
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .expect("cliente de prueba");
+        let response = client
+            .get(format!("http://{address}/v1/chat/completions"))
+            .send()
+            .expect("el servidor local responde");
+        assert_eq!(response.status().as_u16(), 200);
+        let mut response = response;
+        let cancel = AtomicBool::new(false);
+        let mut seen: Vec<String> = Vec::new();
+        let (content, cancelled) =
+            consume_sse_stream(&mut response, &cancel, |delta| seen.push(delta.to_owned()))
+                .expect("SSE real");
+        let _ = server.join();
+        assert_eq!(content, "Hola SSE");
+        assert_eq!(seen, vec!["Hola", " SSE"]);
+        assert!(!cancelled);
     }
 }

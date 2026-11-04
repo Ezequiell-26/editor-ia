@@ -4,6 +4,7 @@ import {
   DEFAULT_EDITOR_PREFERENCES,
   EDITOR_PREFS_CHANGED_EVENT,
   EDITOR_PREFS_STORAGE_KEY,
+  LEGACY_TIMELINE_RIPPLE_KEY,
   loadEditorPreferences,
   normalizeEditorPreferences,
   resetEditorPreferences,
@@ -115,5 +116,40 @@ describe('preferencias del editor', () => {
     window.dispatchEvent(new CustomEvent(EDITOR_PREFS_CHANGED_EVENT));
     expect(listener).toHaveBeenCalledTimes(1);
     window.localStorage.clear();
+  });
+
+  it('Ripple: default false y normalización booleana', () => {
+    expect(DEFAULT_EDITOR_PREFERENCES.timelineRipple).toBe(false);
+    expect(normalizeEditorPreferences({}).timelineRipple).toBe(false);
+    expect(normalizeEditorPreferences({ timelineRipple: true }).timelineRipple).toBe(true);
+    expect(normalizeEditorPreferences({ timelineRipple: 'si' }).timelineRipple).toBe(false);
+    expect(normalizeEditorPreferences(null)).toEqual(DEFAULT_EDITOR_PREFERENCES);
+  });
+
+  it('migra el toggle Ripple histórico (editoria.timeline-ripple.v1)', () => {
+    const storage = memoryStorage();
+    // Sin preferencias nuevas todavía: se migra el valor viejo.
+    storage.data.set(LEGACY_TIMELINE_RIPPLE_KEY, '1');
+    expect(loadEditorPreferences(storage).timelineRipple).toBe(true);
+    expect(loadEditorPreferences(storage).snapEnabled).toBe(
+      DEFAULT_EDITOR_PREFERENCES.snapEnabled,
+    );
+
+    // Preferencias nuevas ya guardadas con el campo: mandan sobre la clave vieja.
+    saveEditorPreferences({ ...DEFAULT_EDITOR_PREFERENCES, timelineRipple: false }, storage);
+    storage.data.set(LEGACY_TIMELINE_RIPPLE_KEY, '1');
+    expect(loadEditorPreferences(storage).timelineRipple).toBe(false);
+
+    // Al guardar se descarta la clave histórica.
+    const fresh = memoryStorage();
+    fresh.data.set(LEGACY_TIMELINE_RIPPLE_KEY, '1');
+    updateEditorPreferences({ timelineRipple: true }, fresh);
+    expect(fresh.data.has(LEGACY_TIMELINE_RIPPLE_KEY)).toBe(false);
+    expect(loadEditorPreferences(fresh).timelineRipple).toBe(true);
+
+    // Sin clave vieja, default false.
+    const empty = memoryStorage();
+    expect(loadEditorPreferences(empty).timelineRipple).toBe(false);
+    expect(loadEditorPreferences(empty)).toEqual(DEFAULT_EDITOR_PREFERENCES);
   });
 });

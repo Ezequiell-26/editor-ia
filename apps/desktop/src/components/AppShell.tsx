@@ -1,16 +1,24 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { MenuBar } from './MenuBar';
 import { WindowControls } from './WindowControls';
 import { AssistantDock } from '../features/assistant/AssistantDock';
 import { NAV_VIEWS, type NavView, type ViewId } from '../app/navigation';
 import { useProjectStore } from '../state/project-store';
+import { useEditorPreferences } from '../state/useEditorPreferences';
 
 /** Último segmento de una ruta, para mostrar sólo el nombre del archivo. */
 function fileNameOf(path: string): string {
   const parts = path.split(/[\\/]/);
   return parts[parts.length - 1] || path;
+}
+
+/** “14:32” en la zona horaria del equipo; vacío si la fecha no es válida. */
+function savedClock(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 }
 
 interface AppShellProps {
@@ -45,9 +53,43 @@ export function AppShell({
   const project = store.state.project;
   const error = store.state.error;
   const notice = store.state.notice;
+  const preferences = useEditorPreferences();
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
   const immersive = activeId === 'editor' && Boolean(project);
+
+  /**
+   * Estado de autoguardado visible en la statusbar. Usa la señal real del
+   * store: `phase` (dirty → saving → saved/failed) y `lastSavedAt` que el store
+   * actualiza al completar un guardado (manual o automático). No hay
+   * persistencia nueva: sólo se muestra lo que el store ya sabe.
+   */
+  const autosave = useMemo<{ readonly icon: IconName; readonly label: string }>(() => {
+    const delaySeconds = preferences.autosaveDelayMs / 1_000;
+    const delayLabel = Number.isInteger(delaySeconds)
+      ? `${delaySeconds} s`
+      : `${delaySeconds.toFixed(1).replace('.', ',')} s`;
+    switch (store.state.phase) {
+      case 'saving':
+        return { icon: 'save', label: 'Guardando…' };
+      case 'saved': {
+        const clock = store.state.lastSavedAt ? savedClock(store.state.lastSavedAt) : '';
+        return { icon: 'check', label: clock ? `Guardado ${clock}` : 'Sin cambios' };
+      }
+      case 'dirty':
+        return {
+          icon: 'save',
+          label: `Cambios sin guardar · autoguardado en ${delayLabel}`,
+        };
+      case 'failed':
+        return { icon: 'alert', label: 'Error al guardar' };
+      case 'loading':
+        return { icon: 'refresh', label: 'Abriendo proyecto…' };
+      default:
+        return { icon: 'check', label: 'Sin cambios' };
+    }
+  }, [preferences.autosaveDelayMs, store.state.lastSavedAt, store.state.phase]);
+
   // Las vistas quedan montadas: cada una conserva su propia posición de scroll
   // en vez de heredar la de la anterior o volver siempre arriba.
   const scrollPositions = useRef(new Map<ViewId, number>());
@@ -307,7 +349,17 @@ export function AppShell({
         )}
         {/* El estado del proyecto ya se lee a la izquierda; sin proyecto abierto
             evitamos repetir «Sin proyecto abierto» dos veces. */}
-        {project ? <span className="statusbar-meta">{store.statusText}</span> : null}
+        {project ? (
+          <span
+            className={`statusbar-meta statusbar-autosave phase-${store.state.phase}`}
+            role="status"
+            aria-live="polite"
+            title={autosave.label}
+          >
+            <Icon name={autosave.icon} size={12} />
+            <span>{autosave.label}</span>
+          </span>
+        ) : null}
         <span className="statusbar-meta statusbar-local">FFmpeg local · sin nube</span>
       </footer>
     </div>

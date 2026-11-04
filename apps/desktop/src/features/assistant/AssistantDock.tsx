@@ -10,6 +10,9 @@ import {
 import {
   isLocalProviderUrl,
   type AssistantAction,
+  type AssistantChatReply,
+  type AssistantChatRequest,
+  type AssistantStreamHandle,
   type ImageContent,
   type ProviderInfo,
   type ProviderTestResult,
@@ -18,6 +21,12 @@ import {
 import { parseProject } from '@editor-ia/project-schema';
 import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
 import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
+import {
+  ASSISTANT_TOKEN_BUDGET_CHANGED_EVENT,
+  estimateConversationTokens,
+  loadAssistantTokenBudget,
+} from '../../state/assistant-budget';
+import { replyPreviewFromStream } from '../../state/assistant-stream';
 import {
   applyProposals,
   applySafeProposals,
@@ -104,6 +113,12 @@ const QUICK_ACTIONS: readonly { readonly label: string; readonly command: string
   { label: 'Piloto', command: 'piloto automático' },
 ];
 
+/** El streaming falló antes del primer delta: se reintenta sin streaming. */
+class AssistantStreamRetry extends Error {}
+
+/** La persona detuvo la respuesta en curso. */
+class AssistantStreamStopped extends Error {}
+
 const COMPLETION_CLAIM =
   /\b(listo|hecho|ya (lo )?hice|ya est[aá]|aplicad[oa]|apliqu[eé]|ediqu[eé]|edit[eé]|export[eé]|cort[eé]|limpi[eé]|borr[eé]|agregu[eé]|gener[eé])\b/i;
 
@@ -183,15 +198,34 @@ export function AssistantDock({
   const [consent, setConsent] = useState(false);
   const [listening, setListening] = useState(false);
   const [replying, setReplying] = useState(false);
+  /** Buffer crudo del streaming (JSON parcial); se muestra el `reply` parcial. */
+  const [streamBuffer, setStreamBuffer] = useState<string | null>(null);
+  /** Hay un streaming activo en el backend (aunque aún no llegó el primer delta). */
+  const [streaming, setStreaming] = useState(false);
+  const [tokenBudget, setTokenBudget] = useState(loadAssistantTokenBudget);
   const logRef = useRef<HTMLDivElement | null>(null);
   const replyTimerRef = useRef<number | null>(null);
+  const streamHandleRef = useRef<AssistantStreamHandle | null>(null);
 
   useEffect(
     () => () => {
       if (replyTimerRef.current !== null) window.clearTimeout(replyTimerRef.current);
+      // Si la ventana se desmonta a mitad de una respuesta, el backend no sigue
+      // generando para nadie.
+      streamHandleRef.current?.cancel();
     },
     [],
   );
+
+  useEffect(() => {
+    const refresh = (): void => setTokenBudget(loadAssistantTokenBudget());
+    window.addEventListener(ASSISTANT_TOKEN_BUDGET_CHANGED_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(ASSISTANT_TOKEN_BUDGET_CHANGED_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -262,6 +296,83 @@ export function AssistantDock({
     } finally {
       setTestingProvider(false);
     }
+  }
+
+  // Estimación visible (4 caracteres por token, igual que AI Hub). El aviso es
+  // configurable en Ajustes → IA y nunca bloquea el envío.
+  const tokenEstimate = useMemo(
+    () =>
+      estimateConversationTokens([
+        ...messages
+          .filter((entry) => entry.text !== GREETING.text)
+          .map((entry) => entry.text),
+        input,
+      ]),
+    [messages, input],
+  );
+  const tokenBudgetExceeded = tokenEstimate >= tokenBudget;
+  const streamPreview = streamBuffer === null ? '' : replyPreviewFromStream(streamBuffer);
+
+  /**
+   * Respuesta del asistente: streaming con burbuja en vivo si el backend lo
+   * soporta; si el comando no existe, falla antes del primer delta o el
+   * endpoint no habla SSE, se usa el camino no-streaming de siempre.
+   */
+  async function requestAssistantReply(
+    request: AssistantChatRequest,
+  ): Promise<AssistantChatReply> {
+    const service = store.service;
+    if (!service.available) return service.assistantChat(request);
+    let resolveReply!: (reply: AssistantChatReply) => void;
+    let rejectReply!: (cause: unknown) => void;
+    const answer = new Promise<AssistantChatReply>((resolve, reject) => {
+      resolveReply = resolve;
+      rejectReply = reject;
+    });
+    let handle: AssistantStreamHandle;
+    try {
+      handle = await service.assistantChatStream(request, {
+        onDelta(delta) {
+          setStreamBuffer((current) => `${current ?? ''}${delta}`);
+        },
+        onCompleted(reply) {
+          resolveReply(reply);
+        },
+        onFailed(failure) {
+          rejectReply(
+            failure.retryable
+              ? new AssistantStreamRetry(failure.message)
+              : new Error(failure.message),
+          );
+        },
+        onCancelled() {
+          rejectReply(new AssistantStreamStopped('Respuesta detenida.'));
+        },
+      });
+      streamHandleRef.current = handle;
+      setStreaming(true);
+    } catch {
+      // Build viejo sin el comando o invoke rechazado antes de empezar.
+      return service.assistantChat(request);
+    }
+    try {
+      return await answer;
+    } catch (cause) {
+      if (cause instanceof AssistantStreamRetry) {
+        // Mismo contrato, sin streaming: la app sigue siendo usable con
+        // proveedores que ignoran `stream:true`.
+        return service.assistantChat(request);
+      }
+      throw cause;
+    } finally {
+      streamHandleRef.current = null;
+      setStreamBuffer(null);
+      setStreaming(false);
+    }
+  }
+
+  function stopStreaming(): void {
+    streamHandleRef.current?.cancel();
   }
 
   async function switchModel(model: string): Promise<void> {
@@ -1544,6 +1655,7 @@ export function AssistantDock({
     setError(null);
     setProviderTest(null);
     setProviderTestFailure(null);
+    setStreamBuffer(null);
     append({ role: 'user', text });
 
     const local = parseOperatorCommand(text, NAV_VIEWS);
@@ -1601,7 +1713,7 @@ export function AssistantDock({
         .filter((entry) => entry.text !== GREETING.text)
         .slice(-12)
         .map((entry) => ({ role: entry.role, content: entry.text }));
-      const result = await store.service.assistantChat({
+      const result = await requestAssistantReply({
         messages: history,
         context,
         approvedCost: consent,
@@ -1662,8 +1774,18 @@ export function AssistantDock({
       }
       flashReply();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'no se pudo contactar al asistente');
+      if (cause instanceof AssistantStreamStopped) {
+        append({
+          role: 'assistant',
+          text: 'Respuesta detenida por vos. Podés volver a pedirla cuando quieras.',
+        });
+        flashReply();
+      } else {
+        setError(cause instanceof Error ? cause.message : 'no se pudo contactar al asistente');
+      }
     } finally {
+      setStreamBuffer(null);
+      setStreaming(false);
       setBusy(false);
     }
   }
@@ -1776,7 +1898,13 @@ export function AssistantDock({
               </p>
             ))}
             {busy ? (
-              <p className="assistant-message assistant">{busyLabel ?? 'Pensando…'}</p>
+              streamBuffer === null ? (
+                <p className="assistant-message assistant">{busyLabel ?? 'Pensando…'}</p>
+              ) : (
+                <p className="assistant-message assistant assistant-streaming">
+                  {streamPreview || '…'}
+                </p>
+              )
             ) : null}
           </div>
 
@@ -1908,6 +2036,25 @@ export function AssistantDock({
               </button>
             ))}
           </div>
+
+          {busy && streaming ? (
+            <div className="actions compact">
+              <button type="button" className="ghost small" onClick={stopStreaming}>
+                Detener respuesta
+              </button>
+            </div>
+          ) : null}
+
+          <p
+            className={`fine-print assistant-token-budget${tokenBudgetExceeded ? ' exceeded' : ''}`}
+            title="Estimación aproximada de 4 caracteres por token; no incluye el contexto del proyecto"
+          >
+            ≈ {tokenEstimate.toLocaleString('es-AR')} tokens en la conversación · aviso en{' '}
+            {tokenBudget.toLocaleString('es-AR')}
+            {tokenBudgetExceeded
+              ? ' · superaste el aviso configurado; podés acortar el mensaje o cambiarlo en Ajustes → IA.'
+              : ''}
+          </p>
 
           <form
             className="assistant-composer"

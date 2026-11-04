@@ -196,6 +196,14 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
     if (ok) onNavigate('editor');
   }
 
+  const hasClip = (project?.timeline.clips.length ?? 0) > 0;
+  // Exportar es una acción del editor (abre su diálogo): se navega primero y se
+  // deja la solicitud en el store, que el workspace consume al montarse.
+  function exportProject(): void {
+    onNavigate('editor');
+    store.requestExport();
+  }
+
   function startDownload(): void {
     const normalized = normalizeDownloadUrl(downloadUrl);
     if (!normalized) {
@@ -258,26 +266,36 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
           </p>
           <div className="home-hero-actions">
             {project ? (
-              <button
-                type="button"
-                className="primary icon-text"
-                onClick={() => onNavigate('editor')}
-              >
-                <Icon name="editor" size={15} />
-                <span>Abrir editor multipista</span>
-              </button>
-            ) : null}
-            {!browserMode ? (
               <>
                 <button
                   type="button"
                   className="primary icon-text"
-                  aria-label="Abrir proyecto"
-                  onClick={() => void openProject()}
-                  disabled={busy === 'project'}
+                  onClick={() => onNavigate('editor')}
                 >
-                  <Icon name="folder" size={15} />
-                  <span>{busy === 'project' ? 'Abriendo…' : 'Abrir proyecto'}</span>
+                  <Icon name="editor" size={15} />
+                  <span>Continuar edición</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost icon-text"
+                  onClick={exportProject}
+                  disabled={!hasClip}
+                  title={
+                    hasClip
+                      ? 'Abrí el editor con el diálogo de exportación'
+                      : 'Montá al menos un clip en la timeline para exportar'
+                  }
+                >
+                  <Icon name="export" size={15} />
+                  <span>Exportar</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost icon-text"
+                  onClick={() => onNavigate('script')}
+                >
+                  <Icon name="script" size={15} />
+                  <span>Guion</span>
                 </button>
                 <button
                   type="button"
@@ -289,14 +307,45 @@ export function HomeView({ onNavigate }: { readonly onNavigate: (id: ViewId) => 
                 </button>
               </>
             ) : (
-              <button
-                type="button"
-                className="primary icon-text"
-                onClick={() => onNavigate('learn')}
-              >
-                <Icon name="learn" size={15} />
-                <span>Ver la guía</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="primary icon-text"
+                  aria-label="Abrir proyecto"
+                  onClick={() => void openProject()}
+                  disabled={busy === 'project' || browserMode}
+                  title={
+                    browserMode
+                      ? 'Sólo en la app de escritorio: el navegador no puede abrir proyectos del disco'
+                      : undefined
+                  }
+                >
+                  <Icon name="folder" size={15} />
+                  <span>{busy === 'project' ? 'Abriendo…' : 'Abrir proyecto'}</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost icon-text"
+                  onClick={() => onNavigate('projects')}
+                  disabled={browserMode}
+                  title={
+                    browserMode
+                      ? 'Sólo en la app de escritorio: crear un proyecto necesita diálogos nativos'
+                      : undefined
+                  }
+                >
+                  <Icon name="plus" size={15} />
+                  <span>Nuevo proyecto</span>
+                </button>
+                <button
+                  type="button"
+                  className="ghost icon-text"
+                  onClick={() => onNavigate('learn')}
+                >
+                  <Icon name="learn" size={15} />
+                  <span>Ver la guía</span>
+                </button>
+              </>
             )}
           </div>
           <div className="home-hero-meta">

@@ -72,6 +72,33 @@ contenedor de la timeline (`EditorWorkspace.tsx`), junto a Supr y S:
   eventos ya prevenidos por otros controles (grip del playhead, asas de fade,
   menú contextual) se ignoran.
 
+## Atajos locales del timeline (no reasignables)
+
+Estos atajos viven en el listener propio de `Timeline.tsx` (fase de timeline
+pro) y **no** forman parte del registro global: no aparecen para reasignar en
+Ajustes → Atajos. Sólo actúan en la vista del editor, con guard de
+`input/textarea/select/contenteditable`; los que operan sobre la selección
+múltiple además se saltan si hay un diálogo, modal o la ventana de Ajustes
+abierta.
+
+| Tecla | Acción | Notas |
+| --- | --- | --- |
+| `Shift+R` | Activar/desactivar **Ripple editing** | `preventDefault` + `stopPropagation` local; el botón del toolbar expone `aria-keyshortcuts="Shift+R"`. Combinación libre en el registro global. |
+| `Alt+Shift+←` / `Alt+Shift+→` | Mover **1 frame** el grupo multi-seleccionado | Sólo con más de un clip seleccionado; `preventDefault` local. No pisa `Alt+←/→` del registro (`timeline.clipMove*`), que el dispatcher global no ejecuta. |
+| `Shift+clic` / `Ctrl+clic` (`Cmd` en mac) | Sumar/quitar clips a la multi-selección | Es mouse, no teclado; el set se sincroniza con el store. |
+
+**`Esc` y multi-selección**: no hay handler local de `Esc`. La selección múltiple
+se limpia cuando el atajo global `edit.deselect` (`Escape`) deja
+`selection.kind === 'none'` y el timeline sincroniza su set local con el store.
+Es una dependencia explícita: si ese atajo global cambiara de semántica, el set
+múltiple quedaría hasta el próximo clic. La vía robusta para otra ola es exponer
+`selection: { kind: 'clips', ids }` en `state/project-store` y migrar ambos
+lados juntos.
+
+Sin cambios en `M` (marcador), `S` (dividir), `H` (herramienta mano),
+`Ctrl+C/V`, `Shift+Delete` (ripple delete) ni en la semántica global de
+`Espacio`/flechas.
+
 ## Pendientes
 
 1. **`J` (shuttle hacia atrás)**: no se registró. El motor de reproducción
@@ -91,9 +118,9 @@ contenedor de la timeline (`EditorWorkspace.tsx`), junto a Supr y S:
 5. **Cableado global de los atajos 🟡** (`L`, `K`, `,`, `.`, `Home`, `End`,
    `[`, `]`, `+`, `-`, `F`): agregar los casos al switch de `App.tsx` (o
    handlers equivalentes) para que respondan desde cualquier vista.
-6. **Categoría «Timeline» en Ajustes**: `ShortcutsCard.tsx` ordena los grupos
-   con `CATEGORY_ORDER` fijo; la categoría nueva aparece primera por no estar
-   en esa lista. Agregarla al orden queda pendiente (archivo fuera del alcance).
+6. **Categoría «Timeline» en Ajustes**: ✅ resuelto (ola 4c). `ShortcutsCard.tsx`
+   ordena los grupos con `CATEGORY_ORDER`, que ya incluye «Timeline» al final;
+   ningún grupo queda con índice -1.
 7. **Reasignación de `S`/`M` y de las combinaciones de clip con Alt**: los
    handlers propios del editor no leen el registro (`getShortcut`); si el
    usuario reasigna esas teclas en Ajustes, el handler hardcodeado seguirá
@@ -115,3 +142,11 @@ contenedor de la timeline (`EditorWorkspace.tsx`), junto a Supr y S:
   siguen operando igual y los 🟡 no rompen nada mientras se cablean.
 - Test de validación: `npx vitest run --no-cache apps/desktop/src/state/shortcuts-pro.test.ts`
   (estructura del registro, teclas sin duplicar, acción real por atajo).
+- Persistencia (ola 4c): `saveShortcuts` guarda **sólo los overrides** que
+  difieren del default y `loadShortcuts` los combina con `DEFAULT_SHORTCUTS`, así
+  un default nuevo llega a quien nunca personalizó ese atajo. El formato legado
+  que guardaba el mapa completo se sigue leyendo. La validación de una
+  reasignación (normalización, `isBindable`, sin duplicados) vive en helpers
+  puros `assignShortcut`/`findShortcutConflict` y se prueba en
+  `apps/desktop/src/state/shortcuts-config.test.ts`; `ShortcutsCard.tsx` usa esos
+  helpers en lugar de duplicar la lógica.

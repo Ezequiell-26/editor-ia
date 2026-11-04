@@ -6,8 +6,9 @@
  * contrato (docs/COLOR-CUSTOMIZATION.md, §2):
  *
  * - define los tokens (`COLOR_TOKENS`) y sus grupos de UI (`COLOR_GROUPS`);
- * - completa los 7 presets (`THEME_PALETTES`) y deriva el resto desde los 5
- *   colores base (`paletteFromBase`);
+ * - completa los 8 presets (`THEME_PALETTES`: 7 oscuros + el claro «Claro
+ *   neutro») y deriva la escala de los presets oscuros desde sus 5 colores base
+ *   (`paletteFromBase`);
  * - emite TODAS las variables CSS que consume la hoja de estilos
  *   (`paletteCssVariables`), incluidos los alias `--commercial-*`,
  *   `--olyvia-*`, los estados y la marca;
@@ -33,6 +34,7 @@ export type ThemePresetId =
   | 'violet'
   | 'ocean'
   | 'graphite'
+  | 'light'
   | 'custom';
 
 /** Los cinco colores base que definían la apariencia antes de la paleta. */
@@ -341,6 +343,19 @@ export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, Th
     surface: '#111315',
     text: '#f4f6f9',
   },
+  /**
+   * Claro neutro: el único preset nativo de tema claro. Superficies
+   * acromáticas (bg luminancia 0.87 → `color-scheme: light`) y el azul Olyvia
+   * como único acento. La paleta completa es explícita (`LIGHT_PALETTE`) porque
+   * estados y medios deben oscurecerse para conservar AA sobre fondo claro.
+   */
+  light: {
+    accent: '#1f5eff',
+    info: '#15803d',
+    background: '#eef0f3',
+    surface: '#f7f8fa',
+    text: '#15181e',
+  },
 };
 
 /**
@@ -419,7 +434,59 @@ const OLYVIA_PALETTE: ThemePalette = {
   brandMagenta: '#d35cff',
 };
 
-/** Paletas completas de los 7 presets (Olyvia explícita, el resto derivada). */
+/**
+ * Claro neutro — preset nativo de tema claro, medido para WCAG AA.
+ *
+ * Criterios (docs/COLOR-CUSTOMIZATION.md §2.6):
+ * - `text` 15.6:1 sobre bg, 16.7:1 sobre surface y 16.0:1 sobre panel.
+ * - `textMuted` 7.1:1, `textSecondary` 5.5:1, `textFaint` 5.3:1 y `empty`
+ *   4.65:1 sobre surface (los cuatro pasan 4.5:1; «Corregir texto» no cambia
+ *   ningún token, así que el preset es estable).
+ * - `accentInk` sobre `accent` 5.0:1; acento sobre bg 4.5:1.
+ * - Estados y medios oscurecidos para pasar ≥4.5:1 sobre `surface` (success,
+ *   warning y danger pasan ≥4.5 incluso sobre `bg`).
+ * - `borderStrong` 3.4:1 sobre surface (bordes no textuales ≥3:1).
+ * Es explícita a propósito: derivar la paleta con `paletteFromBase` reutilizaría
+ * los estados oscuros del contrato, que fallan AA sobre fondo claro.
+ */
+const LIGHT_PALETTE: ThemePalette = {
+  bg: '#eef0f3',
+  surface: '#f7f8fa',
+  panel: '#f2f3f6',
+  panel2: '#e9ebef',
+  panel3: '#e1e4ea',
+  panelRaised: '#ffffff',
+  surfaceRaised: '#fbfbfd',
+  border: '#d5d9e0',
+  borderStrong: '#7f8896',
+  text: '#15181e',
+  textMuted: '#4b5563',
+  textSecondary: '#5d6673',
+  textFaint: '#5f6874',
+  empty: '#68717d',
+  accent: '#1f5eff',
+  accentLight: '#4a83ff',
+  accentStrong: '#1748c9',
+  accentInk: '#f8fffc',
+  info: '#15803d',
+  success: '#15803d',
+  warning: '#b45309',
+  danger: '#dc2626',
+  dangerStrong: '#b91c1c',
+  cta: '#c2410c',
+  video: '#2563eb',
+  image: '#7c3aed',
+  audio: '#0d9488',
+  narration: '#15803d',
+  caption: '#b45309',
+  graphic: '#be185d',
+  brandCyan: '#0891b2',
+  brandBlue: '#1f5eff',
+  brandViolet: '#7c3aed',
+  brandMagenta: '#c026d3',
+};
+
+/** Paletas completas de los 8 presets (Olyvia y Claro neutro explícitos). */
 export const THEME_PALETTES: Readonly<
   Record<Exclude<ThemePresetId, 'custom'>, ThemePalette>
 > = {
@@ -430,6 +497,21 @@ export const THEME_PALETTES: Readonly<
   violet: paletteFromBase(THEME_PRESETS.violet),
   ocean: paletteFromBase(THEME_PRESETS.ocean),
   graphite: paletteFromBase(THEME_PRESETS.graphite),
+  light: LIGHT_PALETTE,
+};
+
+/** Etiquetas de UI de los presets (Ajustes y estudio de color usan esta fuente). */
+export const THEME_PRESET_LABELS: Readonly<
+  Record<Exclude<ThemePresetId, 'custom'>, string>
+> = {
+  olyvia: 'Olyvia',
+  resolve: 'Resolve',
+  mint: 'Menta',
+  ember: 'Ámbar',
+  violet: 'Violeta',
+  ocean: 'Océano',
+  graphite: 'Grafito',
+  light: 'Claro neutro',
 };
 
 /** Los cinco espejos base de una paleta (compatibilidad con el modelo v4). */

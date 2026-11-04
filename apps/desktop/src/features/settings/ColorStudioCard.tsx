@@ -6,6 +6,7 @@ import {
   COLOR_TOKENS,
   THEME_FILE_KIND,
   THEME_PALETTES,
+  THEME_PRESET_LABELS,
   fixTextContrast,
   parseThemeFile,
   serializeThemeFile,
@@ -212,7 +213,10 @@ export function ColorStudioCard() {
   }
 
   function exportTheme(): void {
-    const name = appearance.preset === 'custom' ? 'Tema personalizado' : referencePreset;
+    const name =
+      appearance.preset === 'custom'
+        ? 'Tema personalizado'
+        : THEME_PRESET_LABELS[referencePreset];
     const text = serializeThemeFile(palette, name);
     const blob = new Blob([text], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -285,7 +289,7 @@ export function ColorStudioCard() {
           </p>
         </div>
         <span className="color-studio-reference" title="Preset que usa el botón ↺ de cada fila">
-          Referencia: {referencePreset === 'olyvia' ? 'Olyvia' : referencePreset}
+          Referencia: {THEME_PRESET_LABELS[referencePreset]}
         </span>
       </header>
 

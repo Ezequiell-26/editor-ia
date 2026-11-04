@@ -966,3 +966,106 @@ describe('recuperación del proveedor desde el estado de error', () => {
     expect(screen.queryByRole('button', { name: 'Abrir Ajustes' })).toBeNull();
   });
 });
+
+describe('streaming del asistente y presupuesto de tokens', () => {
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  function renderDock(service: ReturnType<typeof createFakeService>) {
+    render(
+      <ProjectProvider service={service}>
+        <AssistantDock activeId="home" onSelect={() => {}} />
+      </ProjectProvider>,
+    );
+    openAssistant();
+  }
+
+  it('usa streaming, muestra la respuesta final y no llama al camino no-streaming', async () => {
+    const service = createFakeService();
+    const streamed = vi.fn();
+    service.assistantChatStream = async (_request, handlers) => {
+      streamed();
+      setTimeout(() => {
+        handlers.onDelta('{"reply":"Respuesta ');
+        handlers.onDelta('en vivo"}');
+        handlers.onCompleted({
+          reply: 'Respuesta en vivo',
+          action: null,
+          actions: [],
+          providerId: 'openai-compatible',
+          model: 'llama3.1',
+          simulated: false,
+        });
+      }, 0);
+      return { streamId: 's-test', cancel: () => {} };
+    };
+    const nonStream = vi.spyOn(service, 'assistantChat');
+    renderDock(service);
+    send('contame algo');
+
+    expect(await screen.findByText('Respuesta en vivo')).toBeTruthy();
+    expect(streamed).toHaveBeenCalledTimes(1);
+    expect(nonStream).not.toHaveBeenCalled();
+  });
+
+  it('detiene el streaming desde el botón y avisa que se canceló', async () => {
+    const service = createFakeService();
+    let cancelled = false;
+    service.assistantChatStream = async (_request, handlers) => ({
+      streamId: 's-cancel',
+      cancel: () => {
+        cancelled = true;
+        handlers.onCancelled();
+      },
+    });
+    renderDock(service);
+    send('contame algo');
+    const stop = await screen.findByRole('button', { name: 'Detener respuesta' });
+    fireEvent.click(stop);
+
+    expect(cancelled).toBe(true);
+    expect(await screen.findByText(/Respuesta detenida por vos/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Detener respuesta' })).toBeNull();
+  });
+
+  it('cae al camino no-streaming si el streaming falla antes del primer delta', async () => {
+    const service = createFakeService();
+    service.assistantChatStream = async (_request, handlers) => {
+      setTimeout(() => handlers.onFailed({ message: 'sin SSE', retryable: true }), 0);
+      return { streamId: 's-retry', cancel: () => {} };
+    };
+    const nonStream = vi.spyOn(service, 'assistantChat');
+    renderDock(service);
+    send('contame algo');
+
+    expect(await screen.findByText(/Soy Olyvia en modo simulado/)).toBeTruthy();
+    expect(nonStream).toHaveBeenCalledTimes(1);
+  });
+
+  it('muestra la estimación de tokens y avisa al superar el presupuesto configurado', async () => {
+    window.localStorage.setItem('editoria.assistant.token-budget.v1', '500');
+    const service = createFakeService();
+    // Primer turno largo: el historial ya supera el umbral de 500 tokens.
+    service.assistantChatStream = async (_request, handlers) => {
+      setTimeout(() => {
+        handlers.onCompleted({
+          reply: 'palabra '.repeat(400).trim(),
+          action: null,
+          actions: [],
+          providerId: 'openai-compatible',
+          model: 'llama3.1',
+          simulated: false,
+        });
+      }, 0);
+      return { streamId: 's-budget', cancel: () => {} };
+    };
+    renderDock(service);
+    send('primer mensaje');
+
+    await waitFor(() =>
+      expect(screen.getByText(/tokens en la conversación · aviso en 500/)).toBeTruthy(),
+    );
+    expect(await screen.findByText(/superaste el aviso configurado/)).toBeTruthy();
+  });
+});

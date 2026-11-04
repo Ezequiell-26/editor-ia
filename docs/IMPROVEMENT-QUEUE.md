@@ -4,6 +4,38 @@ Actualizado: 2026-11-03. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+## Ola 2 «hazlo todo» (2026-11-03) — `done` con verificación
+
+Detalle completo en `docs/PREMIUM-REDESIGN-RESULT.md` §6.5. Resumen de lo
+cerrado en esta ola (todo con evidencia y sin romper contratos):
+
+- `[done]` **Rendimiento medido**: CDP nativo de WebView2 sobre la app instalada
+  (arranque/FCP/timeline), CSS splitting (`styles/entries/`), manualChunks
+  (`vite.config.ts`) y limpieza de los 127 `!important` muertos de
+  `resolve-theme.css` (152→25). CSS crítico −19,7 %; `main` JS −19 %; FCP
+  editor/proyectos −20..−44 ms; 33 vistas pixel-idénticas.
+- `[done]` **Timeline pro**: rAF coalescing, virtualización (↓82–84 % DOM en
+  proyecto largo; stress 24 pistas), ripple real, multi-selección, snap a
+  escenas/beats, minimapa, `React.memo` de clips (p95 66→50 ms) y Ripple en
+  Ajustes→Editor.
+- `[done]` **Tema claro nativo «Claro neutro»** (34 tokens AA) + e2e/tests y
+  deuda visual de Ajustes (chips 10 px, sub-tabs 24 px).
+- `[done]` **Atajos**: persistencia sólo de overrides, helpers de conflicto y
+  migración del formato legado.
+- `[done]` **IA**: streaming/abort real (Rust 549 passed) con fallback,
+  presupuesto de tokens visible/configurable, Home contextual, búsqueda de
+  proyectos en la paleta y autosave visible.
+- `[done]` **Release CI** (`.github/workflows/release.yml`) + `docs/RELEASE.md`
+  y criterio de firma real documentado. **Bloqueo externo**: certificado OV/EV.
+- `[done]` **Estabilización de tests** bajo carga (timeouts explícitos en
+  `App.test` para chunks lazy) y exclusión de worktrees de `.git` en la suite.
+- Verificación de cierre: typecheck 0; build 0; suite serial **1940 passed /
+  3 skipped** (219 archivos); Rust **549 passed**; e2e **22 passed / 1 skipped**;
+  build nativo release + instalación firmada en la PC y app abierta.
+- `[next]` Ola CapCut/Filmora (pedido posterior): waveform de frecuencia real,
+  inspector redimensionable, preview fit/fill/zoom, layout compacto y matriz de
+  paridad (`.tmp-redesign/capcut/PLAN-IMPLEMENTACION.md`).
+
 ## Lote rediseño premium + honestidad funcional (2026-11-03) — `done` con verificación
 
 Detalle completo en `docs/PREMIUM-REDESIGN-RESULT.md`; contrato visual en
