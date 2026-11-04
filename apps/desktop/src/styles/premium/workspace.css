@@ -43,7 +43,7 @@
   align-items: center;
   flex: 0 0 auto;
   gap: var(--gap-4);
-  height: calc(var(--shell-tab-h, 32px) + 6px);
+  height: calc(var(--shell-tab-h, 32px) + 2px);
   padding: 0 var(--gap-2);
   margin: 0;
   overflow-x: auto;
@@ -89,26 +89,28 @@
   background: var(--state-selected);
 }
 
-/* Rejilla del editor: rail · preview · inspector / timeline a lo ancho. */
+/* Rejilla del editor: rail · preview · divisor · inspector / timeline a lo ancho.
+   El inspector es redimensionable (--inspector-width persistido en el estado
+   del workspace, patrón CapCut/Filmora). */
 .app-shell .editor-grid {
   display: grid;
   flex: 1 1 auto;
   height: auto;
   min-height: 0;
   grid-template-columns:
-    clamp(264px, 21.5vw, 320px) minmax(0, 1fr) clamp(288px, 23vw, 340px);
+    clamp(248px, 20.5vw, 304px) minmax(0, 1fr) 6px var(--inspector-width, 320px);
   grid-template-rows: minmax(0, 1fr) var(--timeline-height, 280px);
-  gap: var(--gap-10);
+  gap: var(--gap-8);
   padding: 0;
   background: transparent;
 }
 
 :root[data-density='compact'] .app-shell .editor-grid {
-  gap: var(--gap-8);
+  gap: var(--gap-6);
 }
 
 :root[data-density='spacious'] .app-shell .editor-grid {
-  gap: var(--gap-12);
+  gap: var(--gap-10);
 }
 
 /* Nivel 2 del spec (§9.3): paneles de trabajo, superficie --chrome-3 con
@@ -145,10 +147,51 @@
 }
 
 .app-shell .inspector {
-  grid-column: 3;
+  grid-column: 4;
   grid-row: 1;
   display: flex;
   flex-direction: column;
+}
+
+/* Divisor vertical del inspector: 6 px, hairline visible, acento en hover/foco.
+   Sólo aparece en modo timeline; en modo herramienta el panel ocupa todo. */
+.app-shell .editor-splitter {
+  grid-column: 3;
+  grid-row: 1;
+  position: relative;
+  width: 6px;
+  min-width: 6px;
+  border-radius: var(--rad-pill);
+  background: transparent;
+  cursor: col-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.app-shell .editor-splitter::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 2px;
+  width: 1px;
+  border-radius: var(--rad-pill);
+  background: var(--hairline-strong-color, var(--color-border));
+  opacity: 0.8;
+  transition:
+    background-color var(--dur-3) var(--ease-out),
+    opacity var(--dur-3) var(--ease-out);
+}
+
+.app-shell .editor-splitter:hover::after,
+.app-shell .editor-splitter:focus-visible::after {
+  background: var(--color-accent);
+  opacity: 1;
+}
+
+body.inspector-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .app-shell .timeline-panel {
@@ -213,8 +256,8 @@
   justify-content: space-between;
   gap: var(--gap-8);
   flex: 0 0 auto;
-  min-height: calc(var(--shell-panel-head-h, 32px) + 6px);
-  padding: 0 var(--gap-12);
+  min-height: calc(var(--shell-panel-head-h, 32px) + 2px);
+  padding: 0 var(--gap-10);
   border-bottom: var(--hairline);
   background: var(--chrome-2);
 }
@@ -618,17 +661,17 @@
   display: grid;
   place-items: center;
   position: relative;
-  /* Pozo del monitor: más oscuro que la superficie, también en tema claro
-     (los NLE mantienen el visor oscuro para juzgar color). */
-  padding: 40px var(--gap-16) var(--gap-16);
+  /* Pozo del monitor del color del panel (CapCut/Filmora): las franjas de un
+     video con otra relación ya no son negro puro y el ojo no lee un “marco”. */
+  padding: var(--gap-8) var(--gap-10) var(--gap-8);
   overflow: hidden;
   background:
     radial-gradient(
       ellipse 120% 90% at 50% 0%,
-      color-mix(in srgb, rgb(255 255 255) 4%, transparent),
+      color-mix(in srgb, var(--color-text) 3%, transparent),
       transparent 62%
     ),
-    color-mix(in srgb, var(--color-bg) 18%, rgb(0 0 0));
+    var(--chrome-2);
   border-bottom: var(--hairline);
 }
 
@@ -2514,6 +2557,24 @@
   height: calc(100% - 21px);
 }
 
+/* F1 · Onda real: picos FFmpeg (min/max normalizados) visibles y nítidos.
+ * El color mezcla la tinta del tema con el color del medio para leerse sobre
+ * cualquier clip y en tema claro/oscuro; sin glow ni filtros. */
+.app-shell .timeline .timeline-clip .clip-waveform {
+  opacity: 0.85;
+  color: color-mix(in srgb, var(--color-text) 84%, var(--clip-color));
+}
+
+.app-shell .timeline .timeline-clip .clip-waveform.kind-audio,
+.app-shell .timeline .timeline-clip .clip-waveform.kind-narration {
+  opacity: 0.92;
+  color: color-mix(in srgb, var(--color-text) 80%, var(--clip-color));
+}
+
+.app-shell .timeline .timeline-clip .clip-waveform rect {
+  shape-rendering: crispEdges;
+}
+
 .app-shell .timeline .caption-cue {
   border-radius: var(--rad-sm);
 }
@@ -2952,7 +3013,7 @@
 @media (max-width: 1440px) {
   .app-shell .editor-grid {
     grid-template-columns:
-      clamp(260px, 21vw, 304px) minmax(0, 1fr) clamp(284px, 22.5vw, 328px);
+      clamp(260px, 21vw, 304px) minmax(0, 1fr) 6px var(--inspector-width, 320px);
   }
 
   .app-shell .timeline-toolbar {
@@ -2967,6 +3028,16 @@
 @media (max-width: 1240px) {
   .app-shell .editor-grid {
     grid-template-columns: 252px minmax(0, 1fr) 274px;
+  }
+
+  /* En ventanas angostas el divisor se oculta y el inspector vuelve al ancho
+     fijo del layout compacto (también hay que reponer su columna). */
+  .app-shell .editor-splitter {
+    display: none;
+  }
+
+  .app-shell .inspector {
+    grid-column: 3;
   }
 
   .app-shell .rail-tabs button span {
@@ -3056,10 +3127,10 @@
 .app-shell .timeline-overview {
   display: flex;
   align-items: center;
-  gap: var(--gap-8);
+  gap: var(--gap-6);
   flex: 0 0 auto;
-  height: 30px;
-  padding: 0 var(--gap-10);
+  height: 26px;
+  padding: 0 var(--gap-8);
   border-bottom: var(--hairline);
   background: color-mix(in srgb, var(--color-bg) 26%, var(--chrome-2));
 }

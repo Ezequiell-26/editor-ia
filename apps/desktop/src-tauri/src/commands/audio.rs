@@ -512,6 +512,38 @@ mod tests {
     }
 
     #[test]
+    fn el_contrato_json_de_picos_es_camel_case_y_min_max() {
+        // Contrato que consume `useWaveform`/`audioPeaks` en el frontend:
+        // { assetId, durationSeconds, buckets, peaks: [{ min, max }] }.
+        let response = AudioPeaks {
+            asset_id: "asset-1".to_owned(),
+            duration_seconds: 12.5,
+            buckets: 600,
+            peaks: vec![
+                PeakPair {
+                    min: -0.5,
+                    max: 0.25,
+                },
+                PeakPair {
+                    min: -1.0,
+                    max: 1.0,
+                },
+            ],
+        };
+        let json = serde_json::to_value(&response).expect("serializa el contrato");
+        assert_eq!(json["assetId"], "asset-1");
+        assert_eq!(json["durationSeconds"], 12.5);
+        assert_eq!(json["buckets"], 600);
+        assert_eq!(json["peaks"][0]["min"], -0.5);
+        assert_eq!(json["peaks"][0]["max"], 0.25);
+        assert_eq!(json["peaks"][1]["min"], -1.0);
+        assert_eq!(json["peaks"][1]["max"], 1.0);
+        // Sin campos viejos/snake_case en el wire.
+        assert!(json.get("asset_id").is_none());
+        assert!(json.get("duration_seconds").is_none());
+    }
+
+    #[test]
     fn detecta_encoders_de_hardware_en_la_lista() {
         let list = " V....D libx264              libx264 H.264\n V....D h264_nvenc           NVIDIA\n V....D hevc_qsv             Intel";
         assert_eq!(

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ViewId } from '../../app/navigation';
 import type { EditorModeId } from '../../app/view-routing';
 import { Icon } from '../../components/Icon';
@@ -118,6 +118,29 @@ function TimelineFallback() {
   );
 }
 
+// Inspector derecho redimensionable (patrón CapCut/Filmora): el ancho se
+// persiste por equipo y el divisor es accesible por puntero y teclado.
+const INSPECTOR_WIDTH_KEY = 'editoria.inspector-width.v1';
+const INSPECTOR_WIDTH_DEFAULT = 320;
+const INSPECTOR_WIDTH_MIN = 280;
+const INSPECTOR_WIDTH_MAX = 560;
+
+function clampInspectorWidth(value: number): number {
+  return Math.min(INSPECTOR_WIDTH_MAX, Math.max(INSPECTOR_WIDTH_MIN, Math.round(value)));
+}
+
+function readInspectorWidth(): number {
+  if (typeof window === 'undefined') return INSPECTOR_WIDTH_DEFAULT;
+  try {
+    const stored = Number(window.localStorage.getItem(INSPECTOR_WIDTH_KEY));
+    return Number.isFinite(stored) && stored > 0
+      ? clampInspectorWidth(stored)
+      : INSPECTOR_WIDTH_DEFAULT;
+  } catch {
+    return INSPECTOR_WIDTH_DEFAULT;
+  }
+}
+
 export function EditorWorkspace({
   onNavigate,
   initialMode = 'timeline',
@@ -133,6 +156,19 @@ export function EditorWorkspace({
   const [exportOpen, setExportOpen] = useState(false);
   const [mode, setMode] = useState<EditorMode>(initialMode);
   usePlayback();
+
+  // Ancho del panel Detalles (persistido). El drag actualiza sólo este estado:
+  // el timeline no se re-renderiza por mover el divisor.
+  const [inspectorWidth, setInspectorWidth] = useState<number>(readInspectorWidth);
+  const inspectorDragRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(INSPECTOR_WIDTH_KEY, String(inspectorWidth));
+    } catch {
+      // Sin almacenamiento: el ancho vale para esta sesión.
+    }
+  }, [inspectorWidth]);
 
   useEffect(() => {
     setMode(initialMode);
@@ -364,7 +400,10 @@ export function EditorWorkspace({
           </button>
         ))}
       </nav>
-      <div className={`editor-grid${mode !== 'timeline' ? ' editor-mode-active' : ''}`}>
+      <div
+        className={`editor-grid${mode !== 'timeline' ? ' editor-mode-active' : ''}`}
+        style={{ '--inspector-width': `${inspectorWidth}px` } as CSSProperties}
+      >
         {mode === 'timeline' ? (
           <>
             <Suspense fallback={<AssetsFallback />}>
@@ -374,6 +413,56 @@ export function EditorWorkspace({
               <Preview />
               <Transport />
             </div>
+            <div
+              className="editor-splitter"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Cambiar el ancho del panel Detalles"
+              aria-valuemin={INSPECTOR_WIDTH_MIN}
+              aria-valuemax={INSPECTOR_WIDTH_MAX}
+              aria-valuenow={inspectorWidth}
+              tabIndex={0}
+              title="Arrastrá para cambiar el ancho de Detalles · doble clic para restablecer"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return;
+                event.preventDefault();
+                inspectorDragRef.current = { startX: event.clientX, startWidth: inspectorWidth };
+                document.body.classList.add('inspector-resizing');
+                const move = (pointer: PointerEvent): void => {
+                  const drag = inspectorDragRef.current;
+                  if (!drag) return;
+                  setInspectorWidth(
+                    clampInspectorWidth(drag.startWidth - (pointer.clientX - drag.startX)),
+                  );
+                };
+                const up = (): void => {
+                  inspectorDragRef.current = null;
+                  document.body.classList.remove('inspector-resizing');
+                  window.removeEventListener('pointermove', move);
+                  window.removeEventListener('pointerup', up);
+                  window.removeEventListener('pointercancel', up);
+                };
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', up);
+                window.addEventListener('pointercancel', up);
+              }}
+              onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH_DEFAULT)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowLeft') {
+                  event.preventDefault();
+                  setInspectorWidth((width) => clampInspectorWidth(width + 16));
+                } else if (event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  setInspectorWidth((width) => clampInspectorWidth(width - 16));
+                } else if (event.key === 'Home') {
+                  event.preventDefault();
+                  setInspectorWidth(INSPECTOR_WIDTH_DEFAULT);
+                } else if (event.key === 'End') {
+                  event.preventDefault();
+                  setInspectorWidth(INSPECTOR_WIDTH_MAX);
+                }
+              }}
+            />
             <Suspense fallback={<InspectorFallback />}>
               <Inspector />
             </Suspense>

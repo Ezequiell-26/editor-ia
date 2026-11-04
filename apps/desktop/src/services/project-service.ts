@@ -1239,6 +1239,19 @@ export interface ExtractedSubtitles {
   readonly srt: string;
 }
 
+/**
+ * Picos de audio para dibujar la forma de onda de la timeline.
+ *
+ * Contrato nativo (`audio_peaks`, FFmpeg + FFprobe):
+ * - `buckets` default 600; el backend lo limita a [16, 4000] y devuelve el
+ *   valor efectivo en `buckets` (nunca es mayor que 4000).
+ * - `peaks` tiene exactamente `buckets` pares `{ min, max }` mono en [-1, 1];
+ *   son muestras, no amplitudes normalizadas a [0, 1].
+ * - `durationSeconds` viene de la primera pista de audio; puede ser 0 cuando el
+ *   contenedor no declara duración.
+ * - Sin audio, asset inexistente o FFmpeg/FFprobe ausentes el comando rechaza
+ *   con `ProjectError` (no devuelve un array vacío).
+ */
 export interface AudioPeaks {
   readonly assetId: string;
   readonly durationSeconds: number;
@@ -1893,6 +1906,10 @@ export interface DesktopService {
   ): Promise<ToolResult>;
   /** Extrae el primer subtítulo incrustado (prefiere español) sin IA. */
   extractSubtitles(path: string): Promise<ExtractedSubtitles | null>;
+  /**
+   * Picos min/max por bucket de un asset del proyecto abierto.
+   * `buckets` default 600, acotado por el backend a [16, 4000].
+   */
   audioPeaks(assetId: string, buckets?: number): Promise<AudioPeaks>;
   /** Picos de un archivo suelto, sin proyecto abierto (cola de carpeta). */
   audioPeaksPath(path: string, buckets?: number): Promise<AudioPeaks>;
@@ -3126,7 +3143,10 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
       return (await call(PROJECT_COMMANDS.diarizeAudio, { path, language })) as DiarizeResult;
     },
     async audioPeaksPath(path, buckets) {
-      return (await call(PROJECT_COMMANDS.audioPeaksPath, { path, buckets })) as AudioPeaks;
+      return (await call(PROJECT_COMMANDS.audioPeaksPath, {
+        path,
+        buckets: buckets ?? 600,
+      })) as AudioPeaks;
     },
     async measureFileLoudness(path) {
       return (await call(PROJECT_COMMANDS.measureFileLoudness, { path })) as FileLoudness;

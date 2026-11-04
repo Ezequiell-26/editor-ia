@@ -258,15 +258,58 @@ lista completa. Todo verificado; detalles en `docs/CSS-PERF-NOTES.md`,
   +1 skipped); sin worktrees duplicados.
 - `cargo test --lib`: **549 passed, 0 failed, 49 ignored**.
 - `npx playwright test`: **22 passed, 1 skipped** (52 s, exit 0).
+- **Nativo «after» por CDP con la build instalada nueva** (exe 39.097.824 B,
+  21:46:50, firma Válida): proceso→load **499 ms** (antes 1.035, −52 %);
+  proceso→FCP **698 ms** (antes 1.290, −46 %); CSS inicial 1 hoja de 490 KB
+  transferidos + 2 hojas lazy al abrir el editor (split funcionando); JS
+  inicial 855 KB raw con manualChunks; editor demo 3.013 nodos con timeline
+  1.601 nodos/15 clips. Timeline: scrub **0** frames lentos, drag **0**, pan
+  14,0 %, zoom 17,7 %, playback 23,9 % (demo distinto al de 62 clips del
+  baseline; no comparar 1:1), long tasks 8/968 ms.
 - Capturas/perf: `.tmp-redesign/perf/` (CDP nativo + prod antes/después),
   `.tmp-redesign/shell/claro/` (tema claro 38+37 PNG), `.tmp-redesign/workspace/`
-  (timeline pro), `.tmp-redesign/context/` (Home/paleta/autosave).
+  (timeline pro), `.tmp-redesign/context/` (Home/paleta/autosave),
+  `.tmp-redesign/verify/shots-wave2/` (Lead: 0 console errors, 0 overflow,
+  topbar 44/rail 48/statusbar 24).
 
-### Nueva ola en curso (pedido posterior del usuario)
-Waveform de frecuencia real en el timeline, inspector derecho redimensionable,
-preview sin franjas (fit/fill/zoom), layout compacto tipo CapCut/Filmora y
-matriz de paridad de features. Plan/auditoría en `.tmp-redesign/capcut/`;
-estado y límites se documentarán al cerrar esa ola.
+## 6.6 Ola CapCut/Filmora (F1–F4): pedido posterior del usuario
+
+El usuario pidió, con captura del editor instalado: waveform con la frecuencia
+real del audio, panel derecho «Detalles» redimensionable, preview sin franjas
+negras, video totalmente customizable y un editor con la organización/estética
+y herramientas de CapCut/Filmora. Plan y matriz de paridad en
+`.tmp-redesign/capcut/` (`AUDITORIA-COMPARATIVA.md`, `MATRIZ-PARIDAD.md`,
+`PLAN-IMPLEMENTACION.md`, `RESULTADO-F1-F4.md`).
+
+- **F1 · Waveform real**: el hook usa el backend FFmpeg (`audio_peaks`, min/max
+  por bucket) como fuente nativa con fallback WebAudio y «sin onda» honesto;
+  cache por asset + buckets efectivos, 600 buckets por defecto (~32 KB),
+  semáforo de 2 decodes concurrentes para no saturar FFmpeg, umbral nativo
+  30 min y WebAudio 10 min (nunca decodifica cientos de MB en el WebView).
+  Contrato verificado y cubierto por tests (`AudioPeaks` camelCase, clamp
+  [16,4000], errores tipados, navegador rechaza honesto); medición de costo:
+  5 min≈378 ms, 10 min≈528 ms, 30 min≈1,45 s, memoria acotada.
+- **F2 · Inspector redimensionable**: grid de 4 columnas con splitter de 6 px
+  (`role="separator"`), drag + ←/→ + Home/End + doble clic reset, clamp
+  280–560 px persistido (`editoria.inspector-width.v1`); a ≤1240 px vuelve a
+  layout fijo. Probe real 320→383 px persistido.
+- **F3 · Preview sin franjas**: toggle **Ajustar/Llenar** (contain completo ↔
+  cover con recorte), stage con color del panel (no negro puro), padding 8–10,
+  zoom 0.5–3× persistido y pan; 1:1/scopes/fullscreen intactos. Probe: Llenar
+  → canvas 679×1206 cubriendo stage 699×444.
+- **F4 · Layout compacto CapCut/Filmora**: gaps 10→8 (compact 6), tabs de modo
+  38→34, cabeceras de panel 38→34, overview 30→26 y sin huecos largos entre
+  controles del mismo grupo; capturado a 1360/1440/1920 + claro, 33 vistas sin
+  overflow ni errores de consola (pixel-diff: sólo 2 zonas animadas).
+- **Paridad honesta** (~40 features en la matriz): layout + edición core
+  alcanzable; stock/música/efectos propietarios, AI cloud y colaboración de
+  CapCut/Filmora **no son replicables** sin licencias/backend externos. P1
+  restante anotado: proxies, LUTs `.cube`, panel Trimmer, grabación de voz,
+  publicación OAuth y biblioteca propia importable.
+- **Verificación de la ola**: typecheck 0; build 0; suite serial (ver §6.7);
+  Rust **550 passed / 49 ignored**; e2e **22 passed / 1 skipped**; verificación
+  visual del Lead 0 console errors / 0 overflow; capturas en
+  `.tmp-redesign/capcut/f2f3f4/` y `.tmp-redesign/capcut/f4/`.
 
 ## 7. Artefactos, publicación e instalación (2026-11-03)
 

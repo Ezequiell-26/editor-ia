@@ -7,7 +7,30 @@ import {
   writeWaveformCache,
 } from './waveform-cache';
 
-const DEFAULT_BUCKETS = 180;
+// 600 buckets ≈ 32 KB de JSON y sobra para el ancho de un clip; el backend
+// (FFmpeg) tarda casi lo mismo con 600 que con 4000, pero el payload y la
+// memoria no. Denominador común para timeline y beats.
+const DEFAULT_BUCKETS = 600;
+
+// El decode nativo usa FFmpeg compartido: limitar a 2 pedidos simultáneos
+// evita que 4+ assets largos se ralenticen entre sí (medido por workspace:
+// 4×10 min en paralelo ≈ 2 s c/u vs 528 ms en solitario).
+const NATIVE_PEAK_CONCURRENCY = 2;
+let activeNativeRequests = 0;
+const nativeRequestQueue: Array<() => void> = [];
+
+async function withNativePeakSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (activeNativeRequests >= NATIVE_PEAK_CONCURRENCY) {
+    await new Promise<void>((resolve) => nativeRequestQueue.push(resolve));
+  }
+  activeNativeRequests += 1;
+  try {
+    return await task();
+  } finally {
+    activeNativeRequests -= 1;
+    nativeRequestQueue.shift()?.();
+  }
+}
 
 export type Waveform = readonly number[];
 
@@ -88,6 +111,38 @@ async function decodeWaveform(url: string, buckets: number): Promise<Waveform | 
 }
 
 /**
+ * Picos reales decodificados por FFmpeg en el backend (`audio_peaks`).
+ *
+ * Es la fuente de verdad en la app nativa: evita el `fetch(asset://)` que el
+ * protocolo de Tauri puede restringir y entrega min/max por bucket del audio
+ * real, normalizados a [-1, 1]. Acá se colapsa a una envolvente de amplitud y
+ * se normaliza con la misma curva que `computePeaks` para que el render
+ * simétrico de la timeline muestre la forma de onda verdadera del medio.
+ */
+async function decodeNativePeaks(
+  service: DesktopService,
+  assetId: string,
+  buckets: number,
+): Promise<Waveform | null> {
+  try {
+    const result = await withNativePeakSlot(() => service.audioPeaks(assetId, buckets));
+    // `result.buckets` es el efectivo del backend (clamp [16, 4000]); los picos
+    // ya vienen con ese tamaño y son los que se dibujan.
+    if (result.peaks.length === 0) return null;
+    const amplitudes = result.peaks.map((peak) =>
+      Math.min(1, Math.max(Math.abs(peak.min), Math.abs(peak.max))),
+    );
+    const loudest = amplitudes.reduce((max, value) => (value > max ? value : max), 0);
+    if (loudest <= 0.00001) return amplitudes;
+    return amplitudes.map((value) => Math.min(1, Math.sqrt(value / loudest)));
+  } catch {
+    // Asset no listo, sin FFmpeg o sin stream de audio: cae al fallback
+    // WebAudio (navegador) o al render sin onda (honesto).
+    return null;
+  }
+}
+
+/**
  * Lazily decodes an audio asset once per URL and returns peak buckets for the
  * timeline. Failures are cached as null so a missing codec never retries on
  * every render.
@@ -105,26 +160,48 @@ export function useWaveform(
       ? (media as { frameRate?: { num: number; den: number } }).frameRate
       : undefined;
   const mediaFps = frameRate ? frameRate.num / Math.max(1, frameRate.den) : 30;
-  // Keep the WebView light: decoding ten-minute assets at native sample rate
-  // costs hundreds of MB. Very long media simply renders without a waveform.
-  const tooLong = mediaFrames > 0 && mediaFrames / mediaFps > 600;
+  const durationSeconds =
+    mediaFrames > 0 && mediaFps > 0 ? mediaFrames / mediaFps : Number.POSITIVE_INFINITY;
+  // Dos límites distintos: el nativo (FFmpeg, ~1,45 s para 30 min) puede con
+  // assets largos; el fallback WebAudio decodifica PCM en el WebView
+  // (~23 MB/min mono f32 a 48 kHz) y por eso se corta en 10 min.
+  const tooLongForNative = durationSeconds > 1_800;
+  const tooLongForWebAudio = durationSeconds > 600;
+  // El backend clampa buckets a [16, 4000]; normalizar antes de usarlo en la
+  // clave y en el cache para que lo pedido coincida con lo persistido.
+  const bucketCount = Math.min(4_000, Math.max(16, Math.round(buckets)));
   const relative =
-    asset && !tooLong && (asset.kind === 'audio' || asset.kind === 'video')
+    asset && !tooLongForNative && (asset.kind === 'audio' || asset.kind === 'video')
       ? asset.source.path
       : null;
   const url = relative && root && service.available ? service.mediaUrl(root, relative) : '';
-  const cacheKey = asset && url ? waveformCacheKey(asset, url, buckets) : '';
+  // Fuente principal en nativo: FFmpeg (audio_peaks) con min/max reales. En
+  // navegador puro (service.available=false) o sin audio decodificable se
+  // intenta WebAudio; si tampoco hay datos la timeline dibuja el clip sin onda
+  // (nunca picos inventados).
+  const nativeEligible = Boolean(asset?.id) && service.available && !tooLongForNative;
+  const webAudioEligible = canDecode() && Boolean(url) && !tooLongForWebAudio;
+  // Con URL hay cache persistente content-addressed (digest); sin URL el
+  // resultado nativo queda sólo en memoria para no escribir claves sin prefijo
+  // en localStorage (que prune() no limpiaría).
+  const persistable = Boolean(asset && url);
+  const cacheKey =
+    asset && url
+      ? waveformCacheKey(asset, url, bucketCount)
+      : nativeEligible && asset
+        ? `native:${asset.id}:${bucketCount}`
+        : '';
   const [peaks, setPeaks] = useState<Waveform | null>(() => {
     if (!cacheKey) return null;
     const memory = peakCache.get(cacheKey);
     if (memory) return memory;
-    const stored = readWaveformCache(cacheKey, buckets);
+    const stored = persistable ? readWaveformCache(cacheKey, bucketCount) : null;
     if (stored) peakCache.set(cacheKey, stored);
     return stored;
   });
 
   useEffect(() => {
-    if (!url) {
+    if (!cacheKey) {
       setPeaks(null);
       return;
     }
@@ -133,7 +210,7 @@ export function useWaveform(
       setPeaks(hit);
       return;
     }
-    if (!canDecode()) {
+    if (!nativeEligible && !webAudioEligible) {
       setPeaks(null);
       return;
     }
@@ -144,10 +221,21 @@ export function useWaveform(
     let active = true;
     let request = pending.get(cacheKey);
     if (!request) {
-      request = decodeWaveform(url, buckets).then((result) => {
+      // Nativo: FFmpeg primero; si falla (asset sin audio, sin FFmpeg), se
+      // intenta WebAudio sólo si hay URL, decoder y el asset no es demasiado
+      // largo para decodificarlo en memoria.
+      const primary: Promise<Waveform | null> =
+        nativeEligible && asset
+          ? decodeNativePeaks(service, asset.id, bucketCount).then((native) =>
+              native ?? (webAudioEligible ? decodeWaveform(url, bucketCount) : null),
+            )
+          : webAudioEligible
+            ? decodeWaveform(url, bucketCount)
+            : Promise.resolve(null);
+      request = primary.then((result) => {
         if (result) {
           cacheWaveformPeaks(cacheKey, result);
-          writeWaveformCache(cacheKey, result);
+          if (persistable) writeWaveformCache(cacheKey, result);
         } else {
           failed.add(cacheKey);
         }
@@ -168,7 +256,16 @@ export function useWaveform(
     return () => {
       active = false;
     };
-  }, [buckets, cacheKey, url]);
+  }, [
+    asset,
+    bucketCount,
+    cacheKey,
+    nativeEligible,
+    persistable,
+    service,
+    url,
+    webAudioEligible,
+  ]);
 
   return peaks;
 }

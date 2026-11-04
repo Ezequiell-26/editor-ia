@@ -6,6 +6,7 @@ import type {
   AlphaSequenceRequest,
   AssetFileInfo,
   AssistantStreamHandle,
+  AudioPeaks,
   AudioProviderInfo,
   CreateProjectRequest,
   DesktopService,
@@ -238,8 +239,7 @@ export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'):
   };
 }
 
-export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtítulos y Música', isVertical = true): ProjectDocument {
-  const base = createEmptyProject(title, NOW);
+export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtítulos y Música', isVertical = true): ProjectDocument {  const base = createEmptyProject(title, NOW);
   base.video = {
     width: isVertical ? 1080 : 1920,
     height: isVertical ? 1920 : 1080,
@@ -309,6 +309,36 @@ export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtít
     ],
   };
   return ensureDelivery(base);
+}
+
+/** Límites del comando real `audio_peaks` (Rust): el fake los replica igual. */
+const FAKE_PEAK_MIN_BUCKETS = 16;
+const FAKE_PEAK_MAX_BUCKETS = 4000;
+const FAKE_PEAK_DEFAULT_BUCKETS = 600;
+
+/**
+ * Picos deterministas con el contrato exacto de `audio_peaks`: `buckets`
+ * efectivo clampeado a [16, 4000], pares min/max mono en [-1, 1] y duración
+ * fija de 4 s (el fake no decodifica archivos). Sirve para tests y para el
+ * harness de capturas, donde no hay runtime nativo.
+ */
+export function fakeAudioPeaks(assetId: string, buckets?: number): AudioPeaks {
+  const requested = Number.isFinite(buckets ?? NaN)
+    ? Math.round(buckets as number)
+    : FAKE_PEAK_DEFAULT_BUCKETS;
+  const effective = Math.min(
+    FAKE_PEAK_MAX_BUCKETS,
+    Math.max(FAKE_PEAK_MIN_BUCKETS, requested),
+  );
+  return {
+    assetId,
+    durationSeconds: 4,
+    buckets: effective,
+    peaks: Array.from({ length: effective }, (_, index) => ({
+      min: -0.2 - (index % 7) * 0.05,
+      max: 0.3 + (index % 5) * 0.08,
+    })),
+  };
 }
 
 export function createFakeService(): FakeService {
@@ -937,15 +967,7 @@ export function createFakeService(): FakeService {
       return null;
     },
     async audioPeaks(assetId, buckets) {
-      return {
-        assetId,
-        durationSeconds: 4,
-        buckets: buckets ?? 600,
-        peaks: Array.from({ length: buckets ?? 600 }, (_, index) => ({
-          min: -0.2 - (index % 7) * 0.05,
-          max: 0.3 + (index % 5) * 0.08,
-        })),
-      };
+      return fakeAudioPeaks(assetId, buckets);
     },
     async exportLossless() {
       throw new Error('exportar sin recodificar no está disponible en las pruebas');
@@ -1004,15 +1026,7 @@ export function createFakeService(): FakeService {
       };
     },
     async audioPeaksPath(path, buckets) {
-      return {
-        assetId: path,
-        durationSeconds: 4,
-        buckets: buckets ?? 600,
-        peaks: Array.from({ length: buckets ?? 600 }, (_, index) => ({
-          min: -0.2 - (index % 7) * 0.05,
-          max: 0.3 + (index % 5) * 0.08,
-        })),
-      };
+      return fakeAudioPeaks(path, buckets);
     },
     async measureFileLoudness() {
       return { integratedLufs: -14, truePeakDb: -1, lraLu: 5 };

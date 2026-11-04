@@ -67,6 +67,31 @@ function volumeFromDb(gainDb: number | undefined): number {
   return Math.min(1, Math.max(0, 10 ** (db / 20)));
 }
 
+// Modo del monitor y zoom persistidos por equipo (CapCut/Filmora: el usuario
+// elige “Ajustar” (imagen completa) o “Llenar” (sin franjas, recorta bordes) y
+// el visor recuerda su encuadre). Storage protegido: ante error, defaults.
+const PREVIEW_FIT_KEY = 'editoria.preview-fit.v1';
+const PREVIEW_ZOOM_KEY = 'editoria.preview-zoom.v1';
+
+function readPreviewFill(): boolean {
+  try {
+    return window.localStorage.getItem(PREVIEW_FIT_KEY) === 'fill';
+  } catch {
+    return false;
+  }
+}
+
+function readPreviewZoom(): number {
+  try {
+    const value = Number(window.localStorage.getItem(PREVIEW_ZOOM_KEY));
+    return Number.isFinite(value) && value >= 0.5 && value <= 3
+      ? Math.round(value * 10) / 10
+      : 1;
+  } catch {
+    return 1;
+  }
+}
+
 function maskPolygon(
   mask: ClipMask,
   centerX: number,
@@ -920,10 +945,28 @@ export function Preview() {
   const [compare, setCompare] = useState(false);
   const [realFrame, setRealFrame] = useState<PreviewFrameResult | null>(null);
   const [realFrameBusy, setRealFrameBusy] = useState(false);
-  const [monitorZoom, setMonitorZoom] = useState(1);
+  const [monitorZoom, setMonitorZoom] = useState<number>(readPreviewZoom);
   const [monitorPan, setMonitorPan] = useState({ x: 0, y: 0 });
   const [panning, setPanning] = useState(false);
+  // false = Ajustar (contain, imagen completa); true = Llenar (cover, sin franjas)
+  const [monitorFill, setMonitorFill] = useState<boolean>(readPreviewFill);
   const [pixelPerfect, setPixelPerfect] = useState(false);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PREVIEW_ZOOM_KEY, String(monitorZoom));
+    } catch {
+      // Sin almacenamiento: zoom sólo para esta sesión.
+    }
+  }, [monitorZoom]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PREVIEW_FIT_KEY, monitorFill ? 'fill' : 'fit');
+    } catch {
+      // Sin almacenamiento: modo sólo para esta sesión.
+    }
+  }, [monitorFill]);
   const fps = project ? fpsOf(project) : 30;
   const playhead = store.state.playheadFrame;
   const playing = store.state.playing;
@@ -1022,10 +1065,17 @@ export function Preview() {
   }
 
   const aspect = project.video.width / Math.max(1, project.video.height);
-  const frameWidth =
+  // Ajustar = min (imagen completa, puede dejar aire a los lados); Llenar = max
+  // (cubre el visor, recorta de forma controlada por `overflow: hidden`).
+  const fitWidth =
     stageSize.width > 0 && stageSize.height > 0
       ? Math.min(stageSize.width, stageSize.height * aspect)
       : 0;
+  const fillWidth =
+    stageSize.width > 0 && stageSize.height > 0
+      ? Math.max(stageSize.width, stageSize.height * aspect)
+      : 0;
+  const frameWidth = monitorFill && !pixelPerfect ? fillWidth : fitWidth;
   const frameHeight = frameWidth > 0 ? frameWidth / aspect : 0;
   // En pixel-perfect el lienzo mide los píxeles reales del frame, no el
   // tamaño ajustado a la etapa: la homografía debe usar ese mismo cuadro.
@@ -1118,7 +1168,7 @@ export function Preview() {
 
   return (
     <div
-      className={`preview-stage${pixelPerfect ? ' pixel-perfect' : ''}`}
+      className={`preview-stage${pixelPerfect ? ' pixel-perfect' : ''}${monitorFill ? ' fill' : ''}`}
       data-compare={compare ? 'true' : undefined}
       ref={stageRef}
     >
@@ -1205,6 +1255,25 @@ export function Preview() {
         >
           <Icon name="palette" size={13} />
           <span>Scopes</span>
+        </button>
+        <button
+          type="button"
+          className={monitorFill ? 'preview-tool active' : 'preview-tool'}
+          aria-pressed={monitorFill}
+          aria-label={monitorFill ? 'Ajustar el video completo' : 'Llenar el monitor con el video'}
+          title={
+            monitorFill
+              ? 'Ajustar: imagen completa (puede dejar franjas del color del panel)'
+              : 'Llenar: cubre el visor sin franjas y recorta los bordes del video'
+          }
+          onClick={() => {
+            setMonitorFill((current) => !current);
+            setPixelPerfect(false);
+            setMonitorZoom(1);
+            setMonitorPan({ x: 0, y: 0 });
+          }}
+        >
+          <span>{monitorFill ? 'Ajustar' : 'Llenar'}</span>
         </button>
         <button
           type="button"

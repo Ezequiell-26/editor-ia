@@ -99,7 +99,7 @@ describe('useWaveform cache hit', () => {
       mediaUrl: () => url,
     } as unknown as DesktopService;
 
-    const { result } = renderHook(() => useWaveform(service, 'C:/obra', ASSET));
+    const { result } = renderHook(() => useWaveform(service, 'C:/obra', ASSET, 180));
 
     expect(result.current).toEqual(PEAKS);
     expect(fetchSpy).not.toHaveBeenCalled();
