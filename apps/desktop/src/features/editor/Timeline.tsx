@@ -180,45 +180,6 @@ function applyFadeFrames(
   return updateClip(project, clipId, { effects });
 }
 
-/**
- * Envolvente simétrica de la forma de onda en un único `<path>`.
- *
- * Antes cada clip dibujaba hasta 600 `<rect>`: con 20 clips de audio eran
- * ~12.000 nodos SVG que React reconciliaba en cada frame de reproducción (el
- * mayor coste de render del timeline). El mismo dibujo —picos espejados estilo
- * DAW— en un solo path deja ~20 nodos en toda la pista y se ve más parejo
- * porque muestrea una columna cada ~1,5 px del clip.
- */
-export function waveformPath(peaks: readonly number[], columns: number): string {
-  if (peaks.length === 0 || columns < 2) return '';
-  const cols = Math.max(2, Math.round(columns));
-  const step = peaks.length / cols;
-  const upper: string[] = [];
-  const lower: string[] = [];
-  for (let index = 0; index < cols; index += 1) {
-    const from = Math.floor(index * step);
-    const to = Math.max(from + 1, Math.min(peaks.length, Math.floor((index + 1) * step)));
-    let peak = 0;
-    for (let cursor = from; cursor < to; cursor += 1) {
-      const value = peaks[cursor] ?? 0;
-      if (value > peak) peak = value;
-    }
-    // Piso de 0,8 unidades: un silencio se lee como línea, no desaparece.
-    const half = Math.max(0.8, Math.min(1, peak) * 18);
-    const x = (index + 0.5).toFixed(2);
-    upper.push(`${x},${(20 - half).toFixed(2)}`);
-    lower.push(`${x},${(20 + half).toFixed(2)}`);
-  }
-  lower.reverse();
-  return `M${upper.join('L')}L${lower.join('L')}Z`;
-}
-
-/** Columnas de la onda: una cada ~1,5 px del clip, con techo de 480. */
-export function waveformColumns(widthPx: number): number {
-  if (!Number.isFinite(widthPx) || widthPx <= 0) return 2;
-  return Math.max(2, Math.min(480, Math.round(widthPx / 1.5)));
-}
-
 function ClipBlockView({
   clip,
   track,
@@ -229,7 +190,6 @@ function ClipBlockView({
   showThumbnail,
   showWaveform,
   onSelect,
-  onSeek,
   onDrag,
   onContextMenu,
 }: {
@@ -242,7 +202,6 @@ function ClipBlockView({
   readonly showThumbnail: boolean;
   readonly showWaveform: boolean;
   readonly onSelect: (event?: ReactPointerEvent | ReactMouseEvent) => void;
-  readonly onSeek: (event: ReactPointerEvent) => void;
   readonly onDrag: (event: ReactPointerEvent, mode: 'move' | 'trim-start' | 'trim-end') => void;
   readonly onContextMenu: (event: ReactMouseEvent) => void;
 }) {
@@ -285,7 +244,6 @@ function ClipBlockView({
     waveform && asset && sourceWindow
       ? peaksForWindow(waveform, sourceWindow.inFrame, sourceWindow.outFrame, assetFrames)
       : null;
-  const waveColumns = waveformColumns(width);
   const clipLabel = clip.label ? friendlyAssetLabel(clip.label) : track.label;
   const colorHex = clipColorHex(clip.colorTag);
   const fade =
@@ -369,11 +327,6 @@ function ClipBlockView({
       onPointerDown={(event) => {
         if (event.button !== 0) return;
         event.stopPropagation();
-        // Clic sobre el clip: además de seleccionarlo, el cabezal va al punto
-        // clickeado (patrón CapCut/Premiere). Antes sólo seleccionaba y el
-        // cabezal quedaba donde estaba, así que el timeline se sentía
-        // desincronizado con el clic.
-        onSeek(event);
         onSelect(event);
         if (!track.locked) onDrag(event, 'move');
       }}
@@ -391,12 +344,24 @@ function ClipBlockView({
       {showWaveform && peaks && peaks.length > 1 ? (
         <svg
           className={`clip-waveform kind-${clip.kind}`}
-          viewBox={`0 0 ${waveColumns} 40`}
+          viewBox={`0 0 ${peaks.length} 40`}
           preserveAspectRatio="none"
           aria-hidden="true"
           focusable="false"
         >
-          <path d={waveformPath(peaks, waveColumns)} />
+          {peaks.map((peak, index) => {
+            const height = Math.max(1.4, peak * 34);
+            return (
+              <rect
+                key={index}
+                x={index + 0.14}
+                y={20 - height / 2}
+                width={0.72}
+                height={height}
+                rx={0.28}
+              />
+            );
+          })}
         </svg>
       ) : null}
       <span className="clip-label">
@@ -599,7 +564,7 @@ function clampTimelineHeight(value: number): number {
   return Math.min(TIMELINE_MAX, Math.max(TIMELINE_MIN, Math.round(value)));
 }
 
-export const Timeline = React.memo(function Timeline() {
+export function Timeline() {
   const store = useProjectStore();
   const project = store.state.project;
   const preferences = useEditorPreferences();
@@ -710,7 +675,6 @@ export const Timeline = React.memo(function Timeline() {
       clipId: string,
       event?: { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean },
     ) => void;
-    seek: (event: ReactPointerEvent, clip: Clip) => void;
     drag: (
       event: ReactPointerEvent,
       clip: Clip,
@@ -719,7 +683,6 @@ export const Timeline = React.memo(function Timeline() {
     menu: (event: ReactMouseEvent, clip: Clip) => void;
   }>({
     select: () => undefined,
-    seek: () => undefined,
     drag: () => undefined,
     menu: () => undefined,
   });
@@ -1653,36 +1616,22 @@ export const Timeline = React.memo(function Timeline() {
 
   if (!project) return null;
 
-  // La regla sólo dibuja las marcas de la ventana visible (+overscan): antes
-  // generaba una marca menor cada ~8 frames de TODO el proyecto (≈1.900 spans
-  // en un timeline de 12k frames) y React las reconciliaba en cada frame de
-  // reproducción. Memoizado por zoom/ventana, el coste por frame es cero.
-  const ruler = useMemo(() => {
-    const pxPerSecond = pxPerFrame * fps;
-    const steps = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
-    const step = steps.find((value) => value * pxPerSecond >= 92) ?? 900;
-    const major = Math.max(1, Math.round(step * fps));
-    const minor = Math.max(2, Math.round(major / 5));
-    const from = frameWindow
-      ? Math.max(0, Math.floor(frameWindow.startFrame / major) * major)
-      : 0;
-    const to = frameWindow ? Math.max(from, Math.ceil(frameWindow.endFrame)) : duration + fps;
-    const ticks: number[] = [];
-    for (let frame = from; frame <= to; frame += major) ticks.push(frame);
-    const minorTicks: number[] = [];
-    for (let frame = from - (from % minor); frame <= to; frame += minor) {
-      if (frame % major !== 0) minorTicks.push(frame);
-    }
-    return { ticks, minorTicks, majorFrames: major };
-  }, [duration, fps, pxPerFrame, frameWindow]);
-  const { ticks, minorTicks, majorFrames } = ruler;
+  const pxPerSecond = pxPerFrame * fps;
+  const steps = [0.25, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+  const step = steps.find((value) => value * pxPerSecond >= 92) ?? 900;
+  const majorFrames = Math.max(1, Math.round(step * fps));
+  const minorFrames = Math.max(2, Math.round(majorFrames / 5));
+  const ticks: number[] = [];
+  for (let frame = 0; frame <= duration + fps; frame += majorFrames) {
+    ticks.push(frame);
+  }
+  const minorTicks: number[] = [];
+  for (let frame = 0; frame <= duration + fps; frame += minorFrames) {
+    if (frame % majorFrames !== 0) minorTicks.push(frame);
+  }
 
   function beginScrub(event: ReactPointerEvent): void {
     if (event.button !== 0) return;
-    // La esquina de la regla es la cabecera sticky de las pistas: un clic ahí
-    // no es un seek. Antes caía en la cuenta y mandaba el cabezal a 0 (se leía
-    // como «el timeline no está sincronizado»).
-    if (event.target instanceof Element && event.target.closest('.ruler-corner')) return;
     event.preventDefault();
     store.setPlaying(false);
     store.setSelection({ kind: 'none' });
@@ -1695,22 +1644,6 @@ export const Timeline = React.memo(function Timeline() {
       const frame = Math.max(0, Math.round((event.clientX - rect.left - headerWidth()) / pxPerFrame));
       store.setPlayhead(frame);
     }
-  }
-
-  /**
-   * Clic sobre un clip: además de seleccionarlo, lleva el cabezal al frame
-   * clickeado (patrón CapCut/Premiere). Se mide contra el propio clip —su borde
-   * izquierdo es `startFrame`— así el resultado no depende del scroll ni del
-   * ancho de la cabecera de pistas.
-   */
-  function seekFromClipPointer(event: ReactPointerEvent, clip: Clip): void {
-    // Shift/Ctrl/Cmd son multi-selección: ahí no movemos el cabezal.
-    if (event.shiftKey || event.ctrlKey || event.metaKey) return;
-    const rect = event.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const offset = (event.clientX - rect.left) / Math.max(0.0001, pxPerFrame);
-    store.setPlaying(false);
-    store.setPlayhead(clip.startFrame + offset);
   }
 
   function beginClipDrag(
@@ -1845,7 +1778,6 @@ export const Timeline = React.memo(function Timeline() {
   // Handlers "vivos" para los clips memoizados (ver clipHandlersRef).
   clipHandlersRef.current = {
     select: selectClip,
-    seek: seekFromClipPointer,
     drag: beginClipDrag,
     menu: openClipMenu,
   };
@@ -2489,7 +2421,6 @@ export const Timeline = React.memo(function Timeline() {
                       showThumbnail={preferences.showThumbnails}
                       showWaveform={preferences.showWaveforms}
                       onSelect={(event) => clipHandlersRef.current.select(clip.id, event)}
-                      onSeek={(event) => clipHandlersRef.current.seek(event, clip)}
                       onDrag={(event, mode) =>
                         clipHandlersRef.current.drag(event, clip, mode)
                       }

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ColorSwatch } from '../../components/ColorSwatch';
 import { Icon } from '../../components/Icon';
 import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, PerspectiveCorner, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
 import { MARKER_COLORS, MAX_MARKERS, type MarkerColor } from '@editor-ia/project-schema';
@@ -2826,12 +2825,12 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           <div className="inspector-grid">
             <label className="field">
               <span>Color a remover</span>
-              <ColorSwatch
-                label="Color a remover"
+              <input
+                type="color"
                 value={chromaKey?.color ?? '#00ff00'}
-                onChange={(hex) =>
+                onChange={(event) =>
                   setChromaKey({
-                    color: hex,
+                    color: event.target.value,
                     similarity: chromaKey?.similarity ?? 0.3,
                     blend: chromaKey?.blend ?? 0.1,
                   })
@@ -5219,11 +5218,11 @@ function ProjectInspector() {
         )}
         <label className="field">
           <span>Color de fondo</span>
-          <ColorSwatch
-            label="Color de fondo"
+          <input
+            type="color"
             value={project.video.backgroundColor ?? '#0b0e13'}
-            onChange={(hex) =>
-              store.update((current) => updateProjectSettings(current, { backgroundColor: hex }))
+            onChange={(event) =>
+              store.update((current) => updateProjectSettings(current, { backgroundColor: event.target.value }))
             }
           />
         </label>
@@ -6095,11 +6094,11 @@ function ProjectInspector() {
             />
             <label className="field">
               <span>Color</span>
-              <ColorSwatch
-                label="Color del subtítulo"
+              <input
+                type="color"
                 value={style.color}
-                onChange={(hex) =>
-                  store.update((current) => updateCaptionStyle(current, style.id, { color: hex }))
+                onChange={(event) =>
+                  store.update((current) => updateCaptionStyle(current, style.id, { color: event.target.value }))
                 }
               />
             </label>
@@ -6138,12 +6137,14 @@ function ProjectInspector() {
             </label>
             <label className="field">
               <span>Fondo de caja</span>
-              <ColorSwatch
-                label="Fondo de caja"
+              <input
+                type="color"
                 value={style.backgroundColor ?? '#0b0e13'}
-                onChange={(hex) =>
+                onChange={(event) =>
                   store.update((current) =>
-                    updateCaptionStyle(current, style.id, { backgroundColor: hex }),
+                    updateCaptionStyle(current, style.id, {
+                      backgroundColor: event.target.value,
+                    }),
                   )
                 }
               />
@@ -6201,12 +6202,14 @@ function ProjectInspector() {
             />
             <label className="field">
               <span>Color 3D</span>
-              <ColorSwatch
-                label="Color 3D"
+              <input
+                type="color"
                 value={style.depthColor ?? '#1f2937'}
-                onChange={(hex) =>
+                onChange={(event) =>
                   store.update((current) =>
-                    updateCaptionStyle(current, style.id, { depthColor: hex }),
+                    updateCaptionStyle(current, style.id, {
+                      depthColor: event.target.value,
+                    }),
                   )
                 }
               />
@@ -6328,7 +6331,7 @@ function ProjectInspector() {
   );
 }
 
-export const Inspector = React.memo(function Inspector() {
+export function Inspector() {
   const store = useProjectStore();
   const project = store.state.project;
   const selection = store.state.selection;
