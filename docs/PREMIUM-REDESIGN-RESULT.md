@@ -310,6 +310,18 @@ y herramientas de CapCut/Filmora. Plan y matriz de paridad en
   Rust **550 passed / 49 ignored**; e2e **22 passed / 1 skipped**; verificación
   visual del Lead 0 console errors / 0 overflow; capturas en
   `.tmp-redesign/capcut/f2f3f4/` y `.tmp-redesign/capcut/f4/`.
+- **CDP nativo con la build instalada** (exe 39.101.920 B, 22:21:26, firma
+  Válida; `.tmp-redesign/perf/native-f1f4/`): proceso→load **~499–530 ms**,
+  FCP **~698 ms** (misma mejora de la ola 2, sin regresión); CSS split
+  confirmado (main 490 KB + editor 71 KB + content 53 KB lazy); editor demo
+  15 clips/4 pistas/3.061 nodos. **Waveform real FFmpeg: 92 `rect` con picos
+  variables en el clip de audio** (no bloques sintéticos; captura
+  `02-audio-clip-waveform.png`). Splitter: 304→266 al arrastrar y doble clic
+  restaura 304. Preview: Llenar cubre el stage con crop y se restaura a Ajustar
+  (`editoria.preview-fit.v1=fit`). Timeline post-F1–F4: pan **9,5 %** frames
+  lentos (antes 14 %), scrub **0**, drag **0**, zoom 19,2 %, playback 23,2 %
+  (el playback es decode de preview; los proxies de la Fase 1 apuntan a bajarlo),
+  long tasks 11/1.219 ms.
 
 ## 7. Artefactos, publicación e instalación (2026-11-03)
 
