@@ -82,6 +82,28 @@ customizable/fluido, estudiando repos MIT. Se implementó (`docs/PREMIUM-POLISH-
   `.tmp-redesign/polish/final-views-1440|1280/` y `shots/final3-*`.
 - Rebuild nativo en `target-polish/` (para no bloquear el exe en uso).
 
+## Ola 3 · CapCut/Filmora (F1-F4)
+
+Pedido posterior del usuario sobre el editor instalado: waveform real, inspector
+redimensionable, preview sin franjas y layout tipo CapCut/Filmora.
+
+- F1: `useWaveform` usa `audio_peaks` del backend FFmpeg (min/max por bucket)
+  con fallback WebAudio, cache por asset+buckets efectivos, 600 buckets default,
+  semáforo de 2 decodes concurrentes, umbral nativo 30 min / WebAudio 10 min y
+  «sin onda» honesto. Contrato `AudioPeaks` verificado/cubierto (clamp 16-4000,
+  errores tipados, navegador rechaza honesto); costo medido: 5 min 378 ms,
+  10 min 528 ms, 30 min 1,45 s.
+- F2: splitter de 6 px con role separator, drag/flechas/Home/End/doble clic,
+  clamp 280-560 persistido (`editoria.inspector-width.v1`), responsive ≤1240.
+- F3: Ajustar/Llenar, stage neutro, zoom 0.5-3x y pan persistidos; 1:1 y
+  fullscreen intactos.
+- F4: gaps 8/6, tabs/headers 34, overview 26, capturas 1360/1440/1920.
+- Verificación: typecheck 0; build 0; suite serial 1944 passed/3 skipped; Rust
+  550 passed/49 ignored; e2e 22 passed/1 skipped; visual 0 errores/0 overflow.
+- Commit `a225129` publicado en main; build nativo + instalación con onda real
+  pendientes de la pasada de instalación. P1 restante y no-replicable en
+  `.tmp-redesign/capcut/MATRIZ-PARIDAD.md`.
+
 ## Publicación e instalación (pedido explícito del usuario)
 
 - Push a https://github.com/Ezequiell-26/editor-ia: `main` en `8c4851c`

@@ -4,6 +4,22 @@ Actualizado: 2026-11-03. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Ola CapCut/Filmora F1–F4** (pedido posterior del usuario):
+  waveform con frecuencia real (FFmpeg `audio_peaks`, cache, semáforo 2,
+  umbrales 30 min nativo / 10 min WebAudio), inspector derecho redimensionable
+  persistido, preview Ajustar/Llenar sin franjas con zoom/pan persistidos y
+  layout compacto (gaps 8/6, tabs y headers 34). Verificación: typecheck 0,
+  build 0, suite serial **1944 passed / 3 skipped**, Rust **550 passed**, e2e
+  **22 passed / 1 skipped**, visual 0 errores/0 overflow. Matriz de paridad y
+  lo no replicable (stock/música/efectos propietarios, AI cloud, colaboración)
+  en `.tmp-redesign/capcut/MATRIZ-PARIDAD.md`; P1 restante (proxies, LUTs
+  `.cube`, Trimmer, grabación de voz, OAuth, biblioteca propia) documentado.
+- `[next]` Ola CapCut P1 si el usuario la pide (proxies/LUTs/Trimmer/voz/
+  publicación/biblioteca) + verificación nativa final de F1–F4 (onda real en
+  la app instalada y métricas CDP post-cambios).
+- `[next]` Firma de código real OV/EV + secrets y updater real (externos,
+  documentados en `RELEASE.md` y `FOLLOW-UPS.md` §5).
+
 ## Ola 2 «hazlo todo» (2026-11-03) — `done` con verificación
 
 Detalle completo en `docs/PREMIUM-REDESIGN-RESULT.md` §6.5. Resumen de lo
