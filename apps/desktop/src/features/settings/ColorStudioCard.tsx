@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { ColorSwatch } from '../../components/ColorSwatch';
 import { useAppearance } from '../../state/AppearanceProvider';
 import type { ThemePresetId } from '../../state/appearance';
 import {
@@ -401,19 +402,13 @@ export function ColorStudioCard() {
                   const dirty = current !== presetValue;
                   return (
                     <div key={token.id} className="color-row" data-token={token.id}>
-                      <label className="color-row-label" htmlFor={`color-input-${token.id}`}>
-                        {token.label}
-                      </label>
-                      <input
-                        id={`color-input-${token.id}`}
-                        type="color"
+                      <label className="color-row-label">{token.label}</label>
+                      <ColorSwatch
                         className="color-input"
+                        label={token.label}
                         value={current}
-                        title={token.hint}
-                        aria-label={`Color de ${token.label}`}
-                        onChange={(event) => previewToken(token.id, event.target.value)}
-                        onBlur={commitDraft}
-                        onPointerUp={commitDraft}
+                        onChange={(hex) => previewToken(token.id, hex)}
+                        onCommit={commitDraft}
                       />
                       <input
                         type="text"

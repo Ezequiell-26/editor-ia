@@ -27,6 +27,19 @@ import {
   type RecoveryWriter,
 } from './recovery';
 
+// Selector shallow para comparar referencias de objetos simples (performance)
+function shallowEqualObjects(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
+}
+
 /**
  * The single project store.
  *
@@ -170,6 +183,29 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   );
   const stateRef = useRef(state);
   stateRef.current = state;
+  /**
+   * `totalFrames` recorre todos los clips y cues. Antes se ejecutaba una vez
+   * por render del provider (es decir, en cada frame de reproducción) y otra
+   * vez dentro de `setPlayhead`. El documento es inmutable por contrato:
+   * `applyRecipe` clona antes de pasar el borrador a la receta, así que la
+   * duración puede cachearse por identidad del proyecto. Es O(1) en los
+   * frames y sigue siendo correcto si en un mismo evento se edita y se
+   * mueve el playhead (lee `current.project`, no un valor de un render
+   * anterior).
+   */
+  const durationCache = useRef<{ project: ProjectDocument | null; duration: number }>({
+    project: null,
+    duration: 0,
+  });
+  const durationOf = useCallback((project: ProjectDocument | null): number => {
+    if (!project) return 0;
+    const cache = durationCache.current;
+    if (cache.project !== project) {
+      cache.project = project;
+      cache.duration = totalFrames(project);
+    }
+    return cache.duration;
+  }, []);
   const editVersionRef = useRef(0);
   // Última versión cubierta por un guardado completado. Se actualiza de forma
   // síncrona (no depende del render) para que la instantánea de recuperación
@@ -467,12 +503,14 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
           phase: 'dirty',
           error: null,
           notice: options?.notice ?? current.notice,
+          // El documento vivo nunca se muta in situ: `applyRecipe` entrega a
+          // la receta un clon, por lo que `current.project` ya es una
+          // instantánea segura para el historial. Guardarlo por referencia
+          // evita un segundo deep-clone completo del proyecto en cada edición.
           undo:
             options?.history === false || !current.project
               ? current.undo
-              : [...current.undo, cloneProject(current.project)].slice(
-                  -historyLimitRef.current,
-                ),
+              : [...current.undo, current.project].slice(-historyLimitRef.current),
           redo: options?.history === false ? current.redo : [],
         }));
         editVersionRef.current += 1;
@@ -560,7 +598,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
 
   const setPlayhead = useCallback((frame: number) => {
     setState((current) => {
-      const duration = current.project ? totalFrames(current.project) : 0;
+      const duration = durationOf(current.project);
       const target = Math.max(0, Math.min(duration, Math.round(frame)));
       if (current.playheadFrame === target) {
         return current;
@@ -570,7 +608,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         playheadFrame: target,
       };
     });
-  }, []);
+  }, [durationOf]);
 
   const setPlaying = useCallback((playing: boolean) => {
     setState((current) => (current.playing === playing ? current : { ...current, playing }));
@@ -611,7 +649,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     );
   }, []);
 
-  const durationFrames = state.project ? totalFrames(state.project) : 0;
+  const durationFrames = durationOf(state.project);
   const statusText = useMemo(() => {
     switch (state.phase) {
       case 'idle':
@@ -701,6 +739,50 @@ export function useProjectStore(): ProjectStoreValue {
 
 export function useProjectDocument(): ProjectDocument | null {
   return useProjectStore().state.project;
+}
+
+// Selectors especializados para evitar re-renders globales
+export function useProjectPlayhead() {
+  const store = useProjectStore();
+  return useMemo(
+    () => ({
+      frame: store.state.playheadFrame,
+      playing: store.state.playing,
+    }),
+    [store.state.playheadFrame, store.state.playing],
+  );
+}
+
+export function useProjectSelection() {
+  const store = useProjectStore();
+  return useMemo(
+    () => store.state.selection,
+    [store.state.selection],
+  );
+}
+
+export function useProjectTracks() {
+  const store = useProjectStore();
+  return useMemo(
+    () => store.state.project?.timeline.tracks ?? [],
+    [store.state.project],
+  );
+}
+
+export function useProjectClips() {
+  const store = useProjectStore();
+  return useMemo(
+    () => store.state.project?.timeline.clips ?? [],
+    [store.state.project],
+  );
+}
+
+export function useExportStatus() {
+  const store = useProjectStore();
+  return useMemo(
+    () => store.state.exportRequested,
+    [store.state.exportRequested],
+  );
 }
 
 export function describeFrame(frame: number, project: ProjectDocument | null): string {

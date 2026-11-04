@@ -1,8 +1,69 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-03. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-04. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+- `[done]` **Pasada de rendimiento integral (2026-11-04)** — pedido del usuario
+  («que todo vaya fluido y consuma lo mínimo»). No se tocó la UI ni el trabajo
+  no confirmado del usuario.
+  - **Trabajo por frame**: `totalFrames` pasó de `Math.max(...map)` a un solo
+    recorrido: 10,5× más rápido con 2.500 clips (166,1 → 15,8 ms / 5.000
+    llamadas) y sin desborde de pila por encima de ~150 k argumentos (test de
+    regresión con 160 k clips). `durationOf` cachea la duración por identidad
+    del documento, así que el store dejó de recorrer todos los clips dos veces
+    por cada frame de reproducción; el clamp de `setPlayhead` sigue leyendo
+    `current.project`, o sea que edita y mueve el cabezal en el mismo evento
+    continúa siendo correcto.
+  - **Edición**: el historial de undo guarda el documento por referencia (es
+    inmutable por contrato: `applyRecipe` clona antes de entregar el borrador)
+    en lugar de un segundo deep-clone completo por edición. Se midió
+    `structuredClone` antes de usarlo: en este entorno es **0,63×** respecto
+    de JSON, así que se conservó el clon JSON.
+  - **Reproducción**: `usePlayback` emite sólo al cambiar el frame entero
+    (≈ −50 % de `setState` a 60 Hz / 30 fps) y ya no reinicia el bucle rAF al
+    editar; `PreviewClip` dejó de llamar `video.play()` ~30 veces/s; los
+    resets de `realFrame`/`pixelPerfect` devuelven la misma referencia cuando
+    ya están en su valor por defecto.
+  - **Reposo**: `EffectCanvas` eliminó el rAF perpetuo a 30 fps con video
+    pausado (render bajo demanda, bucle continuo sólo durante `play`, firma
+    estructural del stack para no reiniciarlo con `?? []`); `App.tsx` dejó de
+    re-registrar el listener global de atajos, reescribir el título y llamar
+    `isMaximized()` por IPC en cada edición/frame.
+  - **Binario**: `[profile.release]` con `lto = "thin"`, `codegen-units = 4`
+    y `strip = "symbols"`. Se conserva `panic = "unwind"` para no convertir un
+    panic de un hilo de fondo en cierre del proceso.
+  - **Medición nativa (CDP, app real)**: en caliente, FCP 508 ms (antes) vs
+    480–620 ms (después, dentro del ruido); 0 long tasks y 0 errores de
+    consola en reposo; proceso 43,4 → 43,7 MB WS y 26,2 → 25,9 MB privados.
+    Playback de 3 s sobre el mismo proyecto de 15 clips: 185 frames /
+    1 lento / 0 long tasks / heap 16,5 MB (antes) vs 187 frames / 0 lentos /
+    0 long tasks / heap 14,3 MB (después). El arranque **no** mejora de forma
+    medible: la ganancia del perfil está en los caminos CPU-bound nativos,
+    aún sin microbenchmark dedicado. Coste honesto: exe 39.373.824 →
+    39.597.568 B (**+0,57 %** por el inlining de LTO) y build limpio 4 →
+    7 min 20 s.
+  - **Verificación**: typecheck de workspace 0; build frontend 0; pruebas
+    focalizadas de los módulos tocados **121/121**; `cargo test --lib`
+    **563 passed / 49 ignored / 1 flaky** (el test de servidor mock
+    `xtts_adapter_receives_a_wave_from_mock_server` falla por
+    `IncompleteMessage` bajo carga y pasa aislado); suite serial **2003 passed
+    / 3 skipped / 13 failed**. Los 13 fallos son **previos y ajenos** a esta
+    pasada, confirmados en el `git diff` del trabajo no confirmado del
+    usuario: `EffectBrowser` → `ThumbnailBrowser` quitó el rol `button` del
+    catálogo (EffectStudio 5, AudioEffectStack 4), `AssetsPanel` agregó un
+    segundo `<main>` (App 1) y filtra por carpeta (AssetsPanel 3). No se
+    marcan como verdes ni se modificó esa UI. e2e **19 passed / 1 skipped /
+    4 failed**: esos 4 (`settings.spec`, `theme.spec`) buscan
+    `input[type="color"]`, que el trabajo no confirmado del usuario reemplazó
+    por `ColorWheel`/`ColorSwatch` (0 ocurrencias en `src`); specs desfasadas,
+    misma causa previa.
+  - **Entrega**: binario release compilado e instalado en
+    `%LOCALAPPDATA%\Olyvia` (hash `C4B73C02…`); el anterior se resguardó en
+    `%LOCALAPPDATA%\Olyvia-backups\2026-11-04\`; app abierta en modo normal.
+  - `[next]` Corregir esos 4 archivos de UI (roles ARIA, `<main>` único,
+    filtro por carpeta) y repetir la suite; segunda fase de CSS splitting;
+    microbenchmark de un comando Rust CPU-bound para cuantificar el LTO.
 
 - `[done]` **Ola CapCut/Filmora F1–F4** (pedido posterior del usuario):
   waveform con frecuencia real (FFmpeg `audio_peaks`, cache, semáforo 2,

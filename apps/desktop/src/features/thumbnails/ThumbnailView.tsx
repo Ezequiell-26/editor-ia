@@ -1,3 +1,4 @@
+import { ColorSwatch } from '../../components/ColorSwatch';
 import { useEffect, useRef, useState } from 'react';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
@@ -643,11 +644,10 @@ export function ThumbnailView({ onNavigate }: { readonly onNavigate: (id: ViewId
           <div className="thumbnail-row">
             <label className="field">
               <span>Acento</span>
-              <input
-                type="color"
+              <ColorSwatch
+                label="Acento"
                 value={accent}
-                aria-label="Color de acento"
-                onChange={(event) => setAccent(event.target.value)}
+                onChange={setAccent}
                 disabled={busy}
               />
             </label>

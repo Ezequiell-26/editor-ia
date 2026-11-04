@@ -5,7 +5,7 @@
   "identifier": "com.editoria.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:3000",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -50,7 +50,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost http://localhost:5173 ws://localhost:5173",
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data: blob: https:; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost http://localhost:3000 ws://localhost:3000",
       "assetProtocol": {
         "enable": true,
         "scope": []

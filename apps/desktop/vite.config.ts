@@ -40,25 +40,39 @@ export default defineConfig({
         // vendors se carguen en paralelo; además los paquetes pesados que sólo
         // usan vistas lazy (emojibase/lottie/effect-kit) no contaminan el
         // arranque. Ver docs/CSS-PERF-NOTES.md §5.2.
-        manualChunks(id) {
+        manualChunks(id, { getModuleInfo }) {
           if (id.includes('node_modules')) {
+            // React core separado
             if (id.includes('react') || id.includes('scheduler')) {
               return 'vendor-react';
             }
+            // Tauri API
             if (id.includes('@tauri-apps')) {
               return 'vendor-tauri';
             }
+            // Lottie - pesado (~200KB), solo se usa en motion view
             if (id.includes('lottie-web')) {
               return 'vendor-lottie';
             }
+            // Emojis (~100KB), lazy loaded en text view
             if (id.includes('emojibase')) {
               return 'vendor-emojibase';
             }
+            // Search library
             if (id.includes('minisearch')) {
               return 'vendor-search';
             }
+            // Zod schema validation
             if (id.includes('zod')) {
               return 'vendor-zod';
+            }
+            // Date-fns (locale-specific imports)
+            if (id.includes('date-fns')) {
+              return 'vendor-dates';
+            }
+            // Three.js / WebGL (si existe)
+            if (id.includes('three')) {
+              return 'vendor-3d';
             }
           }
           if (id.includes('/packages/project-schema/')) {
@@ -67,8 +81,16 @@ export default defineConfig({
           if (id.includes('/packages/effect-kit/')) {
             return 'vendor-effect';
           }
+          // Optimización: chunks grandes > 50KB separados
+          const module = getModuleInfo(id);
+          if (module && module.size > 50000) {
+            return `chunk-${module.id.split('/').pop()?.replace('.js', '')}`;
+          }
           return undefined;
         },
+        // Opciones de optimización para code splitting
+        chunkSizeWarningLimit: 50,
+        inlineDynamicImports: false,
       },
     },
   },

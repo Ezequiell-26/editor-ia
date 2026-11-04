@@ -194,6 +194,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   const [fpsDen, setFpsDen] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recovering, setRecovering] = useState(false);
 
   const native = detectNativeRuntime();
   // El navegador no puede abrir diálogos nativos ni escribir proyectos: se
@@ -203,6 +204,10 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   const browserReason =
     'Sólo en la app de escritorio: el navegador no puede abrir diálogos nativos ni escribir proyectos en disco.';
   const visibleError = !showCreateModal ? (error ?? store.state.error) : null;
+  const recoveryOffer = store.state.recoveryOffer;
+  const recoveryFileName = recoveryOffer
+    ? (recoveryOffer.path.split(/[\\/]/).pop() ?? recoveryOffer.path)
+    : '';
   const nameInputRef = useRef<HTMLInputElement | null>(null);
   const createDialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -358,6 +363,30 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     const ok = await store.openProjectAt(recent.path);
     setBusy(false);
     if (ok) transitionOut('editor');
+  }
+
+  /**
+   * Oferta de crash en el launcher: única superficie de la instantánea local
+   * fuera del shell (dentro del shell la muestra el banner de `AppShell`). Si la
+   * recuperación falla, `store.state.error` se ve en el banner de esta pantalla
+   * y la oferta sigue viva para reintentar o descartar.
+   */
+  async function handleRecoverSession(): Promise<void> {
+    if (recovering) return;
+    setRecovering(true);
+    try {
+      const ok = await store.acceptRecovery();
+      if (ok) transitionOut('editor');
+    } finally {
+      setRecovering(false);
+    }
+  }
+
+  function handleDismissRecovery(): void {
+    const confirmed = window.confirm(
+      'Se descarta la sesión sin guardar; el proyecto en disco queda como está. ¿Continuar?',
+    );
+    if (confirmed) store.dismissRecovery();
   }
 
   function handleDeleteRecent(e: React.MouseEvent, path: string) {
@@ -535,6 +564,47 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
         <div className="start-body">
           {/* Left Column: Quick Actions, 1-Click Templates, AI Tools */}
           <aside className="start-left-pane">
+            {/* Recuperación de la sesión anterior: única superficie fuera del
+                shell. Dentro de la app la muestra el banner de AppShell. */}
+            {recoveryOffer ? (
+              <div className="start-pane-section" role="status">
+                <div className="start-section-header">
+                  <span className="start-section-title">Sesión sin guardar</span>
+                </div>
+                <button
+                  type="button"
+                  className="start-action-card"
+                  onClick={() => void handleRecoverSession()}
+                  disabled={recovering || busy || browserMode}
+                  title={
+                    browserMode
+                      ? browserReason
+                      : 'Abrir el proyecto con los cambios de la sesión interrumpida'
+                  }
+                >
+                  <div className="start-action-icon">
+                    <Icon name="refresh" size={18} />
+                  </div>
+                  <div className="start-action-text">
+                    <strong className="start-action-title">
+                      {recovering ? 'Recuperando…' : 'Recuperar sesión anterior'}
+                    </strong>
+                    <span className="start-action-desc">
+                      {recoveryFileName} · {formatRelativeTime(recoveryOffer.savedAt)}
+                    </span>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  className="start-btn-link"
+                  onClick={handleDismissRecovery}
+                  disabled={recovering || busy}
+                >
+                  Descartar sesión sin guardar
+                </button>
+              </div>
+            ) : null}
+
             {/* Primary Actions */}
             <div className="start-actions-group">
               <button

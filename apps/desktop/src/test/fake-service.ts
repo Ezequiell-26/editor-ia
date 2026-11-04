@@ -10,6 +10,9 @@ import type {
   AudioProviderInfo,
   CreateProjectRequest,
   DesktopService,
+  DuplicateAssetGroup,
+  ExportCapabilities,
+  ExportVerification,
   GenerateScriptRequest,
   ImportOutcome,
   McpCallResult,
@@ -17,9 +20,18 @@ import type {
   McpSessionInfo,
   McpServerConfig,
   McpServerInput,
+  MissingAssetInfo,
   MixLoudnessReport,
   NarrationResult,
   OpenedProject,
+  ProjectVersionInfo,
+  ProxyCleanupResult,
+  ProxyProgressEvent,
+  ProxyQuality,
+  ProxyStatus,
+  RelinkFolderResult,
+  RelinkResult,
+  RestoreProjectVersionResult,
   ProviderInfo,
   ProviderTestResult,
   RenderFinishedEvent,
@@ -355,6 +367,8 @@ export function createFakeService(): FakeService {
   const finishedHandlers = new Set<(event: RenderFinishedEvent) => void>();
   const convertHandlers = new Set<(event: ConvertProgress) => void>();
   const deliveries: { fileName: string; bytes: Uint8Array }[] = [];
+  const proxyStatuses = new Map<string, ProxyStatus>();
+  const proxyProgressHandlers = new Set<(event: ProxyProgressEvent) => void>();
   const alphaFrameBatches: { token: string; startIndex: number; count: number }[] = [];
   const alphaSequences: AlphaSequenceRequest[] = [];
   const calls = {
@@ -815,6 +829,114 @@ export function createFakeService(): FakeService {
         bytes: 250_000,
       };
     },
+    async proxyStatus(assetId: string) {
+      return (
+        proxyStatuses.get(assetId) ?? {
+          assetId,
+          state: 'missing',
+          quality: null,
+          path: null,
+          exists: false,
+          upToDate: false,
+          width: null,
+          height: null,
+          bytes: null,
+          durationSeconds: null,
+          percent: 0,
+          phase: 'missing',
+          error: null,
+          sourceMtimeMs: null,
+          updatedAtMs: 0,
+        }
+      );
+    },
+    async ensureProxy(assetId: string, quality: ProxyQuality = '540p') {
+      const status: ProxyStatus = {
+        assetId,
+        state: 'ready',
+        quality,
+        path: `media/proxies/proxy-${assetId}-${quality}.mp4`,
+        exists: true,
+        upToDate: true,
+        width: quality === '720p' ? 1280 : 960,
+        height: quality === '720p' ? 720 : 540,
+        bytes: quality === '720p' ? 1_800_000 : 900_000,
+        durationSeconds: 4,
+        percent: 100,
+        phase: 'ready',
+        error: null,
+        sourceMtimeMs: 1_700_000_000_000,
+        updatedAtMs: 1_700_000_000_000,
+      };
+      proxyStatuses.set(assetId, status);
+      const event: ProxyProgressEvent = {
+        assetId,
+        quality,
+        state: 'ready',
+        percent: 100,
+        phase: 'ready',
+      };
+      queueMicrotask(() => {
+        for (const handler of proxyProgressHandlers) handler(event);
+      });
+      return status;
+    },
+    async cancelProxy(assetId: string) {
+      const current = proxyStatuses.get(assetId);
+      if (!current) {
+        return {
+          assetId,
+          state: 'missing' as const,
+          quality: null,
+          path: null,
+          exists: false,
+          upToDate: false,
+          width: null,
+          height: null,
+          bytes: null,
+          durationSeconds: null,
+          percent: 0,
+          phase: 'missing',
+          error: null,
+          sourceMtimeMs: null,
+          updatedAtMs: 0,
+        };
+      }
+      if (current.state !== 'generating' && current.state !== 'queued') return current;
+      const cancelled: ProxyStatus = {
+        ...current,
+        state: 'cancelled',
+        percent: 0,
+        phase: 'cancelled',
+      };
+      proxyStatuses.set(assetId, cancelled);
+      return cancelled;
+    },
+    async applyProxyToAsset(assetId: string) {
+      // El fake no genera archivos: si no hay proxy "ready" devuelve null, igual
+      // que el backend cuando el proxy falta o está viejo.
+      const status = proxyStatuses.get(assetId);
+      if (!status || status.state !== 'ready' || !status.path) return null;
+      const project = current?.project;
+      const asset = project?.assets.find((item) => item.id === assetId);
+      if (!asset) return null;
+      return {
+        ...asset,
+        proxy: {
+          path: status.path,
+          width: status.width ?? 960,
+          height: status.height ?? 540,
+          bytes: status.bytes ?? 900_000,
+        },
+      };
+    },
+    async cleanupProxies() {
+      return { removed: 0, bytesFreed: 0 };
+    },
+    async onProxyProgress(handler: (event: ProxyProgressEvent) => void) {
+      proxyProgressHandlers.add(handler);
+      return () => proxyProgressHandlers.delete(handler);
+    },
     async sampleAssetColor() {
       return { r: 120, g: 100, b: 90 };
     },
@@ -826,6 +948,35 @@ export function createFakeService(): FakeService {
     },
     async checkAssetFiles(paths: string[]) {
       return paths.map<AssetFileInfo>((path) => ({ path, exists: true, bytes: 1000 }));
+    },
+    async chooseMediaFolder() {
+      return 'C:\\tester\\medios';
+    },
+    async findMissingAssets() {
+      return [] as MissingAssetInfo[];
+    },
+    async relinkAsset(assetId: string, newPath: string) {
+      return {
+        ok: true,
+        assetId,
+        path: newPath.replaceAll('\\', '/'),
+        copied: false,
+        validatedBy: 'name-size',
+        bytes: 1000,
+        sha256: null,
+      } satisfies RelinkResult;
+    },
+    async relinkAssetsFromFolder() {
+      return { relinked: [], stillMissing: [], rejected: [] } satisfies RelinkFolderResult;
+    },
+    async listProjectVersions() {
+      return [] as ProjectVersionInfo[];
+    },
+    async restoreProjectVersion(_projectPath: string, versionId: string) {
+      throw new Error(`la versión ${versionId} no existe en el fake (historial vacío)`);
+    },
+    async findDuplicateAssets() {
+      return [] as DuplicateAssetGroup[];
     },
     async detectScenes(_assetId: string, threshold: number) {
       return {
@@ -1039,6 +1190,48 @@ export function createFakeService(): FakeService {
     },
     async hardwareEncoders() {
       return { h264: null, hevc: null, checked: true };
+    },
+    async exportCapabilities() {
+      return {
+        containers: [
+          { container: 'mp4', videoCodecs: ['h264', 'h265'], audioCodecs: ['aac'] },
+          { container: 'mov', videoCodecs: ['h264', 'h265'], audioCodecs: ['aac'] },
+          { container: 'webm', videoCodecs: ['vp9', 'av1'], audioCodecs: ['opus'] },
+        ],
+        pixelFormats: ['yuv420p', 'yuv444p', 'rgb24'],
+        videoCodecs: {
+          h264: { software: ['libopenh264'], hardware: [] },
+          h265: { software: ['hevc_mf'], hardware: [] },
+          vp9: { software: ['libvpx-vp9'], hardware: [] },
+          av1: { software: ['libsvtav1'], hardware: [] },
+        },
+        audioCodecs: ['aac', 'opus'],
+        hdr: false,
+        maxWidth: 16_384,
+        maxHeight: 16_384,
+      } satisfies ExportCapabilities;
+    },
+    async verifyExport(path: string) {
+      return {
+        path,
+        container: path.toLowerCase().endsWith('.webm') ? 'webm' : 'mp4',
+        videoCodec: path.toLowerCase().endsWith('.webm') ? 'vp9' : 'h264',
+        audioCodec: path.toLowerCase().endsWith('.webm') ? 'opus' : 'aac',
+        width: 1920,
+        height: 1080,
+        fpsNum: 30,
+        fpsDen: 1,
+        pixelFormat: 'yuv420p',
+        videoBitrate: 8_000_000,
+        audioBitrate: 192_000,
+        colorSpace: 'bt709',
+        colorTransfer: 'bt709',
+        colorPrimaries: 'bt709',
+        hdr: false,
+        durationSeconds: 10,
+        bytes: 1_000_000,
+        warnings: [],
+      } satisfies ExportVerification;
     },
     async listMcpServers() {
       return mcpServers.map((server) => ({ ...server }));

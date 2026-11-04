@@ -62,10 +62,14 @@ fn resolve_audio_asset(
                 "el material no está en el proyecto",
             )
         })?;
-    if asset["status"].as_str() != Some("ready") {
+    // La onda es una lectura, no una operación de entrega: un material
+    // "sin verificar" (narraciones generadas, audios recién importados) ya
+    // tiene archivo en disco y se puede dibujar. Antes sólo se aceptaba
+    // "ready", así que esos clips quedaban como bloques planos sin onda.
+    if !matches!(asset["status"].as_str(), Some("ready") | Some("unverified")) {
         return Err(ProjectError::message(
             ProjectErrorCode::AssetNotReady,
-            "confirmá los derechos del material antes de analizar su audio",
+            "el archivo del material no está disponible para leer su onda",
         ));
     }
     let kind = asset["kind"].as_str().unwrap_or("").to_owned();

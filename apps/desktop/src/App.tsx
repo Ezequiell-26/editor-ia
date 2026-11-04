@@ -393,7 +393,12 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     }
   }, [activeId]);
 
-  // Al abrir el editor o un proyecto, la ventana pasa a pantalla completa
+  // Al abrir el editor o un proyecto, la ventana pasa a pantalla completa.
+  // Dependía del objeto `project`: cada edición (incluso arrastrar un slider)
+  // cambiaba su identidad y disparaba un `isMaximized()` por IPC. Sólo hacen
+  // falta dos primitivos estables: si hay proyecto y si el editor está activo.
+  const editorVisible = activeId === 'editor';
+  const hasProject = project !== null;
   useEffect(() => {
     if (!detectNativeRuntime()) return;
     const appWindow = getCurrentWindow();
@@ -406,7 +411,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     }).catch(() => {
       void appWindow.maximize().catch(() => {});
     });
-  }, [project]);
+  }, [editorVisible, hasProject]);
 
   // Atajos personalizables: el ref se actualiza en vivo cuando el usuario
   // reasigna desde Ajustes → Atajos (evento SHORTCUTS_CHANGED_EVENT). La
@@ -531,9 +536,12 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     [navigate, store.canUndo, store.canRedo, store.state.playing, project, shortcutsVersion, packageProject],
   );
 
+  // El título depende del nombre, no del documento completo: antes cada
+  // edición reescribía el título de la ventana aunque no hubiera cambiado.
+  const projectName = project?.name;
   useEffect(() => {
-    document.title = project ? `${project.name} — Olyvia` : 'Olyvia';
-  }, [project]);
+    document.title = projectName ? `${projectName} — Olyvia` : 'Olyvia';
+  }, [projectName]);
 
   useEffect(() => {
     if (!detectNativeRuntime()) {
@@ -588,6 +596,10 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       'nav.settings': 'settings',
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      // El store cambia de identidad en cada frame de reproducción. Leerlo
+      // desde el ref permite registrar el listener una sola vez en lugar de
+      // quitarlo y volverlo a poner ~30 veces por segundo.
+      const store = storeRef.current;
       const map = shortcutsRef.current;
       // La paleta se abre incluso mientras se escribe en un input.
       if (bindingMatches(event, map['palette.toggle'])) {
@@ -624,7 +636,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           });
           return;
         case 'file.export': {
-          if (!project?.timeline.clips.length) return;
+          if (!store.state.project?.timeline.clips.length) return;
           event.preventDefault();
           navigate('editor');
           store.requestExport();
@@ -672,7 +684,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           store.setSelection({ kind: 'none' });
           return;
         case 'playback.playPause':
-          if (!project) return;
+          if (!store.state.project) return;
           // Fase 2 de accesibilidad (H16): si el foco está sobre un control
           // que se activa con Space (botón, ítem de menú, clip de la
           // timeline…), dejar pasar el evento: el click de activación ocurre
@@ -692,7 +704,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [project, store, navigate]);
+  }, [navigate]);
 
   const renderView = useCallback(
     (id: ViewId) => {

@@ -237,14 +237,9 @@ select {
   background-repeat: no-repeat !important;
 }
 
-input[type='range'] {
-  accent-color: var(--color-accent);
-  height: 4px;
-  border: 0 !important;
-  background: var(--color-panel-3) !important;
-  border-radius: var(--rad-pill) !important;
-  box-shadow: none !important;
-}
+/* Los deslizadores se definen más abajo, en el bloque «Deslizadores (toda la
+   app)»: pista fina + pulgar redondo. Antes esta regla pintaba el input entero
+   como una píldora de 4 px con `!important` y tapaba la pista con degradado. */
 
 input[type='checkbox'],
 input[type='radio'] {
@@ -460,7 +455,11 @@ kbd {
 
 /* ─────────────────────────────────────────── Tabs / segmented / pills ── */
 .segmented {
-  display: inline-flex !important;
+  /* Ocupa el ancho del campo: con `inline-flex` el control medía su ancho
+     intrínseco (285 px) y en ventanas angostas se salía de la tarjeta y se
+     cortaba la última opción («Amplia»). */
+  display: flex !important;
+  width: 100%;
   align-items: center !important;
   gap: var(--gap-2) !important;
   height: var(--ctl-h-md) !important;
@@ -472,15 +471,20 @@ kbd {
 }
 
 .segmented button {
+  flex: 1 1 0;
+  min-width: 0;
   height: calc(var(--ctl-h-md) - 6px) !important;
   min-height: 0 !important;
-  padding: 0 var(--gap-8) !important;
+  padding: 0 var(--gap-4) !important;
+  overflow: hidden;
   border: 0 !important;
   border-radius: var(--rad-sm) !important;
   background: transparent !important;
   color: var(--ink-2) !important;
   font-size: var(--type-11) !important;
   font-weight: var(--fw-medium) !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   box-shadow: none !important;
 }
 
@@ -720,4 +724,374 @@ tr[aria-selected='true'] td {
 .cmdp-item:focus-visible {
   outline: none !important;
   box-shadow: var(--focus-ring-inset) !important;
+}
+
+/* ──────────────────────────────── Rueda de color (modelo Lumetri) ─────── */
+/* Un solo control de color para toda la app: anillo de tono, marcador de
+   tono/saturación y barra de luminosidad, calcado del panel Color Match de
+   Premiere. Se usa en Apariencia, Estudio de color, inspector, VFX, motion y
+   miniaturas (ver components/ColorWheel.tsx y components/ColorSwatch.tsx). */
+
+.color-wheel {
+  display: inline-grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.color-wheel.disabled {
+  opacity: var(--disabled-opacity, 0.55);
+  pointer-events: none;
+}
+
+.color-wheel-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Barra vertical de luminosidad: 2 px con pulgar cuadrado, como el original. */
+.color-wheel-bar {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: var(--color-wheel-size, 168px);
+  border-radius: var(--rad-xs);
+  cursor: ns-resize;
+  outline: none;
+  touch-action: none;
+}
+
+.color-wheel-bar::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 3px;
+  bottom: 3px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 24%, transparent);
+}
+
+.color-wheel-bar-thumb {
+  position: absolute;
+  left: 50%;
+  width: 12px;
+  height: 14px;
+  margin: -7px 0 0 -6px;
+  border: 1px solid rgba(0, 0, 0, 0.7);
+  border-radius: 2px;
+  /* Gris claro como el pulgar de Lumetri: el color se lee en la rueda. */
+  background: #cfcfcf;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.color-wheel-bar:focus-visible::before {
+  background: var(--color-accent);
+}
+
+.color-wheel-dial {
+  position: relative;
+  flex: none;
+  width: var(--color-wheel-size, 168px);
+  height: var(--color-wheel-size, 168px);
+  border-radius: 50%;
+  cursor: crosshair;
+  outline: none;
+  touch-action: none;
+}
+
+/* Anillo de tono: rojo arriba y el tono decrece en sentido horario (0 → 300 →
+   240 → 180 → 120 → 60), igual que la rueda de Premiere. */
+.color-wheel-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    #ff0000 0deg,
+    #ff00ff 60deg,
+    #0000ff 120deg,
+    #00ffff 180deg,
+    #00ff00 240deg,
+    #ffff00 300deg,
+    #ff0000 360deg
+  );
+  -webkit-mask-image: radial-gradient(circle closest-side, transparent 0 61%, #000 61.5% 100%);
+  mask-image: radial-gradient(circle closest-side, transparent 0 61%, #000 61.5% 100%);
+}
+
+/* Sombra interior sutil: el anillo se oscurece hacia el agujero, como el panel
+   de Lumetri. */
+.color-wheel-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    rgba(0, 0, 0, 0.5) 0 61%,
+    rgba(0, 0, 0, 0.12) 78%,
+    transparent 100%
+  );
+}
+
+.color-wheel-marker {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.6),
+    0 1px 3px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.color-wheel-dial:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.color-wheel-label {
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Muestra de color que abre la rueda en un popover. */
+.color-swatch {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.color-swatch-fill {
+  position: absolute;
+  inset: 3px;
+  border-radius: 2px;
+  background: var(--swatch-color, #000000);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.color-swatch:hover:not(:disabled) {
+  border-color: var(--state-selected-border);
+}
+
+.color-swatch:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.color-swatch:disabled {
+  opacity: var(--disabled-opacity, 0.55);
+  cursor: not-allowed;
+}
+
+/* Popover de la rueda: portal fijo para que ningún panel con overflow lo corte.
+   z-index por encima de la ventana de Ajustes (3000) y de los diálogos. */
+.color-popover {
+  position: fixed;
+  z-index: 9500;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: var(--hairline-strong);
+  border-radius: var(--rad-lg);
+  background: var(--chrome-4);
+  box-shadow: var(--elev-4);
+}
+
+.color-popover-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.color-popover-chip {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--rad-xs);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.color-popover-hex {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: var(--color-bg);
+  color: var(--ink-1);
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.color-popover-hex:focus-visible {
+  outline: none;
+  border-color: var(--state-selected-border);
+}
+
+.color-popover-done {
+  flex: none;
+  height: 26px;
+  padding: 0 var(--gap-10);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: var(--state-selected);
+  color: var(--ink-1);
+  font-size: var(--type-11);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.color-popover-done:hover {
+  background: var(--state-active);
+}
+
+/* Acento con rueda dentro de Apariencia: rueda a la izquierda, muestra y hex a
+   la derecha (reemplaza la antigua fila de slider de tono). */
+.appearance-wheel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-16);
+  padding: var(--gap-4) 0 var(--gap-8);
+}
+
+.appearance-wheel-meta {
+  display: grid;
+  gap: var(--gap-6);
+  justify-items: start;
+  min-width: 0;
+}
+
+.appearance-wheel-meta .hue-swatch {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--rad-sm);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.appearance-wheel-meta .hue-value {
+  font-family: var(--font-mono);
+  font-size: var(--type-11);
+}
+
+.appearance-wheel-hint {
+  max-width: 24ch;
+  color: var(--ink-3);
+  font-size: var(--type-11);
+  line-height: 1.35;
+}
+
+/* ─────────────────────────────── Deslizadores (toda la app) ────────────── */
+/* Un solo estilo para todos los `input[type=range]`: pista fina de 3 px y
+   pulgar redondo blanco, como el panel de color de Filmora. Antes cada vista
+   usaba el control nativo (accent-color) y se veían todos distintos. */
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 20%, transparent);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+input[type='range']:hover::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+input[type='range']:focus-visible {
+  outline: none;
+}
+
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+input[type='range']::-moz-range-track {
+  height: 3px;
+  border-radius: var(--rad-pill);
+  background: color-mix(in srgb, var(--color-text) 20%, transparent);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  background: #ffffff;
+}
+
+/* Filas HSL del panel de color (Tono / Saturación / Luminancia). */
+.color-sliders {
+  display: grid;
+  gap: 6px;
+}
+
+.color-slider {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr) 42px;
+  align-items: center;
+  gap: var(--gap-8);
+}
+
+.color-slider-label {
+  color: var(--ink-2);
+  font-size: var(--type-11);
+  line-height: 1.2;
+}
+
+.color-slider-value {
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+input.color-slider-input::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: var(--color-slider-track, color-mix(in srgb, var(--color-text) 20%, transparent));
+}
+
+input.color-slider-input::-moz-range-track {
+  height: 4px;
+  border-radius: var(--rad-pill);
+  background: var(--color-slider-track, color-mix(in srgb, var(--color-text) 20%, transparent));
 }

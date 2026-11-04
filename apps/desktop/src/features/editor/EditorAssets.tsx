@@ -24,6 +24,7 @@ import { COLOR_LOOKS } from './color-looks';
 import { useProjectStore } from '../../state/project-store';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
+import { ProxyToolsPanel } from './ProxyToolsPanel';
 
 type AssetFilter = AssetKindFilter;
 
@@ -529,15 +530,16 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
       {/* Pestañas de categoría estilo CapCut */}
       <div className="rail-tabs" role="tablist" aria-label="Herramientas de edición">
         {RAIL_VIEWS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={view === item.id}
-            className={view === item.id ? 'active' : ''}
-            onClick={() => setView(item.id)}
-            title={item.label}
-          >
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={view === item.id}
+              aria-label={item.label}
+              className={view === item.id ? 'active' : ''}
+              onClick={() => setView(item.id)}
+              title={item.label}
+            >
             <Icon name={item.icon} size={15} />
             <span>{item.label}</span>
           </button>
@@ -962,6 +964,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
           </div>
         </div>
       ) : null}
+      <ProxyToolsPanel />
     </aside>
   );
 }

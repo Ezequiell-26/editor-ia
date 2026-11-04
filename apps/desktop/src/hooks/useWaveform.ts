@@ -162,11 +162,15 @@ export function useWaveform(
   const mediaFps = frameRate ? frameRate.num / Math.max(1, frameRate.den) : 30;
   const durationSeconds =
     mediaFrames > 0 && mediaFps > 0 ? mediaFrames / mediaFps : Number.POSITIVE_INFINITY;
+  // Los límites sólo valen cuando la duración es conocida. Un audio generado o
+  // importado sin bloque `media` daba `Infinity`, se descartaba la vía nativa y
+  // el clip quedaba sin onda; FFmpeg mide el archivo solo, así que se intenta.
+  const durationKnown = Number.isFinite(durationSeconds);
   // Dos límites distintos: el nativo (FFmpeg, ~1,45 s para 30 min) puede con
   // assets largos; el fallback WebAudio decodifica PCM en el WebView
   // (~23 MB/min mono f32 a 48 kHz) y por eso se corta en 10 min.
-  const tooLongForNative = durationSeconds > 1_800;
-  const tooLongForWebAudio = durationSeconds > 600;
+  const tooLongForNative = durationKnown && durationSeconds > 1_800;
+  const tooLongForWebAudio = durationKnown && durationSeconds > 600;
   // El backend clampa buckets a [16, 4000]; normalizar antes de usarlo en la
   // clave y en el cache para que lo pedido coincida con lo persistido.
   const bucketCount = Math.min(4_000, Math.max(16, Math.round(buckets)));

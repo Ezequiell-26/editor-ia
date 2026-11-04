@@ -118,6 +118,199 @@ describe('picos de audio (contrato de la forma de onda)', () => {
   });
 });
 
+describe('Fase 1 · contrato de proxies', () => {
+  it('invoca proxy_status/ensure_proxy/cancel_proxy/cleanup_proxies con args camelCase', async () => {
+    const calls: { command: string; args: unknown }[] = [];
+    const ready = {
+      assetId: 'asset-1',
+      state: 'ready',
+      quality: '720p',
+      path: 'media/proxies/proxy-1.mp4',
+      exists: true,
+      upToDate: true,
+      width: 1280,
+      height: 720,
+      bytes: 2_000_000,
+      durationSeconds: 12,
+      percent: 100,
+      phase: 'ready',
+      error: null,
+      sourceMtimeMs: 1,
+      updatedAtMs: 2,
+    };
+    const service = createNativeDesktopService(async (command, args) => {
+      calls.push({ command, args });
+      if (command === 'apply_proxy_to_asset') return null;
+      if (command === 'cleanup_proxies') return { removed: 2, bytesFreed: 3000 };
+      return ready;
+    });
+
+    await expect(service.proxyStatus('asset-1')).resolves.toMatchObject({ state: 'ready' });
+    await service.ensureProxy('asset-1');
+    await service.ensureProxy('asset-1', '720p');
+    await service.cancelProxy('asset-1');
+    await service.applyProxyToAsset('asset-1');
+    await expect(service.cleanupProxies()).resolves.toEqual({ removed: 2, bytesFreed: 3000 });
+    await service.cleanupProxies('asset-1');
+
+    expect(calls).toEqual([
+      { command: 'proxy_status', args: { assetId: 'asset-1' } },
+      { command: 'ensure_proxy', args: { assetId: 'asset-1', quality: null } },
+      { command: 'ensure_proxy', args: { assetId: 'asset-1', quality: '720p' } },
+      { command: 'cancel_proxy', args: { assetId: 'asset-1' } },
+      { command: 'apply_proxy_to_asset', args: { assetId: 'asset-1' } },
+      { command: 'cleanup_proxies', args: { assetId: null } },
+      { command: 'cleanup_proxies', args: { assetId: 'asset-1' } },
+    ]);
+  });
+
+  it('en navegador rechaza proxy con NATIVE_UNAVAILABLE_REASON', async () => {
+    const service = createDesktopService();
+    await expect(service.proxyStatus('asset-1')).rejects.toThrow(NATIVE_UNAVAILABLE_REASON);
+    await expect(service.ensureProxy('asset-1', '540p')).rejects.toThrow(
+      NATIVE_UNAVAILABLE_REASON,
+    );
+    await expect(service.cancelProxy('asset-1')).rejects.toThrow(NATIVE_UNAVAILABLE_REASON);
+  });
+
+  it('el fake pasa de missing a ready, emite progreso y cancelar no rompe', async () => {
+    const service = createFakeService();
+    const events: string[] = [];
+    const unsubscribe = await service.onProxyProgress((event) => {
+      events.push(`${event.state}:${event.percent}`);
+    });
+    await expect(service.proxyStatus('asset-9')).resolves.toMatchObject({
+      state: 'missing',
+      exists: false,
+    });
+    const ready = await service.ensureProxy('asset-9', '720p');
+    expect(ready.state).toBe('ready');
+    expect(ready.path).toContain('media/proxies/');
+    expect(ready.width).toBe(1280);
+    expect(ready.height).toBe(720);
+    await new Promise((resolve) => queueMicrotask(() => resolve(null)));
+    expect(events).toContain('ready:100');
+    await expect(service.proxyStatus('asset-9')).resolves.toMatchObject({ state: 'ready' });
+    await expect(service.cancelProxy('asset-9')).resolves.toMatchObject({ state: 'ready' });
+    unsubscribe();
+  });
+});
+
+describe('Fase 1 · contrato de export avanzado', () => {
+  it('invoca export_capabilities y verify_export', async () => {
+    const calls: { command: string; args: unknown }[] = [];
+    const service = createNativeDesktopService(async (command, args) => {
+      calls.push({ command, args });
+      if (command === 'export_capabilities') {
+        return { containers: [], pixelFormats: [], videoCodecs: {}, audioCodecs: [], hdr: false, maxWidth: 1, maxHeight: 1 };
+      }
+      return {
+        path: 'C:/out.mp4',
+        container: 'mp4',
+        videoCodec: 'h264',
+        audioCodec: 'aac',
+        width: 1920,
+        height: 1080,
+        fpsNum: 30,
+        fpsDen: 1,
+        pixelFormat: 'yuv420p',
+        videoBitrate: 1,
+        audioBitrate: 2,
+        colorSpace: 'bt709',
+        colorTransfer: 'bt709',
+        colorPrimaries: 'bt709',
+        hdr: false,
+        durationSeconds: 10,
+        bytes: 100,
+        warnings: [],
+      };
+    });
+    await service.exportCapabilities();
+    await service.verifyExport('C:/out.mp4');
+    expect(calls).toEqual([
+      { command: 'export_capabilities', args: {} },
+      { command: 'verify_export', args: { path: 'C:/out.mp4' } },
+    ]);
+  });
+
+  it('el fake reporta la matriz real y una verificación determinista', async () => {
+    const service = createFakeService();
+    const capabilities = await service.exportCapabilities();
+    expect(capabilities.hdr).toBe(false);
+    expect(capabilities.containers.map((item) => item.container)).toEqual(['mp4', 'mov', 'webm']);
+    expect(capabilities.videoCodecs.av1?.software.length).toBeGreaterThan(0);
+    const verification = await service.verifyExport('C:/samples/out.webm');
+    expect(verification.container).toBe('webm');
+    expect(verification.videoCodec).toBe('vp9');
+    expect(verification.hdr).toBe(false);
+  });
+});
+
+describe('Fase 1 · recuperación, historial y duplicados', () => {
+  it('invoca los comandos de recuperación con los args esperados', async () => {
+    const calls: { command: string; args: unknown }[] = [];
+    const service = createNativeDesktopService(async (command, args) => {
+      calls.push({ command, args });
+      if (command === 'choose_media_folder') return 'C:\\media';
+      if (command === 'relink_asset') return { ok: true, assetId: 'a1' };
+      if (command === 'relink_assets_from_folder') return { relinked: [], stillMissing: [], rejected: [] };
+      if (command === 'restore_project_version') return { restoreMode: 'in-place', projectPath: 'p', backupPath: null, version: {} };
+      return [];
+    });
+
+    await expect(service.chooseMediaFolder('Elegir medios')).resolves.toBe('C:\\media');
+    await service.findMissingAssets();
+    await service.findMissingAssets('C:\\proj\\obra.editoria.json');
+    await service.relinkAsset('a1', 'C:\\media\\a1.mp4');
+    await service.relinkAssetsFromFolder(null, 'C:\\media');
+    await service.listProjectVersions('C:\\proj\\obra.editoria.json');
+    await service.restoreProjectVersion('C:\\proj\\obra.editoria.json', 'v1', 'copy');
+    await service.findDuplicateAssets();
+
+    expect(calls).toEqual([
+      { command: 'choose_media_folder', args: { title: 'Elegir medios' } },
+      { command: 'find_missing_assets', args: { projectPath: null } },
+      { command: 'find_missing_assets', args: { projectPath: 'C:\\proj\\obra.editoria.json' } },
+      { command: 'relink_asset', args: { assetId: 'a1', newPath: 'C:\\media\\a1.mp4' } },
+      { command: 'relink_assets_from_folder', args: { projectPath: null, folder: 'C:\\media' } },
+      { command: 'list_project_versions', args: { projectPath: 'C:\\proj\\obra.editoria.json' } },
+      {
+        command: 'restore_project_version',
+        args: { projectPath: 'C:\\proj\\obra.editoria.json', versionId: 'v1', mode: 'copy' },
+      },
+      { command: 'find_duplicate_assets', args: { projectPath: null } },
+    ]);
+  });
+
+  it('en navegador rechaza honesto todas las operaciones de recuperación', async () => {
+    const service = createDesktopService();
+    for (const operation of [
+      () => service.findMissingAssets(),
+      () => service.relinkAsset('a1', 'x'),
+      () => service.relinkAssetsFromFolder(null, 'x'),
+      () => service.listProjectVersions(),
+      () => service.restoreProjectVersion('p', 'v'),
+      () => service.findDuplicateAssets(),
+      () => service.chooseMediaFolder(),
+    ]) {
+      await expect(operation()).rejects.toThrow(NATIVE_UNAVAILABLE_REASON);
+    }
+  });
+
+  it('el fake devuelve contratos vacíos deterministas y relink ok', async () => {
+    const service = createFakeService();
+    expect(await service.findMissingAssets()).toEqual([]);
+    expect(await service.findDuplicateAssets()).toEqual([]);
+    expect(await service.listProjectVersions()).toEqual([]);
+    expect(await service.chooseMediaFolder()).toBe('C:\\tester\\medios');
+    await expect(service.relinkAsset('a1', 'C:\\media\\a1.mp4')).resolves.toMatchObject({
+      ok: true,
+      assetId: 'a1',
+      copied: false,
+    });
+  });
+});
+
 describe('probar conexión del proveedor', () => {
   it('llama al comando nativo test_provider y devuelve el resultado tipado', async () => {
     const calls: { command: string; args: unknown }[] = [];

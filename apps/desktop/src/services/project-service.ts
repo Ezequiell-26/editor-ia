@@ -338,6 +338,8 @@ export interface RenderFinishedEvent {
   readonly width: number | null;
   readonly height: number | null;
   readonly elapsedMs: number;
+  /** Reporte FFprobe del archivo entregado (sólo en `completed`). */
+  readonly verification?: ExportVerification | null;
 }
 
 export interface McpServerConfig {
@@ -414,6 +416,151 @@ export interface AssetFileInfo {
   readonly exists: boolean;
   readonly bytes: number;
 }
+
+// ───────────────────────── Fase 1 · Proxies ─────────────────────────
+// Contrato nativo: comandos `proxy_status`, `ensure_proxy`, `cancel_proxy`,
+// `cleanup_proxies` (evento `proxy-progress`). El proxy es un MP4 H.264 de
+// vista previa guardado en `<root>/media/proxies/` y cacheado por asset,
+// calidad y huella del origen (mtime + bytes). Navegador: rechazo con
+// NATIVE_UNAVAILABLE_REASON. El fake devuelve estados deterministas.
+
+export type ProxyQuality = '540p' | '720p';
+export type ProxyState =
+  | 'missing'
+  | 'queued'
+  | 'generating'
+  | 'ready'
+  | 'cancelled'
+  | 'failed';
+
+export interface ProxyStatus {
+  readonly assetId: string;
+  readonly state: ProxyState;
+  /** Calidad del proxy actual o de la generación en curso. */
+  readonly quality: ProxyQuality | null;
+  /** Ruta relativa al proyecto (`media/proxies/...`); null si no hay proxy. */
+  readonly path: string | null;
+  /** Hay un proxy verificado para este asset. */
+  readonly exists: boolean;
+  /** El proxy corresponde al origen actual (mtime+bytes del medio). */
+  readonly upToDate: boolean;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly bytes: number | null;
+  readonly durationSeconds: number | null;
+  /** 0–100; 100 cuando está listo. */
+  readonly percent: number;
+  /** `queued` | `encoding` | `verifying` | `ready` | `failed` | `cancelled`. */
+  readonly phase: string;
+  readonly error: string | null;
+  readonly sourceMtimeMs: number | null;
+  readonly updatedAtMs: number;
+}
+
+export interface ProxyProgressEvent {
+  readonly assetId: string;
+  readonly quality: ProxyQuality;
+  readonly state: ProxyState;
+  readonly percent: number;
+  readonly phase: string;
+}
+
+export interface ProxyCleanupResult {
+  readonly removed: number;
+  readonly bytesFreed: number;
+}
+
+// ─────────────── Fase 1 · Recuperación, historial y duplicados ───────────────
+// Contrato nativo: `choose_media_folder`, `find_missing_assets`, `relink_asset`,
+// `relink_assets_from_folder`, `list_project_versions`,
+// `restore_project_version`, `find_duplicate_assets`.
+//
+// Todas las rutas de proyecto son absolutas (la que muestra Recientes). Si se
+// omite `projectPath`, el backend usa el proyecto abierto en la sesión.
+
+export interface MissingAssetInfo {
+  readonly assetId: string;
+  readonly label: string;
+  readonly kind: string;
+  /** Ruta tal como la guarda el proyecto (relativa a la raíz). */
+  readonly path: string;
+  /** Clips del timeline que usan este medio (para explicar el impacto). */
+  readonly usedByClipIds: readonly string[];
+  /** Proxy válido existente (`media/proxies/...`) o null. */
+  readonly proxyPath: string | null;
+}
+
+export interface RelinkResult {
+  readonly ok: boolean;
+  readonly assetId?: string;
+  /** Ruta nueva relativa al proyecto, cuando `ok`. */
+  readonly path?: string;
+  /** Copia el archivo dentro de `<root>/media/relink/` si estaba fuera. */
+  readonly copied?: boolean;
+  /** Validación usada: nombre+tamaño o hash SHA-256. */
+  readonly validatedBy?: 'name-size' | 'hash';
+  /** Bytes del archivo final (para refrescar `asset.sizeBytes` en la UI). */
+  readonly bytes?: number | null;
+  /** SHA-256 calculado al validar/copiar; null si no se calculó. */
+  readonly sha256?: string | null;
+  /** Motivo legible cuando `ok` es false. */
+  readonly reason?: string;
+  readonly missing?: MissingAssetInfo;
+}
+
+export interface RelinkFolderRejected {
+  readonly path: string;
+  readonly reason: string;
+}
+
+export interface RelinkFolderResult {
+  /** Resultados por asset: `assetId` + `path` nueva para actualizar el store. */
+  readonly relinked: readonly RelinkResult[];
+  readonly stillMissing: readonly MissingAssetInfo[];
+  readonly rejected: readonly RelinkFolderRejected[];
+}
+
+export type ProjectVersionReason =
+  | 'autosave'
+  | 'manual'
+  | 'pre-crash'
+  | 'before-restore'
+  | 'snapshot'
+  | 'rotated';
+
+export interface ProjectVersionInfo {
+  /** Identificador estable: nombre del archivo de versión. */
+  readonly id: string;
+  readonly projectPath: string;
+  /** Ruta absoluta del snapshot en `<root>/.olyvia-history/`. */
+  readonly path: string;
+  readonly savedAtMs: number;
+  readonly bytes: number;
+  readonly reason: ProjectVersionReason;
+  readonly projectName: string | null;
+  readonly assetCount: number;
+  readonly clipCount: number;
+}
+
+export interface RestoreProjectVersionResult {
+  /** `in-place` reemplaza el proyecto (con copia previa); `copy` crea otro archivo. */
+  readonly restoreMode: 'in-place' | 'copy';
+  readonly projectPath: string;
+  /** Copia de seguridad del proyecto previo a restaurar (in-place). */
+  readonly backupPath: string | null;
+  readonly version: ProjectVersionInfo;
+}
+
+export interface DuplicateAssetGroup {
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly assetIds: readonly string[];
+  readonly labels: readonly string[];
+  readonly paths: readonly string[];
+  /** Clip ids que usan cada asset (las copias en uso no se eliminan). */
+  readonly usedByClipIds: Readonly<Record<string, readonly string[]>>;
+}
+
 
 export interface SceneCut {
   readonly frame: number;
@@ -1265,6 +1412,56 @@ export interface HardwareEncoders {
   readonly checked: boolean;
 }
 
+/**
+ * Matriz REAL de lo que el FFmpeg de la app puede exportar, sondeada con
+ * `-encoders` (comando `export_capabilities`). La UI no debe ofrecer nada que
+ * no esté acá: contenedores/códecs no soportados por el build aparecen fuera o
+ * con listas vacías. Este FFmpeg LGPL no incluye x264/x265 por licencia, pero
+ * sí `libopenh264`/`h264_mf`/hardware; por eso las listas son dinámicas.
+ */
+export interface ExportCapabilities {
+  readonly containers: readonly {
+    readonly container: 'mp4' | 'mov' | 'webm';
+    readonly videoCodecs: readonly string[];
+    readonly audioCodecs: readonly string[];
+  }[];
+  readonly pixelFormats: readonly string[];
+  readonly videoCodecs: Readonly<
+    Record<string, { readonly software: readonly string[]; readonly hardware: readonly string[] }>
+  >;
+  readonly audioCodecs: readonly string[];
+  /** Metadatos HDR10/HLG: el build actual NO los inyecta (siempre SDR). */
+  readonly hdr: boolean;
+  readonly maxWidth: number;
+  readonly maxHeight: number;
+}
+
+/**
+ * Reporte legible post-export, verificado con FFprobe (comando `verify_export`).
+ * Se agrega a `RenderFinishedEvent.verification` cuando el render termina bien.
+ */
+export interface ExportVerification {
+  readonly path: string;
+  readonly container: string;
+  readonly videoCodec: string | null;
+  readonly audioCodec: string | null;
+  readonly width: number | null;
+  readonly height: number | null;
+  readonly fpsNum: number;
+  readonly fpsDen: number;
+  readonly pixelFormat: string | null;
+  readonly videoBitrate: number | null;
+  readonly audioBitrate: number | null;
+  readonly colorSpace: string | null;
+  readonly colorTransfer: string | null;
+  readonly colorPrimaries: string | null;
+  /** true sólo si el archivo reporta HDR (transfer PQ/HLG o 10-bit HDR). */
+  readonly hdr: boolean;
+  readonly durationSeconds: number | null;
+  readonly bytes: number;
+  readonly warnings: readonly string[];
+}
+
 export interface CopiedMedia {
   readonly source: string;
   readonly relativePath: string;
@@ -1851,6 +2048,29 @@ export interface DesktopService {
     readonly fpsDen: number;
   }): Promise<Asset | null>;
   createVideoProxy(input: { readonly path: string }): Promise<ProxyInfo>;
+  /**
+   * Estado del proxy de un asset de video (cacheada por asset+calidad+huella del
+   * origen). Nunca genera: sólo informa y verifica el MP4 con FFprobe.
+   */
+  proxyStatus(assetId: string): Promise<ProxyStatus>;
+  /**
+   * Asegura un proxy H.264 para vista previa; si no existe o está viejo lo
+   * empieza en segundo plano y devuelve el estado `queued`/`generating`.
+   * El progreso llega por `onProxyProgress` (`proxy-progress`).
+   */
+  ensureProxy(assetId: string, quality?: ProxyQuality): Promise<ProxyStatus>;
+  /** Cancela la generación en curso (si hay) y libera el archivo parcial. */
+  cancelProxy(assetId: string): Promise<ProxyStatus>;
+  /**
+   * Persiste el proxy en el documento (`asset.proxy`) y lo guarda, para que la
+   * reproducción nativa lo use sin tocar el Asset desde la UI. Valida que el
+   * proxy exista y esté `upToDate`; devuelve el Asset actualizado o null si no
+   * hay proxy listo (nunca deja el documento apuntando a un archivo faltante).
+   */
+  applyProxyToAsset(assetId: string): Promise<Asset | null>;
+  /** Borra proxies obsoletos (o todos los de un asset) y devuelve el espacio liberado. */
+  cleanupProxies(assetId?: string): Promise<ProxyCleanupResult>;
+  onProxyProgress(handler: (event: ProxyProgressEvent) => void): Promise<UnlistenFn>;
   sampleAssetColor(input: {
     readonly path: string;
     readonly seconds: number;
@@ -1858,6 +2078,42 @@ export interface DesktopService {
   mediaThumbnail(path: string, isImage: boolean): Promise<string>;
   recentProjectThumbnail(path: string): Promise<string | null>;
   checkAssetFiles(paths: string[]): Promise<AssetFileInfo[]>;
+  /**
+   * Fase 1 · Proyecto: medios faltantes, relink, historial y duplicados.
+   * `projectPath` absoluto; si se omite se usa el proyecto abierto.
+   */
+  chooseMediaFolder(title?: string): Promise<string | null>;
+  findMissingAssets(projectPath?: string): Promise<MissingAssetInfo[]>;
+  /**
+   * Repunta un asset a `newPath` (absoluto). Si está fuera de la raíz del
+   * proyecto se copia a `<root>/media/relink/` y `copied` es true. Valida
+   * existencia y nombre+tamaño; si el asset declara SHA-256 y el archivo lo
+   * contradice, rechaza. Devuelve `bytes` (y `sha256` si se calculó) para que la
+   * UI refresque `asset.integrity`. Requiere el proyecto abierto en la sesión.
+   * Un proxy NO es un origen válido de relink: es sólo de previsualización.
+   */
+  relinkAsset(assetId: string, newPath: string): Promise<RelinkResult>;
+  /**
+   * Relink masivo desde una carpeta: empareja faltantes por nombre+tamaño y
+   * devuelve la ruta nueva de cada asset relinkeado.
+   */
+  relinkAssetsFromFolder(
+    projectPath: string | null,
+    folder: string,
+  ): Promise<RelinkFolderResult>;
+  /** Snapshots de `<root>/.olyvia-history/`, del más nuevo al más viejo. */
+  listProjectVersions(projectPath?: string): Promise<ProjectVersionInfo[]>;
+  /**
+   * Restaura una versión. `in-place` reemplaza el proyecto guardando antes un
+   * snapshot `before-restore`; `copy` crea `<nombre>-restored-<n>.editoria.json`.
+   */
+  restoreProjectVersion(
+    projectPath: string,
+    versionId: string,
+    mode?: 'in-place' | 'copy',
+  ): Promise<RestoreProjectVersionResult>;
+  /** Grupos de assets con contenido idéntico (SHA-256 del archivo). */
+  findDuplicateAssets(projectPath?: string): Promise<DuplicateAssetGroup[]>;
   detectScenes(assetId: string, threshold: number): Promise<SceneDetection>;
   analyzeStabilization(
     assetId: string,
@@ -1969,6 +2225,10 @@ export interface DesktopService {
     handler: (event: LoudnessAnalysisProgress) => void,
   ): Promise<UnlistenFn>;
   hardwareEncoders(): Promise<HardwareEncoders>;
+  /** Matriz real de contenedores/códecs/pixel format que este FFmpeg soporta. */
+  exportCapabilities(): Promise<ExportCapabilities>;
+  /** Verifica un archivo exportado con FFprobe y devuelve un reporte legible. */
+  verifyExport(path: string): Promise<ExportVerification>;
   downloaderStatus(): Promise<DownloaderStatus>;
   downloaderBridgeInfo(): Promise<DownloaderBridgeInfo>;
   installDownloader(): Promise<DownloaderStatus>;
@@ -2210,10 +2470,22 @@ export const PROJECT_COMMANDS = {
   chooseTimelineFile: 'choose_timeline_file',
   extractFreezeFrame: 'extract_freeze_frame',
   createVideoProxy: 'create_video_proxy',
+  proxyStatus: 'proxy_status',
+  ensureProxy: 'ensure_proxy',
+  cancelProxy: 'cancel_proxy',
+  applyProxyToAsset: 'apply_proxy_to_asset',
+  cleanupProxies: 'cleanup_proxies',
   sampleAssetColor: 'sample_asset_color',
   thumbnail: 'media_thumbnail',
   recentProjectThumbnail: 'recent_project_thumbnail',
   checkAssets: 'check_asset_files',
+  chooseMediaFolder: 'choose_media_folder',
+  findMissingAssets: 'find_missing_assets',
+  relinkAsset: 'relink_asset',
+  relinkAssetsFromFolder: 'relink_assets_from_folder',
+  listProjectVersions: 'list_project_versions',
+  restoreProjectVersion: 'restore_project_version',
+  findDuplicateAssets: 'find_duplicate_assets',
   detectScenes: 'detect_scenes',
   analyzeStabilization: 'analyze_stabilization',
   analyzeMedia: 'analyze_media',
@@ -2247,6 +2519,8 @@ export const PROJECT_COMMANDS = {
   mcpRespond: 'mcp_respond',
   analyzeMixLoudness: 'analyze_mix_loudness',
   hardwareEncoders: 'hardware_encoders',
+  exportCapabilities: 'export_capabilities',
+  verifyExport: 'verify_export',
   downloaderStatus: 'downloader_status',
   analyzeYoutubeChannel: 'analyze_youtube_channel',
   downloaderBridgeInfo: 'downloader_bridge_info',
@@ -2938,6 +3212,31 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         bytes: typeof record.bytes === 'number' ? record.bytes : 0,
       };
     },
+    async proxyStatus(assetId) {
+      return (await call(PROJECT_COMMANDS.proxyStatus, { assetId })) as ProxyStatus;
+    },
+    async ensureProxy(assetId, quality) {
+      return (await call(PROJECT_COMMANDS.ensureProxy, {
+        assetId,
+        quality: quality ?? null,
+      })) as ProxyStatus;
+    },
+    async cancelProxy(assetId) {
+      return (await call(PROJECT_COMMANDS.cancelProxy, { assetId })) as ProxyStatus;
+    },
+    async applyProxyToAsset(assetId) {
+      const raw = await call(PROJECT_COMMANDS.applyProxyToAsset, { assetId });
+      if (!raw) return null;
+      return parseAssets([raw])[0] ?? null;
+    },
+    async cleanupProxies(assetId) {
+      return (await call(PROJECT_COMMANDS.cleanupProxies, {
+        assetId: assetId ?? null,
+      })) as ProxyCleanupResult;
+    },
+    async onProxyProgress(handler) {
+      return listen<ProxyProgressEvent>('proxy-progress', (event) => handler(event.payload));
+    },
     async sampleAssetColor(input) {
       const raw = await call(PROJECT_COMMANDS.sampleAssetColor, {
         path: input.path,
@@ -2964,6 +3263,49 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async checkAssetFiles(paths) {
       const raw = await call(PROJECT_COMMANDS.checkAssets, { paths });
       return Array.isArray(raw) ? (raw as AssetFileInfo[]) : [];
+    },
+    async chooseMediaFolder(title) {
+      const raw = await call(PROJECT_COMMANDS.chooseMediaFolder, {
+        title: title ?? null,
+      });
+      return typeof raw === 'string' && raw.trim() ? raw : null;
+    },
+    async findMissingAssets(projectPath) {
+      const raw = await call(PROJECT_COMMANDS.findMissingAssets, {
+        projectPath: projectPath ?? null,
+      });
+      return Array.isArray(raw) ? (raw as MissingAssetInfo[]) : [];
+    },
+    async relinkAsset(assetId, newPath) {
+      return (await call(PROJECT_COMMANDS.relinkAsset, {
+        assetId,
+        newPath,
+      })) as RelinkResult;
+    },
+    async relinkAssetsFromFolder(projectPath, folder) {
+      return (await call(PROJECT_COMMANDS.relinkAssetsFromFolder, {
+        projectPath: projectPath ?? null,
+        folder,
+      })) as RelinkFolderResult;
+    },
+    async listProjectVersions(projectPath) {
+      const raw = await call(PROJECT_COMMANDS.listProjectVersions, {
+        projectPath: projectPath ?? null,
+      });
+      return Array.isArray(raw) ? (raw as ProjectVersionInfo[]) : [];
+    },
+    async restoreProjectVersion(projectPath, versionId, mode) {
+      return (await call(PROJECT_COMMANDS.restoreProjectVersion, {
+        projectPath,
+        versionId,
+        mode: mode ?? null,
+      })) as RestoreProjectVersionResult;
+    },
+    async findDuplicateAssets(projectPath) {
+      const raw = await call(PROJECT_COMMANDS.findDuplicateAssets, {
+        projectPath: projectPath ?? null,
+      });
+      return Array.isArray(raw) ? (raw as DuplicateAssetGroup[]) : [];
     },
     async detectScenes(assetId, threshold) {
       return (await call(PROJECT_COMMANDS.detectScenes, {
@@ -3169,6 +3511,12 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async hardwareEncoders() {
       return (await call(PROJECT_COMMANDS.hardwareEncoders)) as HardwareEncoders;
+    },
+    async exportCapabilities() {
+      return (await call(PROJECT_COMMANDS.exportCapabilities)) as ExportCapabilities;
+    },
+    async verifyExport(path) {
+      return (await call(PROJECT_COMMANDS.verifyExport, { path })) as ExportVerification;
     },
     async downloaderStatus() {
       return (await call(PROJECT_COMMANDS.downloaderStatus)) as DownloaderStatus;
@@ -3657,10 +4005,23 @@ function createUnavailableService(): DesktopService {
     chooseTimelineFile: async () => unavailable(),
     extractFreezeFrame: async () => unavailable(),
     createVideoProxy: async () => unavailable(),
+    proxyStatus: async () => unavailable(),
+    ensureProxy: async () => unavailable(),
+    cancelProxy: async () => unavailable(),
+    applyProxyToAsset: async () => unavailable(),
+    cleanupProxies: async () => unavailable(),
+    onProxyProgress: async () => () => {},
     sampleAssetColor: async () => unavailable(),
     mediaThumbnail: async () => unavailable(),
     recentProjectThumbnail: async () => null,
     checkAssetFiles: async () => unavailable(),
+    chooseMediaFolder: async () => unavailable(),
+    findMissingAssets: async () => unavailable(),
+    relinkAsset: async () => unavailable(),
+    relinkAssetsFromFolder: async () => unavailable(),
+    listProjectVersions: async () => unavailable(),
+    restoreProjectVersion: async () => unavailable(),
+    findDuplicateAssets: async () => unavailable(),
     detectScenes: async () => unavailable(),
     analyzeStabilization: async () => unavailable(),
     analyzeMedia: async () => unavailable(),
@@ -3697,6 +4058,8 @@ function createUnavailableService(): DesktopService {
     analyzeMixLoudness: async () => unavailable(),
     onLoudnessAnalysisProgress: async () => () => {},
     hardwareEncoders: async () => unavailable(),
+    exportCapabilities: async () => unavailable(),
+    verifyExport: async () => unavailable(),
     downloaderStatus: async () => ({
       available: false,
       version: null,

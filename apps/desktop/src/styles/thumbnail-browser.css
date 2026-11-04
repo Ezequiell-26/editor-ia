@@ -1,0 +1,311 @@
+/**
+ * Navegador universal de thumbnails
+ * Usado en transiciones, efectos, títulos, elementos, etc.
+ */
+
+.thumbnail-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--surface);
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   HEADER CON BÚSQUEDA
+──────────────────────────────────────────────────────────────────── */
+
+.thumbnail-browser-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-elevated);
+}
+
+.thumbnail-search {
+  position: relative;
+  width: 100%;
+}
+
+.thumbnail-search svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.thumbnail-search input {
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: all 0.2s ease;
+}
+
+.thumbnail-search input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-subtle);
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   CATEGORÍAS
+──────────────────────────────────────────────────────────────────── */
+
+.thumbnail-categories {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  background: var(--surface);
+}
+
+.category-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.category-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.category-btn.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   GRID DE THUMBNAILS
+──────────────────────────────────────────────────────────────────── */
+
+.thumbnail-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.thumbnail-card {
+  background: var(--surface-elevated);
+  border: 2px solid transparent;
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  animation: thumbnail-appear 0.25s ease-out backwards;
+}
+
+.thumbnail-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: var(--border-hover);
+}
+
+.thumbnail-card.selected {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-subtle);
+}
+
+.thumbnail-preview {
+  aspect-ratio: 16 / 9;
+  background: var(--surface);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thumbnail-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-elevated) 100%);
+}
+
+.thumbnail-duration {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(8px);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.thumbnail-info {
+  padding: 8px;
+  text-align: center;
+}
+
+.thumbnail-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   ESTADO VACÍO
+──────────────────────────────────────────────────────────────────── */
+
+.thumbnail-empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.thumbnail-empty p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   ANIMACIONES
+──────────────────────────────────────────────────────────────────── */
+
+@keyframes thumbnail-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.thumbnail-card:nth-child(1) { animation-delay: 0.02s; }
+.thumbnail-card:nth-child(2) { animation-delay: 0.04s; }
+.thumbnail-card:nth-child(3) { animation-delay: 0.06s; }
+.thumbnail-card:nth-child(4) { animation-delay: 0.08s; }
+.thumbnail-card:nth-child(5) { animation-delay: 0.10s; }
+.thumbnail-card:nth-child(6) { animation-delay: 0.12s; }
+.thumbnail-card:nth-child(7) { animation-delay: 0.14s; }
+.thumbnail-card:nth-child(8) { animation-delay: 0.16s; }
+
+/* Ripple effect en click */
+.thumbnail-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, var(--primary-subtle) 0%, transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.thumbnail-card:active::after {
+  opacity: 1;
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   RESPONSIVO
+──────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .thumbnail-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
+    padding: 12px;
+  }
+}
+
+@media (min-width: 1400px) {
+  .thumbnail-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────
+   BADGE EN THUMBNAILS
+──────────────────────────────────────────────────────────────────── */
+
+.thumbnail-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  backdrop-filter: blur(8px);
+  z-index: 2;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.thumbnail-badge.pro {
+  background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, 0.4);
+}
+
+.thumbnail-badge.standard {
+  background: rgba(0, 122, 255, 0.9);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+}
+
+.thumbnail-badge.basic {
+  background: rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.thumbnail-badge.new {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.4);
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.9;
+  }
+}

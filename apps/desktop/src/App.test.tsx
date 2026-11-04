@@ -668,7 +668,7 @@ describe('shell de Olyvia', () => {
     expect(within(dialog).getByRole('heading', { name: 'Herramientas', level: 2 })).toBeTruthy();
   });
 
-  it('ofrece recuperar la sesión interrumpida y permite descartarla', async () => {
+  it('ofrece recuperar la sesión interrumpida y permite descartarla con confirmación', async () => {
     const project = createEmptyProject('Interrumpido');
     writeRecoverySnapshot(
       project,
@@ -677,7 +677,9 @@ describe('shell de Olyvia', () => {
     );
     renderApp();
     expect(await screen.findByText(/Se interrumpió la sesión anterior/i)).toBeTruthy();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     fireEvent.click(screen.getByRole('button', { name: 'Descartar' }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringMatching(/descarta la sesión sin guardar/i));
     await waitFor(() =>
       expect(screen.queryByText(/Se interrumpió la sesión anterior/i)).toBeNull(),
     );

@@ -482,6 +482,20 @@ pub fn run() {
             commands::render::prune_render_cache,
             commands::publish::save_publication_manifest,
             commands::package::save_delivery_package,
+            commands::proxies::proxy_status,
+            commands::proxies::ensure_proxy,
+            commands::proxies::cancel_proxy,
+            commands::proxies::apply_proxy_to_asset,
+            commands::proxies::cleanup_proxies,
+            commands::export_tools::export_capabilities,
+            commands::export_tools::verify_export,
+            commands::recovery::choose_media_folder,
+            commands::recovery::find_missing_assets,
+            commands::recovery::relink_asset,
+            commands::recovery::relink_assets_from_folder,
+            commands::recovery::list_project_versions,
+            commands::recovery::restore_project_version,
+            commands::recovery::find_duplicate_assets,
         ])
         .build(tauri::generate_context!())
         .expect("Editor IA no pudo iniciar la ventana nativa");

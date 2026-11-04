@@ -9,7 +9,7 @@ import {
   ensureDelivery,
 } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
-import { Timeline } from './Timeline';
+import { Timeline, waveformColumns, waveformPath } from './Timeline';
 
 const NOW = '2026-10-20T00:00:00.000Z';
 // Espejo de la geometría del header de pistas: el runtime lee el token
@@ -310,5 +310,89 @@ describe('sincronía del cabezal', () => {
 
     const grip = view.container.querySelector('.playhead-grip');
     expect(grip?.getAttribute('aria-valuenow')).toBe('20');
+  });
+
+  it('el clic sobre un clip lleva el cabezal al frame clickeado', () => {
+    const view = renderTimeline();
+    const clip = view.container.querySelector('.timeline-clip');
+    if (!(clip instanceof HTMLElement)) throw new Error('se esperaba un clip');
+    const readout = view.container.querySelector('.zoom-readout');
+    const scale = Number.parseFloat(readout?.textContent ?? '2.4');
+    // El clip arranca en el frame 0 y el carril empieza después de la cabecera.
+    clip.getBoundingClientRect = () =>
+      ({
+        x: HEADER,
+        y: 0,
+        left: HEADER,
+        top: 0,
+        right: HEADER + 300 * scale,
+        bottom: 40,
+        width: 300 * scale,
+        height: 40,
+        toJSON: () => ({}),
+      }) as DOMRect;
+
+    fireEvent.pointerDown(clip, {
+      button: 0,
+      clientX: HEADER + 100 * scale,
+      pointerId: 9,
+    });
+
+    // Sin el seek, el cabezal quedaba donde estaba y el clic se leía como
+    // «el timeline no está sincronizado».
+    const grip = view.container.querySelector('.playhead-grip');
+    expect(grip?.getAttribute('aria-valuenow')).toBe('100');
+  });
+
+  it('el clic en la esquina de la regla no mueve el cabezal', () => {
+    const view = renderTimeline();
+    const readout = view.container.querySelector('.zoom-readout');
+    const scale = Number.parseFloat(readout?.textContent ?? '2.4');
+    const ruler = view.container.querySelector('.ruler-row');
+    const corner = view.container.querySelector('.ruler-corner');
+    if (!(ruler instanceof HTMLElement) || !(corner instanceof HTMLElement)) {
+      throw new Error('se esperaban la regla y su esquina');
+    }
+
+    fireEvent.pointerDown(ruler, { clientX: HEADER + 60 * scale, button: 0 });
+    const before = view.container
+      .querySelector('.playhead-grip')
+      ?.getAttribute('aria-valuenow');
+    expect(before).toBe('60');
+
+    fireEvent.pointerDown(corner, { clientX: 40, button: 0 });
+    const after = view.container
+      .querySelector('.playhead-grip')
+      ?.getAttribute('aria-valuenow');
+    expect(after).toBe('60');
+  });
+});
+
+describe('onda del clip', () => {
+  it('dibuja una envolvente cerrada y simétrica en un solo path', () => {
+    const peaks = Array.from({ length: 40 }, (_, index) => (index % 4) / 4);
+    const path = waveformPath(peaks, 20);
+    expect(path.startsWith('M')).toBe(true);
+    expect(path.endsWith('Z')).toBe(true);
+    const points = path.slice(1, -1).split('L');
+    // 20 columnas arriba + 20 abajo (espejadas).
+    expect(points).toHaveLength(40);
+    const y = points.map((pair) => Number(pair.split(',')[1]));
+    const upper = y.slice(0, 20);
+    const lower = y.slice(20).reverse();
+    upper.forEach((value, index) => {
+      expect(value + lower[index]!).toBeCloseTo(40, 2);
+    });
+  });
+
+  it('no inventa onda sin datos', () => {
+    expect(waveformPath([], 30)).toBe('');
+    expect(waveformPath([1, 0.5], 0)).toBe('');
+  });
+
+  it('muestrea una columna cada 1,5 px con techo de 480', () => {
+    expect(waveformColumns(0)).toBe(2);
+    expect(waveformColumns(300)).toBe(200);
+    expect(waveformColumns(10_000)).toBe(480);
   });
 });

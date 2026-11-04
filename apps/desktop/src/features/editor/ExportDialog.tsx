@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type {
+  ExportCapabilities,
+  ExportVerification,
   HardwareEncoders,
   RenderFinishedEvent,
   RenderProgressEvent,
@@ -37,6 +39,19 @@ import { buildProjectMotionPlans } from '../motion/plan';
 import { chooseExportProfile } from '../../state/render-profile';
 import { hasEmoji } from '../emoji/emoji';
 import { gpuRecommendation } from './gpu-policy';
+import {
+  deleteExportPreset,
+  loadExportPresets,
+  saveExportPreset,
+  type SavedExportPreset,
+} from './export-presets';
+import {
+  validateExportFile,
+  validateExportVerification,
+  type ExportValidationFinding,
+  type ExportValidationReport,
+} from './export-validation';
+import { detectQueueCapabilities, queueCapabilityTitle } from './queue-capabilities';
 
 interface ExportDialogProps {
   readonly open: boolean;
@@ -90,6 +105,22 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const [batchProfiles, setBatchProfiles] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  // Presets de exportación guardables por el usuario (por equipo) y validación
+  // visible del archivo final con FFprobe. La validación nunca se inventa: si
+  // el entorno no expone FFprobe se muestra "no disponible".
+  const [presets, setPresets] = useState<SavedExportPreset[]>(() => loadExportPresets());
+  const [presetId, setPresetId] = useState('');
+  const [presetName, setPresetName] = useState('');
+  const [validation, setValidation] = useState<
+    | ExportValidationReport
+    | { readonly status: 'unavailable'; readonly findings: readonly ExportValidationFinding[] }
+    | null
+  >(null);
+  const [validating, setValidating] = useState(false);
+  // Capacidades reales del FFmpeg empaquetado; null = comando todavía no
+  // disponible (feature-detect) y la UI no ofrece opciones no soportadas.
+  const [capabilities, setCapabilities] = useState<ExportCapabilities | null>(null);
+  const [verification, setVerification] = useState<ExportVerification | null>(null);
   // La cola sobrevive al cierre del diálogo: se hidrata en el primer render
   // (no en un efecto) y se persiste en cada cambio. Hidratar en un efecto
   // dejaría un render con la cola vacía que pisaría lo guardado.
@@ -197,6 +228,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     setBatchResults([]);
     setBatchBusy(false);
     folderRef.current = null;
+    setPresets(loadExportPresets());
+    setPresetId('');
+    setPresetName('');
+    setValidation(null);
+    setValidating(false);
     // Only reset when the dialog opens, not on every project render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -377,6 +413,90 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     };
   }, [open, store.service]);
 
+  // Capacidades del build (contenedores/codecs/HDR). Si el comando aún no
+  // responde, queda null y la UI simplemente no muestra la sección.
+  useEffect(() => {
+    if (!open || !store.service.available) {
+      setCapabilities(null);
+      return;
+    }
+    let active = true;
+    void store.service
+      .exportCapabilities()
+      .then((result) => {
+        if (active) setCapabilities(result);
+      })
+      .catch(() => {
+        if (active) setCapabilities(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, store.service]);
+
+  // Validación post-export: `verifyExport` con FFprobe (contrato nuevo). Si el
+  // comando Rust todavía no responde, cae a `probeMediaFile`; si tampoco hay
+  // probe se declara no disponible. En navegador (service.available=false) se
+  // declara no disponible en vez de simular un "verificado".
+  useEffect(() => {
+    if (!open || !finished || finished.status !== 'completed' || !finished.outputPath) {
+      setValidation(null);
+      setValidating(false);
+      return;
+    }
+    if (!store.service.available) {
+      setValidation({ status: 'unavailable', findings: [] });
+      return;
+    }
+    let active = true;
+    setValidating(true);
+    setVerification(null);
+    const profile =
+      project?.renderProfiles.find((entry) => entry.id === profileId) ??
+      project?.renderProfiles[0];
+    const expectation = {
+      videoCodec: profile?.videoCodec ?? 'h264',
+      audioCodec: profile?.audioCodec ?? 'aac',
+      width: finished.width ?? profile?.resolution.width ?? 0,
+      height: finished.height ?? profile?.resolution.height ?? 0,
+      durationSeconds: finished.durationSeconds ?? rangeSeconds,
+      expectedBytes: finished.outputBytes,
+    };
+    void (async () => {
+      // Si `render-finished` ya trae el reporte FFprobe, se usa directo (evita
+      // un segundo proceso). Si viene null, se pide `verifyExport`.
+      if (finished.verification) {
+        if (active) {
+          setVerification(finished.verification);
+          setValidation(validateExportVerification(finished.verification, expectation));
+          setValidating(false);
+        }
+        return;
+      }
+      try {
+        const verified = await store.service.verifyExport(finished.outputPath!);
+        if (!active) return;
+        setVerification(verified);
+        setValidation(validateExportVerification(verified, expectation));
+      } catch {
+        try {
+          const probe = await store.service.probeMediaFile(finished.outputPath!);
+          if (!active) return;
+          setValidation(validateExportFile(probe, expectation));
+        } catch {
+          if (active) setValidation({ status: 'unavailable', findings: [] });
+        }
+      } finally {
+        if (active) setValidating(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+    // Depende del archivo terminado; no revalidar en cada render del diálogo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, finished?.outputPath, finished?.status, store.service]);
+
   if (!open || !project) return null;
   const currentProject = project;
   const quality = evaluateProjectQuality(currentProject);
@@ -401,6 +521,33 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       })
     : null;
   const canUseGpu = Boolean(selectedHardware && gpuDecision?.recommended);
+  // Pausa/reanudar/reordenar sólo se muestran activos si el backend expone esos
+  // métodos; si no, quedan deshabilitados con el motivo (no se simulan).
+  const queueCapabilities = detectQueueCapabilities(store.service);
+  const optionalQueueService = store.service as unknown as {
+    pauseRender?: (jobId: string) => Promise<unknown>;
+    resumeRender?: (jobId: string) => Promise<unknown>;
+    moveRenderQueueEntry?: (jobId: string, direction: 'up' | 'down') => Promise<unknown>;
+  };
+
+  function applyPreset(preset: SavedExportPreset): void {
+    setPresetId(preset.id);
+    const target = profiles.find((entry) => entry.id === preset.profileId);
+    if (target) {
+      setProfileId(target.id);
+      setUseGpu(preset.useGpu && Boolean(availableHardware(target)));
+    }
+    if (preset.compression !== 'custom') {
+      const targetCompression = preset.compression;
+      store.update((current) =>
+        applyCompression(
+          current,
+          targetCompression,
+          target?.videoCodec === 'h265' ? 'h265' : 'h264',
+        ),
+      );
+    }
+  }
 
   async function learnBeforeExport(): Promise<void> {
     const opened = store.state.opened;
@@ -588,6 +735,74 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   ))}
                 </select>
               </label>
+              <div className="export-presets">
+                <label className="field">
+                  <span>Presets guardados</span>
+                  <select
+                    value={presetId}
+                    onChange={(event) => {
+                      const preset = presets.find((entry) => entry.id === event.target.value);
+                      if (preset) applyPreset(preset);
+                      else setPresetId('');
+                    }}
+                    disabled={running || presets.length === 0}
+                  >
+                    <option value="">
+                      {presets.length === 0 ? 'Todavía no guardaste presets' : '— Elegir preset —'}
+                    </option>
+                    {presets.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="export-preset-save">
+                  <input
+                    type="text"
+                    value={presetName}
+                    placeholder="Nombre del preset"
+                    aria-label="Nombre del preset de exportación"
+                    maxLength={48}
+                    disabled={running || !selected}
+                    onChange={(event) => setPresetName(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="small"
+                    disabled={running || !selected || !presetName.trim()}
+                    onClick={() => {
+                      if (!selected) return;
+                      setPresets(
+                        saveExportPreset({
+                          name: presetName,
+                          profileId: selected.id,
+                          compression,
+                          useGpu,
+                        }),
+                      );
+                      setPresetName('');
+                    }}
+                  >
+                    Guardar preset
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    disabled={running || !presetId}
+                    onClick={() => {
+                      setPresets(deleteExportPreset(presetId));
+                      setPresetId('');
+                    }}
+                  >
+                    Eliminar
+                  </button>
+                </div>
+                <p className="fine-print">
+                  Guarda el perfil, la compresión y la GPU elegida. Son por equipo y no
+                  modifican los perfiles del proyecto.
+                </p>
+              </div>
               {hardware?.checked ? (
                 <div className="export-gpu">
                   <label className="check">
@@ -612,6 +827,35 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                       ? 'La calidad y el tamaño pueden diferir del encoder por software; no se usa en 32K ni si el perfil supera el límite del hardware.'
                       : 'La app mantiene el encoder por software.'}
                   </p>
+                </div>
+              ) : null}
+              {capabilities ? (
+                <div className="export-capabilities">
+                  <p className="eyebrow">Compatibilidad del build</p>
+                  <p className="fine-print">
+                    Contenedores:{' '}
+                    {capabilities.containers.map((entry) => entry.container.toUpperCase()).join(' · ')} ·
+                    Video:{' '}
+                    {Object.entries(capabilities.videoCodecs)
+                      .map(([codec, encoders]) =>
+                        `${codec}${encoders.hardware.length > 0 ? ' (GPU)' : ''}`,
+                      )
+                      .join(' · ')} ·
+                    Audio: {capabilities.audioCodecs.join(' · ')} · Máx {capabilities.maxWidth}×
+                    {capabilities.maxHeight} · HDR:{' '}
+                    {capabilities.hdr ? 'soportado' : 'no soportado (SDR)'}
+                  </p>
+                  {selected && !(capabilities.containers.some(
+                    (entry) =>
+                      entry.container === selected.container &&
+                      entry.videoCodecs.includes(selected.videoCodec === 'h265' ? 'hevc' : selected.videoCodec),
+                  )) ? (
+                    <p className="notice notice-warning">
+                      El perfil «{selected.name}» usa {selected.container.toUpperCase()}/
+                      {selected.videoCodec.toUpperCase()} y el build no lo reporta como soportado.
+                      Elegí otro perfil o regenerá el proyecto con el formato disponible.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {selected ? (
@@ -902,6 +1146,63 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
               <div className="batch-export">
                 <p className="eyebrow">Cola de entregas</p>
+                <div className="queue-capabilities">
+                  <p className="fine-print">
+                    {queueCapabilities.reason ?? 'Control de pausa y orden disponible.'}
+                  </p>
+                  <div className="actions compact">
+                    <button
+                      type="button"
+                      className="small"
+                      disabled={!queueCapabilities.pause || !jobId}
+                      title={queueCapabilityTitle(queueCapabilities, 'pause')}
+                      onClick={() => {
+                        if (jobId) {
+                          void optionalQueueService.pauseRender?.(jobId).catch((cause) => {
+                            setError(cause instanceof Error ? cause.message : 'no se pudo pausar');
+                          });
+                        }
+                      }}
+                    >
+                      Pausar
+                    </button>
+                    <button
+                      type="button"
+                      className="small"
+                      disabled={!queueCapabilities.resume || !jobId}
+                      title={queueCapabilityTitle(queueCapabilities, 'resume')}
+                      onClick={() => {
+                        if (jobId) {
+                          void optionalQueueService.resumeRender?.(jobId).catch((cause) => {
+                            setError(cause instanceof Error ? cause.message : 'no se pudo reanudar');
+                          });
+                        }
+                      }}
+                    >
+                      Reanudar
+                    </button>
+                    <button
+                      type="button"
+                      className="small"
+                      disabled={!queueCapabilities.reorder || queue.length < 2}
+                      title={queueCapabilityTitle(queueCapabilities, 'reorder')}
+                      onClick={() => {
+                        const target = queue.find((entry) => entry.status === 'pending');
+                        if (target) {
+                          void optionalQueueService
+                            .moveRenderQueueEntry?.(target.id, 'up')
+                            .catch((cause) => {
+                              setError(
+                                cause instanceof Error ? cause.message : 'no se pudo reordenar',
+                              );
+                            });
+                        }
+                      }}
+                    >
+                      Reordenar
+                    </button>
+                  </div>
+                </div>
                 <p className="fine-print">
                   Encolá perfiles y se renderizan en orden con el diálogo abierto. La cola queda
                   guardada en este equipo: si cerrás la app, lo pendiente se reanuda al volver.
@@ -1022,6 +1323,33 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         {finished.width}×{finished.height} ·{' '}
                         {(finished.elapsedMs / 1000).toFixed(1)} s de proceso
                       </p>
+                      {validating ? (
+                        <p className="fine-print">Verificando el archivo con FFprobe…</p>
+                      ) : null}
+                      {validation?.status === 'unavailable' ? (
+                        <p className="fine-print">
+                          Validación FFprobe no disponible en este entorno; el archivo se verificó
+                          en el render, no se simula un segundo chequeo.
+                        </p>
+                      ) : null}
+                      {validation && validation.status !== 'unavailable' ? (
+                        <div className={`export-validation ${validation.status}`}>
+                          <strong>
+                            {validation.status === 'pass'
+                              ? 'FFprobe: el archivo coincide con el perfil'
+                              : validation.status === 'warn'
+                                ? 'FFprobe: advertencias (revisá antes de publicar)'
+                                : 'FFprobe: el archivo no pasó la validación'}
+                          </strong>
+                          <ul>
+                            {validation.findings.map((finding) => (
+                              <li key={`${finding.label}-${finding.detail}`} className={finding.level}>
+                                <b>{finding.label}</b> · {finding.detail}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : null}
                       <div className="actions compact">
                         <button
                           type="button"

@@ -1,3 +1,4 @@
+import { ColorSwatch } from '../../components/ColorSwatch';
 import type { MotionTemplate } from './templates';
 
 function colorValue(value: unknown): string {
@@ -41,12 +42,11 @@ export function MotionForm({
                 ))}
               </select>
             ) : field.kind === 'color' ? (
-              <input
-                id={id}
-                type="color"
+              <ColorSwatch
+                label={field.label}
                 value={colorValue(raw)}
                 disabled={disabled}
-                onChange={(event) => update(event.target.value)}
+                onChange={update}
               />
             ) : field.kind === 'textarea' ? (
               <textarea

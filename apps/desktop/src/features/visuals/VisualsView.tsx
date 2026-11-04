@@ -21,6 +21,7 @@ import {
   trackLabel,
   visualClips,
 } from './visuals';
+import './visuals-view.css';
 
 interface QuickValues {
   brightness: number;
@@ -376,6 +377,11 @@ export function VisualsView({
                   className="visuals-preset"
                   onClick={() => applyPreset(preset)}
                   disabled={selectedClips.length === 0}
+                  style={{
+                    backgroundImage: `url(/thumbnails/presets/${preset.id}.svg)`,
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center',
+                  }}
                 >
                   <strong>{preset.label}</strong>
                   <span>{preset.description}</span>
@@ -476,27 +482,35 @@ export function VisualsView({
               </div>
               <span className="fine-print">Máximo útil: 2 s</span>
             </div>
-            <div className="visuals-transition-row">
+            
+            <div className="visuals-transitions-grid">
+              {catalog.transitions.map((item) => {
+                const isSelected = transitionType === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`visuals-transition-card${isSelected ? ' selected' : ''}${!item.available ? ' disabled' : ''}`}
+                    disabled={!item.available}
+                    onClick={() => {
+                      setTransitionType(item.id);
+                      setTransitionFrames(item.defaultFrames);
+                    }}
+                    style={{
+                      backgroundImage: `url(/thumbnails/transitions/${item.id}.svg)`,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  >
+                    <strong>{item.label}</strong>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="visuals-transition-controls">
               <label className="field">
-                <span>Tipo</span>
-                <select
-                  value={transitionType}
-                  onChange={(event) => {
-                    const id = event.target.value;
-                    setTransitionType(id);
-                    const spec = catalog.transitions.find((item) => item.id === id);
-                    if (spec) setTransitionFrames(spec.defaultFrames);
-                  }}
-                >
-                  {catalog.transitions.map((item) => (
-                    <option key={item.id} value={item.id} disabled={!item.available}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>Frames</span>
+                <span>Duración (frames)</span>
                 <input
                   type="number"
                   min={1}
@@ -509,22 +523,24 @@ export function VisualsView({
                   }
                 />
               </label>
-              <button
-                type="button"
-                className="primary"
-                onClick={applyTransition}
-                disabled={selectedClips.length === 0}
-              >
-                Aplicar
-              </button>
-              <button
-                type="button"
-                className="ghost"
-                onClick={removeTransition}
-                disabled={selectedClips.length === 0}
-              >
-                Quitar
-              </button>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={applyTransition}
+                  disabled={selectedClips.length === 0}
+                >
+                  Aplicar
+                </button>
+                <button
+                  type="button"
+                  className="ghost"
+                  onClick={removeTransition}
+                  disabled={selectedClips.length === 0}
+                >
+                  Quitar
+                </button>
+              </div>
             </div>
             <p className="fine-print">{transitionSpec?.description ?? 'Sin transición.'}</p>
           </section>

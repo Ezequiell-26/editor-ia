@@ -30,10 +30,12 @@
 .app-shell .editor-workspace {
   display: flex;
   flex-direction: column;
-  gap: var(--gap-10);
+  /* Sin aire alrededor: el editor ocupa todo el área de trabajo y los paneles
+     se separan por hairlines (patrón Filmora). */
+  gap: 0;
   min-height: 0;
   height: 100%;
-  padding: var(--gap-10) var(--gap-12) var(--gap-12);
+  padding: 0;
   background: var(--color-bg);
 }
 
@@ -44,11 +46,12 @@
   flex: 0 0 auto;
   gap: var(--gap-4);
   height: calc(var(--shell-tab-h, 32px) + 2px);
-  padding: 0 var(--gap-2);
+  padding: 0 var(--gap-8);
   margin: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  background: transparent;
+  border-bottom: var(--hairline);
+  background: var(--chrome-1);
   scrollbar-width: none;
 }
 
@@ -98,19 +101,23 @@
   height: auto;
   min-height: 0;
   grid-template-columns:
-    clamp(248px, 20.5vw, 304px) minmax(0, 1fr) 6px var(--inspector-width, 320px);
+    clamp(248px, 20.5vw, 304px) minmax(0, 1fr) 1px var(--inspector-width, 320px);
   grid-template-rows: minmax(0, 1fr) var(--timeline-height, 280px);
-  gap: var(--gap-8);
+  /* Sin aire entre paneles: el editor usa todo el ancho y las uniones son una
+     línea de 1 px, como el layout de Filmora. */
+  gap: 0;
   padding: 0;
   background: transparent;
 }
 
-:root[data-density='compact'] .app-shell .editor-grid {
-  gap: var(--gap-6);
-}
-
+/* `chrome.css` fija gap/padding por densidad con más especificidad que la regla
+   base (`:root[data-density] .editor-grid`); sin este `padding: 0` quedaba un
+   marco de 4 px del color del fondo alrededor de los cuatro paneles y el editor
+   no llegaba al borde de la ventana. */
+:root[data-density='compact'] .app-shell .editor-grid,
 :root[data-density='spacious'] .app-shell .editor-grid {
-  gap: var(--gap-10);
+  gap: 0;
+  padding: 0;
 }
 
 /* Nivel 2 del spec (§9.3): paneles de trabajo, superficie --chrome-3 con
@@ -126,10 +133,28 @@
   position: relative;
   min-width: 0;
   min-height: 0;
-  border: var(--hairline-strong);
-  border-radius: var(--rad-lg);
+  /* Esquinas rectas y sin borde propio: la separación es una hairline entre
+     paneles (antes eran tarjetas redondeadas con 8 px de aire). */
+  border: 0;
+  border-radius: 0;
   background: var(--chrome-3);
   overflow: hidden;
+}
+
+.app-shell .asset-rail {
+  border-right: var(--hairline-strong);
+}
+
+.app-shell .preview-panel {
+  border-right: var(--hairline-strong);
+}
+
+.app-shell .inspector {
+  border-left: var(--hairline-strong);
+}
+
+.app-shell .timeline-panel {
+  border-top: var(--hairline-strong);
 }
 
 .app-shell .asset-rail {
@@ -159,33 +184,36 @@
   grid-column: 3;
   grid-row: 1;
   position: relative;
-  width: 6px;
-  min-width: 6px;
-  border-radius: var(--rad-pill);
-  background: transparent;
+  width: 1px;
+  min-width: 1px;
+  border-radius: 0;
+  background: var(--hairline-strong-color, var(--color-border));
   cursor: col-resize;
   outline: none;
   touch-action: none;
 }
 
+/* Zona de agarre de 9 px centrada en la línea de 1 px. */
+.app-shell .editor-splitter::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+}
+
 .app-shell .editor-splitter::after {
   content: '';
   position: absolute;
-  top: 12px;
-  bottom: 12px;
-  left: 2px;
-  width: 1px;
-  border-radius: var(--rad-pill);
-  background: var(--hairline-strong-color, var(--color-border));
-  opacity: 0.8;
-  transition:
-    background-color var(--dur-3) var(--ease-out),
-    opacity var(--dur-3) var(--ease-out);
+  inset: 0;
+  background: var(--color-accent);
+  opacity: 0;
+  transition: opacity var(--dur-3) var(--ease-out);
 }
 
 .app-shell .editor-splitter:hover::after,
 .app-shell .editor-splitter:focus-visible::after {
-  background: var(--color-accent);
   opacity: 1;
 }
 
@@ -321,32 +349,40 @@ body.inspector-resizing {
 
 /* ─────────────────────────────────────────────── 3 · Asset rail ────────── */
 
+/* Rail compacto: una tira de iconos de 8 columnas iguales. Antes era un flex
+   con scroll horizontal: en cuanto el rail bajaba de ~300 px aparecía la barra
+   (WebView2 no respeta `scrollbar-width`), el contenido se recortaba y la
+   pestaña activa dejaba su etiqueta fuera de la caja («Medios» sobresalía).
+   La rejilla reparte el ancho disponible y nunca desborda, así que no hay
+   scroll ni recortes en ningún tamaño de ventana. La etiqueta de la vista
+   activa ya la muestra el encabezado del panel (`rail-head`). */
 .app-shell .rail-tabs {
-  display: flex;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: none;
   flex: 0 0 auto;
-  flex-wrap: nowrap;
   gap: var(--gap-2);
-  padding: var(--gap-8) var(--gap-8) var(--gap-6);
-  overflow-x: auto;
-  overflow-y: hidden;
+  padding: var(--gap-6) var(--gap-6) var(--gap-4);
+  overflow: visible;
   border-bottom: var(--hairline);
   background: var(--chrome-2);
-  scrollbar-width: none;
-}
-
-.app-shell .rail-tabs::-webkit-scrollbar {
-  display: none;
 }
 
 .app-shell .rail-tabs button {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
   display: inline-flex;
+  /* app.css dejaba esta fila en `column`: icono y etiqueta se apilaban dentro
+     de una caja de 24 px y la etiqueta se salía por abajo. */
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   gap: var(--ctl-gap, 6px);
+  width: 100%;
+  min-width: 0;
   height: var(--ctl-h-sm, 24px);
   min-height: var(--ctl-h-sm, 24px);
-  padding: 0 var(--ctl-px-sm, 8px);
+  padding: 0;
   border: 1px solid transparent;
   border-radius: var(--rad-sm);
   background: transparent;
@@ -366,18 +402,12 @@ body.inspector-resizing {
   flex: none;
 }
 
-.app-shell .rail-tabs button span {
-  white-space: nowrap;
-}
-
-/* Rail compacto: todas las categorías visibles como iconos; la activa suma su
-   etiqueta (patrón toolbar, spec §8.13). Evita el scroll horizontal oculto. */
+/* Todas las categorías son iconos (con `title` y `aria-label`): la etiqueta de
+   la vista activa la muestra el encabezado del panel y así ninguna pestaña
+   necesita más ancho que su columna. */
 .app-shell .rail-tabs button span {
   display: none;
-}
-
-.app-shell .rail-tabs button.active span {
-  display: inline;
+  white-space: nowrap;
 }
 
 .app-shell .rail-tabs button:hover {
@@ -663,7 +693,10 @@ body.inspector-resizing {
   position: relative;
   /* Pozo del monitor del color del panel (CapCut/Filmora): las franjas de un
      video con otra relación ya no son negro puro y el ojo no lee un “marco”. */
-  padding: var(--gap-8) var(--gap-10) var(--gap-8);
+  /* 34 px arriba para la barra del monitor (HUD + herramientas) y cero aire a
+     los lados y abajo: el video llena el panel de borde a borde, como el
+     player de Filmora. */
+  padding: 34px 0 0;
   overflow: hidden;
   background:
     radial-gradient(
@@ -681,22 +714,43 @@ body.inspector-resizing {
   padding: var(--gap-12);
 }
 
-/* HUD del monitor (resolución / fps / proxy). */
-.app-shell .preview-hud {
+/* Barra superior del monitor: HUD (izquierda) y herramientas (derecha) en una
+   misma fila flex, así nunca se pisan. Antes eran dos capas absolutas y el chip
+   «Vista previa aproximada» quedaba tapado por el selector de formato. */
+.app-shell .preview-topbar {
+  position: absolute;
+  top: 9px;
+  left: var(--gap-16);
+  right: var(--gap-16);
+  z-index: 9;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-8);
+  pointer-events: none;
+}
+
+/* HUD del monitor (resolución / fps / proxy). */
+.app-shell .preview-hud {
+  /* app.css lo dejaba `absolute` y con `flex-wrap: wrap` + `max-width: 240px`:
+     por eso los chips se apilaban y se metían debajo de las herramientas. */
+  position: static;
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
   gap: var(--gap-4);
-  position: absolute;
-  top: 10px;
-  left: var(--gap-16);
-  z-index: 8;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: none;
   padding: 0;
+  overflow: hidden;
   pointer-events: none;
 }
 
 .app-shell .preview-hud-chip {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   height: var(--chip-h, 22px);
   padding: 0 var(--gap-8);
   border: var(--hairline-strong);
@@ -729,16 +783,14 @@ body.inspector-resizing {
 
 /* Herramientas del monitor: chips 24 px, sin blur ni glow. */
 .app-shell .preview-tools {
+  position: static;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   flex-wrap: nowrap;
+  flex: 0 0 auto;
   gap: var(--gap-4);
-  position: absolute;
-  top: 9px;
-  right: var(--gap-16);
-  z-index: 9;
-  max-width: calc(100% - 170px);
+  pointer-events: auto;
 }
 
 .app-shell .preview-tool {
@@ -797,12 +849,10 @@ body.inspector-resizing {
 
 /* Lienzo del monitor: marco hairline + una sola sombra neutra (elev-2). */
 .app-shell .preview-canvas {
-  border-radius: var(--rad-sm);
+  /* Recto y sin marco: el lienzo es la imagen, sin tarjeta alrededor. */
+  border-radius: 0;
   overflow: hidden;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, rgb(255 255 255) 12%, transparent),
-    0 0 0 7px color-mix(in srgb, var(--color-bg) 55%, rgb(0 0 0)),
-    0 18px 44px -18px rgba(0, 0, 0, 0.8);
+  box-shadow: none;
 }
 
 .app-shell .preview-canvas::after {
@@ -810,30 +860,11 @@ body.inspector-resizing {
   position: absolute;
   inset: 0;
   z-index: 40;
-  border-radius: inherit;
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, rgb(255 255 255) 8%, transparent) inset,
-    0 0 0 2px rgba(0, 0, 0, 0.3) inset;
   pointer-events: none;
 }
 
-.app-shell .preview-timecode-chip {
-  display: inline-flex;
-  align-items: center;
-  left: var(--gap-16);
-  bottom: var(--gap-8);
-  height: var(--chip-h, 22px);
-  padding: 0 var(--gap-8);
-  border: var(--hairline-strong);
-  border-radius: var(--rad-sm);
-  background: color-mix(in srgb, var(--color-bg) 78%, rgb(0 0 0));
-  color: var(--ink-2);
-  font-family: var(--font-mono);
-  font-size: var(--type-10);
-  font-weight: var(--fw-medium);
-  letter-spacing: 0.02em;
-  font-variant-numeric: tabular-nums;
-}
+/* El timecode ya no se dibuja encima del lienzo: tapaba la imagen. Vive en la
+   barra de transporte, debajo del monitor. */
 
 .app-shell .preview-look {
   border-radius: inherit;
@@ -1668,12 +1699,16 @@ body.inspector-resizing {
 }
 
 .app-shell .ruler-corner-title {
+  min-width: 0;
+  overflow: hidden;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-size: var(--type-10);
   font-weight: var(--fw-strong);
   letter-spacing: var(--track-caps);
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .app-shell .ruler-corner-badge {
@@ -2053,6 +2088,7 @@ body.inspector-resizing {
   color: color-mix(in srgb, var(--color-video) 28%, var(--color-text));
 }
 
+.app-shell .timeline-clip .clip-waveform path,
 .app-shell .timeline-clip .clip-waveform rect {
   fill: currentColor;
 }
@@ -2571,8 +2607,10 @@ body.inspector-resizing {
   color: color-mix(in srgb, var(--color-text) 80%, var(--clip-color));
 }
 
-.app-shell .timeline .timeline-clip .clip-waveform rect {
-  shape-rendering: crispEdges;
+/* La onda es un path con antialiasing: `crispEdges` era para los rects de 1 px
+   y acá dejaría los picos dentados. */
+.app-shell .timeline .timeline-clip .clip-waveform path {
+  shape-rendering: geometricPrecision;
 }
 
 .app-shell .timeline .caption-cue {
@@ -3013,7 +3051,7 @@ body.inspector-resizing {
 @media (max-width: 1440px) {
   .app-shell .editor-grid {
     grid-template-columns:
-      clamp(260px, 21vw, 304px) minmax(0, 1fr) 6px var(--inspector-width, 320px);
+      clamp(260px, 21vw, 304px) minmax(0, 1fr) 1px var(--inspector-width, 320px);
   }
 
   .app-shell .timeline-toolbar {
@@ -3022,6 +3060,13 @@ body.inspector-resizing {
 
   .app-shell .clip-search-field input {
     width: 112px;
+  }
+
+  /* El monitor pierde ancho útil antes que la ventana: en 1440 el HUD y las 11
+     herramientas ya no entran en la misma fila. El chip más largo se oculta
+     para que ningún texto quede cortado a mitad de palabra. */
+  .app-shell .preview-hud-chip.preview-hud-render {
+    display: none;
   }
 }
 
@@ -3040,15 +3085,8 @@ body.inspector-resizing {
     grid-column: 3;
   }
 
-  .app-shell .rail-tabs button span {
-    display: none;
-  }
-
-  .app-shell .rail-tabs button {
-    width: var(--ctl-h-sm, 24px);
-    padding: 0;
-  }
-
+  /* El rail ya es icon-only por defecto: en ventanas angostas sólo hace falta
+     anular el degradado de máscara heredado. */
   .app-shell .rail-tabs {
     mask-image: none;
     -webkit-mask-image: none;
@@ -3242,21 +3280,17 @@ body.inspector-resizing {
 /* ───────────────── 14 · Impasse del legacy (respuesta mínima acotada) ──── */
 
 /* La Ola 2 neutralizó en origen los `!important` de `styles/resolve-theme.css`
- * que forzaban la piel plana en editor/timeline/preview/transporte (ver la
- * cabecera de ese archivo). Todo el look del workspace gana ahora por orden de
- * import contra lo que queda de app.css/flat/chrome. Queda UN impasse real:
- * `commercial.css` todavía fija fondo/borde/radio/sombra de los paneles del
- * editor con `!important`; se retirará cuando shell neutralice esos bloques.
- * Los `display`/`grid`/`height` de layout NO usan `!important` (spec §12.5). */
+ * y de `commercial.css` (que fijaba fondo/borde/radio/sombra de los paneles del
+ * editor). Ya no hay pelea: los paneles se declaran arriba con esquinas rectas
+ * y una hairline entre ellos. Este bloque sólo garantiza el recto si alguna
+ * hoja legacy vuelve a colar un radio. */
 
-/* !impasse: commercial.css:222-230 — paneles del editor. */
+/* !impasse: app.css/flat.css — radio de los paneles del editor. */
 .app-shell .asset-rail,
 .app-shell .preview-panel,
 .app-shell .inspector,
 .app-shell .timeline-panel {
-  border: var(--hairline-strong) !important;
-  border-radius: var(--rad-lg) !important;
-  background: var(--chrome-3) !important;
+  border-radius: 0 !important;
   box-shadow: none !important;
 }
 
@@ -3294,4 +3328,166 @@ body.inspector-resizing {
    el color de medio con --color-panel, así que la tinta primaria funciona. */
 :root[style*='color-scheme: light'] .app-shell .timeline-clip .clip-label {
   color: var(--color-text);
+}
+
+/* Fase 1 · Export avanzado: presets de usuario y validación FFprobe visible */
+.app-shell .export-presets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-6);
+  margin-top: var(--gap-8);
+}
+
+.app-shell .export-preset-save {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-6);
+}
+
+.app-shell .export-preset-save input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--ctl-h-md, 28px);
+  padding: 0 var(--gap-8);
+  border: var(--hairline-strong);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+  color: var(--ink-1);
+  font-family: var(--font-ui);
+  font-size: var(--type-12);
+}
+
+.app-shell .export-preset-save input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.app-shell .export-validation {
+  margin-top: var(--gap-8);
+  padding: var(--gap-8) var(--gap-10);
+  border: var(--hairline);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+}
+
+.app-shell .export-validation ul {
+  margin: var(--gap-4) 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--type-11);
+  color: var(--ink-2);
+}
+
+.app-shell .export-validation li.ok b { color: var(--color-audio); }
+.app-shell .export-validation li.warn b { color: var(--color-accent); }
+.app-shell .export-validation li.error b { color: var(--color-danger); }
+
+.app-shell .export-validation.pass { border-color: color-mix(in srgb, var(--color-audio) 45%, var(--hairline-strong-color)); }
+.app-shell .export-validation.warn { border-color: color-mix(in srgb, var(--color-accent) 45%, var(--hairline-strong-color)); }
+.app-shell .export-validation.fail { border-color: color-mix(in srgb, var(--color-danger) 45%, var(--hairline-strong-color)); }
+
+/* Fase 1 · Proxies: panel compacto en el rail de medios */
+.app-shell .proxy-tools {
+  margin-top: auto;
+  padding: var(--gap-8) var(--gap-10) var(--gap-10);
+  border-top: var(--hairline);
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-6);
+}
+
+.app-shell .proxy-tools-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-6);
+}
+
+.app-shell .proxy-tools-head .eyebrow { margin: 0; }
+
+.app-shell .proxy-auto {
+  gap: var(--gap-4);
+  font-size: var(--type-10);
+  color: var(--ink-3);
+}
+
+.app-shell .proxy-auto input { accent-color: var(--color-accent); }
+
+.app-shell .proxy-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+  max-height: 190px;
+  overflow: auto;
+}
+
+.app-shell .proxy-item {
+  padding: var(--gap-6) var(--gap-8);
+  border: var(--hairline);
+  border-radius: var(--rad-sm);
+  background: var(--chrome-2);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.app-shell .proxy-item.ready { border-color: color-mix(in srgb, var(--color-audio) 40%, var(--hairline-strong-color)); }
+.app-shell .proxy-item.warn { border-color: color-mix(in srgb, var(--color-accent) 40%, var(--hairline-strong-color)); }
+
+.app-shell .proxy-item-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-6);
+  min-width: 0;
+}
+
+.app-shell .proxy-item-main strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-11);
+  color: var(--ink-1);
+}
+
+.app-shell .proxy-badge {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong-color);
+  border-radius: var(--rad-pill);
+  font-size: var(--type-10);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.app-shell .proxy-badge.ready { color: var(--color-audio); border-color: color-mix(in srgb, var(--color-audio) 50%, transparent); }
+.app-shell .proxy-badge.busy { color: var(--color-accent); border-color: color-mix(in srgb, var(--color-accent) 50%, transparent); }
+
+.app-shell .proxy-progress {
+  height: 3px;
+  border-radius: var(--rad-pill);
+  background: var(--state-hover);
+  overflow: hidden;
+}
+
+.app-shell .proxy-progress span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--dur-3) var(--ease-out);
+}
+
+.app-shell .proxy-path {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--type-10);
 }

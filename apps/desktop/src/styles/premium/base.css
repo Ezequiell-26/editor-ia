@@ -16,8 +16,15 @@ body {
   line-height: var(--lh-body);
   letter-spacing: 0;
   color: var(--ink-1);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Sin `-webkit-font-smoothing: antialiased`: en Windows fuerza antialias en
+     escala de grises y las letras se ven más finas y lavadas. Con el valor por
+     defecto el motor usa subpixel (ClearType) donde el fondo es opaco.
+     `font-synthesis: none` evita negritas falsas cuando la familia cae a una
+     fuente sin todos los pesos. */
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+  font-synthesis: none;
+  -webkit-text-size-adjust: 100%;
   text-rendering: optimizeLegibility;
   font-variant-numeric: tabular-nums;
   /* Profundidad por capas, no por tinte de marca: viñeta neutra sutil. */

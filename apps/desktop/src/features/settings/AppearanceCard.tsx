@@ -1,10 +1,9 @@
 ﻿import { useEffect, useState } from 'react';
+import { ColorWheel } from '../../components/ColorWheel';
 import { useAppearance } from '../../state/AppearanceProvider';
 import {
   contrastInk,
-  hueOf,
   mixHex,
-  paletteFromHue,
   type Density,
   type ThemePresetId,
 } from '../../state/appearance';
@@ -21,13 +20,13 @@ function presetSwatch(preset: Exclude<ThemePresetId, 'custom'>): string {
 
 const DENSITIES: readonly { readonly id: Density; readonly label: string }[] = [
   { id: 'compact', label: 'Compacta' },
-  { id: 'comfortable', label: 'CÃ³moda' },
+  { id: 'comfortable', label: 'Cómoda' },
   { id: 'spacious', label: 'Amplia' },
 ];
 
 /**
  * Deriva la paleta al mover el matiz: el acento y sus derivados cambian juntos
- * para que el botÃ³n primario, la tinta y los alias de marca sigan siendo
+ * para que el botón primario, la tinta y los alias de marca sigan siendo
  * coherentes. El resto de los 34 tokens se conserva.
  */
 function paletteWithAccent(palette: ThemePalette, accent: string): ThemePalette {
@@ -38,7 +37,7 @@ function paletteWithAccent(palette: ThemePalette, accent: string): ThemePalette 
     accentLight,
     accentStrong: mixHex(accent, palette.bg, 0.24),
     accentInk: contrastInk(accent),
-    // Mismos derivados que paletteFromBase: la marca acompaÃ±a al acento.
+    // Mismos derivados que paletteFromBase: la marca acompaña al acento.
     brandCyan: accentLight,
     brandBlue: accent,
   };
@@ -58,8 +57,10 @@ export function AppearanceCard() {
   // Espejos locales: los sliders son controlados por el estado local para que
   // el pulgar avance en tiempo real mientras se arrastra; `appearance` (React)
   // solo se actualiza al soltar. Sin esto, el input controlado pelea contra el
-  // arrastre y el cambio "aparece despuÃ©s".
-  const [hue, setHue] = useState(() => hueOf(appearance.palette.accent));
+  // arrastre y el cambio "aparece después".
+  // Acento en vivo: la rueda mueve este espejo y el proveedor pinta las
+  // variables al instante; `appearance` sólo cambia al confirmar.
+  const [accent, setAccent] = useState(() => appearance.palette.accent);
   const [scale, setScale] = useState(appearance.scale);
   const [radius, setRadius] = useState(appearance.radius);
   const [rows, setRows] = useState(appearance.timelineRows);
@@ -67,7 +68,7 @@ export function AppearanceCard() {
   // Si la apariencia cambia por fuera (Restablecer, preset, carga inicial),
   // sincronizamos los espejos.
   useEffect(() => {
-    setHue(hueOf(appearance.palette.accent));
+    setAccent(appearance.palette.accent);
     setScale(appearance.scale);
     setRadius(appearance.radius);
     setRows(appearance.timelineRows);
@@ -78,11 +79,9 @@ export function AppearanceCard() {
     appearance.timelineRows,
   ]);
 
-  const accentPreview = paletteFromHue(hue).accent;
-
-  function dragHue(next: number): void {
-    setHue(next);
-    previewPalette(paletteWithAccent(appearance.palette, paletteFromHue(next).accent));
+  function dragAccent(next: string): void {
+    setAccent(next);
+    previewPalette(paletteWithAccent(appearance.palette, next));
   }
 
   return (
@@ -107,7 +106,7 @@ export function AppearanceCard() {
             aria-label={`Tema ${THEME_PRESET_LABELS[preset]}`}
             title={THEME_PRESET_LABELS[preset]}
             onClick={() => {
-              setHue(hueOf(THEME_PALETTES[preset].accent));
+              setAccent(THEME_PALETTES[preset].accent);
               applyThemePreset(preset);
             }}
           >
@@ -119,22 +118,21 @@ export function AppearanceCard() {
         </span>
       </div>
 
-      <div className="hue-row">
-        <span className="hue-swatch" style={{ background: accentPreview }} aria-hidden="true" />
-        <input
-          className="hue-slider"
-          type="range"
-          min={0}
-          max={359}
-          step={1}
-          value={hue}
-          aria-label="Color de acento"
-          onChange={(event) => dragHue(Number(event.target.value))}
-          onPointerUp={commitPreview}
-          onKeyUp={commitPreview}
-          onBlur={commitPreview}
+      <div className="appearance-wheel-row">
+        <ColorWheel
+          value={accent}
+          onChange={dragAccent}
+          onCommit={commitPreview}
+          ariaLabel="Color de acento"
+          size={124}
         />
-        <code className="hue-value">{accentPreview}</code>
+        <div className="appearance-wheel-meta">
+          <span className="hue-swatch" style={{ background: accent }} aria-hidden="true" />
+          <code className="hue-value">{accent}</code>
+          <span className="appearance-wheel-hint">
+            Tono y saturación en la rueda; la barra ajusta la luminosidad.
+          </span>
+        </div>
       </div>
 
       <div className="appearance-grid">
@@ -161,10 +159,11 @@ export function AppearanceCard() {
           </span>
           <input
             type="range"
-            min={0.85}
+            min={0.9}
             max={1.2}
-            step={0.05}
+            step={0.1}
             value={scale}
+            title="100 % es la escala más nítida: los pasos intermedios obligan a dibujar las letras a tamaños fraccionarios y se ven más suaves"
             onChange={(event) => {
               const next = Number(event.target.value);
               setScale(next);

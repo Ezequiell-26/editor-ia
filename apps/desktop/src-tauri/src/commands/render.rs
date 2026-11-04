@@ -55,6 +55,8 @@ pub struct RenderFinishedEvent {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub elapsed_ms: u64,
+    /// Reporte FFprobe del archivo entregado (sólo cuando termina bien).
+    pub verification: Option<crate::commands::export_tools::ExportVerification>,
 }
 
 fn safe_name(name: &str) -> String {
@@ -223,6 +225,7 @@ fn emit_failed(
             width: None,
             height: None,
             elapsed_ms: started.elapsed().as_millis() as u64,
+            verification: None,
         },
     );
 }
@@ -529,6 +532,7 @@ fn start_render_with_output(
                         width: None,
                         height: None,
                         elapsed_ms: started.elapsed().as_millis() as u64,
+                        verification: None,
                     },
                 );
                 return;
@@ -549,6 +553,7 @@ fn start_render_with_output(
                         width: None,
                         height: None,
                         elapsed_ms: started.elapsed().as_millis() as u64,
+                        verification: None,
                     },
                 );
                 return;
@@ -577,6 +582,9 @@ fn start_render_with_output(
                 Ok(verification)
             }) {
                 Ok(verification) => {
+                    let report =
+                        crate::commands::export_tools::verify_file(&worker_ffprobe, &worker_output)
+                            .ok();
                     let _ = worker_app.emit(
                         "render-finished",
                         RenderFinishedEvent {
@@ -591,6 +599,7 @@ fn start_render_with_output(
                             width: Some(verification.width),
                             height: Some(verification.height),
                             elapsed_ms: started.elapsed().as_millis() as u64,
+                            verification: report,
                         },
                     );
                 }

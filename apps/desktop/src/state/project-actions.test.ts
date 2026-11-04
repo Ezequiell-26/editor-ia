@@ -179,6 +179,20 @@ describe('biblioteca y timeline', () => {
     expect(totalFrames(next)).toBe(300);
   });
 
+  it('totalFrames no desborda la pila con timelines muy largas', () => {
+    // Con `Math.max(...clips.map(...))` V8 lanza "Maximum call stack size
+    // exceeded" a partir de ~150.000 argumentos. Un proyecto largo no puede
+    // depender del límite de argumentos del motor: la duración se calcula con
+    // un solo recorrido y sin arrays intermedios.
+    const project = base();
+    const clips = Array.from({ length: 160_000 }, (_, index) => ({
+      startFrame: index * 10,
+      durationFrames: 10,
+    }));
+    project.timeline.clips = clips as unknown as typeof project.timeline.clips;
+    expect(totalFrames(project)).toBe(1_600_000);
+  });
+
   it('reconecta un material conservando identidad, licencia y clips', () => {
     const asset = videoAsset(300);
     asset.label = 'Toma original';

@@ -54,8 +54,11 @@ body {
   font-family: var(--font-ui);
   font-size: var(--text-base);
   line-height: var(--leading);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  /* Igual que en la capa premium: dejar que el motor use subpixel AA en
+     Windows en vez de forzar escala de grises. */
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+  font-synthesis: none;
 }
 
 button,

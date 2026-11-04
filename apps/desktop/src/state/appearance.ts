@@ -121,6 +121,26 @@ function clamp(value: unknown, min: number, max: number, fallback: number): numb
   return Math.round(Math.min(max, Math.max(min, numeric)) * 100) / 100;
 }
 
+/**
+ * Escala de la interfaz en pasos de 10 %.
+ *
+ * Cualquier valor intermedio (95 %, 105 %…) obliga a Chromium a rasterizar el
+ * texto a tamaños fraccionarios: medido con capturas, el 95 % produce ~55 % de
+ * píxeles de antialias por píxel sólido frente a ~35 % al 100 %. Esa niebla es
+ * la que se percibe como «letras poco nítidas», así que la escala se ajusta a
+ * 90/100/110/120 (100 = la más nítida).
+ */
+export const SCALE_STEPS: readonly number[] = [0.9, 1, 1.1, 1.2];
+
+export function snapScale(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_APPEARANCE.scale;
+  // Redondeo entero a décimas (0,95 → 1): evita el empate en coma flotante que
+  // dejaba 95 % en 90 %.
+  const stepped = Math.round(numeric * 10) / 10;
+  return Math.min(SCALE_STEPS[SCALE_STEPS.length - 1]!, Math.max(SCALE_STEPS[0]!, stepped));
+}
+
 function validHex(value: unknown): string | null {
   return typeof value === 'string' && HEX.test(value.trim()) ? value.trim().toLowerCase() : null;
 }
@@ -196,7 +216,7 @@ export function normalizeAppearance(raw: unknown): AppearanceSettings {
     fontUi: font(source.fontUi, DEFAULT_APPEARANCE.fontUi),
     fontDisplay: font(source.fontDisplay, DEFAULT_APPEARANCE.fontDisplay),
     fontMono: font(source.fontMono, DEFAULT_APPEARANCE.fontMono),
-    scale: clamp(source.scale, 0.85, 1.2, DEFAULT_APPEARANCE.scale),
+    scale: snapScale(source.scale),
     density: density(source.density),
     sidebarLabels: bool(source.sidebarLabels, DEFAULT_APPEARANCE.sidebarLabels),
     sidebarWidth: clamp(source.sidebarWidth, 150, 320, DEFAULT_APPEARANCE.sidebarWidth),

@@ -35,6 +35,16 @@ describe('apariencia local', () => {
     expect(appearance.density).toBe('comfortable');
   });
 
+  it('ajusta la escala a pasos de 10 % para no emborronar el texto', () => {
+    // 95 % obliga a rasterizar las letras a tamaños fraccionarios: se ajusta
+    // al paso más cercano (100 %), que es el más nítido.
+    expect(normalizeAppearance({ scale: 0.95 }).scale).toBe(1);
+    expect(normalizeAppearance({ scale: 0.88 }).scale).toBe(0.9);
+    expect(normalizeAppearance({ scale: 1.06 }).scale).toBe(1.1);
+    expect(normalizeAppearance({ scale: 0.5 }).scale).toBe(0.9);
+    expect(normalizeAppearance({ scale: 9 }).scale).toBe(1.2);
+  });
+
   it('mezcla colores y elige tinta legible', () => {
     expect(mixHex('#000000', '#ffffff', 0.5)).toBe('#808080');
     expect(mixHex('#5eead4', '#000000', 0)).toBe('#5eead4');

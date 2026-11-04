@@ -82,7 +82,8 @@ describe('ColorStudioCard · estructura', () => {
     const { container } = renderCard();
     const row = tokenRow(container, 'accent');
 
-    expect(row.querySelector('input.color-input')).toBeTruthy();
+    // El control de color es la muestra que abre la rueda Lumetri.
+    expect(row.querySelector('button.color-input')).toBeTruthy();
     expect(row.querySelector('input.color-hex')).toBeTruthy();
     expect(row.querySelector('button.color-reset')).toBeNull();
   });
@@ -92,7 +93,8 @@ describe('ColorStudioCard · edición de tokens', () => {
   it('previsualiza en vivo y persiste el acento al confirmar', async () => {
     const { container } = renderCard();
     const row = tokenRow(container, 'accent');
-    const color = row.querySelector<HTMLInputElement>('input.color-input')!;
+    // El hex de la fila sigue siendo la vía directa para fijar un color exacto.
+    const color = row.querySelector<HTMLInputElement>('input.color-hex')!;
 
     fireEvent.change(color, { target: { value: '#ff2d55' } });
 
@@ -115,7 +117,7 @@ describe('ColorStudioCard · edición de tokens', () => {
   it('vuelve al color del preset con el botón de reset del token', async () => {
     const { container } = renderCard();
     const row = tokenRow(container, 'accent');
-    const color = row.querySelector<HTMLInputElement>('input.color-input')!;
+    const color = row.querySelector<HTMLInputElement>('input.color-hex')!;
 
     fireEvent.change(color, { target: { value: '#ff2d55' } });
     fireEvent.blur(color);

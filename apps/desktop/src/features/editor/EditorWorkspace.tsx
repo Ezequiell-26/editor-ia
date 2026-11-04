@@ -141,7 +141,7 @@ function readInspectorWidth(): number {
   }
 }
 
-export function EditorWorkspace({
+export const EditorWorkspace = React.memo(function EditorWorkspace({
   onNavigate,
   initialMode = 'timeline',
   modeRequest = 0,

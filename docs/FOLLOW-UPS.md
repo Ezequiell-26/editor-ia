@@ -222,3 +222,66 @@ ningún secreto, clave ni ruta absoluta de una máquina personal.
 hay certificado ni credenciales disponibles en este entorno. Hasta entonces, el
 estado honesto es «release reproducible preparado y documentado; firma real
 pendiente de certificado», no «app firmada».
+
+---
+
+## 6. Fase 1 CapCut · backend (task-16, 3 de noviembre de 2026)
+
+Contrato publicado en `apps/desktop/src/services/project-service.ts` (+fake en
+`apps/desktop/src/test/fake-service.ts`) y comandos Rust registrados. Lo que
+sigue quedó **fuera** de este incremento y la UI no debe ofrecerlo todavía.
+
+### 6.1 Proxies de vista previa (hecho)
+- Rust: `commands/proxies.rs` → `proxy_status`, `ensure_proxy`, `cancel_proxy`,
+  `apply_proxy_to_asset`, `cleanup_proxies`; evento `proxy-progress`.
+- Cache `media/proxies/proxy-<assetId>-<quality>-<mtimeMs>-<bytes>.mp4`
+  (invalidación por huella del origen), verificación FFprobe y cancelación real.
+- El proxy se persiste en `asset.proxy` con `apply_proxy_to_asset` (valida
+  `exists && upToDate` y guarda; devuelve `Asset | null`).
+- **Pendiente:** UI de proxies (task-17, views); limpieza automática de proxies
+  huérfanos al cerrar proyecto (hoy `cleanup_proxies` es manual).
+
+### 6.2 Export avanzado (parcial)
+- Hecho: `export_capabilities` (matriz real del FFmpeg empaquetado intersectada
+  con lo que el worker puede emitir), `verify_export` (FFprobe: códec,
+  contenedor, resolución, fps, pixel format, bitrates, color space/transfer/
+  primaries, HDR detectado, duración, bytes, warnings) y
+  `render-finished.verification` con ese reporte al completar.
+- **Límite actual:** el worker de render sigue emitiendo **MP4/MOV H.264/H.265 +
+  AAC**. El schema permite `webm/vp9/av1/opus` y FFmpeg puede tener esos
+  encoders, pero el pipeline no los produce: `export_capabilities` **no** los
+  ofrece (no se deben mostrar opciones falsas).
+- **HDR:** no soportado en export (no se inyecta metadata HDR10/HLG). El reporte
+  de verificación sólo *detecta* HDR en archivos existentes.
+- **Pendiente:** soporte de render webm/vp9/av1/opus + `pixelFormat` real en el
+  plan de FFmpeg (toca `render/ffmpeg.rs` y el worker; requiere pruebas de
+  roundtrip). Presets actuales siguen intactos.
+
+### 6.3 Cola de render persistente (no implementada en este incremento)
+- Hoy: el backend tiene **un render activo a la vez** (`start_render`,
+  `cancel_render`, `active_render`, eventos `render-progress`/`render-finished`),
+  sin pausa ni persistencia propia; la cola es la de la UI
+  (`state/render-queue.ts`, localStorage, `running`→`pending` al cargar).
+- `pause_render`, `resume_render` y `move_render_queue_entry` **no existen**: la
+  UI debe dejarlos deshabilitados con motivo «la cola persistente del backend
+  llega en una próxima fase». No se publicaron métodos de servicio para no
+  prometer algo que el backend no hace.
+- **Pendiente:** cola persistente en Rust (JSON en app-data, estados
+  queued/paused/running/completed/failed/cancelled, recuperación al iniciar,
+  reintento) y contrato tipado.
+
+### 6.4 Recuperación, historial y duplicados (hecho)
+- Rust: `commands/recovery.rs` → `choose_media_folder`, `find_missing_assets`,
+  `relink_asset`, `relink_assets_from_folder`, `list_project_versions`,
+  `restore_project_version` (in-place con copia previa / copy), y
+  `find_duplicate_assets` (SHA-256 streaming).
+- Snapshots en `<raíz>/.olyvia-history/<savedAtMs>-<reason>.editoria.json`,
+  rotación 20; se crean antes de cada guardado (autosave con throttle 60 s) y
+  antes de restaurar (`before-restore`). `RelinkFolderResult.relinked` devuelve
+  `RelinkResult[]` con la ruta nueva por asset para actualizar el documento.
+- Límites: relink exige el proyecto abierto (el documento se modifica y guarda);
+  la validación es nombre+tamaño, y SHA-256 sólo si el asset ya lo declaraba;
+  un proxy no es un origen válido de relink (es sólo previsualización).
+- **Pendiente:** UI de proyectos (task-18, functional-ui); oferta de crash
+  recovery sigue en StartScreen/AppShell (no se tocó).
+

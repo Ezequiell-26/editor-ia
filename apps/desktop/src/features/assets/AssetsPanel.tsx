@@ -36,6 +36,9 @@ import {
 } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { buildStoryboard } from '../../state/storyboard';
+import { AssetFolderTree, buildFolderHierarchy } from './AssetFolderTree';
+import { AssetThumbnailGrid } from './AssetThumbnailGrid';
+import './assets-media-panel.css';
 
 interface AssetsPanelProps {
   readonly onNavigate: (id: ViewId) => void;
@@ -360,6 +363,9 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [smartBins, setSmartBins] = useState<SmartBin[]>([]);
   const [activeBinId, setActiveBinId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [selectedFolder, setSelectedFolder] = useState<string | null>('root');
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
 
   const pendingProxies = (project?.assets ?? []).filter(
     (asset) =>
@@ -481,7 +487,20 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   // Un smart bin activo reemplaza los filtros manuales: la regla ya trae el
   // tipo, el estado y los favoritos. La búsqueda de texto sigue aplicando.
   const activeBin = [...BUILTIN_SMART_BINS, ...smartBins].find((bin) => bin.id === activeBinId) ?? null;
-  const visibleAssets = filterAssets(filterBySmartBin(project.assets, activeBin), {
+  
+  // Construir jerarquía de carpetas
+  const folderHierarchy = buildFolderHierarchy(project.assets);
+  
+  // Filtrar por carpeta seleccionada
+  let assetsInFolder = project.assets;
+  if (selectedFolder && selectedFolder !== 'root') {
+    const folderPath = selectedFolder.replace('root/', '');
+    assetsInFolder = project.assets.filter((asset) => asset.bin === folderPath);
+  } else if (selectedFolder === 'root') {
+    assetsInFolder = project.assets.filter((asset) => !asset.bin || asset.bin === '');
+  }
+  
+  const visibleAssets = filterAssets(filterBySmartBin(assetsInFolder, activeBin), {
     query: assetQuery,
     kind: activeBin ? 'all' : assetFilter,
     bin: activeBin ? null : assetBin === 'all' ? null : assetBin,
@@ -909,10 +928,71 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
             : 'Ningún medio coincide con la búsqueda o el filtro.'}
         </p>
       ) : (
-        <div className="asset-grid">
-          {visibleAssets.map((asset) => (
-            <AssetCard key={asset.id} asset={asset} root={root} onUse={useAsset} />
-          ))}
+        <div className="assets-media-layout">
+          {/* Sidebar de carpetas */}
+          <aside className="assets-sidebar">
+            <AssetFolderTree
+              folders={folderHierarchy}
+              onFolderClick={setSelectedFolder}
+              selectedFolder={selectedFolder}
+              onCreateFolder={() => {
+                const folderName = prompt('Nombre de la nueva carpeta:');
+                if (folderName) {
+                  store.setNotice(`Carpeta "${folderName}" creada. Usa metadatos de asset para asignar bins.`);
+                }
+              }}
+            />
+          </aside>
+
+          {/* Área principal con thumbnails */}
+          <main className="assets-main">
+            <div className="assets-main-header">
+              <div className="assets-search-bar">
+                <Icon name="search" size={14} className="assets-search-icon" />
+                <input
+                  type="search"
+                  value={assetQuery}
+                  placeholder="Buscar medios..."
+                  onChange={(event) => setAssetQuery(event.target.value)}
+                />
+              </div>
+              <div className="assets-view-modes">
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
+                  onClick={() => setViewMode('grid')}
+                  title="Vista de cuadrícula"
+                >
+                  <Icon name="grid" size={14} />
+                  <span>Grid</span>
+                </button>
+                <button
+                  type="button"
+                  className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
+                  onClick={() => setViewMode('list')}
+                  title="Vista de lista"
+                >
+                  <Icon name="layers" size={14} />
+                  <span>Lista</span>
+                </button>
+              </div>
+            </div>
+            <div className="assets-content">
+              <AssetThumbnailGrid
+                assets={visibleAssets}
+                root={root}
+                onAssetClick={(asset) => {
+                  setSelectedAssetId(asset.id);
+                  store.setSelection({ kind: 'asset', id: asset.id });
+                }}
+                onAssetDoubleClick={(asset) => {
+                  useAsset(asset, false);
+                }}
+                selectedAssetId={selectedAssetId}
+                viewMode={viewMode}
+              />
+            </div>
+          </main>
         </div>
       )}
 

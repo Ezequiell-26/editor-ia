@@ -10,6 +10,7 @@ import { MotionForm } from './MotionForm';
 import { MotionPreview } from './MotionPreview';
 import { buildMotionPlan, MOTION_TEMPLATES } from './plan';
 import type { MotionPlan, MotionTemplate } from './templates';
+import './motion-view.css';
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'no se pudo preparar el gráfico';

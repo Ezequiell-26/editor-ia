@@ -6,6 +6,24 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator('.settings-window .settings-shell')).toBeVisible();
 });
 
+test('la navegación de Ajustes muestra una sola sección a la vez', async ({ page }) => {
+  // Regresión: `display: grid` de la capa premium pisaba el `[hidden]` de
+  // settings.css y las 8 secciones quedaban apiladas; tocar el menú no cambiaba
+  // nada visible porque Apariencia seguía arriba.
+  await expect(page.locator('#settings-apariencia')).toBeVisible();
+  await page.locator('nav.settings-nav button:has-text("Alcance")').click();
+  await expect(page.locator('#settings-alcance')).toBeVisible();
+  await expect(page.locator('#settings-apariencia')).toBeHidden();
+  await page.locator('nav.settings-nav button:has-text("Editor")').click();
+  await expect(page.locator('#settings-editor')).toBeVisible();
+  await expect(page.locator('#settings-alcance')).toBeHidden();
+  // La densidad usa el texto correcto (antes decía «CÃ³moda» por doble codificación).
+  await page.locator('nav.settings-nav button:has-text("Apariencia")').click();
+  await expect(
+    page.locator('#settings-apariencia .segmented button', { hasText: 'Cómoda' }),
+  ).toBeVisible();
+});
+
 test('el panel de apariencia aplica el color en vivo', async ({ page }) => {
   const before = await page.evaluate(() =>
     getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),

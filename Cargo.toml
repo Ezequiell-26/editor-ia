@@ -1,3 +1,23 @@
 [workspace]
 resolver = "2"
 members = ["apps/desktop/src-tauri"]
+
+# Perfil de entrega: antes se usaba el `release` por defecto de Cargo
+# (sin LTO, 16 codegen-units y símbolos de depuración embebidos). Para un
+# editor de vídeo eso significa más páginas cargadas en memoria, peor
+# inlining entre crates en los caminos calientes de FFmpeg/IPC y un
+# instalador más grande. `thin` acerca la optimización global de `fat` con
+# un coste de compilación acotado; 4 codegen-units mejora la optimización
+# local sin el coste extremo de 1; `strip` quita símbolos que no se
+# publican. Se conserva `panic = "unwind"` (por defecto) para no convertir
+# un panic recuperable de un hilo de fondo en un cierre del proceso.
+# Ver docs/IMPROVEMENT-QUEUE.md (pasada de rendimiento).
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+strip = "symbols"
+
+# Los tests y el `cargo check` de desarrollo no pagan el coste de LTO:
+# heredan el perfil `dev`, que queda intacto.
+

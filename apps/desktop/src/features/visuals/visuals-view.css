@@ -1,0 +1,317 @@
+/* Visuals View - Estilos para presets, efectos y transiciones con thumbnails */
+
+/* Grid de presets visuales */
+.visuals-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 0;
+  margin: 16px 0;
+}
+
+.visuals-preset {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: left;
+}
+
+.visuals-preset::before {
+  content: '';
+  display: block;
+  width: 100%;
+  padding-top: 56.25%; /* 16:9 */
+  background: linear-gradient(135deg, rgba(147, 51, 234, 0.15) 0%, rgba(79, 70, 229, 0.15) 100%);
+  background-size: cover;
+  background-position: center;
+  transition: transform 0.3s ease;
+}
+
+.visuals-preset:hover::before {
+  transform: scale(1.08);
+}
+
+.visuals-preset:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateY(-3px);
+  box-shadow: 
+    0 12px 32px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.visuals-preset:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.visuals-preset:disabled:hover {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: none;
+}
+
+.visuals-preset strong {
+  padding: 12px 14px 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  line-height: 1.3;
+}
+
+.visuals-preset span {
+  padding: 0 14px 12px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.4;
+}
+
+.visuals-preset:active {
+  transform: translateY(-1px);
+}
+
+/* Grid de transiciones */
+.visuals-transitions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 16px 0;
+}
+
+.visuals-transition-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.visuals-transition-card::before {
+  content: '';
+  display: block;
+  width: 100%;
+  padding-top: 75%; /* 4:3 */
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
+  transition: transform 0.3s ease;
+}
+
+.visuals-transition-card:hover::before {
+  transform: scale(1.1);
+}
+
+.visuals-transition-card:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.05);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.visuals-transition-card.selected {
+  border-color: #007aff;
+  background: rgba(0, 122, 255, 0.08);
+  box-shadow: 
+    0 0 0 2px #007aff,
+    0 8px 24px rgba(0, 122, 255, 0.3);
+}
+
+.visuals-transition-card.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.visuals-transition-card.disabled:hover {
+  transform: none;
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  box-shadow: none;
+}
+
+.visuals-transition-card strong {
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #ffffff;
+  text-align: center;
+  width: 100%;
+}
+
+/* Badges para estados */
+.visuals-preset-badge,
+.visuals-transition-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 8px;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.9);
+  z-index: 2;
+}
+
+/* Lista de efectos con iconos */
+.visuals-effects {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 16px 0 0;
+}
+
+.visuals-effects li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 13px;
+  transition: all 0.15s ease;
+}
+
+.visuals-effects li:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.visuals-effects li.missing {
+  opacity: 0.4;
+}
+
+.visuals-effects li span {
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.visuals-effects li em {
+  font-size: 11px;
+  font-style: normal;
+  color: rgba(255, 255, 255, 0.5);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.visuals-effects li strong {
+  font-size: 11px;
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+/* Filtros de FFmpeg */
+.visuals-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 0;
+}
+
+.visuals-filter {
+  padding: 5px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+  color: rgba(255, 255, 255, 0.7);
+  transition: all 0.15s ease;
+}
+
+.visuals-filter.ok {
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.visuals-filter.missing {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .visuals-presets {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 10px;
+  }
+
+  .visuals-transitions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .visuals-presets {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .visuals-transitions-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+}
+
+
+/* Controles de transición */
+.visuals-transition-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.visuals-transition-controls .field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.visuals-transition-controls .field span {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.visuals-transition-controls .field input {
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.visuals-transition-controls .field input:focus {
+  outline: none;
+  border-color: #007aff;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.visuals-transition-controls .actions {
+  display: flex;
+  gap: 8px;
+}

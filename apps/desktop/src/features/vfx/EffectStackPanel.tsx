@@ -1,3 +1,4 @@
+import { ColorSwatch } from '../../components/ColorSwatch';
 import { useState } from 'react';
 import {
   duplicateInstance,
@@ -64,10 +65,10 @@ function ParamControl({
     return (
       <label className="effect-param">
         <span>{spec.label}</span>
-        <input
-          type="color"
+        <ColorSwatch
+          label={spec.label}
           value={typeof value === 'string' ? value : spec.default}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
         />
       </label>
     );

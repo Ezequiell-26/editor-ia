@@ -193,6 +193,45 @@ export function contrastInk(color: string): string {
   return luminance > 0.6 ? '#07110e' : '#f8fffc';
 }
 
+/** Color HSL con la misma convención que `hslToHex`: h 0-360, s y l 0-1. */
+export interface HslColor {
+  readonly h: number;
+  readonly s: number;
+  readonly l: number;
+}
+
+/**
+ * Hex `#rgb`/`#rrggbb` a HSL. Es la inversa de `hslToHex` y la base de la rueda
+ * de color: el ángulo sale del tono y el radio de la saturación.
+ */
+export function hexToHsl(color: string): HslColor {
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim());
+  if (!match) return { h: 0, s: 0, l: 0 };
+  const digits = match[1]!;
+  const expanded =
+    digits.length === 3
+      ? digits
+          .split('')
+          .map((digit) => `${digit}${digit}`)
+          .join('')
+      : digits;
+  const value = Number.parseInt(expanded, 16);
+  const r = ((value >> 16) & 255) / 255;
+  const g = ((value >> 8) & 255) / 255;
+  const b = (value & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const delta = max - min;
+  const l = (max + min) / 2;
+  if (delta === 0) return { h: 0, s: 0, l };
+  const s = delta / (1 - Math.abs(2 * l - 1));
+  let hue: number;
+  if (max === r) hue = ((g - b) / delta) % 6;
+  else if (max === g) hue = (b - r) / delta + 2;
+  else hue = (r - g) / delta + 4;
+  return { h: (((hue * 60) % 360) + 360) % 360, s: Math.min(1, s), l };
+}
+
 /** HSL (0-360, 0-1, 0-1) a hex `#rrggbb`. */
 export function hslToHex(hue: number, saturation: number, lightness: number): string {
   const h = ((hue % 360) + 360) % 360;

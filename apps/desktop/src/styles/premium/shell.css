@@ -1601,6 +1601,14 @@ body {
   min-width: 0;
 }
 
+/* `display: grid` de arriba gana sobre el `[hidden] { display: none }` de
+   settings.css (misma especificidad, esta hoja carga después), así que las 8
+   secciones quedaban apiladas y el botón de la izquierda no cambiaba nada.
+   Con esta regla sólo se ve la sección activa. */
+.settings-window .settings-section[hidden] {
+  display: none;
+}
+
 .settings-window .settings-section-head {
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);

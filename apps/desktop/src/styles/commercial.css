@@ -206,8 +206,11 @@ body {
 /* Ola 1 (rediseño premium): se quitaron de esta lista las superficies que ya
  * domina `styles/premium/components.css` (`.card`, `.panel`, `.modal`,
  * `.app-modal`, `.profile-popover`) para que hereden `--chrome-4` + hairline +
- * `--rad-md` + `--elev-1`. Los paneles del workspace (asset-rail, preview,
- * inspector, timeline) siguen acá hasta la Ola 2. */
+ * `--rad-md` + `--elev-1`.
+ * Ola 2: los paneles del workspace (asset-rail, preview, inspector, timeline)
+ * salen de acá. Ahora los gobierna `premium/workspace.css` con esquinas rectas
+ * y una hairline entre paneles; este `!important` con radio 10 px los convertía
+ * en tarjetas redondeadas y les metía un borde por lado. */
 .app-shell .project-current,
 .app-shell .factory-empty,
 .app-shell .script-provider,
@@ -218,11 +221,7 @@ body {
 .app-shell .download-run,
 .app-shell .download-notes,
 .app-shell .production-stats > *,
-.app-shell .director-source,
-.app-shell .asset-rail,
-.app-shell .preview-panel,
-.app-shell .inspector,
-.app-shell .timeline-panel {
+.app-shell .director-source {
   background: var(--commercial-surface) !important;
   border: 1px solid var(--commercial-border) !important;
   border-radius: 10px !important;
@@ -296,7 +295,10 @@ textarea:focus-visible {
   outline-offset: 2px !important;
 }
 
-input,
+/* Los deslizadores quedan afuera: no son cajas, son pista + pulgar (su estilo
+   vive en premium/components.css). Sin esto, este `!important` les dibujaba un
+   rectángulo de 8 px de radio alrededor de cada slider. */
+input:not([type='range']),
 select,
 textarea {
   background: var(--commercial-input) !important;

@@ -336,6 +336,9 @@ pub async fn save_project(
 ) -> Result<OpenedProjectDto, ProjectError> {
     let session = state.require_session()?;
     ensure_session_project(&session, &project)?;
+    // Historial Fase 1: snapshot antes de pisar (autosave con throttle de 60 s;
+    // ver `commands::recovery::snapshot_before_save`).
+    crate::commands::recovery::snapshot_before_save(&session.path, "autosave");
     let saved = service::save_project(&session.path, &project)?;
     Ok(OpenedProjectDto::from_opened(OpenedProject {
         project,

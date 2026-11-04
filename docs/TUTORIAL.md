@@ -67,6 +67,57 @@ tarde:
   segundos. Si hay clips con velocidad distinta de 1×, volvelos a 1× primero: así
   se mantiene la identidad exacta entre ventana de origen y duración.
 
+## 2b. Recuperar, versiones y medios del proyecto
+
+Estas herramientas viven en el lanzador y en **Proyectos**; necesitan la app de
+escritorio (el navegador no puede leer el disco) y nunca borran archivos.
+
+**Sesión sin guardar (recuperación tras un cierre inesperado).** Mientras editás,
+la app guarda una instantánea local del proyecto cada pocos segundos. Si la app
+se cierra de forma inesperada, al volver a abrirla:
+
+- en el **lanzador** aparece la tarjeta *Sesión sin guardar*;
+- dentro de la app aparece un banner con el nombre del archivo y los botones
+  **Recuperar** / **Descartar**.
+
+Recuperar abre el proyecto con los cambios de esa sesión. Guardar, cerrar el
+proyecto o descartar la oferta elimina la instantánea. Descartar siempre pide
+confirmación.
+
+**Historial de versiones.** Con un proyecto abierto, en **Proyectos → Versiones
+del proyecto** ves las copias que el backend guarda en
+`<carpeta-del-proyecto>/.olyvia-history/` antes de cada guardado (rotación de 20)
+y antes de restaurar. Cada fila muestra fecha, motivo, tamaño y cantidad de
+medios/clips:
+
+- **Restaurar**: reemplaza el archivo actual y guarda una copia previa de lo que
+  había (`before-restore`).
+- **Como copia…**: crea un archivo `*-restored-*.editoria.json` y lo abre sin
+  tocar el proyecto actual.
+
+Ambas acciones piden confirmación y, si el backend falla, el error se muestra tal
+cual (no se simula una restauración).
+
+**Medios faltantes.** En **Proyectos → Medios del proyecto** la app comprueba los
+archivos locales del proyecto. Si moviste o renombraste medios, la tarjeta lista
+cada faltante con su tipo, ruta y clips que lo usan.
+
+- **Relink…** (por medio): elegís el archivo que lo reemplaza. El backend valida
+  nombre y tamaño, y hash SHA-256 cuando el proyecto lo declara.
+- **Buscar carpeta…**: reconecta de una vez los medios que encuentre en una
+  carpeta (coincidencia por nombre y tamaño; los casos ambiguos se rechazan).
+
+Si el archivo queda fuera de la carpeta del proyecto, la app lo copia dentro; si
+el backend no calculó un hash nuevo, el medio queda como *sin verificar* hasta
+que se vuelva a comprobar. Un **proxy** disponible sólo sirve para previsualizar:
+no reemplaza al archivo original y no se ofrece como relink.
+
+**Duplicados por hash.** En **Proyectos → Copias idénticas en el proyecto**,
+**Analizar duplicados** agrupa medios con el mismo SHA-256. Elegís qué copia
+conservar y podés **quitar las demás del proyecto**; las copias en uso por clips
+no se pueden quitar. **Ningún archivo del disco se borra**: sólo se quitan
+registros del proyecto, y el cambio se guarda como cualquier otra edición.
+
 ## 3. Importar medios
 
 1. Abrí **Medios**.

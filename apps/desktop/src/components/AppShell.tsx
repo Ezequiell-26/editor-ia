@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Sidebar } from './Sidebar';
 import { Icon, type IconName } from './Icon';
 import { MenuBar } from './MenuBar';
@@ -54,6 +54,7 @@ export function AppShell({
   const error = store.state.error;
   const notice = store.state.notice;
   const preferences = useEditorPreferences();
+  const [recovering, setRecovering] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
   const immersive = activeId === 'editor' && Boolean(project);
@@ -118,6 +119,28 @@ export function AppShell({
       window.cancelAnimationFrame(handle);
     };
   }, [activeId]);
+
+  /**
+   * Recuperación de la instantánea de crash: única superficie dentro del shell
+   * (el launcher muestra la misma oferta cuando está fuera). El descarte pide
+   * confirmación para no perder trabajo sin guardar por un clic accidental.
+   */
+  async function recoverSession(): Promise<void> {
+    if (recovering) return;
+    setRecovering(true);
+    try {
+      await store.acceptRecovery();
+    } finally {
+      setRecovering(false);
+    }
+  }
+
+  function discardSession(): void {
+    const confirmed = window.confirm(
+      'Se descarta la sesión sin guardar; el proyecto en disco queda como está. ¿Continuar?',
+    );
+    if (confirmed) store.dismissRecovery();
+  }
 
   return (
     <div className={`app-shell${immersive ? ' editor-immersive' : ''}`}>
@@ -292,10 +315,20 @@ export function AppShell({
             Se interrumpió la sesión anterior y quedaron cambios sin guardar en{' '}
             <strong>{fileNameOf(store.state.recoveryOffer.path)}</strong>.
           </span>
-          <button type="button" className="primary" onClick={() => void store.acceptRecovery()}>
-            Recuperar
+          <button
+            type="button"
+            className="primary"
+            onClick={() => void recoverSession()}
+            disabled={recovering}
+          >
+            {recovering ? 'Recuperando…' : 'Recuperar'}
           </button>
-          <button type="button" className="ghost" onClick={() => store.dismissRecovery()}>
+          <button
+            type="button"
+            className="ghost"
+            onClick={discardSession}
+            disabled={recovering}
+          >
             Descartar
           </button>
         </div>

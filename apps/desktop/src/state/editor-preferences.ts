@@ -56,6 +56,13 @@ export interface EditorPreferences {
    * huecos. Default false (retrocompatible; migra `editoria.timeline-ripple.v1`).
    */
   readonly timelineRipple: boolean;
+  /**
+   * Proxies de reproducción: la UI decide cuándo pedirlos (el backend no
+   * auto-genera). `autoProxy` genera para video >1080p; `proxyQuality` fija la
+   * resolución del proxy.
+   */
+  readonly autoProxy: boolean;
+  readonly proxyQuality: '540p' | '720p';
 }
 
 /** Almacenamiento mínimo que necesitan estas preferencias. */
@@ -83,6 +90,8 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   timelineClipLabels: 'full',
   timelineShowGrid: true,
   timelineRipple: false,
+  autoProxy: false,
+  proxyQuality: '540p',
 };
 
 /** Límites duros por campo: la UI y la normalización comparten la misma tabla. */
@@ -163,6 +172,8 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
       source.timelineRipple,
       DEFAULT_EDITOR_PREFERENCES.timelineRipple,
     ),
+    autoProxy: bool(source.autoProxy, DEFAULT_EDITOR_PREFERENCES.autoProxy),
+    proxyQuality: source.proxyQuality === '720p' ? '720p' : '540p',
   };
 }
 

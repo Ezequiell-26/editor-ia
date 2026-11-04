@@ -1,0 +1,140 @@
+/* Effect Browser - Estilos específicos para el navegador de efectos */
+
+.effect-browser {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(180deg, #0a0a0a 0%, #141414 100%);
+}
+
+.effect-browser-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0;
+}
+
+.effect-search-input {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+  transition: all 0.2s ease;
+}
+
+.effect-search-input:focus {
+  outline: none;
+  border-color: #007aff;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.effect-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.effect-browser-count {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  min-width: 40px;
+  text-align: center;
+}
+
+.effect-browser-chips {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.effect-browser-chips::-webkit-scrollbar {
+  height: 6px;
+}
+
+.effect-browser-chips::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.effect-browser-chips::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.effect-browser-chips::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.chip:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.chip.on {
+  background: linear-gradient(135deg, #007aff 0%, #0051d5 100%);
+  border-color: #007aff;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.3);
+}
+
+.chip span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chip.on span {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Animaciones */
+@keyframes chipPulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.chip:active {
+  animation: chipPulse 0.3s ease;
+}

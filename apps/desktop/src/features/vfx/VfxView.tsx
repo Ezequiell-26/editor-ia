@@ -1,3 +1,4 @@
+import { ColorSwatch } from '../../components/ColorSwatch';
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import type { Clip, ClipEffects, ClipMask, MaskPoint } from '@editor-ia/project-schema';
 import { sampleMaskKeyframes } from '@editor-ia/project-schema';
@@ -492,10 +493,10 @@ export function VfxView({ onNavigate }: VfxViewProps) {
                     </div>
                     <label className="field">
                       <span>Color clave</span>
-                      <input
-                        type="color"
+                      <ColorSwatch
+                        label="Color clave"
                         value={chroma.color}
-                        onChange={(event) => updateChroma({ color: event.target.value })}
+                        onChange={(hex) => updateChroma({ color: hex })}
                       />
                     </label>
                     <label className="field">
