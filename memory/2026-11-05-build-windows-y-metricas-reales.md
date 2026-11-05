@@ -32,3 +32,21 @@ Artefacto: `target/release/bundle/nsis/Olyvia_0.2.0_x64-setup.exe` (158,8 MiB), 
 - Tests Rust: el binario de test no arranca en esta máquina (`STATUS_ENTRYPOINT_NOT_FOUND`, 0xc0000139) aunque se le pongan las DLLs delante; la app instalada sí corre con las suyas colocadas juntas. Sin resolver.
 - Sin medir: FPS bajo playback real, A/B de carga inicial con/sin memo, export completo de un proyecto real, CPU durante export (para justificar AMF/MF).
 - Los docs `PERFORMANCE_*.md` y `REPAIR_STATUS_FINAL.md` traían tablas presentadas como medidas que eran objetivos: se les antepuso una corrección explícita.
+
+## Corrección posterior del mismo día (anula el punto "Tests" de arriba)
+
+El `git checkout HEAD~1 --` con el que había destrabado el build **borró trabajo de `da87634`** (Preview ~350 líneas, `waveformPath`/`waveformColumns` del Timeline, Inspector). Por eso esos 5 fallos de `Timeline.test.tsx` que anoté como "preexistentes" eran míos: los delataba `tsc --noEmit`, que el test importaba exports inexistentes. El defecto real de `da87634` era otro: los 4 paneles abrían `React.memo(function …)` y cerraban con `}`, sin cerrar la llamada, y ninguno importa el namespace `React`.
+
+Números tras restaurar y cerrar el memo (`cdcfcd9`): typecheck limpio, `Timeline.test.tsx` **18/18**, suite **1558 pasan de 1573**; los fallos restantes (EffectStudio 5, AudioEffectStack 4, AssetsPanel 3, App 1-2, LottiePanel 1) son de nombres accesibles/catálogo, ajenos a rendimiento. Regla: **nunca revertir código para que compile**.
+
+### Costo de React por tick de cabezal (medido, es la causa de la falta de fluidez)
+
+`render-cost.test.tsx` con `React.Profiler` y **un `act()` por frame** (batchear los 30 daría ~1 commit y mentiría): **~13,5 ms/tick** (Timeline 7,42 + Inspector 6,06) sobre un presupuesto de 33 ms a 30 fps. Hay run-to-run de 1,5 a 11 ms/tick por lado en jsdom, así que el techo del test es `< 25 ms/tick`, holgado a propósito. El `memo` no lo baja: cada tick cambia la identidad del valor del contexto y todo consumidor de `useProjectStore()` reconcilia. La corrección real es partir el store (cabezal en slice/`useSyncExternalStore` propio y la línea del cabezal como hoja suscripta).
+
+### Build final instalado
+
+NSIS 10:23, exe `10:20:12` en `C:\Users\ofici\AppData\Local\Olyvia\editor-ia-desktop.exe`, ventana "Olyvia", **39,8 MB RAM**, CPU **0,00 s en 6 s** en reposo. O sea: la app instalada ya coincide con el código restaurado (antes tenía el Preview y el waveform viejos).
+
+### Archivos ajenos en el árbol
+
+`apps/desktop/src/features/localization/LocalizationView.tsx` (+143/−28) y `apps/desktop/src/styles/chrome.css` (+12) aparecieron modificados sin intervención de esta sesión. Se dejaron intactos y **sin commitear**.

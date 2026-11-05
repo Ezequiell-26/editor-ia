@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { Profiler, useCallback, useRef, type ReactNode } from 'react';
 import { act, cleanup, render } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -107,5 +108,11 @@ describe('costo de React por tick de cabezal', () => {
 
     expect(timeline.commits).toBeGreaterThan(0);
     expect(inspector.commits).toBeGreaterThan(0);
+    const totalMsPorTick = (timeline.ms + inspector.ms) / 30;
+    // Techo anti-regresion: medido ~13,5 ms/tick (Timeline 7,42 + Inspector
+    // 6,06). Si alguien parte el store en slices (cabezal en contexto propio)
+    // esto tiene que bajar, no subir. 25 deja aire para jsdom sin tapar una
+    // degradacion real.
+    expect(totalMsPorTick).toBeLessThan(25);
   });
 });
