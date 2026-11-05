@@ -60,3 +60,21 @@ todo el backend"). El árbol tenía trabajo de UI del usuario sin commitear
 
 Verificación: `tsc --noEmit` 0 errores · `test:serial` **2024 passed /
 3 skipped / 0 failed** (antes 13 fallos preexistentes).
+
+## Voice isolation real (2026-11-05, noche)
+
+- `commands/voice-isolation.rs` (muerto, nombre con guion) reemplazado por
+  `commands/voice_isolation.rs`: módulo real con `include_str!` del wrapper
+  `scripts/ai-voice-isolation/demucs-wrapper.py` materializado en `cache_dir`
+  (mismo patrón que `transcribe_faster.py` → funciona en la app instalada).
+- Comandos Tauri: `voice_isolation_status` (sonda python+`import demucs`,
+  override `EDITORIA_DEMUCS_PYTHON`) y `voice_isolate_media` (spawn_blocking,
+  salida JSON parseada, errores con cola de stderr).
+- Servicio frontend: `voiceIsolationStatus()`/`voiceIsolateMedia()` en
+  project-service + fake-service.
+- MCP: tools `voice_isolation_status` (read) y `voice_isolate` (write) — la IA
+  puede aislar voz de cualquier archivo del disco.
+- Verificación: `cargo check` 0 errores · `cargo test voice_isolation` 1/1 ·
+  `tsc --noEmit` 0 · `mcp-tools.test.ts` 24/24.
+- Pendiente: UI del inspector (`voiceIsolation.enabled` existe en schema pero
+  el render no consume el stem) y rebuild de la app instalada.

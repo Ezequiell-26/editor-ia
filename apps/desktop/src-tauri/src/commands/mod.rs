@@ -172,4 +172,5 @@ pub mod upscale;
 pub mod variants;
 pub mod visuals;
 pub mod voice_clone;
+pub mod voice_isolation;
 pub mod youtube_analytics;

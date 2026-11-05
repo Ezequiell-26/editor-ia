@@ -423,6 +423,20 @@ export async function executeMcpTool(
       });
     }
 
+    case 'voice_isolation_status': {
+      const status = await context.store.service.voiceIsolationStatus();
+      return JSON.stringify({ ok: true, ...status });
+    }
+
+    case 'voice_isolate': {
+      const outcome = await context.store.service.voiceIsolateMedia(
+        text(args, 'path'),
+        optionalText(args, 'model'),
+        optionalText(args, 'quality'),
+      );
+      return JSON.stringify({ ok: true, ...outcome });
+    }
+
     case 'markers_list':
       return JSON.stringify(
         projectOf(context).markers.map((marker) => ({

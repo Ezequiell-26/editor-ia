@@ -1929,6 +1929,12 @@ export function createFakeService(): FakeService {
         ],
       };
     },
+    async voiceIsolationStatus() {
+      return { available: false, python: null, reason: 'fake service' };
+    },
+    async voiceIsolateMedia() {
+      throw new Error('voice isolation no disponible en el servicio de prueba');
+    },
     async systemInfo(): Promise<SystemInfo> {
       return {
         appVersion: '0.1.0-test',

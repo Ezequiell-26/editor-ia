@@ -1586,6 +1586,21 @@ export interface TranscriptionResult {
   readonly segments: readonly TranscriptionSegment[];
 }
 
+export interface VoiceIsolationStatus {
+  readonly available: boolean;
+  readonly python: string | null;
+  readonly reason: string | null;
+}
+
+export interface VoiceIsolationOutcome {
+  readonly vocalsPath: string;
+  readonly accompanimentPath: string | null;
+  readonly durationSeconds: number;
+  readonly sampleRate: number;
+  readonly channels: number;
+  readonly processingTimeMs: number;
+}
+
 export interface MatchMediaPlanResult {
   readonly assignments: readonly number[];
   readonly model: string;
@@ -2334,6 +2349,12 @@ export interface DesktopService {
     language?: string,
     model?: string,
   ): Promise<TranscriptionResult>;
+  voiceIsolationStatus(): Promise<VoiceIsolationStatus>;
+  voiceIsolateMedia(
+    inputPath: string,
+    model?: string,
+    quality?: string,
+  ): Promise<VoiceIsolationOutcome>;
   systemInfo(): Promise<SystemInfo>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
@@ -2632,6 +2653,8 @@ export const PROJECT_COMMANDS = {
   loadDirectorMemory: 'load_director_memory',
   saveDirectorMemory: 'save_director_memory',
   transcribeAsset: 'transcribe_asset',
+  voiceIsolationStatus: 'voice_isolation_status',
+  voiceIsolateMedia: 'voice_isolate_media',
   systemInfo: 'system_info',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
@@ -3811,6 +3834,31 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         model: model ?? null,
       })) as TranscriptionResult;
     },
+    async voiceIsolationStatus() {
+      return (await call(PROJECT_COMMANDS.voiceIsolationStatus)) as VoiceIsolationStatus;
+    },
+    async voiceIsolateMedia(inputPath, model, quality) {
+      const raw = (await call(PROJECT_COMMANDS.voiceIsolateMedia, {
+        inputPath,
+        model: model ?? null,
+        quality: quality ?? null,
+      })) as {
+        vocals_path: string;
+        accompaniment_path: string | null;
+        duration_seconds: number;
+        sample_rate: number;
+        channels: number;
+        processing_time_ms: number;
+      };
+      return {
+        vocalsPath: raw.vocals_path,
+        accompanimentPath: raw.accompaniment_path,
+        durationSeconds: raw.duration_seconds,
+        sampleRate: raw.sample_rate,
+        channels: raw.channels,
+        processingTimeMs: raw.processing_time_ms,
+      };
+    },
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
     },
@@ -4228,6 +4276,8 @@ function createUnavailableService(): DesktopService {
     loadDirectorMemory: async () => unavailable(),
     saveDirectorMemory: async () => unavailable(),
     transcribeAsset: async () => unavailable(),
+    voiceIsolationStatus: async () => unavailable(),
+    voiceIsolateMedia: async () => unavailable(),
     systemInfo: async () => unavailable(),
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),

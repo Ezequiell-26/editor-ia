@@ -562,6 +562,21 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     }, ['path']),
     annotations: { readOnlyHint: true },
   },
+  {
+    name: 'voice_isolation_status',
+    description: `${READ} Estado del motor de aislación de voz (Demucs): si hay un Python con torch+demucs instalado y el motivo cuando no.`,
+    inputSchema: obj({}),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'voice_isolate',
+    description: `${WRITE} Aísla la voz de un archivo de audio/video del disco con Demucs local y devuelve la ruta del stem vocals.wav (más accompaniment.wav). Requiere Python con demucs; la primera vez descarga el modelo (~2 GB). La operación es lenta: usala una vez por material y reutilizá el resultado.`,
+    inputSchema: obj({
+      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta del archivo de audio o video.' },
+      model: { type: 'string', maxLength: 64, description: 'Modelo Demucs (por defecto htdemucs).' },
+      quality: { type: 'string', enum: ['low', 'medium', 'high', 'best'], description: 'Calidad vs velocidad (por defecto medium).' },
+    }, ['path']),
+  },
 
   // ── Marcadores ──────────────────────────────────────────────────────
   {

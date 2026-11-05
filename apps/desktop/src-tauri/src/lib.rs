@@ -468,7 +468,8 @@ pub fn run() {
             commands::visuals::list_visual_catalog,
             commands::visuals::audit_visuals,
             commands::lip_sync::lip_sync,
-            // commands::voice_isolation::isolate_voice, // TODO: Implementar voz isolation
+            commands::voice_isolation::voice_isolation_status,
+            commands::voice_isolation::voice_isolate_media,
             commands::audio_providers::get_audio_provider,
             commands::audio_providers::save_audio_provider,
             commands::audio_providers::clear_audio_provider_key,
