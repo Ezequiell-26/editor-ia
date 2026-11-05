@@ -649,7 +649,7 @@ pub async fn analyze_media_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{DynamicImage, GenericImage};
+    use image::DynamicImage;
 
     fn solid(r: u8, g: u8, b: u8, size: u32) -> RgbImage {
         RgbImage::from_pixel(size, size, image::Rgb([r, g, b]))

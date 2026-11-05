@@ -236,8 +236,8 @@ fn run_realesrgan(model_path: &Path, image: &DynamicImage) -> Result<RgbaImage, 
             image::imageops::overlay(
                 &mut output,
                 &piece,
-                (base_x * SCALE as i64),
-                (base_y * SCALE as i64),
+                base_x * SCALE as i64,
+                base_y * SCALE as i64,
             );
             done_tiles += 1;
             let _ = done_tiles;

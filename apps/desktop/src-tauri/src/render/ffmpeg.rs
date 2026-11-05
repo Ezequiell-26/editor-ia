@@ -559,11 +559,11 @@ fn keyframe_expression(
         let progress_expr = format!("(({time_var})-{:.6})/{:.6}", start.0, delta);
         // Cubic-bezier or preset easing for this segment
         let eased: String = match &start.2 {
-            SegmentEasing::Bezier(cp1X, cp1Y, cp2X, cp2Y) => {
+            SegmentEasing::Bezier(cp1_x, cp1_y, cp2_x, cp2_y) => {
                 // Resolver y(x=t) como la preview y emitir la curva
                 // pre-muestreada como expresión piecewise-lineal (antes se
                 // evaluaba la paramétrica x(u), que no es el progreso eased).
-                bezier_segment_expression(&progress_expr, *cp1X, *cp1Y, *cp2X, *cp2Y)
+                bezier_segment_expression(&progress_expr, *cp1_x, *cp1_y, *cp2_x, *cp2_y)
             }
             SegmentEasing::Preset(easing) => match easing.as_str() {
                 "ease-in" => format!("pow({},3)", progress_expr),
@@ -605,8 +605,8 @@ fn parse_easing(keyframe: &Value) -> SegmentEasing {
             bezier.get("cp2X").and_then(|v| v.as_f64()),
             bezier.get("cp2Y").and_then(|v| v.as_f64()),
         ];
-        if let [Some(cp1X), Some(cp1Y), Some(cp2X), Some(cp2Y)] = coords {
-            return SegmentEasing::Bezier(cp1X, cp1Y, cp2X, cp2Y);
+        if let [Some(cp1_x), Some(cp1_y), Some(cp2_x), Some(cp2_y)] = coords {
+            return SegmentEasing::Bezier(cp1_x, cp1_y, cp2_x, cp2_y);
         }
     }
     SegmentEasing::Preset(keyframe["easing"].as_str().unwrap_or("linear").to_owned())

@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::State;
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};

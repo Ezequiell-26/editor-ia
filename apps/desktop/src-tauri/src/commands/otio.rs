@@ -2,7 +2,7 @@
 //! Es un intercambio propio; no usa el modelo de FilmCraft para no fingir un
 //! adaptador que todavía no existe.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};

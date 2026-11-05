@@ -11,7 +11,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use keyring::Entry;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::State;
 

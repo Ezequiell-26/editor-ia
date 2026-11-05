@@ -6,7 +6,7 @@
 //! canal alfa. El resultado es un PNG con transparencia, sin subir nada a
 //! ningún lado.
 
-use std::io::{BufReader, ErrorKind, Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::OnceLock;
@@ -36,7 +36,7 @@ static ENVIRONMENT: OnceLock<ort::environment::Environment> = OnceLock::new();
 
 /// ¿Se puede correr la inferencia en esta máquina? Medido: el DLL tiene que
 /// estar junto al ejecutable (o en `ORT_DYLIB_PATH`).
-pub fn onnx_runtime_available(model_path: Option<&Path>) -> bool {
+pub fn onnx_runtime_available(_model_path: Option<&Path>) -> bool {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             if dir.join("onnxruntime.dll").is_file() {

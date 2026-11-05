@@ -3,7 +3,7 @@
 //! entradas validadas a la cola de la UI.
 
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use base64::Engine;

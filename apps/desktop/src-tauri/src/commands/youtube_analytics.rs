@@ -949,7 +949,7 @@ fn analyze_channel_blocking(
         .or_else(|| text_of(&value, "uploader"))
         .or_else(|| text_of(&value, "title"))
         .unwrap_or_else(|| "Canal de YouTube".to_owned());
-    listed.sort_by(|a, b| b.views.cmp(&a.views));
+    listed.sort_by_key(|video| std::cmp::Reverse(video.views));
     let mut selected: Vec<RawVideo> = Vec::new();
     let mut seen = HashSet::new();
     let newest_limit = (detail_count / 2).max(1) as usize;

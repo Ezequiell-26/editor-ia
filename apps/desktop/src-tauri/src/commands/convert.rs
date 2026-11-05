@@ -16,7 +16,7 @@
 
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::thread;
 
 use serde::{Deserialize, Serialize};
@@ -263,7 +263,7 @@ pub(crate) fn video_bitrate_for_target(
     duration_seconds: f64,
     audio_kbps: u32,
 ) -> u32 {
-    if !(target_megabytes > 0.0) || !(duration_seconds > 0.0) {
+    if !(target_megabytes > 0.0 && duration_seconds > 0.0) {
         return 2_000;
     }
     let total_kbps = (target_megabytes * 1024.0 * 1024.0 * 8.0) / (duration_seconds * 1000.0);

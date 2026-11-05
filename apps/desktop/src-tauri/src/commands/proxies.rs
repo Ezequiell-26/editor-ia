@@ -138,7 +138,6 @@ struct ResolvedAsset {
     source: PathBuf,
     mtime_ms: u64,
     bytes: u64,
-    kind: String,
 }
 
 fn resolve_asset(state: &AppState, asset_id: &str) -> Result<ResolvedAsset, ProjectError> {
@@ -180,7 +179,6 @@ fn resolve_asset(state: &AppState, asset_id: &str) -> Result<ResolvedAsset, Proj
         source,
         mtime_ms,
         bytes,
-        kind,
     })
 }
 
@@ -188,7 +186,6 @@ struct ExistingProxy {
     file: PathBuf,
     quality: String,
     mtime_ms: u64,
-    bytes: u64,
     up_to_date: bool,
 }
 
@@ -211,7 +208,6 @@ fn existing_proxy(root: &Path, asset_id: &str, mtime_ms: u64, bytes: u64) -> Opt
             file,
             quality,
             mtime_ms: file_mtime,
-            bytes: file_bytes,
             up_to_date: file_mtime == mtime_ms && file_bytes == bytes,
         };
         let replace = match &best {
@@ -636,7 +632,7 @@ pub async fn cancel_proxy(
     asset_id: String,
 ) -> Result<ProxyStatus, ProjectError> {
     let mut cancelled_status = None;
-    if let Ok(mut map) = runtimes().lock() {
+    if let Ok(map) = runtimes().lock() {
         if let Some(runtime) = map.get(&asset_id) {
             runtime.cancelled.store(true, Ordering::SeqCst);
             let mut status = runtime.status.clone();

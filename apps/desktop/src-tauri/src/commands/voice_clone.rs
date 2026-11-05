@@ -7,7 +7,7 @@
 //! remotas y guarda el WAV verificado dentro del proyecto. No envía datos a
 //! internet ni presenta una voz SAPI disfrazada como clon.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 use reqwest::Url;
@@ -444,7 +444,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn xtts_adapter_receives_a_wave_from_mock_server() {
         use std::io::{Read, Write};
-        use std::net::{TcpListener, TcpStream};
+        use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").expect("binding");
         let port = listener.local_addr().unwrap().port();
         let sample_wav = include_bytes!("../../resources/test/clonacion.wav");

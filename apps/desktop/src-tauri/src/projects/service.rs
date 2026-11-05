@@ -246,7 +246,7 @@ fn is_uuid_v4(value: &str) -> bool {
             return false;
         }
     }
-    bytes[14].to_ascii_lowercase() == b'4' && matches!(bytes[19].to_ascii_lowercase(), b'8'..=b'b')
+    bytes[14].eq_ignore_ascii_case(&b'4') && matches!(bytes[19].to_ascii_lowercase(), b'8'..=b'b')
 }
 
 static UUID_SEED: AtomicU64 = AtomicU64::new(0);

@@ -7,7 +7,7 @@
 //! unresolved licence until the user declares its rights.
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use serde::Serialize;

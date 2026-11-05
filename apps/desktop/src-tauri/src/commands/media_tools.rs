@@ -52,26 +52,6 @@ fn find_font() -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
-fn safe_stem(label: &str) -> String {
-    let cleaned: String = label
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ' ' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let trimmed = cleaned.trim().trim_matches('-').to_owned();
-    let base = if trimmed.is_empty() {
-        "medio"
-    } else {
-        &trimmed
-    };
-    base.chars().take(60).collect()
-}
-
 /// Busca un asset del proyecto y devuelve `(kind, ruta absoluta)`.
 fn resolve_asset(
     session: &crate::state::Session,

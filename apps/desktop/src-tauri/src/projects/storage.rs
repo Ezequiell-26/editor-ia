@@ -102,7 +102,7 @@ pub fn write_project_file(path: &Path, contents: &str) -> Result<u64, ProjectErr
         handle.sync_all().map_err(|error| io_error(&error))?;
         drop(handle);
         fs::rename(&temporary, path).map_err(|error| io_error(&error))?;
-        Ok(contents.as_bytes().len() as u64)
+        Ok(contents.len() as u64)
     })();
 
     if outcome.is_err() {

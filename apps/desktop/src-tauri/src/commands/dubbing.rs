@@ -214,7 +214,7 @@ pub(crate) fn dub_end_seconds(
 /// Construye el filtro de mezcla. `segments` ya tiene los WAV medidos. Si una
 /// voz no entra en su ventana se acelera hasta 1.35× y, si aún no entra, se
 /// recorta con un fade corto; el motivo se devuelve en `warnings`.
-pub(crate) fn build_dub_filter(
+fn build_dub_filter(
     segments: &[DubSegment],
     end_seconds: f64,
     bed_volume: Option<f64>,

@@ -315,9 +315,9 @@ fn active_controls() -> &'static Mutex<HashMap<String, Arc<DownloadControl>>> {
     ACTIVE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Cada descarga corre en su propio hilo bloqueante; el control vive ahí
-/// mientras yt-dlp/FFmpeg están vivos. El mapa global permite pausar o
-/// cancelar trabajos individuales desde la UI.
+// Cada descarga corre en su propio hilo bloqueante; el control vive ahí
+// mientras yt-dlp/FFmpeg están vivos. El mapa global permite pausar o
+// cancelar trabajos individuales desde la UI.
 thread_local! {
     static THREAD_CONTROL: std::cell::RefCell<Option<Arc<DownloadControl>>> =
         const { std::cell::RefCell::new(None) };
@@ -1752,6 +1752,7 @@ crop=trunc(iw/1.04/2)*2:trunc(ih/1.04/2)*2:{x}:{y},"
 /// Cadena del look cinematográfico. Es pura para testear el orden y el foco.
 /// El flujo óptico va después de estirar el tiempo para que el resultado sea
 /// 60 fps reales y no 58,8 fps disfrazados.
+#[cfg(test)]
 pub(crate) fn cinematic_filter(focus: &str) -> String {
     cinematic_filter_with(focus, None, None)
 }
@@ -1786,6 +1787,7 @@ pub(crate) fn cinematic_focus(value: Option<&str>) -> Result<&'static str, Strin
     }
 }
 
+#[cfg(test)]
 pub(crate) fn pipeline_filter(focus: &str) -> String {
     pipeline_filter_with(focus, None, None)
 }
@@ -2153,6 +2155,7 @@ impl AutoRouteDecision {
     /// Sólo los videos cortos no musicales reciben narración Piper.
     /// Los cortos no musicales conservan y masterizan la pista original; la
     /// voz Piper queda como opción manual explícita, no automática.
+    #[cfg(test)]
     pub fn master_original_audio(self) -> bool {
         !self.music && !self.long_video
     }
@@ -2163,6 +2166,7 @@ impl AutoRouteDecision {
     }
 
     /// La música conserva la pista sin filtros de velocidad ni ruido.
+    #[cfg(test)]
     pub fn preserves_original_audio_without_voice(self) -> bool {
         self.music
     }
@@ -2278,6 +2282,7 @@ fn probe_duration(ffprobe: Option<&Path>, input: &Path) -> Option<f64> {
 }
 
 /// Ruta rápida para videos largos: sin flujo óptico, denoise ni grano.
+#[cfg(test)]
 pub(crate) fn fast_cinematic_filter(focus: &str) -> String {
     fast_cinematic_filter_with(focus, None, None)
 }
@@ -2622,6 +2627,7 @@ fn process_video(
     Ok((output, Some(md5), Some(sha256)))
 }
 
+#[cfg(test)]
 fn cinematic_video(
     progress: ProgressSink<'_>,
     ffmpeg: &Path,
@@ -4048,7 +4054,7 @@ fn move_download_to(outcome: &mut DownloadOutcome, destination: &Path) -> Result
 pub async fn download_media(
     app: AppHandle,
     state: State<'_, AppState>,
-    mut request: DownloadRequest,
+    request: DownloadRequest,
 ) -> Result<DownloadOutcome, ProjectError> {
     let engine = resolve_engine(&state.config_dir)?;
     let settings = state.settings_snapshot()?;

@@ -123,7 +123,7 @@ pub struct DenoiseResult {
 /// ni `owdenoise`), así que el denoise espacial va con `dctdnoiz` (rápido) o
 /// `nlmeans` (calidad), y el temporal con `atadenoise`. Todos verificados contra
 /// el binario que viaja con el instalador.
-pub(crate) fn denoise_filter(
+fn denoise_filter(
     preset: DenoisePreset,
     strength: u8,
     temporal: bool,

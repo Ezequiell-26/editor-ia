@@ -94,52 +94,6 @@ fn codec_availability(
     }
 }
 
-fn available_codecs(encoders: &[String]) -> HashMap<String, CodecCapability> {
-    let mut map = HashMap::new();
-    map.insert(
-        "h264".to_owned(),
-        codec_availability(
-            encoders,
-            &["libx264", "h264_mf", "libopenh264"],
-            &["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"],
-        ),
-    );
-    map.insert(
-        "h265".to_owned(),
-        codec_availability(
-            encoders,
-            &["libx265", "hevc_mf"],
-            &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"],
-        ),
-    );
-    map.insert(
-        "vp9".to_owned(),
-        codec_availability(encoders, &["libvpx-vp9"], &["vp9_qsv", "vp9_vaapi"]),
-    );
-    map.insert(
-        "av1".to_owned(),
-        codec_availability(
-            encoders,
-            &["libsvtav1", "libaom-av1"],
-            &["av1_nvenc", "av1_qsv", "av1_amf"],
-        ),
-    );
-    map
-}
-
-fn available_audio(encoders: &[String]) -> Vec<String> {
-    let mut codecs = Vec::new();
-    for (name, encoders_list) in [
-        ("aac", &["aac", "aac_mf"] as &[&str]),
-        ("opus", &["libopus", "opus"] as &[&str]),
-    ] {
-        if encoders_list.iter().any(|encoder| has(encoders, encoder)) {
-            codecs.push(name.to_owned());
-        }
-    }
-    codecs
-}
-
 // La matriz se interseca con lo que el pipeline de render puede emitir.
 
 fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
@@ -274,13 +228,6 @@ fn number(value: Option<&Value>) -> Option<u64> {
             .as_u64()
             .or_else(|| value.as_str().and_then(|text| text.parse::<u64>().ok()))
     })
-}
-
-fn text(value: Option<&Value>) -> Option<String> {
-    value
-        .and_then(Value::as_str)
-        .map(|value| value.to_owned())
-        .filter(|value| !value.is_empty())
 }
 
 fn parse_verification(path: &Path, document: &Value, bytes: u64) -> ExportVerification {
