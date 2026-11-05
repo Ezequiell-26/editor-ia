@@ -4,7 +4,7 @@ import { sampleMaskKeyframes } from '@editor-ia/project-schema';
 import { captionMotionAt } from '../../state/caption-motion';
 import { PreviewTransformBox, isTransformable } from './PreviewTransformBox';
 import { cueWordsAt } from '../../state/subtitles';
-import { framesToSeconds, fpsOf, formatTimecode, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
+import { fpsOf, clipGainAtFrame, clipTransformAtFrame, updateProjectSettings } from '../../state/project-actions';
 import { FORMAT_PRESETS } from '../../state/video-format';
 import {
   attachPreviewAudio,
@@ -75,6 +75,10 @@ const PREVIEW_ZOOM_KEY = 'editoria.preview-zoom.v1';
 
 function readPreviewFill(): boolean {
   try {
+    // Por defecto «Ajustar»: el cuadro de la secuencia se ve completo y
+    // centrado en el panel, como el player de Filmora (un proyecto 9:16 en un
+    // panel ancho queda con franjas a los lados, no recortado). «Llenar»
+    // (cover) sigue disponible y se respeta la elección guardada.
     return window.localStorage.getItem(PREVIEW_FIT_KEY) === 'fill';
   } catch {
     return false;
@@ -527,10 +531,15 @@ function VideoLayer({
     }
     if (playing) {
       resumePreviewAudio();
-      void video.play().catch(() => {
-        // Autoplay can be denied; the scrub still works and the user can press play again.
-      });
-    } else {
+      // `sourceSeconds` cambia en cada frame, así que este efecto se ejecuta
+      // ~30 veces por segundo. Llamar a `play()` sobre un video que ya está
+      // reproduciéndose encolaba otras tantas promesas sin ningún efecto.
+      if (video.paused) {
+        void video.play().catch(() => {
+          // Autoplay can be denied; the scrub still works and the user can press play again.
+        });
+      }
+    } else if (!video.paused) {
       video.pause();
     }
   }, [playing, sourceSeconds, url]);
@@ -972,8 +981,11 @@ export const Preview = memo(function Preview() {
   const playing = store.state.playing;
 
   useEffect(() => {
-    setRealFrame(null);
-    setPixelPerfect(false);
+    // Este efecto corre en cada frame de reproducción. Si los valores ya
+    // están en su estado por defecto, devolver la misma referencia deja que
+    // React omita el render en vez de encolar dos actualizaciones por frame.
+    setRealFrame((current) => (current === null ? current : null));
+    setPixelPerfect((current) => (current === false ? current : false));
   }, [playhead, project?.id]);
 
   useEffect(() => {
@@ -1172,163 +1184,169 @@ export const Preview = memo(function Preview() {
       data-compare={compare ? 'true' : undefined}
       ref={stageRef}
     >
-      <div className="preview-hud" aria-hidden="true">
-        <span className="preview-hud-chip strong">
-          {project.video.width}×{project.video.height}
-        </span>
-        <span className="preview-hud-chip">{fps} fps</span>
-        <span className="preview-hud-chip preview-hud-render" title="El render final usa FFmpeg">
-          Vista previa aproximada
-        </span>
-        {pixelPerfect && realFrame ? (
-          <span
-            className="preview-hud-chip strong"
-            title={`Frame decodificado con ${realFrame.decoder === 'video-rs' ? 'video-rs en proceso' : 'FFmpeg'}`}
+      {/* Barra superior del monitor: el HUD y las herramientas comparten una
+          sola fila flex. Antes eran dos capas absolutas independientes y el
+          chip «Vista previa aproximada» quedaba tapado por el selector de
+          formato en cuanto la ventana se achicaba. */}
+      <div className="preview-topbar">
+        <div className="preview-hud" aria-hidden="true">
+          <span className="preview-hud-chip strong">
+            {project.video.width}×{project.video.height}
+          </span>
+          <span className="preview-hud-chip">{fps} fps</span>
+          <span className="preview-hud-chip preview-hud-render" title="El render final usa FFmpeg">
+            Vista previa aproximada
+          </span>
+          {pixelPerfect && realFrame ? (
+            <span
+              className="preview-hud-chip strong"
+              title={`Frame decodificado con ${realFrame.decoder === 'video-rs' ? 'video-rs en proceso' : 'FFmpeg'}`}
+            >
+              1:1 {realFrame.native ? 'nativo' : ''} · {realFrame.width}×{realFrame.height}
+            </span>
+          ) : null}
+          {usingProxy ? (
+            <span className="preview-hud-chip proxy" title="La preview usa un proxy; el MP4 usa el original">
+              PROXY
+            </span>
+          ) : null}
+        </div>
+        <div className="preview-tools">
+          <select
+            className="preview-ratio-select"
+            value={currentRatioPreset?.id ?? 'custom'}
+            onChange={(e) => handleRatioChange(e.target.value)}
+            title="Relación de aspecto (16:9, 9:16 vertical TikTok, 1:1, etc.)"
+            aria-label="Relación de aspecto"
           >
-            1:1 {realFrame.native ? 'nativo' : ''} · {realFrame.width}×{realFrame.height}
-          </span>
-        ) : null}
-        {usingProxy ? (
-          <span className="preview-hud-chip proxy" title="La preview usa un proxy; el MP4 usa el original">
-            PROXY
-          </span>
-        ) : null}
-      </div>
-      <div className="preview-tools">
-        <select
-          className="preview-ratio-select"
-          value={currentRatioPreset?.id ?? 'custom'}
-          onChange={(e) => handleRatioChange(e.target.value)}
-          title="Relación de aspecto (16:9, 9:16 vertical TikTok, 1:1, etc.)"
-          aria-label="Relación de aspecto"
-        >
-          {FORMAT_PRESETS.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.label.split(' ')[0]} ({preset.width > preset.height ? '16:9' : preset.width < preset.height ? '9:16' : '1:1'})
-            </option>
-          ))}
-          {!currentRatioPreset && (
-            <option value="custom">Personalizado ({project.video.width}×{project.video.height})</option>
-          )}
-        </select>
-        <button
-          type="button"
-          className={compare ? 'preview-tool active' : 'preview-tool'}
-          aria-pressed={compare}
-          aria-label="Comparar con el original"
-          title="Comparar con el original: oculta color, transformación, subtítulos y guías"
-          onClick={() => setCompare((value) => !value)}
-        >
-          <Icon name="eye" size={13} />
-          <span>Comparar</span>
-        </button>
-        <button
-          type="button"
-          className={realFrame ? 'preview-tool active' : 'preview-tool'}
-          aria-pressed={Boolean(realFrame)}
-          aria-label="Frame real compuesto de la timeline"
-          title="Compone con FFmpeg las pistas visibles, los subtítulos y el look en el playhead; una transición, un fade o un gráfico activo pueden tardar más o mostrar el clip"
-          onClick={() => void renderRealFrame()}
-          disabled={realFrameBusy || visualClips.length === 0}
-        >
-          <Icon name="sparkles" size={13} />
-          <span>{realFrameBusy ? 'Render…' : 'Frame real'}</span>
-        </button>
-        <button
-          type="button"
-          className={showGuides ? 'preview-tool active' : 'preview-tool'}
-          aria-pressed={showGuides}
-          aria-label="Guías de composición"
-          title="Guías de composición"
-          onClick={() => setShowGuides((value) => !value)}
-        >
-          <Icon name="grid" size={13} />
-          <span>Guías</span>
-        </button>
-        <button
-          type="button"
-          className={showScopes ? 'preview-tool active' : 'preview-tool'}
-          aria-pressed={showScopes}
-          aria-label="Scopes de color"
-          title="Onda, vectorscopio e histograma del clip visual activo"
-          onClick={() => setShowScopes((value) => !value)}
-        >
-          <Icon name="palette" size={13} />
-          <span>Scopes</span>
-        </button>
-        <button
-          type="button"
-          className={monitorFill ? 'preview-tool active' : 'preview-tool'}
-          aria-pressed={monitorFill}
-          aria-label={monitorFill ? 'Ajustar el video completo' : 'Llenar el monitor con el video'}
-          title={
-            monitorFill
-              ? 'Ajustar: imagen completa (puede dejar franjas del color del panel)'
-              : 'Llenar: cubre el visor sin franjas y recorta los bordes del video'
-          }
-          onClick={() => {
-            setMonitorFill((current) => !current);
-            setPixelPerfect(false);
-            setMonitorZoom(1);
-            setMonitorPan({ x: 0, y: 0 });
-          }}
-        >
-          <span>{monitorFill ? 'Ajustar' : 'Llenar'}</span>
-        </button>
-        <button
-          type="button"
-          className={pixelPerfect ? 'preview-tool active' : 'preview-tool'}
-          aria-pressed={pixelPerfect}
-          aria-label="Monitor 1:1 en píxeles"
-          title="Decodifica el frame a la resolución nativa del medio (video-rs, con FFmpeg de respaldo) y lo muestra 1:1 con scroll"
-          onClick={() => void showPixelPerfect()}
-          disabled={realFrameBusy}
-        >
-          <span>1:1</span>
-        </button>
-        <button
-          type="button"
-          className="preview-tool"
-          aria-label="Alejar monitor"
-          title="Alejar monitor"
-          onClick={() => changeZoom(-0.5)}
-          disabled={pixelPerfect || monitorZoom <= 0.5}
-        >
-          <Icon name="minus" size={13} />
-        </button>
-        <button
-          type="button"
-          className="preview-tool"
-          aria-label="Ajustar monitor al 100 %"
-          title="Ajustar monitor al 100 %"
-          onClick={() => {
-            setPixelPerfect(false);
-            setMonitorZoom(1);
-            setMonitorPan({ x: 0, y: 0 });
-          }}
-        >
-          <span>{Math.round(monitorZoom * 100)}%</span>
-        </button>
-        <button
-          type="button"
-          className="preview-tool"
-          aria-label="Acercar monitor"
-          title="Acercar monitor"
-          onClick={() => changeZoom(0.5)}
-          disabled={pixelPerfect || monitorZoom >= 3}
-        >
-          <Icon name="plus" size={13} />
-        </button>
-        <button
-          type="button"
-          className="preview-tool"
-          aria-label="Pantalla completa"
-          title="Pantalla completa"
-          onClick={toggleFullscreen}
-        >
-          <Icon name="fullscreen" size={13} />
-          <span>Pantalla</span>
-        </button>
+            {FORMAT_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.id}>
+                {preset.label.split(' ')[0]} ({preset.width > preset.height ? '16:9' : preset.width < preset.height ? '9:16' : '1:1'})
+              </option>
+            ))}
+            {!currentRatioPreset && (
+              <option value="custom">Personalizado ({project.video.width}×{project.video.height})</option>
+            )}
+          </select>
+          <button
+            type="button"
+            className={compare ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={compare}
+            aria-label="Comparar con el original"
+            title="Comparar con el original: oculta color, transformación, subtítulos y guías"
+            onClick={() => setCompare((value) => !value)}
+          >
+            <Icon name="eye" size={13} />
+            <span>Comparar</span>
+          </button>
+          <button
+            type="button"
+            className={realFrame ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={Boolean(realFrame)}
+            aria-label="Frame real compuesto de la timeline"
+            title="Compone con FFmpeg las pistas visibles, los subtítulos y el look en el playhead; una transición, un fade o un gráfico activo pueden tardar más o mostrar el clip"
+            onClick={() => void renderRealFrame()}
+            disabled={realFrameBusy || visualClips.length === 0}
+          >
+            <Icon name="sparkles" size={13} />
+            <span>{realFrameBusy ? 'Render…' : 'Frame real'}</span>
+          </button>
+          <button
+            type="button"
+            className={showGuides ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={showGuides}
+            aria-label="Guías de composición"
+            title="Guías de composición"
+            onClick={() => setShowGuides((value) => !value)}
+          >
+            <Icon name="grid" size={13} />
+            <span>Guías</span>
+          </button>
+          <button
+            type="button"
+            className={showScopes ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={showScopes}
+            aria-label="Scopes de color"
+            title="Onda, vectorscopio e histograma del clip visual activo"
+            onClick={() => setShowScopes((value) => !value)}
+          >
+            <Icon name="palette" size={13} />
+            <span>Scopes</span>
+          </button>
+          <button
+            type="button"
+            className={monitorFill ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={monitorFill}
+            aria-label={monitorFill ? 'Ajustar el video completo' : 'Llenar el monitor con el video'}
+            title={
+              monitorFill
+                ? 'Ajustar: imagen completa (puede dejar franjas del color del panel)'
+                : 'Llenar: cubre el visor sin franjas y recorta los bordes del video'
+            }
+            onClick={() => {
+              setMonitorFill((current) => !current);
+              setPixelPerfect(false);
+              setMonitorZoom(1);
+              setMonitorPan({ x: 0, y: 0 });
+            }}
+          >
+            <span>{monitorFill ? 'Ajustar' : 'Llenar'}</span>
+          </button>
+          <button
+            type="button"
+            className={pixelPerfect ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={pixelPerfect}
+            aria-label="Monitor 1:1 en píxeles"
+            title="Decodifica el frame a la resolución nativa del medio (video-rs, con FFmpeg de respaldo) y lo muestra 1:1 con scroll"
+            onClick={() => void showPixelPerfect()}
+            disabled={realFrameBusy}
+          >
+            <span>1:1</span>
+          </button>
+          <button
+            type="button"
+            className="preview-tool"
+            aria-label="Alejar monitor"
+            title="Alejar monitor"
+            onClick={() => changeZoom(-0.5)}
+            disabled={pixelPerfect || monitorZoom <= 0.5}
+          >
+            <Icon name="minus" size={13} />
+          </button>
+          <button
+            type="button"
+            className="preview-tool"
+            aria-label="Ajustar monitor al 100 %"
+            title="Ajustar monitor al 100 %"
+            onClick={() => {
+              setPixelPerfect(false);
+              setMonitorZoom(1);
+              setMonitorPan({ x: 0, y: 0 });
+            }}
+          >
+            <span>{Math.round(monitorZoom * 100)}%</span>
+          </button>
+          <button
+            type="button"
+            className="preview-tool"
+            aria-label="Acercar monitor"
+            title="Acercar monitor"
+            onClick={() => changeZoom(0.5)}
+            disabled={pixelPerfect || monitorZoom >= 3}
+          >
+            <Icon name="plus" size={13} />
+          </button>
+          <button
+            type="button"
+            className="preview-tool"
+            aria-label="Pantalla completa"
+            title="Pantalla completa"
+            onClick={toggleFullscreen}
+          >
+            <Icon name="fullscreen" size={13} />
+            <span>Pantalla</span>
+          </button>
+        </div>
       </div>
       {showScopes ? (
         <ScopesPanel
@@ -1503,12 +1521,6 @@ export const Preview = memo(function Preview() {
             <span className="safe-title" />
           </div>
         ) : null}
-        <span
-          className="preview-timecode-chip"
-          title={`${framesToSeconds(playhead, fps).toFixed(2)} s en la timeline`}
-        >
-          {formatTimecode(playhead, fps)}
-        </span>
         {visualClips.length === 0 ? (
           <div className="preview-overlay">
             <strong>

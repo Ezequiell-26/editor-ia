@@ -44,7 +44,7 @@ export default defineConfig({
         // vendors se carguen en paralelo; además los paquetes pesados que sólo
         // usan vistas lazy (emojibase/lottie/effect-kit) no contaminan el
         // arranque. Ver docs/CSS-PERF-NOTES.md §5.2.
-        manualChunks(id, { getModuleInfo }) {
+        manualChunks(id) {
           if (id.includes('node_modules')) {
             // React core separado
             if (id.includes('react') || id.includes('scheduler')) {
@@ -85,11 +85,9 @@ export default defineConfig({
           if (id.includes('/packages/effect-kit/')) {
             return 'vendor-effect';
           }
-          // Optimización: chunks grandes > 50KB separados
-          const module = getModuleInfo(id);
-          if (module && module.size > 50000) {
-            return `chunk-${module.id.split('/').pop()?.replace('.js', '')}`;
-          }
+          // Nada de heuristicas por tamano aqui: `ModuleInfo` no expone `size`
+          // en esta fase y Rompnia el typecheck. Los archivos grandes se ven en
+          // el aviso de `build.chunkSizeWarningLimit` y se dividen a mano.
           return undefined;
         },
         inlineDynamicImports: false,

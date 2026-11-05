@@ -1,4 +1,5 @@
 import {memo,  useEffect, useRef, useState, type ReactNode } from 'react';
+import { ColorSwatch } from '../../components/ColorSwatch';
 import { Icon } from '../../components/Icon';
 import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, PerspectiveCorner, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
 import { MARKER_COLORS, MAX_MARKERS, type MarkerColor } from '@editor-ia/project-schema';
@@ -2825,12 +2826,12 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           <div className="inspector-grid">
             <label className="field">
               <span>Color a remover</span>
-              <input
-                type="color"
+              <ColorSwatch
+                label="Color a remover"
                 value={chromaKey?.color ?? '#00ff00'}
-                onChange={(event) =>
+                onChange={(hex) =>
                   setChromaKey({
-                    color: event.target.value,
+                    color: hex,
                     similarity: chromaKey?.similarity ?? 0.3,
                     blend: chromaKey?.blend ?? 0.1,
                   })
@@ -5218,11 +5219,11 @@ function ProjectInspector() {
         )}
         <label className="field">
           <span>Color de fondo</span>
-          <input
-            type="color"
+          <ColorSwatch
+            label="Color de fondo"
             value={project.video.backgroundColor ?? '#0b0e13'}
-            onChange={(event) =>
-              store.update((current) => updateProjectSettings(current, { backgroundColor: event.target.value }))
+            onChange={(hex) =>
+              store.update((current) => updateProjectSettings(current, { backgroundColor: hex }))
             }
           />
         </label>
@@ -6094,11 +6095,11 @@ function ProjectInspector() {
             />
             <label className="field">
               <span>Color</span>
-              <input
-                type="color"
+              <ColorSwatch
+                label="Color del subtítulo"
                 value={style.color}
-                onChange={(event) =>
-                  store.update((current) => updateCaptionStyle(current, style.id, { color: event.target.value }))
+                onChange={(hex) =>
+                  store.update((current) => updateCaptionStyle(current, style.id, { color: hex }))
                 }
               />
             </label>
@@ -6137,14 +6138,12 @@ function ProjectInspector() {
             </label>
             <label className="field">
               <span>Fondo de caja</span>
-              <input
-                type="color"
+              <ColorSwatch
+                label="Fondo de caja"
                 value={style.backgroundColor ?? '#0b0e13'}
-                onChange={(event) =>
+                onChange={(hex) =>
                   store.update((current) =>
-                    updateCaptionStyle(current, style.id, {
-                      backgroundColor: event.target.value,
-                    }),
+                    updateCaptionStyle(current, style.id, { backgroundColor: hex }),
                   )
                 }
               />
@@ -6202,14 +6201,12 @@ function ProjectInspector() {
             />
             <label className="field">
               <span>Color 3D</span>
-              <input
-                type="color"
+              <ColorSwatch
+                label="Color 3D"
                 value={style.depthColor ?? '#1f2937'}
-                onChange={(event) =>
+                onChange={(hex) =>
                   store.update((current) =>
-                    updateCaptionStyle(current, style.id, {
-                      depthColor: event.target.value,
-                    }),
+                    updateCaptionStyle(current, style.id, { depthColor: hex }),
                   )
                 }
               />
