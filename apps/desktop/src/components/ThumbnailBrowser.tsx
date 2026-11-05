@@ -117,8 +117,18 @@ function ThumbnailCard({ item, isSelected, onClick, onDoubleClick }: ThumbnailCa
   return (
     <div
       className={`thumbnail-card ${isSelected ? 'selected' : ''}`}
+      role="button"
+      tabIndex={0}
+      aria-pressed={isSelected}
+      aria-label={item.name}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       title={item.description || item.name}
     >
       <div className="thumbnail-preview">

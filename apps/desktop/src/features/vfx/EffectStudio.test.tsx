@@ -23,9 +23,7 @@ function Harness() {
 
 function addEffect(name: RegExp) {
   const browser = screen.getByRole('region', { name: 'Catálogo de efectos' });
-  const card = within(browser)
-    .getAllByRole('button')
-    .find((button) => name.test(button.textContent ?? ''));
+  const card = within(browser).getAllByRole('button', { name })[0];
   expect(card).toBeTruthy();
   if (card) fireEvent.click(card);
 }

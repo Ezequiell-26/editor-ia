@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
 import { useThumbnail } from '../../hooks/useThumbnail';
+import { relinkAsset, toggleAssetFavorite } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { Icon } from '../../components/Icon';
 
@@ -84,6 +86,46 @@ function AssetThumbnailCard({
 }: AssetThumbnailCardProps) {
   const store = useProjectStore();
   const thumbnail = useThumbnail(store.service, asset, root);
+  const [relinkBusy, setRelinkBusy] = useState(false);
+
+  const relinkable =
+    asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio';
+
+  async function reconectar(): Promise<void> {
+    const project = store.state.project;
+    if (!project || relinkBusy || !relinkable) return;
+    const title = `Reconectar ${asset.label}`;
+    setRelinkBusy(true);
+    try {
+      const path =
+        asset.kind === 'video'
+          ? await store.service.chooseVideoFile(title)
+          : asset.kind === 'image'
+            ? await store.service.chooseImageFile(title)
+            : await store.service.chooseAudioFile(title);
+      if (!path) return;
+      const outcome = await store.service.importMediaPaths({
+        paths: [path],
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+        confirmRights: true,
+      });
+      const imported = outcome.assets[0];
+      if (!imported) {
+        store.setNotice(outcome.warnings[0] ?? 'no se pudo leer el archivo elegido');
+        return;
+      }
+      store.update((current) => relinkAsset(current, asset.id, imported), {
+        notice: `Material reconectado: ${asset.label}. Los clips mantienen su lugar.`,
+      });
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo reconectar el material',
+      );
+    } finally {
+      setRelinkBusy(false);
+    }
+  }
 
   const getDuration = () => {
     if (asset.kind === 'video' && asset.media) {
@@ -115,9 +157,23 @@ function AssetThumbnailCard({
         )}
         {duration && <span className="asset-duration-badge">{duration}</span>}
         {asset.kind === 'video' && <Icon name="play" size={16} className="asset-play-icon" />}
-        {asset.favorite && (
-          <Icon name="star" size={14} className="asset-favorite-icon" />
-        )}
+        <button
+          type="button"
+          className={asset.favorite ? 'asset-fav-toggle active' : 'asset-fav-toggle'}
+          aria-pressed={asset.favorite ?? false}
+          aria-label={
+            asset.favorite
+              ? `Quitar ${asset.label} de favoritos`
+              : `Marcar ${asset.label} como favorito`
+          }
+          title={asset.favorite ? 'Quitar de favoritos' : 'Agregar a favoritos'}
+          onClick={(event) => {
+            event.stopPropagation();
+            store.update((current) => toggleAssetFavorite(current, asset.id));
+          }}
+        >
+          <Icon name="star" size={13} />
+        </button>
       </div>
       <div className="asset-thumbnail-info">
         <span className="asset-thumbnail-name" title={asset.label}>
@@ -128,6 +184,21 @@ function AssetThumbnailCard({
             {getResolution(asset)}
           </span>
         )}
+        {relinkable ? (
+          <button
+            type="button"
+            className="asset-relink-btn"
+            disabled={relinkBusy}
+            aria-label={`Reconectar archivo ${asset.label}`}
+            title="Elegí otro archivo para este material; conserva nombre, licencia y clips"
+            onClick={(event) => {
+              event.stopPropagation();
+              void reconectar();
+            }}
+          >
+            {relinkBusy ? 'Reconectando…' : 'Reconectar archivo…'}
+          </button>
+        ) : null}
       </div>
     </div>
   );

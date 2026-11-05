@@ -35,6 +35,7 @@ import { parseSubtitles, serializeSrt } from '../../state/subtitles';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
 import { KeyframeCurveEditor } from './KeyframeCurveEditor';
+import { CurveEditor } from './CurveEditor';
 import { SilenceCutsSection } from './SilenceCutsSection';
 import { SpeechCutsSection } from './SpeechCutsSection';
 import { SpeakersSection } from './SpeakersSection';
@@ -429,14 +430,68 @@ function CompoundInspector({
   );
 }
 
+interface InspectorSubTab {
+  readonly id: string;
+  readonly label: string;
+  /** Visible pero deshabilitada: la captura la muestra y el backend no existe. */
+  readonly pending?: boolean;
+}
+const SUB_TABS: Record<ClipTab, readonly InspectorSubTab[]> = {
+  video: [
+    { id: 'basic', label: 'Básico' },
+    { id: 'mask', label: 'Máscara' },
+    { id: 'tracking', label: 'Seguimiento' },
+    { id: 'ia', label: 'IA' },
+  ],
+  audio: [
+    { id: 'basic', label: 'Básico' },
+    { id: 'noise', label: 'Eliminar Ruido', pending: true },
+    { id: 'voice', label: 'Filtros de voz', pending: true },
+    { id: 'custom', label: 'Personalizar' },
+  ],
+  speed: [
+    { id: 'uniform', label: 'Velocidad uniforme' },
+    { id: 'ramp', label: 'Rampa de velocidad' },
+    { id: 'ia', label: 'Rampas de IA', pending: true },
+  ],
+  trim: [
+    { id: 'trim', label: 'Recorte' },
+    { id: 'fine', label: 'Ajuste fino' },
+  ],
+  animation: [
+    { id: 'in', label: 'Entrada' },
+    { id: 'out', label: 'Salida' },
+    { id: 'combo', label: 'Combinado' },
+  ],
+  color: [
+    { id: 'basic', label: 'Básico' },
+    { id: 'hsl', label: 'HSL' },
+    { id: 'curves', label: 'Curvas' },
+    { id: 'wheels', label: 'Ruedas cromáticas' },
+    { id: 'hdr', label: 'HDR', pending: true },
+  ],
+  style: [
+    { id: 'presets', label: 'Presets' },
+    { id: 'effects', label: 'Efectos' },
+  ],
+  all: [{ id: 'all', label: 'Todas' }],
+};
+
 function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Track; project: ReturnType<typeof useProjectStore>['state']['project'] }) {
   const store = useProjectStore();
   // El inspector muestra el keyframe de máscara bajo el playhead: necesita el
   // frame de forma reactiva (contexto propio, no el store completo).
   const playheadFrame = usePlayheadFrame();
+  const tabListRef = useRef<HTMLDivElement | null>(null);
+  const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
+  const [subTab, setSubTab] = useState('basic');
   const [tab, setTab] = useState<ClipTab>(
     clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video',
   );
+  useEffect(() => {
+    const first = SUB_TABS[tab].find((item) => !item.pending);
+    setSubTab(first?.id ?? 'all');
+  }, [tab]);
   const [sceneThreshold, setSceneThreshold] = useState(0.35);
   const [sceneCuts, setSceneCuts] = useState<number[]>([]);
   const [sceneBusy, setSceneBusy] = useState(false);
@@ -1364,29 +1419,103 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   };
 
   return (
-    <div className="clip-inspector" data-tab={tab}>
-      <div
-        className="inspector-tabs"
-        role="tablist"
-        aria-label="Propiedades del clip"
-        onKeyDown={onTabKeyDown}
-      >
-        {tabs.map((item) => (
+    <div className="clip-inspector" data-tab={tab} data-subtab={subTab}>
+      <div className="inspector-tabs-wrap">
+        <div
+          ref={tabListRef}
+          className="inspector-tabs"
+          role="tablist"
+          aria-label="Propiedades del clip"
+          onKeyDown={onTabKeyDown}
+        >
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              id={`inspector-tab-${item.id}`}
+              aria-controls="inspector-tabpanel"
+              aria-selected={tab === item.id}
+              tabIndex={tab === item.id ? 0 : -1}
+              className={tab === item.id ? 'active' : ''}
+              onClick={() => setTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        {/* Desplegable «» de las referencias 119-125: lista TODAS las
+            pestañas y selecciona una real, incluso cuando la barra no
+            desborda. No es un botón decorativo ni un scroll que propaga al
+            panel entero. */}
+        <div
+          className="inspector-tabs-overflow"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setTabsMenuOpen(false);
+          }}
+        >
           <button
-            key={item.id}
             type="button"
-            role="tab"
-            id={`inspector-tab-${item.id}`}
-            aria-controls="inspector-tabpanel"
-            aria-selected={tab === item.id}
-            tabIndex={tab === item.id ? 0 : -1}
-            className={tab === item.id ? 'active' : ''}
-            onClick={() => setTab(item.id)}
+            className="inspector-tabs-more"
+            aria-label="Mostrar todas las pestañas de propiedades"
+            aria-haspopup="menu"
+            aria-expanded={tabsMenuOpen}
+            title="Todas las pestañas"
+            onClick={() => setTabsMenuOpen((value) => !value)}
           >
-            {item.label}
+            <Icon name="chevron-down" size={12} />
           </button>
-        ))}
+          {tabsMenuOpen ? (
+            <div className="inspector-tabs-menu" role="menu" aria-label="Pestañas de propiedades">
+              {tabs.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={tab === item.id}
+                  className={tab === item.id ? 'active' : ''}
+                  onClick={() => {
+                    setTab(item.id);
+                    setTabsMenuOpen(false);
+                    // Si la barra sí desborda, deja visible la pestaña elegida.
+                    const list = tabListRef.current;
+                    if (list && list.scrollWidth > list.clientWidth + 2) {
+                      list
+                        .querySelector<HTMLButtonElement>(`#inspector-tab-${item.id}`)
+                        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    }
+                  }}
+                >
+                  <span>{item.label}</span>
+                  {tab === item.id ? <Icon name="check" size={11} /> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
       </div>
+      {SUB_TABS[tab].length > 1 ? (
+        <div className="inspector-subtabs" role="tablist" aria-label="Subpestañas de propiedades">
+          {SUB_TABS[tab].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={subTab === item.id}
+              disabled={item.pending}
+              title={
+                item.pending
+                  ? 'Estructura preparada · requiere integración de backend (pendiente)'
+                  : item.label
+              }
+              className={subTab === item.id ? 'active' : ''}
+              onClick={() => setSubTab(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div
         role="tabpanel"
         id="inspector-tabpanel"
@@ -1568,7 +1697,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         </div>
       </Section>
 
-      <Section title="Transformación" group="video">
+      <Section title="Transformación" group="video" subtab="basic">
         <div className="inspector-grid">
           <NumberField
             label="Desplaz. X"
@@ -1939,7 +2068,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       </Section>
 
       {visual ? (
-        <Section title="Transición de entrada" group="video">
+        <Section title="Transición de entrada" group="video" subtab="basic">
           <div className="inspector-grid">
             <label className="field">
               <span>Tipo</span>
@@ -2003,7 +2132,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual ? (
-        <Section title="Animación de entrada y salida" group="animation">
+        <Section title="Animación de entrada y salida" group="animation" subtab="in out combo">
           <div className="inspector-grid">
             <label className="field">
               <span>Entrada</span>
@@ -2202,7 +2331,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'freeze' ? (
-        <Section title="Congelado" group="video">
+        <Section title="Congelado" group="video" subtab="basic">
           <p className="fine-print">
             Este clip es un frame fijo exportado del video original. Se renderiza como imagen
             y podés moverlo, recortarlo o aplicarle color, máscara y animación sin alterar los
@@ -2212,7 +2341,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'audio' ? (
-        <Section title="Velocidad" group="speed">
+        <Section title="Velocidad" group="speed" subtab="uniform ramp">
           <div className="inspector-grid">
             <NumberField
               label="Velocidad (x)"
@@ -2521,7 +2650,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {transformKeyframes.length >= 2 ? (
-        <Section title="Curvas" group="video">
+        <Section title="Curvas" group="video" subtab="basic">
           <p className="fine-print">
             Editá las curvas de interpolación entre keyframes. Arrastrá los puntos naranjas para definir una curva
             Bézier propia del segmento que empieza en cada clave.
@@ -2545,7 +2674,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'video' ? (
-        <Section title="Estabilización" group="video">
+        <Section title="Estabilización" group="video" subtab="tracking">
           <div className="inspector-grid">
             <NumberField
               label="Suavizado (1–60)"
@@ -2614,7 +2743,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'video' ? (
-        <Section title="Seguimiento de rostro" group="video">
+        <Section title="Seguimiento de rostro" group="video" subtab="tracking">
           <p className="fine-print">
             Detecta el rostro en el tramo y crea keyframes de posición y escala para
             mantenerlo centrado, como el camera tracking de CapCut. Requiere el modelo de
@@ -2642,7 +2771,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {timed ? (
-        <Section title="Ajuste fino" group="trim">
+        <Section title="Ajuste fino" group="trim" subtab="trim fine">
           <p className="inspector-meta">
             Ventana de origen{' '}
             {windowedSource
@@ -2707,7 +2836,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual ? (
-        <Section title="Movimiento" group="video">
+        <Section title="Movimiento" group="video" subtab="basic">
           <label className="field">
             <span>Movimiento de cámara</span>
             <select
@@ -2776,7 +2905,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual && asset ? (
-        <Section title="Fondo automático" group="video">
+        <Section title="Fondo automático" group="video" subtab="ia">
           <p className="fine-print">
             Segmenta la persona u objeto principal con el modelo local u2netp y crea una
             versión con transparencia. El material original queda intacto en la biblioteca.
@@ -2825,7 +2954,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual ? (
-        <Section title="Fondo / chroma key" group="video">
+        <Section title="Fondo / chroma key" group="video" subtab="mask">
           <div className="inspector-grid">
             <label className="field">
               <span>Color a remover</span>
@@ -2903,7 +3032,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual ? (
-        <Section title="Máscara" group="video">
+        <Section title="Máscara" group="video" subtab="mask">
           <div className="inspector-grid">
             <label className="field">
               <span>Forma</span>
@@ -3140,7 +3269,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual ? (
-        <Section title="Efectos creativos" group="style">
+        <Section title="Efectos creativos" group="style" subtab="effects">
           <p className="fine-print">
             Recetas de un clic que reemplazan el grade del clip y conservan sus
             fades y LUT.
@@ -3162,7 +3291,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual ? (
-        <Section title="Estilo" group="style">
+        <Section title="Estilo" group="style" subtab="presets">
           <p className="inspector-meta">
             Punto de partida rápido para el look; conserva los fades del clip.
           </p>
@@ -3183,7 +3312,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {isAdjustment ? (
-        <Section title="Capa de ajuste" group="color">
+        <Section title="Capa de ajuste" group="color" subtab="basic">
           <p className="inspector-meta">
             {track.label} · {formatTimecode(clip.startFrame, fps)} →{' '}
             {formatTimecode(clip.startFrame + clip.durationFrames, fps)}
@@ -3210,7 +3339,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {visual || isAdjustment ? (
-        <Section title="Color y efectos" group="color">
+        <>
+        <Section title="Color y efectos" group="color" subtab="basic">
           <div className="inspector-grid">
             <NumberField
               label="Brillo"
@@ -3483,6 +3613,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           </div>
             </>
           ) : null}
+        </Section>
+        <Section title="Ruedas cromáticas" group="color" subtab="wheels">
           <div className="color-wheels">
             {(
               [
@@ -3526,6 +3658,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             Sombras y luces usan `colorbalance`; medios usa gamma en `eq`. La preview es
             aproximada, el MP4 aplica los valores exactos.
           </p>
+        </Section>
+        <Section title="HSL selectivo" group="color" subtab="hsl">
           <div className="keyframe-panel">
             <div className="production-card-head">
               <div>
@@ -3598,6 +3732,52 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               el MP4; la preview aproxima el efecto sobre toda la imagen.
             </p>
           </div>
+        </Section>
+        <Section title="Curvas tonales" group="color" subtab="curves">
+          <div className="keyframe-panel">
+            <div className="production-card-head">
+              <div>
+                <p className="eyebrow">Curva de tono</p>
+                <span className="fine-print">
+                  Preset o puntos propios por canal; las curvas propias ganan al preset
+                </span>
+              </div>
+            </div>
+            <label className="field inline">
+              <span>Preset</span>
+              <select
+                value={effects.curvePreset ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setEffect(
+                    'curvePreset',
+                    value === ''
+                      ? undefined
+                      : (value as NonNullable<ClipEffects['curvePreset']>),
+                  );
+                }}
+              >
+                <option value="">Lineal</option>
+                <option value="contrast-soft">Contraste suave</option>
+                <option value="contrast-medium">Contraste medio</option>
+                <option value="contrast-strong">Contraste fuerte</option>
+                <option value="vintage">Vintage</option>
+                <option value="cross-process">Cross process</option>
+                <option value="darker">Más oscuro</option>
+                <option value="lighter">Más claro</option>
+              </select>
+            </label>
+            <CurveEditor
+              curves={effects.curves}
+              onChange={(next) => setEffect('curves', next)}
+            />
+            <p className="fine-print">
+              Arrastrá los puntos del gráfico; las anclas negro/blanco quedan fijas. El MP4
+              aplica `curves` de FFmpeg con los puntos exactos.
+            </p>
+          </div>
+        </Section>
+        <Section title="Color avanzado" group="color" subtab="basic">
           {!isAdjustment ? (
           <div className="keyframe-panel">
             <div className="production-card-head">
@@ -3812,10 +3992,11 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             renderiza los ajustes con FFmpeg.
           </p>
         </Section>
+        </>
       ) : null}
 
       {visual ? (
-        <Section title="Relight por rostro" group="video">
+        <Section title="Relight por rostro" group="video" subtab="ia">
           <p className="fine-print">
             Máscara radial de luz sobre el sujeto. No es un modelo generativo:
             aclara/oscurce y templa la zona elegida en el MP4.
@@ -3895,7 +4076,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'video' ? (
-        <Section title="Análisis de escenas" group="video">
+        <Section title="Análisis de escenas" group="video" subtab="ia">
           <label className="field">
             <span>Sensibilidad al cambio de escena</span>
             <select
@@ -3944,7 +4125,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'audio' ? (
-        <Section title="Audio del clip" group="audio">
+        <Section title="Audio del clip" group="audio" subtab="basic noise voice">
           <label className="check">
             <input
               type="checkbox"
@@ -4275,7 +4456,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       {timed ? <SpeakersSection clip={clip} /> : null}
 
       {clip.kind === 'audio' ? (
-        <Section title="Ritmo" group="audio">
+        <Section title="Ritmo" group="audio" subtab="custom">
           <p className="fine-print">
             Analiza los golpes del audio en la máquina (sin red) y corta la pista de video en
             esos frames. Es detección de energía, no un modelo de IA: si el pulso no es regular,
@@ -5114,9 +5295,42 @@ function ProjectInspector() {
     store.update((current) => updateProjectSettings(current, { fpsNum: num, fpsDen: den }));
   }
 
+  const audioAsset = project.assets.find((asset) => asset.kind === 'audio');
+  const sampleRate = (audioAsset as { media?: { sampleRate?: number } } | undefined)?.media?.sampleRate;
+
   return (
     <>
-      <Section title="Proyecto">
+      {/* Información de proyecto de las capturas 95, 103, 104 y 105. Todos
+          los valores salen del proyecto real; «Editar» lleva a la sección
+          de ajustes del proyecto, no es un botón decorativo. */}
+      <div className="project-info-summary">
+        <div className="project-info-head">
+          <h4>Información de proyecto</h4>
+          <button
+            type="button"
+            className="small ghost"
+            onClick={() =>
+              document.querySelector('.project-info-edit-target')?.scrollIntoView({ block: 'nearest' })
+            }
+          >
+            Editar
+          </button>
+        </div>
+        <div className="project-info-thumb" aria-label="Miniatura del proyecto">
+          <Icon name="film" size={20} />
+          <span>Miniatura</span>
+        </div>
+        <dl className="project-info-rows">
+          <div><dt>Nombre de proyecto</dt><dd>{project.name}</dd></div>
+          <div><dt>Ubicación</dt><dd>{store.state.opened?.path ?? '—'}</dd></div>
+          <div><dt>Resolución</dt><dd>{project.video.width} × {project.video.height}</dd></div>
+          <div><dt>Velocidad de fotogramas</dt><dd>{fps} fps</dd></div>
+          <div><dt>Espacio de color</dt><dd>SDR · Rec.709</dd></div>
+          <div><dt>Tasa de muestreo</dt><dd>{sampleRate ? `${sampleRate} Hz` : '—'}</dd></div>
+          <div><dt>Duración</dt><dd>{formatTimecode(store.durationFrames, fps)}</dd></div>
+        </dl>
+      </div>
+      <Section title="Proyecto" className="project-info-edit-target">
         <TextField
           label="Nombre"
           value={project.name}

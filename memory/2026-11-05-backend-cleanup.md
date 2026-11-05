@@ -42,3 +42,21 @@ todo el backend"). El árbol tenía trabajo de UI del usuario sin commitear
   eliminar el archivo.
 - Los warnings restantes en build de tests de lib.rs (single-instance/tray)
   son esperados: esas funciones sólo se usan en el binario real.
+
+## Continuación — suite verde y subtabs del inspector (2026-11-05)
+
+- `ThumbnailBrowser`: cards con `role="button"`, `tabIndex`, Enter/Espacio y
+  `aria-label` = nombre del item (accesible de verdad, no solo tests).
+- `AssetsPanel`: `<main>` duplicado → `<div>`; la raíz de carpetas ahora
+  muestra toda la biblioteca (las subcarpetas filtran por bin).
+- `AssetThumbnailGrid`: restauradas acciones que el rediseño había quitado —
+  toggle de favorito y «Reconectar archivo» por tarjeta (misma lógica que
+  `AssetCard`).
+- Inspector: subtabs de color divididas — `basic` (campos+glow+blur+avanzado),
+  `wheels` (ruedas), `hsl` (HSL selectivo), `curves` (preset + `CurveEditor`
+  ya existente conectado a `effects.curves`/`curvePreset`). HDR sigue
+  `pending` (sin soporte en schema).
+- Tests actualizados a nombres accesibles en EffectStudio/AudioEffectStack.
+
+Verificación: `tsc --noEmit` 0 errores · `test:serial` **2024 passed /
+3 skipped / 0 failed** (antes 13 fallos preexistentes).

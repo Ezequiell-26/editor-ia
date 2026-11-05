@@ -497,7 +497,8 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
     const folderPath = selectedFolder.replace('root/', '');
     assetsInFolder = project.assets.filter((asset) => asset.bin === folderPath);
   } else if (selectedFolder === 'root') {
-    assetsInFolder = project.assets.filter((asset) => !asset.bin || asset.bin === '');
+    // La raíz muestra toda la biblioteca; las subcarpetas filtran por bin.
+    assetsInFolder = project.assets;
   }
   
   const visibleAssets = filterAssets(filterBySmartBin(assetsInFolder, activeBin), {
@@ -945,7 +946,7 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
           </aside>
 
           {/* Área principal con thumbnails */}
-          <main className="assets-main">
+          <div className="assets-main">
             <div className="assets-main-header">
               <div className="assets-search-bar">
                 <Icon name="search" size={14} className="assets-search-icon" />
@@ -992,7 +993,7 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
                 viewMode={viewMode}
               />
             </div>
-          </main>
+          </div>
         </div>
       )}
 
