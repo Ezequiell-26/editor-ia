@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {memo,  useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from '../../components/Icon';
 import type { Asset, AssetProxy, BlendMode, CaptionCue, CaptionMotionPreset, ChromaKey, Clip, ClipAnimation, ClipEffects, ClipMask, ClipMotion, ClipTransition, KeyframeEasing, PerspectiveCorner, ProjectDocument, Scene, Track } from '@editor-ia/project-schema';
 import { MARKER_COLORS, MAX_MARKERS, type MarkerColor } from '@editor-ia/project-schema';
@@ -6331,7 +6331,7 @@ function ProjectInspector() {
   );
 }
 
-export function Inspector() {
+export const Inspector = memo(function Inspector() {
   const store = useProjectStore();
   const project = store.state.project;
   const selection = store.state.selection;
@@ -6372,4 +6372,4 @@ export function Inspector() {
       <div className="inspector-body">{body}</div>
     </aside>
   );
-}
+});

@@ -1,3 +1,16 @@
+> **⚠️ CORRECCIÓN (2026-11-05).** Las tablas de este documento con `−40 % load`,
+> `≥30 fps`, `−30 % render`, `−70 % re-renders` y `≤400 MB` **nunca fueron
+> mediciones**: eran objetivos escritos a priori. Hoy hay números reales y varios
+> afirmaban lo contrario de lo que ocurrió. Medido en esta máquina (30,1 s de
+> 1080p30, CRF 20, `libx264`): `veryfast` 3,02 s / 1,59 MB; `faster` 3,73 s /
+> 1,64 MB; `fast` 4,00 s / 1,67 MB; `medium` 3,98 s / 1,66 MB; `ultrafast`
+> 2,21 s / 4,30 MB. El default `veryfast` → `fast` que este documento celebraba
+> resultó **~32 % más lento y más grande**, y fue revertido (el repo además tiene
+> un test que exige `veryfast` como default: `render/ffmpeg.rs:6114`). App
+> instalada en reposo: **42,2 MB de RAM, 0,00 s de CPU en 6 s, 0 procesos de
+> media**. FPS bajo carga y A/B de carga inicial **siguen sin medir**.
+> Fuente canónica: `memory/editor-ia-performance-optimizations.md`.
+
 # Reporte Final de Optimización de Rendimiento - Editor IA
 
 **Fecha**: 2026-11-04  

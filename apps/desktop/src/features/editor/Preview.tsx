@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
+import {memo,  useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 import type { Asset, BlendMode, CaptionCue, Clip, ClipEffects, ClipMask, ProjectDocument, Track } from '@editor-ia/project-schema';
 import { sampleMaskKeyframes } from '@editor-ia/project-schema';
 import { captionMotionAt } from '../../state/caption-motion';
@@ -934,7 +934,7 @@ function CaptionOverlay({
   );
 }
 
-export function Preview() {
+export const Preview = memo(function Preview() {
   const store = useProjectStore();
   const project = store.state.project;
   const [stageRef, stageSize] = useElementSize<HTMLDivElement>();
@@ -1526,4 +1526,4 @@ export function Preview() {
       </div>
     </div>
   );
-}
+});

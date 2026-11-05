@@ -564,7 +564,7 @@ function clampTimelineHeight(value: number): number {
   return Math.min(TIMELINE_MAX, Math.max(TIMELINE_MIN, Math.round(value)));
 }
 
-export function Timeline() {
+export const Timeline = memo(function Timeline() {
   const store = useProjectStore();
   const project = store.state.project;
   const preferences = useEditorPreferences();
@@ -2661,4 +2661,4 @@ export function Timeline() {
       </div>
     </div>
   );
-}
+});

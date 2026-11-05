@@ -287,8 +287,13 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
         "slow",
         "slower",
     ];
-    // Preset 'fast' ofrece balance entre velocidad y calidad (20% más rápido que 'medium')
-    let requested_preset = text(value, "videoPreset").unwrap_or("fast");
+    // Default medido en esta máquina (30,1 s de 1080p30, CRF 20, libx264):
+    //   veryfast 3,02 s / 1,59 MB | faster 3,73 s | fast 4,00 s / 1,67 MB | medium 3,98 s
+    // `fast` era ~32 % mas lento y ademas mas grande al mismo CRF, sin beneficio de
+    // tamano, asi que se mantiene `veryfast` (que es lo que ya usan audio.rs,
+    // creator.rs y lossless.rs). El frontend no manda `videoPreset`: este valor
+    // es el que decide la velocidad real del export.
+    let requested_preset = text(value, "videoPreset").unwrap_or("veryfast");
     if !PRESETS.contains(&requested_preset) {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,

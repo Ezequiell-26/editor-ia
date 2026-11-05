@@ -28,6 +28,10 @@ export default defineConfig({
     // Cada build parte de cero; antes se acumulaban cientos de assets viejos
     // dentro del bundle comercial.
     emptyOutDir: true,
+    // Umbral de aviso por chunk (va en `build`, no en `output`: ahi Rollup lo
+    // ignora con "Unknown output options"). 300 kB marca los dos grandes que
+    // quedan por dividir: `main` y `vendor-emojibase`.
+    chunkSizeWarningLimit: 300,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./index.html', import.meta.url)),
@@ -88,8 +92,6 @@ export default defineConfig({
           }
           return undefined;
         },
-        // Opciones de optimización para code splitting
-        chunkSizeWarningLimit: 50,
         inlineDynamicImports: false,
       },
     },

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
+import {memo,  lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ViewId } from '../../app/navigation';
 import type { EditorModeId } from '../../app/view-routing';
 import { Icon } from '../../components/Icon';
@@ -141,7 +141,7 @@ function readInspectorWidth(): number {
   }
 }
 
-export function EditorWorkspace({
+export const EditorWorkspace = memo(function EditorWorkspace({
   onNavigate,
   initialMode = 'timeline',
   modeRequest = 0,
@@ -500,4 +500,4 @@ export function EditorWorkspace({
       ) : null}
     </section>
   );
-}
+});
