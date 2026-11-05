@@ -11,3 +11,7 @@
 @import '../premium/workspace.css';
 @import '../effect-studio.css';
 @import '../brain.css';
+/* La capa visual Filmora vive UNA sola vez, en `main.tsx`. No se repite acá:
+   se midió con SSIM 1.000000 en las 10 vistas (editor incluido) que sus
+   declaraciones !important y su especificidad ganan igual cuando este
+   entry se inyecta después. Repetirla duplicaba ~26 KB por entry. */

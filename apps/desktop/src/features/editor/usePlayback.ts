@@ -1,16 +1,19 @@
 import { useEffect, useRef } from 'react';
 import { fpsOf } from '../../state/project-actions';
-import { useProjectStore } from '../../state/project-store';
+import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
 
 export function usePlayback(): void {
   const store = useProjectStore();
-  const playing = store.state.playing;
+  // Playback vive en contextos propios: este hook re-renderiza por frame,
+  // pero el resto de la app ya no.
+  const playback = useProjectPlayback();
+  const playing = playback.playing;
   const project = store.state.project;
   const loop = useEditorPreferences().loopPlayback;
   const { setPlayhead, setPlaying, durationFrames } = store;
-  const playheadRef = useRef(store.state.playheadFrame);
-  playheadRef.current = store.state.playheadFrame;
+  const playheadRef = useRef(playback.frame);
+  playheadRef.current = playback.frame;
 
   // El documento cambia de identidad en cada edición. Si fuera dependencia
   // del efecto, editar durante la reproducción cancelaría y reiniciaría el

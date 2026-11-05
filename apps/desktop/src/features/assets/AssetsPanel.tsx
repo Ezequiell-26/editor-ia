@@ -585,7 +585,7 @@ export function AssetsPanel({ onNavigate }: AssetsPanelProps) {
   function useAsset(asset: Asset, narration: boolean): void {
     const result = store.mutate((current) =>
       addClipFromAsset(current, asset, {
-        atFrame: store.state.playheadFrame,
+        atFrame: store.getPlayhead(),
         narration,
       }),
     );

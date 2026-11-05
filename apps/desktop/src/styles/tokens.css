@@ -7,32 +7,32 @@
    * inline en documentElement al arrancar. Acá sólo viven los valores default
    * para el instante previo a React (contrato de color, §5.8).
    */
-  --color-bg: #0f1115;
-  --color-surface: #181b20;
-  --color-panel: #181b20;
-  --color-panel-2: #1c2027;
-  --color-panel-3: #222731;
-  --color-panel-raised: #1b2029;
-  --color-surface-raised: #161a20;
-  --color-border: #2d3240;
-  --color-border-strong: #3a4152;
-  --color-text: #f2f5ff;
-  --color-text-muted: #9ca3af;
-  --color-text-secondary: #7a8ba8;
-  --color-text-faint: #6b7480;
-  --color-empty: #6b7280;
+  --color-bg: #0e141c;
+  --color-surface: #161e28;
+  --color-panel: #161e28;
+  --color-panel-2: #1b2430;
+  --color-panel-3: #222d3b;
+  --color-panel-raised: #1c2633;
+  --color-surface-raised: #131b25;
+  --color-border: #2a3646;
+  --color-border-strong: #3b4a5e;
+  --color-text: #e8eef6;
+  --color-text-muted: #a7b5c6;
+  --color-text-secondary: #8798ad;
+  --color-text-faint: #6f8096;
+  --color-empty: #68788d;
 
   /* ===== COLORES DE ACENTO ===== */
-  --color-accent: #1f5eff;
-  --color-accent-light: #6ee1ff;
-  --color-accent-strong: #1748c9;
-  --color-accent-ink: #f8fffc;
+  --color-accent: #00c9a7;
+  --color-accent-light: #5ce6cf;
+  --color-accent-strong: #00a88c;
+  --color-accent-ink: #04211b;
   --color-info: #22c55e;
   --color-danger: #ef4444;
   --color-danger-strong: #dc2626;
   --color-warning: #f59e0b;
   --color-success: #22c55e;
-  --color-cta: #ff6b2b;
+  --color-cta: #00c9a7;
 
   /* ===== ESTADOS CON FALLBACK LEGADO ===== */
   --color-ok: #22c55e;
@@ -41,9 +41,9 @@
   --color-warn-strong: #c27f0d;
 
   /* ===== COLORES DE MEDIOS ===== */
-  --color-video: #4d8df0;
+  --color-video: #2f8fd8;
   --color-image: #8b74e8;
-  --color-audio: #2eb8a6;
+  --color-audio: #17b6c9;
   --color-narration: #56b97f;
   --color-caption: #d9b34a;
   --color-graphic: #d76fa9;
@@ -55,24 +55,24 @@
   --color-brand-magenta: #d35cff;
 
   /* ===== ALIAS COMERCIALES (paleta JS) ===== */
-  --commercial-canvas: #0f1115;
-  --commercial-surface: #181b20;
-  --commercial-border: #2d3240;
-  --commercial-border-strong: #3a4152;
-  --commercial-accent: #1f5eff;
+  --commercial-canvas: #0e141c;
+  --commercial-surface: #161e28;
+  --commercial-border: #2a3646;
+  --commercial-border-strong: #3b4a5e;
+  --commercial-accent: #00c9a7;
   --commercial-success: #22c55e;
-  --commercial-cta: #ff6b2b;
-  --commercial-text: #f2f5ff;
-  --commercial-muted: #9ca3af;
-  --commercial-input: #14171c;
+  --commercial-cta: #00c9a7;
+  --commercial-text: #e8eef6;
+  --commercial-muted: #a7b5c6;
+  --commercial-input: #101822;
 
   /* ===== ALIAS DE IDENTIDAD ORBITAL (paleta JS) ===== */
   --olyvia-cyan: #35d6ff;
   --olyvia-blue: #4f8dff;
   --olyvia-violet: #8b5cf6;
   --olyvia-magenta: #d35cff;
-  --olyvia-ink: #0f1115;
-  --olyvia-panel: #181b20;
+  --olyvia-ink: #0e141c;
+  --olyvia-panel: #161e28;
   --olyvia-border: color-mix(in srgb, var(--color-border-strong) 70%, transparent);
 
   /* ===== MATIZ DEL ACENTO ===== */

@@ -489,6 +489,12 @@ export function createFakeService(): FakeService {
     async listMediaFolder() {
       return { directory: '', files: [] };
     },
+    async listDirectory() {
+      return { directory: '', entries: [], truncated: false };
+    },
+    async readTextFile(path: string) {
+      return { path, bytes: 0, truncated: false, content: '' };
+    },
     async matchMediaPlan(input) {
       return {
         assignments: input.sentences.map(

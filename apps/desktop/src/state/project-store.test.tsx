@@ -4,8 +4,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createFakeService } from '../test/fake-service';
-import { addTrack, ensureDelivery } from './project-actions';
-import { ProjectProvider, useProjectStore } from './project-store';
+import { addCaptionCue, addTrack, ensureDelivery } from './project-actions';
+import {
+  ProjectProvider,
+  usePlayheadFrame,
+  useProjectPlaying,
+  useProjectStore,
+} from './project-store';
 
 function Harness() {
   const store = useProjectStore();
@@ -87,6 +92,72 @@ function ExportHarness() {
     </div>
   );
 }
+
+describe('playback fuera del store principal', () => {
+  /**
+   * Regresión del corte de contexto: el playhead cambia ~30-60 veces por
+   * segundo durante la reproducción y no debe re-renderizar a los consumidores
+   * de `useProjectStore` (cromo, vistas que no muestran el frame). Sólo se
+   * re-renderizan los suscriptos a `usePlayheadFrame`/`useProjectPlaying`.
+   */
+  function PlaybackHarness() {
+    const store = useProjectStore();
+    const playheadFrame = usePlayheadFrame();
+    const playing = useProjectPlaying();
+    return (
+      <div>
+        <button type="button" onClick={() => store.setPlayhead(10)}>
+          mover playhead
+        </button>
+        <button type="button" onClick={() => store.setPlaying(true)}>
+          reproducir
+        </button>
+        <span data-testid="store-renders">{store.state.phase}</span>
+        <span data-testid="playhead">{String(playheadFrame)}</span>
+        <span data-testid="playing">{String(playing)}</span>
+      </div>
+    );
+  }
+
+  it('setPlayhead actualiza el frame sin tocar el estado del proyecto', async () => {
+    const service = createFakeService();
+    // Sin contenido la duración es 0 y setPlayhead clampea todo a 0.
+    const project = addCaptionCue(
+      ensureDelivery(createEmptyProject('Playback', '2025-01-01T00:00:00Z')),
+      { text: 'demo', startFrame: 0, durationFrames: 900 },
+    ).project;
+    const opened = {
+      project,
+      label: 'playback.editoria.json',
+      path: 'C:\\tmp\\playback.editoria.json',
+      root: 'C:\\tmp',
+    };
+    let storeProbeRenders = 0;
+    function StoreProbe() {
+      useProjectStore();
+      storeProbeRenders += 1;
+      return null;
+    }
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <PlaybackHarness />
+        <StoreProbe />
+      </ProjectProvider>,
+    );
+    const before = storeProbeRenders;
+    fireEvent.click(screen.getByRole('button', { name: 'mover playhead' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('playhead').textContent).toBe('10');
+    });
+    expect(storeProbeRenders).toBe(before);
+    fireEvent.click(screen.getByRole('button', { name: 'reproducir' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('playing').textContent).toBe('true');
+    });
+    // `playing` tampoco forma parte del store: el probe sigue sin renders.
+    expect(storeProbeRenders).toBe(before);
+  });
+});
 
 describe('solicitud de exportación', () => {
   it('se solicita una vez y se consume al abrir el diálogo', () => {

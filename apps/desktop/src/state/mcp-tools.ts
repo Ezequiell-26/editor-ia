@@ -376,6 +376,53 @@ export async function executeMcpTool(
       return JSON.stringify({ ok: true, assetId });
     }
 
+    case 'media_folder_list': {
+      const folder = text(args, 'folder');
+      const root = optionalText(args, 'root');
+      const listing = await context.store.service.listMediaFolder({
+        folder,
+        ...(root ? { root } : {}),
+      });
+      return JSON.stringify({
+        ok: true,
+        directory: listing.directory,
+        count: listing.files.length,
+        files: listing.files.map((file) => ({
+          path: file.path,
+          name: file.name,
+          kind: file.kind,
+          bytes: file.bytes,
+        })),
+      });
+    }
+
+    case 'fs_list': {
+      const listing = await context.store.service.listDirectory(text(args, 'path'));
+      return JSON.stringify({
+        ok: true,
+        directory: listing.directory,
+        count: listing.entries.length,
+        truncated: listing.truncated,
+        entries: listing.entries.map((entry) => ({
+          name: entry.name,
+          path: entry.path,
+          kind: entry.kind,
+          bytes: entry.bytes,
+        })),
+      });
+    }
+
+    case 'fs_read': {
+      const file = await context.store.service.readTextFile(text(args, 'path'));
+      return JSON.stringify({
+        ok: true,
+        path: file.path,
+        bytes: file.bytes,
+        truncated: file.truncated,
+        content: file.content,
+      });
+    }
+
     case 'markers_list':
       return JSON.stringify(
         projectOf(context).markers.map((marker) => ({

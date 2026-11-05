@@ -50,6 +50,26 @@ export interface MediaFolderListing {
   readonly files: readonly MediaFolderFile[];
 }
 
+export interface FsEntry {
+  readonly name: string;
+  readonly path: string;
+  readonly kind: 'dir' | 'image' | 'audio' | 'video' | 'subtitle' | 'text' | 'other' | string;
+  readonly bytes: number;
+}
+
+export interface FsListing {
+  readonly directory: string;
+  readonly entries: readonly FsEntry[];
+  readonly truncated: boolean;
+}
+
+export interface FsFileContent {
+  readonly path: string;
+  readonly bytes: number;
+  readonly truncated: boolean;
+  readonly content: string;
+}
+
 export interface ExecutableInfo {
   readonly available: boolean;
   readonly path: string | null;
@@ -2025,6 +2045,10 @@ export interface DesktopService {
     folder: string;
     root?: string;
   }): Promise<MediaFolderListing>;
+  /** Lista el contenido de una carpeta de la PC (carpetas primero, sin recursión). */
+  listDirectory(path: string): Promise<FsListing>;
+  /** Lee un archivo de texto acotado (512 KiB máx). */
+  readTextFile(path: string): Promise<FsFileContent>;
   matchMediaPlan(input: {
     sentences: readonly string[];
     images: readonly string[];
@@ -2462,6 +2486,8 @@ export const PROJECT_COMMANDS = {
   importAssets: 'import_assets',
   importMediaPaths: 'import_media_paths',
   listMediaFolder: 'list_media_folder',
+  fsList: 'fs_list',
+  fsRead: 'fs_read',
   matchMediaPlan: 'match_media_plan',
   analyzeImages: 'analyze_images',
   analyzeMediaFrames: 'analyze_media_frames',
@@ -2934,6 +2960,42 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
               }))
               .filter((file) => file.path !== '' && file.name !== '')
           : [],
+      };
+    },
+    async listDirectory(path) {
+      const raw = (await call(PROJECT_COMMANDS.fsList, { path })) as {
+        directory?: unknown;
+        entries?: unknown;
+        truncated?: unknown;
+      };
+      return {
+        directory: typeof raw.directory === 'string' ? raw.directory : '',
+        truncated: raw.truncated === true,
+        entries: Array.isArray(raw.entries)
+          ? raw.entries
+              .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+              .map((entry) => ({
+                name: String(entry.name ?? ''),
+                path: String(entry.path ?? ''),
+                kind: String(entry.kind ?? 'other'),
+                bytes: Number(entry.bytes ?? 0),
+              }))
+              .filter((entry) => entry.name !== '' && entry.path !== '')
+          : [],
+      };
+    },
+    async readTextFile(path) {
+      const raw = (await call(PROJECT_COMMANDS.fsRead, { path })) as {
+        path?: unknown;
+        bytes?: unknown;
+        truncated?: unknown;
+        content?: unknown;
+      };
+      return {
+        path: typeof raw.path === 'string' ? raw.path : path,
+        bytes: Number(raw.bytes ?? 0),
+        truncated: raw.truncated === true,
+        content: typeof raw.content === 'string' ? raw.content : '',
       };
     },
     async importLut() {
@@ -3997,6 +4059,8 @@ function createUnavailableService(): DesktopService {
     importAssets: async () => unavailable(),
     importMediaPaths: async () => unavailable(),
     listMediaFolder: async () => unavailable(),
+    listDirectory: async () => unavailable(),
+    readTextFile: async () => unavailable(),
     matchMediaPlan: async () => unavailable(),
     analyzeImages: async () => unavailable(),
     analyzeMediaFrames: async () => unavailable(),

@@ -1,17 +1,19 @@
 import { useState, type PointerEvent } from 'react';
 import { Icon } from '../../components/Icon';
 import { formatTimecode, splitClip } from '../../state/project-actions';
-import { useProjectStore } from '../../state/project-store';
+import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 
 export function Transport() {
   const store = useProjectStore();
   const project = store.state.project;
   const [loop, setLoop] = useState(false);
+  // El transport sí necesita el frame en cada tick (timecode y scrubber).
+  const playback = useProjectPlayback();
   if (!project) return null;
   const fps = project.video.frameRate.num / project.video.frameRate.den;
-  const playhead = store.state.playheadFrame;
+  const playhead = playback.frame;
   const total = store.durationFrames;
-  const playing = store.state.playing;
+  const playing = playback.playing;
   const progress = total > 0 ? Math.max(0, Math.min(100, (playhead / total) * 100)) : 0;
 
   function scrub(next: number): void {
@@ -31,7 +33,7 @@ export function Transport() {
     if (selection.kind === 'clip') {
       try {
         const result = store.mutate((current) => {
-          const split = splitClip(current, selection.id, store.state.playheadFrame);
+          const split = splitClip(current, selection.id, store.getPlayhead());
           if (!split) throw new Error('El playhead no está dentro del clip');
           return { project: split.project, rightClipId: split.rightClipId };
         });
@@ -48,7 +50,7 @@ export function Transport() {
       if (clipUnderPlayhead) {
         try {
           const result = store.mutate((current) => {
-            const split = splitClip(current, clipUnderPlayhead.id, store.state.playheadFrame);
+            const split = splitClip(current, clipUnderPlayhead.id, store.getPlayhead());
             if (!split) throw new Error('No se pudo dividir');
             return { project: split.project, rightClipId: split.rightClipId };
           });

@@ -31,7 +31,7 @@ function Harness({ project, trackId, playhead, faderGain, faderPan }: HarnessPro
   // idempotentes y comparar antes de escribir o entran en un bucle de render
   // infinito (el worker de Vitest moría en este archivo).
   useEffect(() => {
-    if (store.state.playheadFrame !== playhead) {
+    if (store.getPlayhead() !== playhead) {
       store.setPlayhead(playhead);
     }
   }, [playhead, store]);

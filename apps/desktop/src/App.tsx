@@ -28,7 +28,7 @@ import {
   detectNativeRuntime,
   type DesktopService,
 } from './services/project-service';
-import { ProjectProvider, useProjectStore } from './state/project-store';
+import { ProjectProvider, useProjectPlaying, useProjectStore } from './state/project-store';
 import { McpBridgeRuntime } from './features/assistant/McpBridgeRuntime';
 import { useEditorPreferences } from './state/useEditorPreferences';
 import { FlowQueueProvider } from './state/FlowQueueProvider';
@@ -327,6 +327,9 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const store = useProjectStore();
+  // `playing` vive en su propio contexto: cambia sólo al play/pausa, así que
+  // la lista de comandos no se recalcula en cada frame del playhead.
+  const playing = useProjectPlaying();
   // El rail es la lista corta de superficies; las herramientas avanzadas
   // quedan detrás de «Más». El menú Ver sigue listando el rail visible.
   const railViews = MAIN_NAV_VIEWS;
@@ -388,7 +391,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   useEffect(() => {
     // Salir del editor detiene la reproducción: una vista oculta no debe seguir
     // sonando ni consumiendo cuadros.
-    if (activeId !== 'editor' && storeRef.current.state.playing) {
+    if (activeId !== 'editor' && storeRef.current.getPlaying()) {
       storeRef.current.setPlaying(false);
     }
   }, [activeId]);
@@ -527,13 +530,13 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         canUndo: store.canUndo,
         canRedo: store.canRedo,
         setPlaying: store.setPlaying,
-        playing: store.state.playing,
+        playing,
         projectOpen: !!project,
         hasClips: !!project && project.timeline.clips.length > 0,
         setSelectionNone: () => store.setSelection({ kind: 'none' }),
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [navigate, store.canUndo, store.canRedo, store.state.playing, project, shortcutsVersion, packageProject],
+    [navigate, store.canUndo, store.canRedo, playing, project, shortcutsVersion, packageProject],
   );
 
   // El título depende del nombre, no del documento completo: antes cada
@@ -661,7 +664,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           });
           if (copy) {
             store.setSelection({ kind: 'clip', id: copy.clipId });
-            store.setPlayhead(Math.min(store.state.playheadFrame, totalFrames(copy.project)));
+            store.setPlayhead(Math.min(store.getPlayhead(), totalFrames(copy.project)));
           }
           return;
         }
@@ -674,7 +677,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           if (applied) {
             store.setSelection({ kind: 'none' });
             store.setPlayhead(
-              Math.min(store.state.playheadFrame, totalFrames(current)),
+              Math.min(store.getPlayhead(), totalFrames(current)),
             );
             store.setNotice('Clip eliminado; el hueco se cerró.');
           }
@@ -691,7 +694,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           // en keyup y no se dispara si este keydown se previene.
           if (isActivatableTarget(event.target)) return;
           event.preventDefault();
-          store.setPlaying(!store.state.playing);
+          store.setPlaying(!store.getPlaying());
           return;
         default: {
           const target = NAV_TARGET[matched];

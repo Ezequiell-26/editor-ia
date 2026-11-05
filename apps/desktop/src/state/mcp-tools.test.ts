@@ -367,6 +367,63 @@ describe('herramientas MCP', () => {
     expect(state.playhead).toBe(42);
   });
 
+  it('explora carpetas de la PC y devuelve los medios encontrados', async () => {
+    const { context } = fixture();
+    const spy = vi
+      .spyOn(context.store.service, 'listMediaFolder')
+      .mockResolvedValue({
+        directory: 'D:\\material\\boda',
+        files: [
+          { path: 'D:\\material\\boda\\clip.mp4', name: 'clip.mp4', kind: 'video', bytes: 1024 },
+          { path: 'D:\\material\\boda\\foto.jpg', name: 'foto.jpg', kind: 'image', bytes: 512 },
+        ],
+      });
+    const result = JSON.parse(
+      await executeMcpTool('media_folder_list', { folder: 'D:\\material\\boda' }, context),
+    );
+    expect(spy).toHaveBeenCalledWith({ folder: 'D:\\material\\boda' });
+    expect(result.ok).toBe(true);
+    expect(result.count).toBe(2);
+    expect(result.files[0]).toMatchObject({ name: 'clip.mp4', kind: 'video' });
+    spy.mockRestore();
+  });
+
+  it('lista cualquier carpeta del disco y lee archivos de texto', async () => {
+    const { context } = fixture();
+    const listSpy = vi
+      .spyOn(context.store.service, 'listDirectory')
+      .mockResolvedValue({
+        directory: 'D:\\proyectos',
+        truncated: false,
+        entries: [
+          { name: 'boda', path: 'D:\\proyectos\\boda', kind: 'dir', bytes: 0 },
+          { name: 'lista.srt', path: 'D:\\proyectos\\lista.srt', kind: 'subtitle', bytes: 2048 },
+        ],
+      });
+    const listed = JSON.parse(
+      await executeMcpTool('fs_list', { path: 'D:\\proyectos' }, context),
+    );
+    expect(listSpy).toHaveBeenCalledWith('D:\\proyectos');
+    expect(listed.count).toBe(2);
+    expect(listed.entries[0].kind).toBe('dir');
+    listSpy.mockRestore();
+
+    const readSpy = vi
+      .spyOn(context.store.service, 'readTextFile')
+      .mockResolvedValue({
+        path: 'D:\\proyectos\\lista.srt',
+        bytes: 2048,
+        truncated: false,
+        content: '1\n00:00:01,000 --> 00:00:02,000\nHola',
+      });
+    const read = JSON.parse(
+      await executeMcpTool('fs_read', { path: 'D:\\proyectos\\lista.srt' }, context),
+    );
+    expect(readSpy).toHaveBeenCalledWith('D:\\proyectos\\lista.srt');
+    expect(read.content).toContain('Hola');
+    readSpy.mockRestore();
+  });
+
   it('falla claro si no hay proyecto o la herramienta no existe', async () => {
     const { context } = fixture();
     await expect(executeMcpTool('inventada', {}, context)).rejects.toThrow(/desconocida/);

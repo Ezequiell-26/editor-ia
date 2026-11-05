@@ -11,7 +11,7 @@ import {
   sortedMarkers,
   updateMarker,
 } from '../../state/markers';
-import { useProjectStore } from '../../state/project-store';
+import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 
 /**
  * Los colores de marcador son categorías semánticas, no hex fijos: el timeline
@@ -172,6 +172,7 @@ function firstLineOf(note: string): string {
  */
 export function MarkersPanel() {
   const store = useProjectStore();
+  const playheadFrame = usePlayheadFrame();
   const project = store.state.project;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState('');
@@ -182,10 +183,10 @@ export function MarkersPanel() {
     [project],
   );
   const currentMarkerId = project
-    ? markerAtFrame(project, store.state.playheadFrame)?.id
+    ? markerAtFrame(project, playheadFrame)?.id
     : undefined;
-  const previous = project ? previousMarker(project, store.state.playheadFrame) : undefined;
-  const next = project ? nextMarker(project, store.state.playheadFrame) : undefined;
+  const previous = project ? previousMarker(project, playheadFrame) : undefined;
+  const next = project ? nextMarker(project, playheadFrame) : undefined;
 
   if (!project) return null;
 

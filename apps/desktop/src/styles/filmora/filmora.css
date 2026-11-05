@@ -1,0 +1,1499 @@
+/* ==========================================================================
+   Olyvia · capa visual FILMORA 12 (última del cascade)
+   --------------------------------------------------------------------------
+   Reproduce el sistema visual de las cuatro referencias adjuntas:
+
+     · grafito azulado opaco, sin glassmorphism ni degradados de marca;
+     · un único acento turquesa (#00c9a7) en EXPORTAR, pestaña activa,
+       selección, cabezal y controles primarios;
+     · barras compactas (32/34 px), paneles de 1 px de separación,
+       esquinas de 2 px, sin sombras ni glows;
+     · tipografía Segoe UI densa (11–13 px), texto en caja mixta,
+       sin tracking expandido salvo contadores;
+     · layout editor de cuatro paneles: medios · player · propiedades ·
+       timeline a todo el ancho.
+
+   Se importa UNA SOLA VEZ, al final de `main.tsx`. Los entries de
+   editor/contenido se inyectan después por `import()` dinámico, pero no
+   repiten esta hoja: se midió con SSIM 1.000000 en 10 vistas que el
+   resultado es idéntico, porque las reglas que compiten con `!important`
+   de capas legacy (commercial/premium/olyvia) usan `!important` a su vez
+   y selectores de igual o mayor especificidad. Es el mismo patrón
+   «impasse» documentado en `premium/workspace.css`, sin duplicar ~26 KB
+   por entry.
+
+   NO cambia estructura, estados ni lógica: sólo presentación. El estudio
+   de color, los 9 presets, la densidad, el radio y el ancho del inspector
+   siguen siendo configurables por el usuario.
+   ========================================================================== */
+
+
+/* ───────────── 0 · Superficies Filmora sensibles al tema ─────────────────
+   La capa es oscura por diseño (referencias), pero el preset «Claro neutro»
+   debe seguir funcionando: todos los fondos/lineas/tintas de esta hoja leen
+   estas variables y `applyAppearance` escribe data-theme="dark|light". */
+:root {
+  --fm-bg: #0e141c;
+  --fm-bar: #101922;
+  --fm-bar-2: #131e29;
+  --fm-panel: #161e28;
+  --fm-panel-2: #1b2430;
+  --fm-hover: #1e2b39;
+  --fm-hover-strong: #22303f;
+  --fm-active: #26374a;
+  --fm-line: #2a3646;
+  --fm-control-line: #2f3e52;
+  --fm-overlay-line: #33455a;
+  --fm-line-strong: #38475b;
+  --fm-scroll: #3b4a5e;
+  --fm-scroll-hover: #4a5e77;
+  --fm-input: #101822;
+  --fm-timeline: #131c27;
+  --fm-preview: #0b1119;
+  --fm-ink: #e8eef6;
+  --fm-ink-2: #a7b5c6;
+  --fm-ink-3: #8798ad;
+  --fm-ink-4: #6f8096;
+  --fm-ink-bright: #c8d6e5;
+  --fm-thumb: #dce6f2;
+  --fm-accent: #00c9a7;
+  --fm-accent-hover: #00dcb8;
+  --fm-accent-ink: #04211b;
+  --fm-snap: #f0c040;
+  --fm-danger: #c0392b;
+  --fm-scrim: rgba(4, 8, 13, 0.72);
+}
+:root[data-theme='light'] {
+  --fm-bg: #eef0f3;
+  --fm-bar: #e4e7eb;
+  --fm-bar-2: #eceff3;
+  --fm-panel: #f7f8fa;
+  --fm-panel-2: #e9ebef;
+  --fm-hover: #dfe4ea;
+  --fm-hover-strong: #d3d9e1;
+  --fm-active: #c9d1db;
+  --fm-line: #c9cfd8;
+  --fm-control-line: #bcc4cf;
+  --fm-overlay-line: #aeb6c2;
+  --fm-line-strong: #9aa4b1;
+  --fm-scroll: #aab3bf;
+  --fm-scroll-hover: #8d98a6;
+  --fm-input: #ffffff;
+  --fm-timeline: #e8ebf0;
+  --fm-preview: #0b1119;
+  --fm-ink: #15181e;
+  --fm-ink-2: #4b5563;
+  --fm-ink-3: #5d6673;
+  --fm-ink-4: #6b7480;
+  --fm-ink-bright: #2c3440;
+  --fm-thumb: #3b4654;
+  --fm-accent: #0b8f78;
+  --fm-accent-hover: #0aa487;
+  --fm-accent-ink: #ffffff;
+  --fm-snap: #c99400;
+  --fm-danger: #c0392b;
+  --fm-scrim: rgba(18, 22, 28, 0.55);
+}
+
+/* ─────────────────────────────── 1 · Tokens derivados ─────────────────── */
+
+:root {
+  /* Radios: Filmora apenas redondea controles; los paneles son rectos. */
+  --radius-sm: 2px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --radius-xl: 3px;
+  --radius-2xl: 3px;
+  --radius-1: 2px;
+  --radius-3: 3px;
+
+  --rad-xs: 2px;
+  --rad-sm: 2px;
+  --rad-md: 2px;
+  --rad-lg: 2px;
+  --rad-xl: 3px;
+  --rad-2xl: 3px;
+  --premium-r-xs: 2px;
+  --premium-r-sm: 2px;
+  --premium-r-md: 2px;
+  --premium-r-lg: 3px;
+  --premium-r-xl: 3px;
+
+  /* Sin elevación: la jerarquía la dan las líneas de 1 px. */
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+  --shadow-panel: none;
+  --shadow-pop: none;
+  --shadow-inner: none;
+  --premium-elev-1: none;
+  --premium-elev-2: none;
+  --premium-elev-3: none;
+  --premium-elev-accent: none;
+  --glow-accent: none;
+  --glow-accent-strong: none;
+  --glow-success: none;
+  --glow-danger: none;
+  --brand-glow: none;
+  --brand-gradient: none;
+  --brand-gradient-subtle: none;
+  --brand-gradient-hover: none;
+  --panel-gradient: none;
+  --glass-gradient: none;
+  --glass-bg: var(--color-panel);
+  --glass-shadow: none;
+  --glass-backdrop: none;
+  --glass-border: var(--color-border);
+  --brand-border: var(--color-border-strong);
+
+  /* Tipografía densa y nítida. */
+  --font-ui: 'Segoe UI', 'Segoe UI Variable Text', system-ui, sans-serif;
+  --font-display: 'Segoe UI', 'Segoe UI Variable Display', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', ui-monospace, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 17px;
+  --text-xl: 24px;
+  --text-2xl: 30px;
+  --leading: 1.4;
+  --leading-tight: 1.25;
+  --premium-text-2xs: 10px;
+  --premium-text-xs: 11px;
+  --premium-text-sm: 12px;
+  --premium-text-md: 12px;
+  --premium-text-base: 13px;
+  --premium-text-lg: 14px;
+  --premium-text-xl: 17px;
+  --premium-text-2xl: 22px;
+  --premium-text-display: 28px;
+  --premium-tracking-tight: 0;
+  --premium-tracking-normal: 0;
+  --premium-tracking-caps: 0.04em;
+  --premium-tracking-wide: 0.04em;
+  --premium-weight-regular: 400;
+  --premium-weight-medium: 500;
+  --premium-weight-semibold: 600;
+  --premium-weight-bold: 700;
+
+  /* Barras y controles. */
+  --shell-topbar-h: 32px;
+  --shell-statusbar-h: 20px;
+  --shell-tab-h: 30px;
+  --shell-toolbar-h: 30px;
+  --shell-panel-head-h: 28px;
+  --shell-nav-item-h: 30px;
+  --shell-menubar-item-h: 24px;
+  --ctl-h-xs: 20px;
+  --ctl-h-sm: 22px;
+  --ctl-h-md: 24px;
+  --ctl-h-lg: 28px;
+  --ctl-h-xl: 30px;
+  --ctl-px: 8px;
+  --ctl-px-sm: 6px;
+  --ctl-gap: 4px;
+  --gap-4: 4px;
+  --gap-8: 8px;
+  --gap-12: 10px;
+  --gap-16: 12px;
+  --gap-24: 16px;
+  --premium-gap-4: 8px;
+  --premium-gap-5: 12px;
+  --premium-gap-6: 16px;
+  --premium-gap-7: 20px;
+
+  /* Líneas y superficies de cromo. */
+  --hairline-color: var(--fm-line);
+  --hairline-strong-color: var(--fm-line-strong);
+  --hairline: 1px solid var(--fm-line);
+  --hairline-strong: 1px solid var(--fm-line-strong);
+  --chrome-1: var(--fm-bar);
+  --chrome-2: var(--fm-bar-2);
+  --chrome-3: var(--fm-panel);
+  --chrome-4: var(--fm-panel-2);
+  --ink-1: var(--fm-ink);
+  --ink-2: var(--fm-ink-2);
+  --ink-3: var(--fm-ink-3);
+  --ink-4: var(--fm-ink-4);
+  --ink-link: var(--fm-accent-hover);
+  --state-hover: var(--fm-hover);
+  --state-active: var(--fm-active);
+  --state-selected: color-mix(in srgb, var(--fm-accent) 16%, transparent);
+  --state-selected-border: color-mix(in srgb, var(--fm-accent) 55%, transparent);
+  --ctl-border: var(--fm-control-line);
+
+  /* Timeline: pistas y clips. */
+  --tl-ruler-h: 24px;
+  --tl-track-head-w: 132px;
+  --tl-playhead-w: 1px;
+  --tl-wave-alpha: 0.85;
+  --tl-handle-w: 5px;
+  --tl-sel-ring: inset 0 0 0 1px var(--fm-accent);
+  --timeline-height: 300px;
+}
+
+/* ───────────────────────────── 2 · Base global ───────────────────────── */
+
+html,
+body,
+.app-shell,
+#root {
+  background: var(--color-bg) !important;
+  color: var(--color-text);
+  font-family: var(--font-ui) !important;
+  font-size: 12px;
+  letter-spacing: 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  overflow: hidden;
+}
+
+/* La referencia es plana: sin sombras, brillos ni desenfoques de fondo. */
+.app-shell *,
+.start-window *,
+.start-screen *,
+.settings-window *,
+[role='dialog'] *,
+[role='menu'] *,
+.popover *,
+.tooltip * {
+  box-shadow: none !important;
+  text-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.app-shell *,
+.start-window *,
+.start-screen *,
+.settings-window *,
+[role='dialog'] * {
+  background-image: none !important;
+}
+
+::selection {
+  background: var(--fm-accent);
+  color: var(--fm-accent-ink);
+}
+
+:focus-visible {
+  outline: 1px solid var(--fm-accent) !important;
+  outline-offset: 1px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fm-scroll) var(--fm-bg);
+}
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: var(--fm-bg); }
+::-webkit-scrollbar-thumb { background: var(--fm-control-line); border: 2px solid var(--fm-bg); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--fm-scroll-hover); }
+::-webkit-scrollbar-corner { background: var(--fm-bg); }
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: 0 !important;
+  font-weight: 600;
+}
+
+/* Etiquetas de sección: la referencia usa caja mixta y tracking corto. */
+.app-shell .eyebrow,
+.app-shell .field-label-row,
+.app-shell .inspector-section-toggle,
+.app-shell .fine-print,
+.app-shell .section-label,
+.settings-window .eyebrow {
+  text-transform: none !important;
+  letter-spacing: 0.01em !important;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* ─────────────────────── 3 · Controles compartidos ───────────────────── */
+
+.app-shell button,
+.start-window button,
+.start-screen button,
+.settings-window button,
+[role='dialog'] button {
+  border-radius: 2px !important;
+  font-family: var(--font-ui) !important;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  transition: background-color 90ms linear, border-color 90ms linear, color 90ms linear;
+}
+
+.app-shell button:hover:not(:disabled),
+.settings-window button:hover:not(:disabled) {
+  background: var(--state-hover) !important;
+}
+
+.app-shell button:active:not(:disabled) {
+  background: var(--state-active) !important;
+}
+
+.app-shell button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.app-shell .primary,
+.app-shell button.primary,
+.start-screen .primary,
+[role='dialog'] .primary {
+  background: var(--fm-accent) !important;
+  border: 1px solid var(--fm-accent) !important;
+  color: var(--fm-accent-ink) !important;
+  font-weight: 600;
+}
+.app-shell .primary:hover:not(:disabled),
+.app-shell button.primary:hover:not(:disabled) {
+  background: var(--fm-accent-hover) !important;
+}
+
+.app-shell .ghost,
+.app-shell button.ghost,
+.app-shell button.small,
+.app-shell .icon-button,
+.app-shell .transport-button,
+.app-shell .preview-tool,
+.app-shell .timeline-tools button {
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  color: var(--ink-2) !important;
+}
+.app-shell .ghost:hover:not(:disabled),
+.app-shell .icon-button:hover:not(:disabled),
+.app-shell .transport-button:hover:not(:disabled),
+.app-shell .preview-tool:hover:not(:disabled),
+.app-shell .timeline-tools button:hover:not(:disabled) {
+  background: var(--state-hover) !important;
+  color: var(--ink-1) !important;
+  border-color: var(--fm-line) !important;
+}
+
+/* Inputs, selects y textareas: caja de 1 px, sin radio, fondo más oscuro. */
+.app-shell input:not([type='range']):not([type='checkbox']):not([type='radio']),
+.app-shell select,
+.app-shell textarea,
+.start-window input,
+.start-screen input:not([type='range']),
+.settings-window input:not([type='range']):not([type='checkbox']),
+.settings-window select,
+[role='dialog'] input:not([type='range']):not([type='checkbox']),
+[role='dialog'] select {
+  background: var(--fm-input) !important;
+  border: 1px solid var(--fm-control-line) !important;
+  border-radius: 2px !important;
+  color: var(--ink-1) !important;
+  font-family: var(--font-ui) !important;
+  font-size: 11.5px !important;
+  box-shadow: none !important;
+  min-height: 24px;
+  padding: 3px 7px;
+}
+.app-shell input:focus,
+.app-shell select:focus,
+.app-shell textarea:focus,
+.settings-window input:focus,
+.settings-window select:focus {
+  border-color: var(--fm-accent) !important;
+  outline: none;
+}
+.app-shell input::placeholder,
+.app-shell textarea::placeholder { color: var(--fm-ink-4); }
+
+.app-shell select {
+  appearance: auto;
+  background-image: none !important;
+}
+
+.app-shell input[type='checkbox'],
+.settings-window input[type='checkbox'] {
+  accent-color: var(--fm-accent);
+  width: 13px;
+  height: 13px;
+}
+
+/* Sliders: pista fina, pulgar cuadrado pequeño (la referencia no usa glow). */
+.app-shell input[type='range'] {
+  accent-color: var(--fm-accent);
+  height: 14px;
+}
+.app-shell input[type='range']::-webkit-slider-runnable-track {
+  height: 3px !important;
+  background: var(--fm-overlay-line) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+.app-shell input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px !important;
+  height: 10px !important;
+  margin-top: -3.5px !important;
+  border-radius: 1px !important;
+  background: var(--fm-thumb) !important;
+  border: 1px solid var(--fm-bg) !important;
+  box-shadow: none !important;
+}
+.app-shell input[type='range']:hover::-webkit-slider-thumb { background: var(--fm-accent) !important; }
+
+/* ─────────────────────────── 4 · Barra superior ──────────────────────── */
+
+.app-shell .topbar {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 0 0 8px !important;
+  background: var(--fm-bar) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  backdrop-filter: none !important;
+  gap: 2px !important;
+}
+.app-shell .topbar-brand {
+  height: 32px !important;
+  gap: 5px !important;
+  padding: 0 6px 0 0 !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  letter-spacing: 0 !important;
+}
+.app-shell .topbar-brand img { width: 15px; height: 15px; }
+.app-shell .topbar-home-btn {
+  height: 22px !important;
+  padding: 0 6px !important;
+  border-radius: 2px !important;
+  font-size: 11px !important;
+}
+.app-shell .menubar,
+.app-shell .menubar-menus { height: 32px !important; gap: 0 !important; }
+.app-shell .menubar-slot { height: 32px !important; }
+.app-shell .menubar-title {
+  height: 24px !important;
+  margin: 4px 0 !important;
+  padding: 0 8px !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: var(--fm-ink-2) !important;
+  font-size: 11.5px !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+}
+.app-shell .menubar-title:hover,
+.app-shell .menubar-title.open {
+  background: var(--fm-hover) !important;
+  color: var(--fm-ink) !important;
+}
+.app-shell .menubar-dropdown,
+.app-shell .menu-popover {
+  background: var(--fm-bar-2) !important;
+  border: 1px solid var(--fm-overlay-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  padding: 3px !important;
+}
+.app-shell .menubar-item { border-radius: 2px !important; font-size: 11.5px !important; }
+.app-shell .menubar-item:hover:not(:disabled) { background: var(--fm-hover-strong) !important; color: var(--fm-ink) !important; }
+
+.app-shell .topbar-center { height: 32px !important; }
+.app-shell .topbar-project { gap: 6px !important; }
+.app-shell .topbar-project-name { font-size: 11.5px !important; font-weight: 500 !important; color: var(--fm-ink-bright) !important; }
+.app-shell .topbar-project-phase { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+
+.app-shell .topbar-actions { gap: 2px !important; padding-right: 4px !important; }
+.app-shell .topbar-search {
+  height: 22px !important;
+  width: 26px !important;
+  min-width: 26px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  border: 1px solid transparent !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: var(--fm-ink-2) !important;
+  font-size: 0 !important;
+}
+.app-shell .topbar-search svg { width: 14px; height: 14px; }
+.app-shell .topbar-search kbd,
+.app-shell .topbar-search span { display: none !important; }
+.app-shell .topbar-search:hover { border-color: var(--fm-line) !important; }
+.app-shell .icon-button {
+  width: 26px !important;
+  height: 24px !important;
+  min-width: 26px !important;
+  padding: 0 !important;
+  justify-content: center !important;
+  border-radius: 2px !important;
+}
+.app-shell .topbar-divider { width: 1px; height: 16px; background: var(--fm-line); margin: 0 3px; }
+
+/* EXPORTAR: píldora turquesa, el único CTA de color de la barra. */
+.app-shell .topbar-export-btn {
+  height: 22px !important;
+  padding: 0 12px !important;
+  border: 1px solid var(--fm-accent) !important;
+  border-radius: 3px !important;
+  background: var(--fm-accent) !important;
+  color: var(--fm-accent-ink) !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.02em !important;
+  text-transform: uppercase;
+  box-shadow: none !important;
+}
+.app-shell .topbar-export-btn:hover { background: var(--fm-accent-hover) !important; }
+
+.app-shell .window-controls { height: 32px !important; }
+.app-shell .window-control {
+  width: 38px !important;
+  height: 32px !important;
+  border-radius: 0 !important;
+}
+.app-shell .window-control:hover { background: var(--fm-hover-strong) !important; }
+.app-shell .window-control.close:hover { background: var(--fm-danger) !important; }
+
+/* Statusbar: fina y muda, como una línea de estado de NLE. */
+.app-shell .app-statusbar {
+  height: 20px !important;
+  min-height: 20px !important;
+  padding: 0 8px !important;
+  background: var(--fm-bar) !important;
+  border-top: 1px solid var(--fm-line) !important;
+  font-size: 10.5px !important;
+  color: var(--fm-ink-4) !important;
+}
+.app-shell .app-statusbar .statusbar-meta { font-size: 10.5px !important; }
+
+/* ───────────────────────── 5 · Navegación lateral ────────────────────── */
+
+.app-shell .sidebar {
+  width: 40px !important;
+  min-width: 40px !important;
+  background: var(--fm-bar) !important;
+  border-right: 1px solid var(--fm-line) !important;
+  padding: 3px 0 !important;
+}
+.app-shell .sidebar button,
+.app-shell .sidebar .nav-item {
+  border-radius: 2px !important;
+  color: var(--fm-ink-3) !important;
+  font-size: 11px !important;
+}
+.app-shell .sidebar button:hover { background: var(--fm-hover) !important; color: var(--fm-ink) !important; }
+.app-shell .sidebar button.active,
+.app-shell .sidebar .nav-item.active {
+  background: color-mix(in srgb, var(--fm-accent) 14%, transparent) !important;
+  color: var(--fm-accent) !important;
+  border-left: 2px solid var(--fm-accent) !important;
+}
+
+/* ───────────────────── 6 · Vistas de contenido ───────────────────────── */
+
+.app-shell .content {
+  background: var(--color-bg) !important;
+  padding: 0 !important;
+}
+.app-shell .content:not(.content-flush) { padding: 16px 20px !important; }
+.app-shell .view { background: transparent !important; }
+
+.app-shell .card,
+.app-shell .panel,
+.app-shell .settings-card,
+.app-shell .settings-section,
+.app-shell .home-card,
+.app-shell .view-card,
+.app-shell .pillar-card,
+.app-shell .tool-card {
+  background: var(--fm-panel) !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  background-image: none !important;
+}
+.app-shell .card:hover,
+.app-shell .tool-card:hover { border-color: var(--fm-scroll) !important; background: var(--fm-panel-2) !important; }
+
+.app-shell .view h1,
+.app-shell .view h2 { color: var(--fm-ink) !important; }
+.app-shell .view p,
+.app-shell .view li { color: var(--fm-ink-2) !important; }
+
+/* Pestañas: subrayado turquesa, sin píldoras ni bordes. */
+.app-shell .tabs,
+.app-shell .tab-bar,
+.app-shell .segmented,
+.app-shell .hub-tabs {
+  gap: 0 !important;
+  background: transparent !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  padding: 0 !important;
+}
+.app-shell .tab,
+.app-shell .segmented button,
+.app-shell .hub-tab {
+  height: 28px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--fm-ink-3) !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+}
+.app-shell .tab.active,
+.app-shell .tab[aria-selected='true'],
+.app-shell .segmented button.active,
+.app-shell .hub-tab.active {
+  color: var(--fm-accent) !important;
+  border-bottom-color: var(--fm-accent) !important;
+  background: transparent !important;
+}
+
+.app-shell .chip,
+.app-shell .badge,
+.app-shell .pill {
+  border-radius: 2px !important;
+  border: 1px solid var(--fm-control-line) !important;
+  background: var(--fm-bar-2) !important;
+  color: var(--fm-ink-2) !important;
+  font-size: 10.5px !important;
+  padding: 1px 6px !important;
+}
+.app-shell .chip.active { border-color: var(--fm-accent) !important; color: var(--fm-accent) !important; }
+
+.app-shell .view-toolbar {
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 10px !important;
+  background: var(--fm-bar-2) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  border-radius: 0 !important;
+}
+.app-shell .view-toolbar-label { font-size: 11.5px !important; font-weight: 600 !important; letter-spacing: 0 !important; }
+.app-shell .view-count { font-size: 11px !important; color: var(--fm-ink-3) !important; }
+
+/* ─────────────────────── 7 · Editor: estructura ──────────────────────── */
+
+.app-shell .editor-workspace {
+  background: var(--color-bg) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+}
+.app-shell .editor-mode-tabs {
+  height: 34px !important;
+  min-height: 34px !important;
+  gap: 0 !important;
+  padding: 0 8px !important;
+  background: var(--fm-bar) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+}
+.app-shell .editor-mode-tab {
+  height: 34px !important;
+  padding: 0 14px !important;
+  border: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--fm-ink-3) !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+}
+.app-shell .editor-mode-tab:hover { background: var(--fm-hover) !important; color: var(--fm-ink) !important; }
+.app-shell .editor-mode-tab.active {
+  color: var(--fm-accent) !important;
+  border-bottom-color: var(--fm-accent) !important;
+  background: transparent !important;
+}
+
+/* Proporciones de la referencia: medios · player · propiedades · timeline.
+   El ancho del inspector sigue leyendo --inspector-width (redimensionable). */
+.app-shell .editor-grid {
+  /* 26 / 48 / 26 aprox.: el player deja de ocupar ~60 % y los paneles
+     laterales ganan el ancho que muestran las referencias. El inspector
+     sigue leyendo --inspector-width, así que el divisor conserva TODO su
+     rango (280–560 px) y la preferencia persistida del usuario. */
+  grid-template-columns:
+    clamp(320px, 27vw, 430px) minmax(0, 1fr) 1px
+    var(--inspector-width, 400px) !important;
+  grid-template-rows: minmax(0, 1fr) var(--timeline-height, 300px) !important;
+  gap: 0 !important;
+  padding: 0 !important;
+  background: var(--fm-bg) !important;
+}
+:root[data-density='compact'] .app-shell .editor-grid,
+:root[data-density='spacious'] .app-shell .editor-grid { gap: 0 !important; padding: 0 !important; }
+
+.app-shell .asset-rail,
+.app-shell .preview-panel,
+.app-shell .inspector,
+.app-shell .timeline-panel,
+.app-shell .editor-mode-panel {
+  background: var(--fm-panel) !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+.app-shell .asset-rail { border-right: 1px solid var(--fm-line) !important; }
+.app-shell .preview-panel { border-right: 1px solid var(--fm-line) !important; background: var(--fm-bg) !important; }
+.app-shell .inspector { border-left: 1px solid var(--fm-line) !important; }
+.app-shell .timeline-panel { border-top: 1px solid var(--fm-line) !important; background: var(--fm-timeline) !important; }
+.app-shell .editor-splitter { background: var(--fm-line) !important; }
+.app-shell .editor-splitter:hover { background: var(--fm-accent) !important; }
+
+/* Panel de medios · árbol y lista densos. */
+.app-shell .rail-tabs,
+.app-shell .rail-head,
+.app-shell .inspector-head,
+.app-shell .timeline-tabs,
+.app-shell .panel-head {
+  background: var(--fm-bar-2) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  border-radius: 0 !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 8px !important;
+}
+.app-shell .rail-tabs button,
+.app-shell .rail-tabs .active {
+  border-radius: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  font-size: 11px !important;
+}
+.app-shell .rail-tabs .active { color: var(--fm-accent) !important; border-bottom-color: var(--fm-accent) !important; }
+.app-shell .rail-search,
+.app-shell .rail-filter,
+.app-shell .rail-fav-filter {
+  border-radius: 2px !important;
+  height: 22px !important;
+  font-size: 11px !important;
+}
+.app-shell .rail-list { padding: 4px !important; gap: 2px !important; }
+.app-shell .rail-asset,
+.app-shell .rail-browser .rail-asset {
+  border: 1px solid transparent !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  padding: 4px !important;
+}
+.app-shell .rail-asset:hover { background: var(--fm-hover) !important; border-color: var(--fm-line) !important; }
+.app-shell .rail-asset.selected { background: color-mix(in srgb, var(--fm-accent) 14%, transparent) !important; border-color: var(--fm-accent) !important; }
+.app-shell .rail-thumb { border-radius: 1px !important; background: var(--fm-input) !important; border: 1px solid var(--fm-line) !important; }
+.app-shell .rail-info { font-size: 11px !important; color: var(--fm-ink-bright) !important; }
+.app-shell .rail-actions button { font-size: 10.5px !important; }
+.app-shell .rail-foot { border-top: 1px solid var(--fm-line) !important; background: var(--fm-bar-2) !important; }
+
+/* Player · el vídeo manda; HUD y herramientas en una sola fila discreta. */
+.app-shell .preview-stage {
+  background: var(--fm-preview) !important;
+  padding: 30px 0 0 !important;
+}
+.app-shell .preview-topbar {
+  height: 30px !important;
+  background: var(--fm-bar-2) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  padding: 0 8px !important;
+}
+.app-shell .preview-hud,
+.app-shell .preview-tools { gap: 4px !important; }
+.app-shell .preview-hud-chip,
+.app-shell .preview-tool,
+.app-shell .preview-ratio-select {
+  height: 20px !important;
+  padding: 0 6px !important;
+  border: 1px solid var(--fm-control-line) !important;
+  border-radius: 2px !important;
+  background: var(--fm-panel-2) !important;
+  color: var(--fm-ink-2) !important;
+  font-size: 10.5px !important;
+  backdrop-filter: none !important;
+}
+.app-shell .preview-hud-chip.strong { color: var(--fm-ink) !important; }
+.app-shell .preview-canvas { border-radius: 0 !important; box-shadow: none !important; border: 0 !important; }
+
+/* Transporte: iconos planos, reproducción en turquesa, timecode monoespaciado. */
+.app-shell .transport {
+  height: 34px !important;
+  min-height: 34px !important;
+  padding: 0 8px !important;
+  background: var(--fm-bar-2) !important;
+  border-top: 1px solid var(--fm-line) !important;
+  gap: 6px !important;
+}
+.app-shell .transport-buttons { gap: 1px !important; }
+.app-shell .transport-button {
+  width: 24px !important;
+  height: 24px !important;
+  padding: 0 !important;
+  border-radius: 2px !important;
+  color: var(--fm-ink-2) !important;
+}
+.app-shell .transport-button.primary-transport {
+  background: var(--fm-accent) !important;
+  border: 1px solid var(--fm-accent) !important;
+  color: var(--fm-accent-ink) !important;
+}
+.app-shell .transport-button.primary-transport:hover { background: var(--fm-accent-hover) !important; }
+.app-shell .transport-scrub { background: var(--fm-line) !important; height: 3px !important; border-radius: 0 !important; }
+.app-shell .transport-scrub-knob { background: var(--fm-accent) !important; border-radius: 1px !important; }
+.app-shell .transport-time,
+.app-shell .transport-frames,
+.app-shell .transport-readout {
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  color: var(--fm-ink-bright) !important;
+  letter-spacing: 0 !important;
+}
+
+/* Inspector · pestañas, secciones y campos. */
+.app-shell .inspector-head { font-size: 11.5px !important; font-weight: 600 !important; }
+.app-shell .inspector-body { padding: 8px !important; gap: 8px !important; }
+.app-shell .inspector-section {
+  border: 0 !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 0 8px !important;
+}
+.app-shell .inspector-section-toggle {
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  color: var(--fm-ink-bright) !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+}
+.app-shell .inspector-tabs { border-bottom: 1px solid var(--fm-line) !important; gap: 0 !important; }
+.app-shell .inspector-tabs button {
+  border-radius: 0 !important;
+  border-bottom: 2px solid transparent !important;
+  font-size: 11px !important;
+  color: var(--fm-ink-3) !important;
+}
+.app-shell .inspector-tabs button.active { color: var(--fm-accent) !important; border-bottom-color: var(--fm-accent) !important; }
+.app-shell .field { gap: 3px !important; }
+.app-shell .field label,
+.app-shell .field .field-label { font-size: 10.5px !important; color: var(--fm-ink-3) !important; text-transform: none !important; letter-spacing: 0 !important; }
+.app-shell .inspector-grid { gap: 6px !important; }
+.app-shell .inspector-meta { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+.app-shell .color-swatch { border-radius: 2px !important; }
+.app-shell .color-swatch-fill { border-radius: 1px !important; }
+
+/* ─────────────────────────── 8 · Timeline ────────────────────────────── */
+
+.app-shell .timeline-tabs {
+  gap: 0 !important;
+  padding: 0 8px !important;
+}
+.app-shell .timeline-tabs button {
+  border-radius: 0 !important;
+  border-bottom: 2px solid var(--fm-accent) !important;
+  background: transparent !important;
+  font-size: 11px !important;
+}
+.app-shell .timeline-tabs-meta { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+
+.app-shell .timeline-toolbar,
+.app-shell .timeline-tools {
+  height: 30px !important;
+  min-height: 30px !important;
+  padding: 0 6px !important;
+  background: var(--fm-timeline) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  gap: 2px !important;
+}
+.app-shell .timeline-toolbar button,
+.app-shell .timeline-tools button {
+  height: 22px !important;
+  min-width: 22px !important;
+  padding: 0 5px !important;
+  border-radius: 2px !important;
+  border: 1px solid transparent !important;
+  font-size: 10.5px !important;
+  color: var(--fm-ink-2) !important;
+  background: transparent !important;
+}
+.app-shell .timeline-toolbar button:hover,
+.app-shell .timeline-tools button:hover { background: var(--fm-hover-strong) !important; border-color: var(--fm-control-line) !important; }
+.app-shell .timeline-toolbar button.active,
+.app-shell .timeline-tools button.active {
+  background: color-mix(in srgb, var(--fm-accent) 16%, transparent) !important;
+  border-color: var(--fm-accent) !important;
+  color: var(--fm-accent) !important;
+}
+.app-shell .timeline-toolbar .icon-button { width: 22px !important; }
+.app-shell .timeline-toolbar select,
+.app-shell .timeline-tools select { height: 22px !important; font-size: 10.5px !important; }
+.app-shell .tool-label { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+.app-shell .zoom-readout { font-family: var(--font-mono) !important; font-size: 10.5px !important; color: var(--fm-ink-3) !important; }
+
+.app-shell .timeline-surface,
+.app-shell .timeline-scroll,
+.app-shell .timeline-empty { background: var(--fm-bar) !important; }
+.app-shell .ruler-row,
+.app-shell .ruler-lane { background: var(--fm-timeline) !important; border-bottom: 1px solid var(--fm-line) !important; }
+.app-shell .ruler-tick { color: var(--fm-ink-4) !important; font-size: 9.5px !important; font-family: var(--font-mono) !important; }
+.app-shell .ruler-minor { background: var(--fm-line) !important; }
+.app-shell .ruler-corner { background: var(--fm-timeline) !important; border-right: 1px solid var(--fm-line) !important; }
+.app-shell .ruler-corner-title { font-size: 10.5px !important; color: var(--fm-ink-3) !important; }
+
+.app-shell .track-head {
+  background: var(--fm-timeline) !important;
+  border-right: 1px solid var(--fm-line) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  font-size: 10.5px !important;
+  color: var(--fm-ink-3) !important;
+}
+.app-shell .track-lane {
+  background: var(--fm-bar) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+}
+.app-shell .track-name { font-size: 10.5px !important; }
+.app-shell .track-flags button { color: var(--fm-ink-4) !important; }
+
+/* Clips: azul de vídeo, cian de audio, borde de 1 px, sin radio. */
+.app-shell .timeline-clip {
+  border-radius: 1px !important;
+  border: 1px solid var(--fm-line) !important;
+  box-shadow: none !important;
+  font-size: 10.5px !important;
+  color: #eaf4ff !important;
+}
+.app-shell .timeline-clip.kind-video { background: #1c5f96 !important; border-color: #2f8fd8 !important; }
+.app-shell .timeline-clip.kind-image { background: #574a92 !important; border-color: #8b74e8 !important; }
+.app-shell .timeline-clip.kind-audio,
+.app-shell .timeline-clip.kind-narration { background: #12657a !important; border-color: #17b6c9 !important; }
+.app-shell .timeline-clip.selected { outline: 1px solid var(--fm-accent) !important; outline-offset: -1px; }
+.app-shell .clip-thumb { border-radius: 0 !important; }
+.app-shell .clip-label { font-size: 10px !important; font-weight: 500 !important; }
+.app-shell .clip-color-dot { border-radius: 1px !important; }
+.app-shell .trim-handle { background: var(--fm-accent) !important; width: 4px !important; border-radius: 0 !important; }
+
+.app-shell .playhead-line { background: var(--fm-accent) !important; width: 1px !important; }
+.app-shell .playhead-grip { background: var(--fm-accent) !important; border-radius: 1px 1px 0 0 !important; }
+.app-shell .snap-guide { background: var(--fm-snap) !important; }
+.app-shell .timeline-marker-flag { background: var(--fm-snap) !important; border-radius: 1px !important; }
+
+/* Onda: cian saturado como en la referencia. */
+.app-shell .waveform-path,
+.app-shell .waveform-bar,
+.app-shell .clip-waveform path { color: #17b6c9 !important; }
+
+/* ──────────────── 9 · Lanzador, ajustes, diálogos ─────────────────────── */
+
+.start-window,
+.start-screen,
+.settings-window,
+[role='dialog'] {
+  background: var(--fm-panel) !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  color: var(--color-text);
+  font-family: var(--font-ui) !important;
+}
+.start-window *,
+.settings-window *,
+[role='dialog'] * { background-image: none !important; }
+
+.start-window .start-header,
+.start-screen .start-header,
+.settings-window .settings-header,
+[role='dialog'] .dialog-head {
+  background: var(--fm-bar) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  height: 30px !important;
+  min-height: 30px !important;
+}
+.start-action-card,
+.settings-card,
+.settings-section,
+.welcome-option {
+  background: var(--fm-panel) !important;
+  border: 1px solid var(--fm-control-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+.start-action-card:hover,
+.welcome-option:hover { border-color: var(--fm-accent) !important; background: var(--fm-panel-2) !important; }
+.start-action-title { font-size: 12px !important; font-weight: 600 !important; }
+.start-action-desc { font-size: 10.5px !important; color: var(--fm-ink-3) !important; }
+
+/* Menús contextuales, popovers y tooltips planos. */
+.app-shell .timeline-menu,
+.app-shell .popover,
+.app-shell .tooltip,
+.app-shell .cmdp,
+.app-shell .palette,
+[role='menu'],
+[data-tooltip]::after {
+  background: var(--fm-bar-2) !important;
+  border: 1px solid var(--fm-overlay-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  color: var(--fm-ink-bright) !important;
+  font-size: 11px !important;
+}
+
+/* Banners y avisos: una línea, sin degradados. */
+.app-shell .banner,
+.app-shell .notice,
+.app-shell .recovery-banner {
+  border: 0 !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  border-radius: 0 !important;
+  background: var(--fm-bar-2) !important;
+  box-shadow: none !important;
+  font-size: 11px !important;
+}
+.app-shell .banner-error { border-bottom-color: #7f2b2b !important; color: #f0a9a9 !important; }
+
+/* ─────────────── 10 · Fidelidad: etiquetas, vacíos, ajustes ───────────── */
+
+/* La referencia usa caja mixta: se elimina el versal expandido de las
+   capas legacy sin tocar el texto de los componentes. */
+.app-shell .settings-nav-kicker,
+.app-shell .eyebrow,
+.app-shell .field > label,
+.app-shell .field-label,
+.app-shell .field-label-row,
+.app-shell .appearance-field,
+.app-shell .settings-section-head,
+.app-shell .inspector-section-toggle,
+.app-shell .rail-head .eyebrow,
+.app-shell .view-toolbar-label,
+.app-shell .home-hero-eyebrow,
+.settings-window .settings-nav-kicker,
+.settings-window .field > label,
+[role='dialog'] .field > label,
+.app-shell .appearance-label,
+.app-shell .appearance-value,
+.app-shell .appearance-field,
+.app-shell .theme-preview-panel-head,
+.app-shell .theme-preview-clip-kind,
+.app-shell label,
+.settings-window label {
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  color: var(--fm-ink-3) !important;
+}
+
+/* Estado vacío del editor: tarjeta recta, sin píldora en el eyebrow. */
+.app-shell .editor-empty-card {
+  border: 1px solid var(--fm-control-line) !important;
+  border-radius: 2px !important;
+  background: var(--fm-panel) !important;
+  box-shadow: none !important;
+  padding: 20px !important;
+}
+.app-shell .editor-empty-eyebrow {
+  border-radius: 2px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+  background: var(--fm-bar-2) !important;
+  color: var(--fm-ink-3) !important;
+  font-size: 10.5px !important;
+}
+.app-shell .editor-empty-icon { border-radius: 2px !important; background: var(--fm-bar-2) !important; }
+.app-shell .editor-empty-title { font-size: 18px !important; letter-spacing: 0 !important; }
+.app-shell .editor-empty-desc { font-size: 11.5px !important; color: var(--fm-ink-3) !important; }
+.app-shell .editor-empty-hints { gap: 6px !important; }
+.app-shell .editor-empty-hint { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+
+/* Banner «modo navegador»: informativo, no una franja dorada. */
+.app-shell .browser-mode-banner,
+.start-window .browser-mode-banner {
+  background: var(--fm-bar-2) !important;
+  border: 0 !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  border-left: 2px solid var(--fm-accent) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--fm-ink-2) !important;
+  font-size: 11px !important;
+  min-height: 26px !important;
+}
+.app-shell .browser-mode-banner-label {
+  background: var(--fm-panel-2) !important;
+  border: 1px solid var(--fm-control-line) !important;
+  border-radius: 2px !important;
+  color: var(--fm-accent) !important;
+  font-size: 10px !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+.app-shell .browser-mode-banner-line,
+.app-shell .browser-mode-banner-details,
+.app-shell .browser-mode-banner-details > summary { color: var(--fm-ink-2) !important; font-size: 11px !important; }
+.app-shell .browser-mode-banner-line strong { color: var(--fm-ink) !important; }
+.app-shell .browser-mode-banner-action { border: 1px solid var(--fm-control-line) !important; border-radius: 2px !important; }
+
+/* Ajustes: paneles, navegación y segmentados planos. */
+.app-shell .settings-window,
+.app-shell .settings-shell {
+  background: var(--fm-panel) !important;
+  border: 1px solid var(--fm-overlay-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+.app-shell .settings-nav {
+  background: var(--fm-bar) !important;
+  border-right: 1px solid var(--fm-line) !important;
+}
+.app-shell .settings-nav-head,
+.app-shell .settings-section-head {
+  border-bottom: 1px solid var(--fm-line) !important;
+  background: transparent !important;
+}
+.app-shell .settings-nav button,
+.app-shell .settings-nav-item {
+  border-radius: 2px !important;
+  font-size: 11.5px !important;
+  color: var(--fm-ink-2) !important;
+}
+.app-shell .settings-nav button.active,
+.app-shell .settings-nav-item.active {
+  background: color-mix(in srgb, var(--fm-accent) 14%, transparent) !important;
+  color: var(--fm-accent) !important;
+  border-left: 2px solid var(--fm-accent) !important;
+}
+.app-shell .settings-section {
+  border: 0 !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.app-shell .settings-section-body { padding: 10px !important; gap: 8px !important; }
+.app-shell .settings-cards,
+.app-shell .settings-cards.two { gap: 8px !important; }
+
+/* Controles segmentados (densidad, escala, pestañas de tarjetas). */
+.app-shell .segmented,
+.app-shell .appearance-segmented,
+.app-shell .settings-segmented,
+.settings-window .segmented {
+  border: 1px solid var(--fm-control-line) !important;
+  border-radius: 2px !important;
+  background: var(--fm-input) !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+.app-shell .segmented button,
+.settings-window .segmented button {
+  border: 0 !important;
+  border-right: 1px solid var(--fm-control-line) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: var(--fm-ink-3) !important;
+  font-size: 11px !important;
+  height: 22px !important;
+}
+.app-shell .segmented button:last-child { border-right: 0 !important; }
+.app-shell .segmented button.active,
+.settings-window .segmented button.active {
+  background: color-mix(in srgb, var(--fm-accent) 16%, transparent) !important;
+  color: var(--fm-accent) !important;
+}
+
+/* Tarjetas y listas de las vistas de contenido. */
+.app-shell .home-hero,
+.app-shell .home-status,
+.app-shell .home-pillar-card,
+.app-shell .home-progress-card,
+.app-shell .home-step-card,
+.app-shell .data-list,
+.app-shell .tool-list,
+.app-shell .scope-list,
+.app-shell .ai-provider-grid > * {
+  background: var(--fm-panel) !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+.app-shell .home-hero-lead { font-size: 15px !important; }
+.app-shell .home-pillar-icon { border-radius: 2px !important; }
+.app-shell .home-pillar-tag,
+.app-shell .home-hero-chip { border-radius: 2px !important; }
+
+/* Overlays: scrim opaco, sin blur. */
+.app-shell .modal-backdrop,
+.app-shell .dialog-backdrop,
+.app-shell .settings-backdrop {
+  background: var(--fm-scrim) !important;
+  backdrop-filter: none !important;
+}
+
+/* ──────────────────────── 11 · Movimiento ────────────────────────────── */
+
+/* La referencia no anima el cromo: sólo cambios de color de 90 ms. */
+.app-shell *,
+.start-window *,
+.settings-window * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 90ms !important;
+  transition-property: background-color, border-color, color !important;
+  transition-timing-function: linear !important;
+}
+:root[data-reduce-motion='true'] * { animation: none !important; transition: none !important; }
+
+/* ─── 12 · Medios minimalistas y cabeceras de pista (referencia CapCut) ──
+   Objetivo del usuario: que cada archivo sea SÓLO «cuadro + duración +
+   nombre», y que en la timeline cada pista muestre SÓLO candado, ojo y
+   sonido. Todos los controles que se ocultan siguen en el DOM y vuelven a
+   estar disponibles al pasar el puntero o al enfocar con teclado, así que
+   no se pierde ninguna acción (montar, voz, detalles, favorito, colapsar,
+   solo) ni se rompen las pruebas que los consultan por rol accesible.
+   ====================================================================== */
+
+/* ── 12.1 · Grilla de medios: mosaico compacto, sin tarjeta ──────────── */
+
+.app-shell .rail-list {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)) !important;
+  grid-auto-rows: min-content !important;
+  align-content: start !important;
+  gap: 12px 10px !important;
+  padding: 10px !important;
+}
+
+.app-shell .rail-asset {
+  position: relative !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 5px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+.app-shell .rail-asset:hover,
+.app-shell .rail-asset.selected {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+/* El cuadro: 4:3, esquina suave, borde turquesa de 2 px al seleccionar. */
+.app-shell .rail-thumb {
+  position: relative !important;
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 4 / 3 !important;
+  flex: none !important;
+  border: 2px solid transparent !important;
+  border-radius: 5px !important;
+  background: var(--fm-input) !important;
+  box-shadow: none !important;
+  overflow: hidden !important;
+}
+.app-shell .rail-thumb img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+}
+.app-shell .rail-asset:hover .rail-thumb { border-color: var(--fm-line-strong) !important; }
+.app-shell .rail-asset.selected .rail-thumb {
+  border-color: var(--fm-accent) !important;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fm-accent) 28%, transparent) !important;
+}
+
+/* Duración: abajo a la izquierda, chica y sobre el fotograma. */
+.app-shell .rail-thumb-time {
+  left: 4px !important;
+  right: auto !important;
+  bottom: 4px !important;
+  padding: 0 4px !important;
+  border-radius: 2px !important;
+  background: rgba(3, 8, 13, 0.78) !important;
+  color: #ffffff !important;
+  font-family: var(--font-mono) !important;
+  font-size: 9px !important;
+  line-height: 14px !important;
+  font-variant-numeric: tabular-nums !important;
+  letter-spacing: 0 !important;
+}
+
+/* Sin icono de tipo encima del cuadro; el fallback de audio queda centrado. */
+.app-shell .rail-thumb-kind { display: none !important; }
+.app-shell .rail-thumb-fallback {
+  display: grid !important;
+  place-items: center !important;
+  width: 100% !important;
+  height: 100% !important;
+  color: var(--fm-ink-4) !important;
+}
+.app-shell .rail-thumb-fallback svg { width: 20px !important; height: 20px !important; }
+
+/* Nombre: una sola línea, sin negrita, truncado con elipsis. */
+.app-shell .rail-info {
+  display: block !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+.app-shell .rail-info strong {
+  display: block !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: 10.5px !important;
+  font-weight: 400 !important;
+  line-height: 14px !important;
+  letter-spacing: 0 !important;
+  color: var(--fm-ink-2) !important;
+}
+.app-shell .rail-asset:hover .rail-info strong,
+.app-shell .rail-asset.selected .rail-info strong { color: var(--fm-ink) !important; }
+
+/* Metadatos, etiquetas y punto «en uso» no forman parte de la referencia. */
+.app-shell .rail-info > span,
+.app-shell .rail-tags,
+.app-shell .rail-in-use-dot { display: none !important; }
+
+/* Acciones: invisibles en reposo, barra compacta sobre el cuadro al hover. */
+.app-shell .rail-actions {
+  position: absolute !important;
+  top: 5px !important;
+  left: 5px !important;
+  right: 5px !important;
+  z-index: 3 !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 3px !important;
+  width: auto !important;
+  height: auto !important;
+  padding: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+.app-shell .rail-asset:hover .rail-actions,
+.app-shell .rail-asset:focus-within .rail-actions {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+.app-shell .rail-actions button {
+  flex: 1 1 auto !important;
+  min-height: 19px !important;
+  padding: 0 5px !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  background: rgba(3, 8, 13, 0.88) !important;
+  color: var(--fm-ink) !important;
+  font-size: 9.5px !important;
+  line-height: 17px !important;
+  white-space: nowrap !important;
+}
+.app-shell .rail-actions button:hover:not(:disabled) {
+  border-color: var(--fm-accent) !important;
+  color: var(--fm-accent) !important;
+}
+.app-shell .rail-fav {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  top: 4px !important;
+  right: 4px !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 2px !important;
+  background: rgba(3, 8, 13, 0.85) !important;
+}
+.app-shell .rail-asset:hover .rail-fav,
+.app-shell .rail-asset:focus-within .rail-fav,
+.app-shell .rail-fav.active {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  color: var(--fm-snap) !important;
+}
+
+/* ── 12.2 · Cabeceras de pista: sólo candado, ojo y sonido ───────────── */
+
+.app-shell .track-head {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  padding: 0 6px !important;
+}
+.app-shell .track-head .track-name {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  white-space: nowrap !important;
+}
+.app-shell .track-head .track-kind { display: none !important; }
+
+.app-shell .track-flags {
+  width: auto !important;
+  height: auto !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 12px !important;
+}
+.app-shell .track-flags .flag {
+  width: 16px !important;
+  height: 20px !important;
+  min-width: 16px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: var(--fm-ink-3) !important;
+  display: grid !important;
+  place-items: center !important;
+}
+.app-shell .track-flags .flag svg { width: 13px !important; height: 13px !important; }
+.app-shell .track-flags .flag:hover { color: var(--fm-ink) !important; background: var(--fm-hover) !important; }
+.app-shell .track-flags .flag.active { color: var(--fm-accent) !important; }
+
+/* Orden de la referencia: candado → ojo → sonido. */
+.app-shell .track-flags .flag[aria-label^='Bloquear'] { order: 1 !important; }
+.app-shell .track-flags .flag[aria-label^='Ocultar'] { order: 2 !important; }
+.app-shell .track-flags .flag[aria-label^='Silenciar'] { order: 3 !important; }
+
+/* Colapsar y Solo quedan fuera de la vista en reposo, sin salir del DOM:
+   reaparecen al hover, al foco de teclado o al enfocar la cabecera. */
+.app-shell .track-flags .flag:first-child,
+.app-shell .track-flags .flag.solo {
+  position: absolute !important;
+  width: 16px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  order: 0 !important;
+}
+.app-shell .timeline-row:hover .track-flags .flag:first-child,
+.app-shell .timeline-row:hover .track-flags .flag.solo,
+.app-shell .track-flags:focus-within .flag:first-child,
+.app-shell .track-flags:focus-within .flag.solo,
+.app-shell .track-flags .flag:first-child:focus-visible,
+.app-shell .track-flags .flag.solo:focus-visible {
+  position: static !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}

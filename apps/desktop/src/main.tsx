@@ -31,6 +31,12 @@ import './styles/premium/components.css';
 import './styles/premium/shell.css';
 import './styles/premium/launcher.css';
 
+// Capa visual Filmora 12: SIEMPRE al final del CSS crítico. Los entries de
+// editor/contenido se inyectan después por import() dinámico, pero la capa
+// no se repite: sus reglas usan la especificidad y !important necesarios
+// para ganar igual (verificado con SSIM 1.0 en 10 vistas).
+import './styles/filmora/filmora.css';
+
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.
 applyAppearance(loadAppearance());

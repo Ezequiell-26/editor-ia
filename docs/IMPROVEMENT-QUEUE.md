@@ -1,8 +1,164 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-04. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-05. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+- `[done]` **Rediseño visual Filmora 12 (2026-11-05)** — pedido del usuario
+  con 4 capturas de referencia. Sistema global, no una pantalla:
+  - Nuevo preset `filmora` en `state/theme-palette.ts` (34 tokens, grafito
+    azulado `#0e141c`/`#161e28`, acento turquesa `#00c9a7`, clips azul/cian).
+    El preset `olyvia` cobalt sigue disponible; `DEFAULT_APPEARANCE` usa el
+    nuevo, radio 2 y densidad `compact`, con migración de la apariencia
+    guardada que fuera exactamente el default viejo.
+  - `styles/filmora/filmora.css`: capa única al final de `main.tsx` (barra
+    32 px, pestañas con subrayado turquesa, paneles de 1 px, radios 2 px,
+    sin sombras/glows/gradientes/blur, tipografía Segoe UI 11–13 px,
+    etiquetas en caja mixta, EXPORTAR turquesa, transporte, inspector,
+    timeline, lanzador, ajustes, diálogos y scrollbars).
+  - Proporciones del editor: medios ~26 % · player ~48 % · propiedades
+    ~26 %, timeline a todo el ancho; se conserva el divisor redimensionable.
+  - `styles/tokens.css` actualizado como fallback de primera pintura.
+  - Sin duplicación de CSS: se midió SSIM **1.000000 en 10 vistas** con y sin
+    repetir la capa en los entries dinámicos, así que vive una sola vez.
+  - **Tema claro preservado**: `applyAppearance` escribe `data-theme` y la
+    capa usa `--fm-*` (superficies/lineas/tintas) con variantes oscura y
+    clara. Sin esto los fondos hardcodeados rompían el preset «Claro neutro»
+    (detectado por e2e `theme.spec.ts:929`, vuelto a verde).
+  - **Migración acotada**: vive en `loadAppearance` (sólo preferencias
+    persistidas sin marca `_design`), no en `normalizeAppearance`, para no
+    impedir elegir explícitamente el preset «Olyvia». `saveAppearance`
+    escribe la marca en cada guardado.
+  - Arnés de verificación en `.tmp-redesign/filmora/` (proyecto demo real
+    generado desde `test/fake-service.ts` + puente Tauri simulado por
+    `addInitScript`); capturas `antes/`, `despues/`, `final/`,
+    `theme-aware/` y comparación de color por moda de rejilla.
+  - **Verificación**: typecheck 0; `vite build` 0; suite serial **2011
+    passed / 3 skipped / 13 failed** (los 13 son los previos de
+    `EffectStudio` 5, `AudioEffectStack` 4, `AssetsPanel` 3 y `App` 1 por
+    trabajo UI no confirmado del usuario); e2e **19 passed / 1 skipped /
+    4 failed** (specs desfasadas que buscan `input[type=color]`/`hue-slider`).
+    Sin regresiones nuevas: la primera corrida tuvo 14/5 por dos fallos
+    propios (reset de color y tema claro) y ambos se corrigieron.
+    SSIM 1.000000 en 10 vistas al quitar la capa duplicada; 0 errores de
+    consola en las 10 capturas.
+  - Color medido: referencias barra `#17242d`/`#0c1117` y panel
+    `#151f29`/`#23282e`; resultado `#101922`/`#161e28`, dentro del rango.
+    Acento de referencia `#21dcc1`/`#44f2be`, resultado `#00c9a7`.
+  - **Binario**: `cargo build --release -j 2 -p editor-ia-desktop
+    --features tauri/custom-protocol --offline` OK en 11m19s; exe
+    `target/release/editor-ia-desktop.exe` 39.712.256 B con el `dist`
+    nuevo embebido. **No se pudo instalar**: la instancia en uso bloquea el
+    archivo («está siendo utilizado en otro proceso») y no se puede cerrar
+    desde esta sesión. El exe anterior se resguardó en
+    `%LOCALAPPDATA%\Olyvia-backups\2026-11-05-filmora\`. Para verlo:
+    cerrar Olyvia y ejecutar `Actualizar Olyvia.cmd` (cierra instancias,
+    recompila y copia) o copiar manualmente el exe de `target\release`.
+  - `[next]` Diferencias pendientes: marca «Olyvia» vs Filmora (identidad
+    de producto), rail de iconos, filmstrip de clips en el arnés (en nativo
+    sí cargan), árbol «Project Media» y pestañas Video/Color/Speed del
+    inspector sin clip; verificar con CDP nativo tras reinstalar.
+
+- `[done]` **Corte de contexto de playback (2026-11-05)** — pedido del usuario
+  («que funcione rápida, consuma lo mínimo, extremadamente eficiente»).
+  Cierra la deuda anotada el 2026-11-04 («los selectores nuevos no los usa
+  ningún componente: el corte de contexto no está activo»).
+  - **Cambio**: `playheadFrame` y `playing` salieron de `StoreState` a dos
+    contextos propios (`PlayheadContext`, `PlayingContext`) dentro del mismo
+    `ProjectProvider`. `useProjectStore()` ya no se invalida ~30-60 veces/s
+    durante la reproducción: antes cada `setPlayhead` re-renderizaba a los
+    ~100 consumidores (App, AppShell, MenuBar, Sidebar, AssistantDock,
+    WelcomeDialog y toda vista montada). Ahora sólo se re-renderizan quienes
+    muestran el frame (Timeline, Preview, Transport, MarkersPanel,
+    TrackAutomationPanel, VfxView, `RegularClipInspector`, `usePlayback`).
+  - **API**: `store.getPlayhead()`/`store.getPlaying()` leen un ref síncrono
+    para handlers (siempre frescos, sin suscribir); hooks nuevos
+    `usePlayheadFrame()`, `useProjectPlaying()`, `useProjectPlayback()`;
+    `useProjectPlayhead()` se mantiene con la misma forma `{frame, playing}`.
+    `adopt`/`closeProject` reinician el playback igual que antes.
+  - **Migración**: 86 lecturas de `state.playheadFrame`/`state.playing` en 20
+    archivos. Handlers → `getPlayhead()`/`getPlaying()`; render → hooks.
+    `MenuBar` y `LiveMeters` sólo necesitaban `playing` (cambia 1 vez por
+    play/pausa, no por frame). En `Timeline`, el rAF de drag usa
+    `store.getPlayhead()` vía `latest.current`.
+  - **Verificación**: `tsc --noEmit` 0 errores; `vite build` 0; test nuevo en
+    `project-store.test.tsx` que cuenta renders y demuestra que un consumidor
+    de `useProjectStore` **no** se re-renderiza con `setPlayhead` ni
+    `setPlaying` (3/3 del archivo). Suites focalizadas: editor+App+components
+    306 passed / 5 failed y assistant+assets+ai-hub+motion+script+vfx+mixer
+    169 passed / 9 failed — los 14 fallos son **los ya documentados como
+    preexistentes** del trabajo no confirmado del usuario (ThumbnailBrowser
+    sin rol `button`: EffectStudio 5 + AudioEffectStack 4; AssetsPanel segundo
+    `<main>` y filtro por carpeta: App 1 + AssetsPanel 3; LottiePanel 1 por el
+    mismo `<main>` duplicado). Ninguno toca playback.
+  - `[next]` Medición CDP del delta real de renders/CPU durante playback en la
+    app instalada; segunda fase de CSS splitting; microbenchmark Rust LTO.
+
+- `[done]` **Exploración de disco para la IA (2026-11-05)** — pedido del
+  usuario («que la IA tenga acceso a la PC para tener los archivos o
+  carpetas»). La superficie MCP ya cubría crear/borrar/editar toda la app
+  (~95 herramientas: proyectos, pistas, clips, subtítulos, assets,
+  exportación, automatizaciones, jobs); el hueco era **descubrir** material:
+  `asset_import` exige rutas absolutas pero no había forma de listarlas.
+  - **Cambio**: herramienta MCP `media_folder_list` — lista los medios
+    (imagen/audio/video) de cualquier carpeta de la PC con ruta absoluta,
+    nombre, tipo y tamaño. Acepta ruta absoluta o nombre de carpeta dentro
+    de Descargas; reutiliza `list_media_folder` (Rust), que recorre hasta 2
+    niveles, ignora no-medios y topa en 300 archivos. Read-only: entra en el
+    conjunto de lecturas paralelas del bridge.
+  - **Archivos**: `state/mcp-catalog.ts` (definición + `readOnlyHint`),
+    `state/mcp-tools.ts` (caso que llama a `service.listMediaFolder`),
+    `state/mcp-tools.test.ts` (test nuevo).
+  - **Verificación**: `vitest run src/state/mcp-tools.test.ts` 23/23;
+    `tsc --noEmit` 0 errores. El catálogo real lo sirve el frontend; el
+    fallback Rust no requiere cambios (es un subconjunto mínimo).
+  - **Límite honesto**: sólo lista medios (image/audio/video), no subtítulos
+    ni proyectos sueltos; no hay búsqueda por nombre ni lectura de
+    archivos. Si hace falta, siguiente iteración: `fs_list` general o
+    `media_search`.
+
+- `[done]` **Visibilidad total de la PC para la IA (2026-11-05)** — el usuario
+  pidió que la IA «pueda modificar, crear, editar y VER TODO». La edición ya
+  estaba cubierta (~97 tools); faltaba ver el disco completo.
+  - **Cambio**: dos comandos Rust nuevos en `commands/files.rs` —
+    `fs_list` (listado no recursivo de cualquier carpeta: subcarpetas
+    primero, tipo dir/image/audio/video/subtitle/text/other, tamaño, tope
+    500 entradas con flag `truncated`) y `fs_read` (contenido de texto de un
+    archivo, tope 512 KiB con flag `truncated`). Sólo lectura, sin escritura
+    de archivos arbitraria. Registrados en `lib.rs` y `mod.rs`.
+  - **Frontend**: `project-service.ts` (tipos `FsEntry`/`FsListing`/
+    `FsFileContent`, métodos `listDirectory`/`readTextFile`, stubs
+    `unavailable`), `fake-service.ts` (stubs), `mcp-catalog.ts` (tools
+    `fs_list` y `fs_read`, ambas `readOnlyHint`), `mcp-tools.ts` (casos).
+  - **Verificación**: `vitest mcp-tools.test.ts` 24/24; `tsc --noEmit` 0;
+    `cargo check` con `scripts/rust-env.mjs` 0 errores (sólo warnings
+    preexistentes); `cargo test --lib commands::files` **4/4**; `vite build`
+    OK (7,9 s). El binario de test Rust volvió a correr en esta máquina
+    (el `STATUS_ENTRYPOINT_NOT_FOUND` documentado no se reprodujo).
+  - **Límite honesto**: la IA ve y lee, pero **no escribe archivos
+    arbitrarios** — modificar contenido sigue siendo vía tools de proyecto/
+    exportación. `fs_read` lee cualquier archivo legible por el usuario
+    (incl. secretos en texto plano si existen); el acceso está detrás del
+    token Bearer del MCP en 127.0.0.1.
+
+- `[done]` **Auditoría del backend Rust (2026-11-05)** — revisión completa
+  pedida por el usuario («revisa todo primero»).
+  - **Hallazgos**: 0 TODOs/FIXMEs en código de producción; 0 `unwrap()`/
+    `expect()` en producción (los ~1.500 están todos en `#[cfg(test)]`;
+    único `expect` de producción en `preview_frame.rs:1048` es seguro
+    porque la clave se acaba de asignar); trabajo bloqueante correctamente
+    en `spawn_blocking` (28 usos); clippy sólo warnings de estilo (111,
+    cosméticos — `cargo clippy --fix` se revirtió solo por un falso
+    positivo en const generics de `dialogue.rs`).
+  - **Bug real encontrado y corregido**: test
+    `hardware_encoder_args_match_each_api` esperaba `-preset p5` pero el
+    código usa `p6` deliberadamente (comentario: «p6 = 2x más rápido que
+    p5 con ~5% menos calidad»). Test desfasado, no regresión. Actualizada
+    la aserción a `p6`.
+  - **Verificación**: `cargo test --lib` completo → 567 passed / 49
+    ignored / **1 failed** (el de arriba, ahora corregido y reverificado
+    1/1 ok). `cargo check` 0 errores. Cambio sólo en `#[cfg(test)]`:
+    no requiere rebuild del binario instalado.
 
 - `[done]` **Pasada de rendimiento integral (2026-11-04)** — pedido del usuario
   («que todo vaya fluido y consuma lo mínimo»). No se tocó la UI ni el trabajo

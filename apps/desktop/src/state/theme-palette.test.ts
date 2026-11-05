@@ -159,9 +159,10 @@ describe('presets completos', () => {
     expectCompletePalette(THEME_PALETTES.olyvia);
   });
 
-  it('los 8 presets están completos, con hex válido y sin custom', () => {
+  it('los 9 presets están completos, con hex válido y sin custom', () => {
     expect(Object.keys(THEME_PALETTES)).toEqual([
       'olyvia',
+      'filmora',
       'resolve',
       'mint',
       'ember',

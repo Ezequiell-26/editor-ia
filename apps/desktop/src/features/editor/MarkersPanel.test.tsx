@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFakeService } from '../../test/fake-service';
 import { addCaptionCue } from '../../state/project-actions';
 import { addMarker } from '../../state/markers';
-import { ProjectProvider, useProjectStore } from '../../state/project-store';
+import { ProjectProvider, usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { MarkersPanel } from './MarkersPanel';
 
 const NOW = '2026-01-01T00:00:00.000Z';
@@ -36,14 +36,15 @@ function buildProject(): ProjectDocument {
 
 function PlayheadProbe() {
   const store = useProjectStore();
+  const playheadFrame = usePlayheadFrame();
   const project = store.state.project;
   const marker = project?.markers.find(
-    (item) => item.frame === store.state.playheadFrame,
+    (item) => item.frame === playheadFrame,
   );
   const intro = project?.markers.find((item) => item.label === 'Intro');
   return (
     <div>
-      <span data-testid="playhead">{String(store.state.playheadFrame)}</span>
+      <span data-testid="playhead">{String(playheadFrame)}</span>
       <span data-testid="marcador-en-playhead">{marker ? marker.label : 'ninguno'}</span>
       <span data-testid="nota-entrevista">
         {project?.markers.find((item) => item.label === 'Entrevista')?.note ?? 'sin nota'}

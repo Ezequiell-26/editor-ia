@@ -132,6 +132,7 @@ pub mod edl;
 pub mod export_tools;
 pub mod extension;
 pub mod face;
+pub mod files;
 pub mod fcpxml;
 pub mod filmcraft_scopes;
 pub mod image_sense;

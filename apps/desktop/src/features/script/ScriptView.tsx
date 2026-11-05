@@ -415,7 +415,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
         (current) =>
           addGeneratedNarration(current, result.asset, scene.id, {
             confirmRights: confirmVoiceRights,
-            atFrame: store.state.playheadFrame,
+            atFrame: store.getPlayhead(),
             label: `Narración — ${scene.title}`,
           }),
         {

@@ -113,7 +113,7 @@ export function MotionView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
           templateVersion: template.version,
           props,
           durationFrames,
-          atFrame: store.state.playheadFrame,
+          atFrame: store.getPlayhead(),
           label: template.label,
         });
         clipId = added.clipId;

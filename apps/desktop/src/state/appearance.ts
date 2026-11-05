@@ -85,17 +85,19 @@ export const MONO_FONTS: readonly { readonly id: string; readonly label: string 
 
 export const DEFAULT_APPEARANCE: AppearanceSettings = {
   version: 1,
-  preset: 'olyvia',
-  ...paletteBaseColors(THEME_PALETTES.olyvia),
-  palette: THEME_PALETTES.olyvia,
-  fontUi: 'Segoe UI Variable Text',
-  fontDisplay: 'Segoe UI Variable Display',
+  preset: 'filmora',
+  ...paletteBaseColors(THEME_PALETTES.filmora),
+  palette: THEME_PALETTES.filmora,
+  fontUi: 'Segoe UI',
+  fontDisplay: 'Segoe UI',
   fontMono: 'Cascadia Mono',
   scale: 1,
-  density: 'comfortable',
+  density: 'compact',
   sidebarLabels: false,
   sidebarWidth: 172,
-  radius: 10,
+  // Filmora usa esquinas de 2 px en controles y paneles planos. El slider de
+  // Apariencia sigue permitiendo 2–18 px: sólo cambia el valor por defecto.
+  radius: 2,
   timelineRows: 48,
   showStatusbar: true,
   reduceMotion: false,
@@ -167,6 +169,7 @@ function density(value: unknown): Density {
 
 function preset(value: unknown): ThemePresetId {
   return value === 'olyvia' ||
+    value === 'filmora' ||
     value === 'resolve' ||
     value === 'mint' ||
     value === 'ember' ||
@@ -269,11 +272,46 @@ export function applyAppearance(
     root.style.setProperty(name, value);
   }
   // El navegador pinta controles nativos (scrollbars, inputs) según el tema.
-  root.style.colorScheme = colorSchemeFor(appearance.palette);
+  const scheme = colorSchemeFor(appearance.palette);
+  root.style.colorScheme = scheme;
+  // Marca explícita para que la capa visual sepa si debe usar superficies
+  // oscuras o claras: `prefers-color-scheme` sigue al SO, no al preset.
+  root.dataset.theme = scheme;
   root.dataset.density = appearance.density;
   root.dataset.reduceMotion = String(appearance.reduceMotion);
   root.dataset.statusbar = appearance.showStatusbar ? 'visible' : 'hidden';
   root.dataset.sidebar = appearance.sidebarLabels ? 'labels' : 'rail';
+}
+
+/**
+ * Migración del rediseño visual, aplicada SÓLO a preferencias persistidas.
+ *
+ * Si lo guardado es exactamente el default cobalt anterior (sin
+ * personalizar), se adopta el nuevo preset Filmora. Los temas
+ * personalizados, los demás presets y el tema claro quedan intactos.
+ * Está acá y no en `normalizeAppearance` porque esa función también recibe
+ * los cambios explícitos del usuario: ponerla ahí impedía volver a elegir
+ * «Olyvia» desde el estudio de color o desde Apariencia.
+ */
+const APPEARANCE_DESIGN_MARKER = 'filmora-12';
+
+function migrateStoredAppearance(settings: AppearanceSettings): AppearanceSettings {
+  const { palette } = settings;
+  if (
+    settings.preset === 'olyvia' &&
+    palette.accent === '#1f5eff' &&
+    palette.bg === '#0f1115' &&
+    palette.surface === '#181b20' &&
+    palette.text === '#f2f5ff'
+  ) {
+    return {
+      ...settings,
+      preset: 'filmora',
+      ...paletteBaseColors(THEME_PALETTES.filmora),
+      palette: THEME_PALETTES.filmora,
+    };
+  }
+  return settings;
 }
 
 export function loadAppearance(storage: Pick<Storage, 'getItem'> | null = safeStorage()): AppearanceSettings {
@@ -281,7 +319,16 @@ export function loadAppearance(storage: Pick<Storage, 'getItem'> | null = safeSt
   try {
     const text = storage.getItem(APPEARANCE_STORAGE_KEY);
     if (!text) return DEFAULT_APPEARANCE;
-    return normalizeAppearance(JSON.parse(text));
+    const raw: unknown = JSON.parse(text);
+    const settings = normalizeAppearance(raw);
+    // Sólo migra datos de la generación anterior. `saveAppearance` escribe
+    // la marca en CADA guardado, así que una elección explícita posterior
+    // (por ejemplo volver al preset «Olyvia») nunca se vuelve a migrar.
+    const marked =
+      raw && typeof raw === 'object'
+        ? (raw as Record<string, unknown>)._design === APPEARANCE_DESIGN_MARKER
+        : false;
+    return marked ? settings : migrateStoredAppearance(settings);
   } catch {
     return DEFAULT_APPEARANCE;
   }
@@ -293,7 +340,10 @@ export function saveAppearance(
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(APPEARANCE_STORAGE_KEY, JSON.stringify(appearance));
+    storage.setItem(
+      APPEARANCE_STORAGE_KEY,
+      JSON.stringify({ ...appearance, _design: APPEARANCE_DESIGN_MARKER }),
+    );
   } catch {
     // Private mode or a full quota: the app keeps the in-memory appearance.
   }

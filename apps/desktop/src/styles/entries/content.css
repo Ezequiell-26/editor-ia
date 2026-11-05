@@ -10,3 +10,5 @@
  */
 @import '../home.css';
 @import '../premium/views.css';
+/* La capa visual Filmora se carga una sola vez desde `main.tsx`; ver la
+   explicación y la medición en `entries/editor.css`. */

@@ -5,7 +5,7 @@ import { sampleMaskKeyframes } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { fpsOf, setMaskKeyframe, updateClip } from '../../state/project-actions';
-import { useProjectStore } from '../../state/project-store';
+import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { maskFromFaceTrack, polygonAroundCenter } from './face-mask';
 import { ChromaPreview, sampleBackgroundColor, type ChromaSettings } from './ChromaPreview';
 import { EffectStudio } from './EffectStudio';
@@ -27,6 +27,7 @@ function visualClip(clip: Clip | undefined): boolean {
 
 export function VfxView({ onNavigate }: VfxViewProps) {
   const store = useProjectStore();
+  const playheadFrame = usePlayheadFrame();
   const project = store.state.project;
   const [selectedClipId, setSelectedClipId] = useState('');
   const [busy, setBusy] = useState(false);
@@ -67,7 +68,7 @@ export function VfxView({ onNavigate }: VfxViewProps) {
   const url = asset ? store.service.mediaUrl(root, asset.source.path) : '';
   const fps = project ? fpsOf(project) : 30;
   const localFrame = clip
-    ? Math.max(0, Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame))
+    ? Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame))
     : 0;
   const mask: ClipMask | undefined =
     clip && 'mask' in clip ? (clip as Clip & { mask?: ClipMask }).mask : undefined;

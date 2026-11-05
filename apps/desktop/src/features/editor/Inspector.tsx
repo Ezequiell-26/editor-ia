@@ -106,7 +106,7 @@ import {
   totalFrames,
   updateTrack,
 } from '../../state/project-actions';
-import { useProjectStore } from '../../state/project-store';
+import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
 import { InspectorSection as Section } from './InspectorSection';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
@@ -431,6 +431,9 @@ function CompoundInspector({
 
 function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Track; project: ReturnType<typeof useProjectStore>['state']['project'] }) {
   const store = useProjectStore();
+  // El inspector muestra el keyframe de máscara bajo el playhead: necesita el
+  // frame de forma reactiva (contexto propio, no el store completo).
+  const playheadFrame = usePlayheadFrame();
   const [tab, setTab] = useState<ClipTab>(
     clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video',
   );
@@ -517,7 +520,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const animationMax = Math.max(1, Math.min(240, clip.durationFrames));
   const localFrame = Math.max(
     0,
-    Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
+    Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame),
   );
   const maskKeyframe = mask?.keyframes?.find((keyframe) => keyframe.frame === localFrame);
   const maskView = {
@@ -656,7 +659,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
     ) {
       return;
     }
-    const atFrame = store.state.playheadFrame;
+    const atFrame = store.getPlayhead();
     const localFrame = Math.max(
       0,
       Math.min(clip.durationFrames - 1, atFrame - clip.startFrame),
@@ -816,7 +819,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
     if (clip.kind === 'video' && windowedSource) {
       const localFrame = Math.max(
         0,
-        Math.min(clip.durationFrames - 1, store.state.playheadFrame - clip.startFrame),
+        Math.min(clip.durationFrames - 1, store.getPlayhead() - clip.startFrame),
       );
       sourceSeconds = (windowedSource.inFrame + localFrame * speedFactor) / fps;
     }
@@ -1511,7 +1514,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             className="small"
             onClick={() => {
               store.mutate((current) => {
-                const split = splitClip(current, clip.id, store.state.playheadFrame);
+                const split = splitClip(current, clip.id, store.getPlayhead());
                 if (!split) throw new Error('el playhead no está dentro de este clip');
                 return { project: split.project, rightClipId: split.rightClipId };
               });
@@ -1557,7 +1560,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 return next;
               });
               store.setSelection({ kind: 'none' });
-              store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+              store.setPlayhead(Math.min(store.getPlayhead(), nextDuration));
             }}
           >
             Borrar clip
@@ -4700,7 +4703,7 @@ function AssetInspector({ asset }: { asset: Asset }) {
               disabled={asset.kind === 'font' || asset.kind === 'text'}
               onClick={() => {
                 const result = store.mutate((current) =>
-                  addClipFromAsset(current, asset, { atFrame: store.state.playheadFrame }),
+                  addClipFromAsset(current, asset, { atFrame: store.getPlayhead() }),
                 );
                 if (result) store.setSelection({ kind: 'clip', id: result.clipId });
               }}
@@ -4879,7 +4882,7 @@ function ProjectInspector() {
   }
 
   function addMarkerAtPlayhead(): void {
-    store.update((current) => addMarker(current, store.state.playheadFrame).project);
+    store.update((current) => addMarker(current, store.getPlayhead()).project);
   }
 
   function createMarkersFromScenes(): void {
@@ -5920,7 +5923,7 @@ function ProjectInspector() {
                   store.mutate((current) =>
                     addCaptionCue(current, {
                       text: cueText,
-                      startFrame: store.state.playheadFrame,
+                      startFrame: store.getPlayhead(),
                       durationFrames: Math.round(3 * fps),
                     }),
                   );
@@ -5938,7 +5941,7 @@ function ProjectInspector() {
               store.mutate((current) =>
                 addCaptionCue(current, {
                   text: cueText,
-                  startFrame: store.state.playheadFrame,
+                  startFrame: store.getPlayhead(),
                   durationFrames: Math.round(3 * fps),
                 }),
               );
@@ -5962,7 +5965,7 @@ function ProjectInspector() {
                   store.mutate((current) =>
                     addTitleCue(current, {
                       text: titleText,
-                      startFrame: store.state.playheadFrame,
+                      startFrame: store.getPlayhead(),
                       durationFrames: Math.round(3 * fps),
                     }),
                   );
@@ -5980,7 +5983,7 @@ function ProjectInspector() {
               store.mutate((current) =>
                 addTitleCue(current, {
                   text: titleText,
-                  startFrame: store.state.playheadFrame,
+                  startFrame: store.getPlayhead(),
                   durationFrames: Math.round(3 * fps),
                 }),
               );

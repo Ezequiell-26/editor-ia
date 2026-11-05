@@ -17,7 +17,7 @@ import {
   syncPreviewAudioPanAtFrame,
   trackGainDb,
 } from '../mixer/usePreviewAudio';
-import { useProjectStore } from '../../state/project-store';
+import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import { loadEditorPreferences } from '../../state/editor-preferences';
 import { Icon } from '../../components/Icon';
 import { buildMotionPlan } from '../motion/plan';
@@ -977,8 +977,10 @@ export const Preview = memo(function Preview() {
     }
   }, [monitorFill]);
   const fps = project ? fpsOf(project) : 30;
-  const playhead = store.state.playheadFrame;
-  const playing = store.state.playing;
+  // La vista previa sí necesita cada frame (es el monitor).
+  const playback = useProjectPlayback();
+  const playhead = playback.frame;
+  const playing = playback.playing;
 
   useEffect(() => {
     // Este efecto corre en cada frame de reproducción. Si los valores ya

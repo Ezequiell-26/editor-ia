@@ -761,7 +761,7 @@ export function AssistantDock({
     const ok = store.mutate((current) => {
       const fps = fpsOf(current);
       const mediaSeconds = mediaFrames ? mediaFrames / fps : 5;
-      const start = atPlayhead ? store.state.playheadFrame : totalFrames(current);
+      const start = atPlayhead ? store.getPlayhead() : totalFrames(current);
       const added = addClipFromAsset(current, asset, {
         atFrame: start,
         ...(mediaFrames ? { inFrame: 0, outFrame: mediaFrames } : {}),
@@ -786,7 +786,7 @@ export function AssistantDock({
         return next;
       }, { notice: 'Clip eliminado.' });
       store.setSelection({ kind: 'none' });
-      store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+      store.setPlayhead(Math.min(store.getPlayhead(), nextDuration));
       return 'Clip eliminado. Podés deshacer.';
     }
     if (selection.kind === 'cue') {
@@ -813,7 +813,7 @@ export function AssistantDock({
     }
     let rightClipId: string | null = null;
     const ok = store.mutate((current) => {
-      const split = splitClip(current, clipId, store.state.playheadFrame);
+      const split = splitClip(current, clipId, store.getPlayhead());
       if (!split) {
         throw new Error('el playhead no está dentro del clip seleccionado');
       }
@@ -845,7 +845,7 @@ export function AssistantDock({
       const fps = fpsOf(current);
       const added = addCaptionCue(current, {
         text: clean,
-        startFrame: store.state.playheadFrame,
+        startFrame: store.getPlayhead(),
         durationFrames: Math.max(1, Math.round(seconds * fps)),
       });
       cueId = added.cueId;
@@ -1342,7 +1342,7 @@ export function AssistantDock({
       case 'status': {
         const project = store.state.project;
         if (!project) return 'No hay un proyecto abierto.';
-        return `${project.name}: ${project.timeline.clips.length} clip(s), playhead ${store.state.playheadFrame}, ${fpsOf(project).toFixed(0)} fps.`;
+        return `${project.name}: ${project.timeline.clips.length} clip(s), playhead ${store.getPlayhead()}, ${fpsOf(project).toFixed(0)} fps.`;
       }
       case 'create':
         window.localStorage.setItem('editoria.factory.brief', action.topic);
@@ -1399,7 +1399,7 @@ export function AssistantDock({
               templateVersion: '1.0.0',
               props,
               durationFrames: Math.max(1, Math.round(fpsOf(current) * 3)),
-              atFrame: store.state.playheadFrame,
+              atFrame: store.getPlayhead(),
               label: action.text.slice(0, 80),
             });
             clipId = added.clipId;
@@ -1618,7 +1618,7 @@ export function AssistantDock({
           templateVersion: '1.0.0',
           props,
           durationFrames: Math.max(1, Math.round(fpsOf(current) * 3)),
-          atFrame: store.state.playheadFrame,
+          atFrame: store.getPlayhead(),
           label: action.text.slice(0, 80),
         });
         clipId = added.clipId;
@@ -1686,7 +1686,7 @@ export function AssistantDock({
         ? {
             projectName: store.state.project.name,
             clips: store.state.project.timeline.clips.length,
-            playheadFrame: store.state.playheadFrame,
+            playheadFrame: store.getPlayhead(),
             fps: Number(fpsOf(store.state.project).toFixed(2)),
             view: activeId,
             // El cerebro mide la timeline y entrega el brief listo: el modelo

@@ -28,6 +28,7 @@
 /** Identificador de tema. `custom` agrupa cualquier combinación editada. */
 export type ThemePresetId =
   | 'olyvia'
+  | 'filmora'
   | 'resolve'
   | 'mint'
   | 'ember'
@@ -336,6 +337,18 @@ export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, Th
     text: '#f2f5ff',
   },
   /**
+   * Filmora 12: grafito azulado, superficies opacas y un único acento turquesa.
+   * Es el preset por defecto del rediseño visual; los 34 tokens siguen siendo
+   * editables desde el estudio de color.
+   */
+  filmora: {
+    accent: '#00c9a7',
+    info: '#22c55e',
+    background: '#0e141c',
+    surface: '#161e28',
+    text: '#e8eef6',
+  },
+  /**
    * DaVinci Resolve: grafito neutro, sin tinte azul ni verde, y un azul
    * desaturado como único acento. Los paneles se derivan mezclando la
    * superficie con el texto, así que este preset define toda la escala.
@@ -474,6 +487,52 @@ const OLYVIA_PALETTE: ThemePalette = {
 };
 
 /**
+ * Filmora 12 — sistema visual del rediseño (referencias de UI adjuntas).
+ *
+ * Paleta completa y explícita: el azul-noche de las barras y paneles no sale
+ * de la derivación genérica, y el acento turquesa debe ser el mismo en
+ * EXPORTAR, pestaña activa, borde de selección y cabezal de reproducción.
+ * Los textos mantienen AA sobre `bg`, `surface` y `panel`; `accentInk` es
+ * tinta oscura porque el turquesa es luminoso.
+ */
+const FILMORA_PALETTE: ThemePalette = {
+  bg: '#0e141c',
+  surface: '#161e28',
+  panel: '#161e28',
+  panel2: '#1b2430',
+  panel3: '#222d3b',
+  panelRaised: '#1c2633',
+  surfaceRaised: '#131b25',
+  border: '#2a3646',
+  borderStrong: '#3b4a5e',
+  text: '#e8eef6',
+  textMuted: '#a7b5c6',
+  textSecondary: '#8798ad',
+  textFaint: '#6f8096',
+  empty: '#68788d',
+  accent: '#00c9a7',
+  accentLight: '#5ce6cf',
+  accentStrong: '#00a88c',
+  accentInk: '#04211b',
+  info: '#22c55e',
+  success: '#22c55e',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  dangerStrong: '#dc2626',
+  cta: '#00c9a7',
+  video: '#2f8fd8',
+  image: '#8b74e8',
+  audio: '#17b6c9',
+  narration: '#2eb8a6',
+  caption: '#d9b34a',
+  graphic: '#d76fa9',
+  brandCyan: '#35d6ff',
+  brandBlue: '#4f8dff',
+  brandViolet: '#8b5cf6',
+  brandMagenta: '#d35cff',
+};
+
+/**
  * Claro neutro — preset nativo de tema claro, medido para WCAG AA.
  *
  * Criterios (docs/COLOR-CUSTOMIZATION.md §2.6):
@@ -530,6 +589,7 @@ export const THEME_PALETTES: Readonly<
   Record<Exclude<ThemePresetId, 'custom'>, ThemePalette>
 > = {
   olyvia: OLYVIA_PALETTE,
+  filmora: FILMORA_PALETTE,
   resolve: paletteFromBase(THEME_PRESETS.resolve),
   mint: paletteFromBase(THEME_PRESETS.mint),
   ember: paletteFromBase(THEME_PRESETS.ember),
@@ -544,6 +604,7 @@ export const THEME_PRESET_LABELS: Readonly<
   Record<Exclude<ThemePresetId, 'custom'>, string>
 > = {
   olyvia: 'Olyvia',
+  filmora: 'Filmora 12',
   resolve: 'Resolve',
   mint: 'Menta',
   ember: 'Ámbar',

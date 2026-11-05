@@ -46,7 +46,7 @@ import {
   updateTrack,
 } from '../../state/project-actions';
 import { addMarker, deleteMarker, markerAtFrame } from '../../state/markers';
-import { useProjectStore } from '../../state/project-store';
+import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
 import { TimelineOverview } from './TimelineOverview';
@@ -601,6 +601,9 @@ function clampTimelineHeight(value: number): number {
 
 export const Timeline = memo(function Timeline() {
   const store = useProjectStore();
+  // La línea del playhead, el overview y el seguimiento sí necesitan el frame
+  // en cada tick; el resto del cromo ya no se re-renderiza por ellos.
+  const playback = useProjectPlayback();
   const project = store.state.project;
   const preferences = useEditorPreferences();
   const selectedClipId =
@@ -897,7 +900,7 @@ export const Timeline = memo(function Timeline() {
     const clip = clipboardRef.current;
     if (!clip) return;
     const result = store.mutate((current) =>
-      pasteClip(current, clip, { startFrame: store.state.playheadFrame }),
+      pasteClip(current, clip, { startFrame: playback.frame }),
     );
     if (result) {
       store.setSelection({ kind: 'clip', id: result.clipId });
@@ -958,7 +961,7 @@ export const Timeline = memo(function Timeline() {
       return;
     }
     const next =
-      matches.find((clip) => clip.startFrame > store.state.playheadFrame) ?? matches[0]!;
+      matches.find((clip) => clip.startFrame > playback.frame) ?? matches[0]!;
     store.setPlayhead(next.startFrame);
     store.setSelection({ kind: 'clip', id: next.id });
     store.setNotice(
@@ -1101,7 +1104,7 @@ export const Timeline = memo(function Timeline() {
     });
     store.setSelection({ kind: 'none' });
     setSelectedClipIds(new Set());
-    store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+    store.setPlayhead(Math.min(playback.frame, nextDuration));
     store.setNotice(
       ripple
         ? `${ids.length} clip(s) borrados con ripple.`
@@ -1124,8 +1127,8 @@ export const Timeline = memo(function Timeline() {
   const contextSplitAllowed =
     contextClip !== undefined &&
     !contextLocked &&
-    store.state.playheadFrame > contextClip.startFrame &&
-    store.state.playheadFrame < contextClip.startFrame + contextClip.durationFrames;
+    playback.frame > contextClip.startFrame &&
+    playback.frame < contextClip.startFrame + contextClip.durationFrames;
 
   function openClipMenu(event: ReactMouseEvent, clip: Clip): void {
     event.preventDefault();
@@ -1139,7 +1142,7 @@ export const Timeline = memo(function Timeline() {
     const clipId = contextClip.id;
     let rightClipId: string | null = null;
     store.update((current) => {
-      const result = splitClip(current, clipId, store.state.playheadFrame);
+      const result = splitClip(current, clipId, playback.frame);
       if (!result) return current;
       rightClipId = result.rightClipId;
       return result.project;
@@ -1181,7 +1184,7 @@ export const Timeline = memo(function Timeline() {
     });
     setContextMenu(null);
     store.setSelection({ kind: 'none' });
-    store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+    store.setPlayhead(Math.min(playback.frame, nextDuration));
   }
 
   useEffect(() => {
@@ -1308,10 +1311,10 @@ export const Timeline = memo(function Timeline() {
    * que no quede pegado al borde.
    */
   useEffect(() => {
-    if (!preferences.followPlayhead || !store.state.playing) return;
+    if (!preferences.followPlayhead || !playback.playing) return;
     const element = scrollRef.current;
     if (!element) return;
-    const x = headerWidth() + store.state.playheadFrame * pxPerFrame;
+    const x = headerWidth() + playback.frame * pxPerFrame;
     const left = element.scrollLeft;
     const margin = 80;
     if (x < left + headerWidth() + margin || x > left + element.clientWidth - margin) {
@@ -1320,8 +1323,8 @@ export const Timeline = memo(function Timeline() {
   }, [
     preferences.followPlayhead,
     pxPerFrame,
-    store.state.playheadFrame,
-    store.state.playing,
+    playback.frame,
+    playback.playing,
   ]);
 
   useEffect(() => {
@@ -1372,7 +1375,7 @@ export const Timeline = memo(function Timeline() {
             nextStart,
             length,
             collectTimelineSnapTargets(doc, {
-              playhead: state.state.playheadFrame,
+              playhead: state.getPlayhead(),
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
@@ -1404,7 +1407,7 @@ export const Timeline = memo(function Timeline() {
             current.originalDuration,
             collectTimelineSnapTargets(doc, {
               excludeClipId: current.clipId,
-              playhead: state.state.playheadFrame,
+              playhead: state.getPlayhead(),
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
@@ -1467,7 +1470,7 @@ export const Timeline = memo(function Timeline() {
             nextStart,
             collectTimelineSnapTargets(doc, {
               excludeClipId: current.clipId,
-              playhead: state.state.playheadFrame,
+              playhead: state.getPlayhead(),
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
@@ -1500,7 +1503,7 @@ export const Timeline = memo(function Timeline() {
             targetEnd,
             collectTimelineSnapTargets(doc, {
               excludeClipId: current.clipId,
-              playhead: state.state.playheadFrame,
+              playhead: state.getPlayhead(),
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
@@ -1817,7 +1820,7 @@ export const Timeline = memo(function Timeline() {
 
   function addAdjustmentLayerToTimeline(): void {
     const result = store.mutate((current) =>
-      addAdjustmentLayer(current, store.state.playheadFrame),
+      addAdjustmentLayer(current, playback.frame),
     );
     if (result) {
       store.setSelection({ kind: 'clip', id: result.clipId });
@@ -1827,10 +1830,10 @@ export const Timeline = memo(function Timeline() {
   function toggleMarkerAtPlayhead(): void {
     if (!project) return;
     store.update((current) => {
-      const existing = markerAtFrame(current, store.state.playheadFrame);
+      const existing = markerAtFrame(current, playback.frame);
       return existing
         ? deleteMarker(current, existing.id)
-        : addMarker(current, store.state.playheadFrame).project;
+        : addMarker(current, playback.frame).project;
     });
   }
 
@@ -2084,7 +2087,7 @@ export const Timeline = memo(function Timeline() {
             onClick={() => {
               if (!selectedClip) return;
               store.mutate((current) => {
-                const split = splitClip(current, selectedClip.id, store.state.playheadFrame);
+                const split = splitClip(current, selectedClip.id, playback.frame);
                 if (!split) {
                   throw new ProjectActionError('el playhead no está dentro del clip seleccionado');
                 }
@@ -2202,7 +2205,7 @@ export const Timeline = memo(function Timeline() {
           durationFrames={duration}
           fps={fps}
           clips={overviewClips}
-          playheadFrame={store.state.playheadFrame}
+          playheadFrame={playback.frame}
           contentWidth={contentWidth}
           clientWidth={viewport.clientWidth}
           scrollLeft={viewport.scrollLeft}
@@ -2537,7 +2540,7 @@ export const Timeline = memo(function Timeline() {
 
           <div
             className="playhead-line"
-            style={{ left: headerWidth() + store.state.playheadFrame * pxPerFrame }}
+            style={{ left: headerWidth() + playback.frame * pxPerFrame }}
           >
             <span
               className="playhead-grip"
@@ -2546,7 +2549,7 @@ export const Timeline = memo(function Timeline() {
               aria-label="Cabezal de la timeline"
               aria-valuemin={0}
               aria-valuemax={duration}
-              aria-valuenow={Math.round(store.state.playheadFrame)}
+              aria-valuenow={Math.round(playback.frame)}
               title="Arrastrá para mover el cabezal"
               onPointerDown={(event) => {
                 event.preventDefault();
@@ -2556,8 +2559,8 @@ export const Timeline = memo(function Timeline() {
               onKeyDown={(event) => {
                 const step = event.shiftKey ? 10 : 1;
                 let next: number | null = null;
-                if (event.key === 'ArrowLeft') next = store.state.playheadFrame - step;
-                else if (event.key === 'ArrowRight') next = store.state.playheadFrame + step;
+                if (event.key === 'ArrowLeft') next = playback.frame - step;
+                else if (event.key === 'ArrowRight') next = playback.frame + step;
                 else if (event.key === 'Home') next = 0;
                 else if (event.key === 'End') next = duration;
                 if (next === null) return;

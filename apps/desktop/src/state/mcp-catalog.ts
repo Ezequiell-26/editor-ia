@@ -537,6 +537,31 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     description: `${WRITE} Quita un medio del proyecto (no borra el archivo).`,
     inputSchema: obj({ assetId: { type: 'string', minLength: 1, maxLength: 256 } }, ['assetId']),
   },
+  {
+    name: 'media_folder_list',
+    description: `${READ} Explora una carpeta de la PC y devuelve los archivos de medios (imagen, audio, video) con ruta absoluta, nombre, tipo y tamaño. Acepta una ruta absoluta o el nombre de una carpeta dentro de Descargas. Recorre hasta dos niveles de subcarpetas (máx. 300 archivos). Usala antes de asset_import para descubrir material disponible.`,
+    inputSchema: obj({
+      folder: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de la carpeta o su nombre dentro de Descargas.' },
+      root: { type: 'string', maxLength: 32_768, description: 'Carpeta base alternativa donde buscar por nombre (opcional).' },
+    }, ['folder']),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'fs_list',
+    description: `${READ} Lista TODO el contenido de una carpeta de la PC (subcarpetas primero, después archivos) con ruta absoluta, tipo (dir/image/audio/video/subtitle/text/other) y tamaño. No recursa: bajá nivel por nivel. Tope 500 entradas. Usala para explorar el disco antes de importar o abrir archivos.`,
+    inputSchema: obj({
+      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de la carpeta a listar.' },
+    }, ['path']),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'fs_read',
+    description: `${READ} Lee el contenido de texto de un archivo de la PC (subtítulos, proyectos .editoria.json, CSV, etc.). Devuelve el texto completo hasta 512 KiB; si es más grande viene truncado. No interpreta binarios.`,
+    inputSchema: obj({
+      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta del archivo a leer.' },
+    }, ['path']),
+    annotations: { readOnlyHint: true },
+  },
 
   // ── Marcadores ──────────────────────────────────────────────────────
   {

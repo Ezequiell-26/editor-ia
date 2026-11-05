@@ -184,9 +184,11 @@ function RailAsset({
   const inUse = store.state.project?.timeline.clips.some(
     (clip) => clip.source.type === 'asset' && clip.source.assetId === asset.id,
   );
+  const selected =
+    store.state.selection.kind === 'asset' && store.state.selection.id === asset.id;
 
   return (
-    <div className="rail-asset">
+    <div className={`rail-asset${selected ? ' selected' : ''}`}>
       <div className={`rail-thumb kind-${asset.kind}`}>
         {thumbnail ? (
           <img src={thumbnail} alt="" draggable={false} />
@@ -338,7 +340,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   function mount(asset: Asset, narration: boolean): void {
     const result = store.mutate((current) =>
       addClipFromAsset(current, asset, {
-        atFrame: store.state.playheadFrame,
+        atFrame: store.getPlayhead(),
         narration,
       }),
     );
@@ -355,7 +357,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
     const result = store.mutate((current) =>
       addTitleFromTemplate(current, {
         text,
-        startFrame: store.state.playheadFrame,
+        startFrame: store.getPlayhead(),
         durationFrames: Math.round(3 * fps),
         template,
       }),
@@ -408,7 +410,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
     const result = store.mutate((current) =>
       addTitleFromTemplate(current, {
         text: sticker.text,
-        startFrame: store.state.playheadFrame,
+        startFrame: store.getPlayhead(),
         durationFrames: Math.round(2.5 * fps),
         template,
       }),
@@ -488,7 +490,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   }
 
   function addAdjustment(): void {
-    const playhead = store.state.playheadFrame;
+    const playhead = store.getPlayhead();
     const result = store.mutate((current) => addAdjustmentLayer(current, playhead));
     if (result) {
       store.setSelection({ kind: 'clip', id: result.clipId });

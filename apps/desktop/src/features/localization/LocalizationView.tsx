@@ -14,6 +14,7 @@ import type {
   TranslatedTexts,
   VoiceInfo,
 } from '../../services/project-service';
+import { addAsset, markAssetReadyFrom } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import {
   parseSubtitles,
@@ -33,6 +34,7 @@ import {
   type LocalizationFormat,
   type LocalizationLanguageCode,
 } from './localization';
+import { DubResultCard } from './DubResultCard';
 
 interface SubtitleSource {
   readonly name: string;
@@ -85,6 +87,10 @@ export function LocalizationView({
   const [dubBusy, setDubBusy] = useState(false);
   const [dubProgress, setDubProgress] = useState(0);
   const [dubResult, setDubResult] = useState<DubResult | null>(null);
+  const [dubImporting, setDubImporting] = useState(false);
+  const [dubImported, setDubImported] = useState(false);
+  const [dubSourceAssetId, setDubSourceAssetId] = useState<string | null>(null);
+  const [dubProjectId, setDubProjectId] = useState<string | null>(null);
   const [dubError, setDubError] = useState<string | null>(null);
   const [cloneReferenceId, setCloneReferenceId] = useState('');
   const [cloneEngine, setCloneEngine] = useState<CloneEngine>('xtts');
@@ -449,6 +455,10 @@ export function LocalizationView({
     setDubBusy(true);
     setDubError(null);
     setDubResult(null);
+    setDubImporting(false);
+    setDubImported(false);
+    setDubSourceAssetId(null);
+    setDubProjectId(null);
     setDubProgress(0);
     try {
       let destination = outputDir;
@@ -474,6 +484,8 @@ export function LocalizationView({
         ...(bedVolume > 0 ? { bedVolume } : {}),
       });
       setDubResult(result);
+      setDubSourceAssetId(asset.id);
+      setDubProjectId(project.id);
       store.setNotice(`Doblaje guardado: ${result.voice} · ${result.cues} subtítulos.`);
     } catch (failure) {
       setDubError(
@@ -481,6 +493,101 @@ export function LocalizationView({
       );
     } finally {
       setDubBusy(false);
+    }
+  }
+
+  async function importDubResult(): Promise<void> {
+    const result = dubResult;
+    const sourceAssetId = dubSourceAssetId;
+    const sourceProjectId = dubProjectId;
+    if (!project || !result || !sourceAssetId || !sourceProjectId || dubImporting || dubImported) {
+      return;
+    }
+    if (project.id !== sourceProjectId) {
+      setDubError('El proyecto activo cambió. Volvé al proyecto original para importar este doblaje.');
+      return;
+    }
+    if (!project.assets.some((asset) => asset.id === sourceAssetId)) {
+      setDubError('El video original ya no está en el proyecto; no se puede conservar su información de derechos.');
+      return;
+    }
+
+    setDubImporting(true);
+    setDubError(null);
+    try {
+      const outcome = await store.service.importMediaPaths({
+        paths: [result.path],
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+      });
+      if (outcome.assets.length === 0) {
+        setDubError(
+          outcome.warnings.length > 0
+            ? outcome.warnings.join(' ')
+            : 'El doblaje se generó pero no se pudo importar al proyecto.',
+        );
+        return;
+      }
+
+      const currentProject = store.getProject();
+      if (!currentProject || currentProject.id !== sourceProjectId) {
+        throw new Error('El proyecto activo cambió durante la importación. Abrí el proyecto original y repetí la operación.');
+      }
+      if (!currentProject.assets.some((asset) => asset.id === sourceAssetId)) {
+        throw new Error('El video original ya no está en el proyecto; no se modificó la biblioteca.');
+      }
+      if (
+        currentProject.assets.some(
+          (asset) => asset.source.type === 'local' && asset.source.path === result.path,
+        )
+      ) {
+        setDubImported(true);
+        store.setNotice('El doblaje ya estaba importado en Medios.');
+        return;
+      }
+
+      let importedLabel: string | null = null;
+      const mutation = store.mutate((current) => {
+        if (current.id !== sourceProjectId) {
+          throw new Error('El proyecto activo cambió durante la importación.');
+        }
+        if (!current.assets.some((asset) => asset.id === sourceAssetId)) {
+          throw new Error('El video original ya no está en el proyecto.');
+        }
+        let next = current;
+        for (const importedAsset of outcome.assets) {
+          if (
+            next.assets.some(
+              (asset) =>
+                asset.source.type === 'local' && asset.source.path === importedAsset.source.path,
+            )
+          ) {
+            continue;
+          }
+          next = addAsset(next, importedAsset);
+          // Es un derivado del video de origen: conserva su licencia y atribución.
+          next = markAssetReadyFrom(next, importedAsset.id, sourceAssetId);
+          importedLabel = importedAsset.label;
+        }
+        return { project: next };
+      });
+      if (!mutation) {
+        throw new Error('No se pudo actualizar la biblioteca del proyecto.');
+      }
+
+      setDubImported(true);
+      if (outcome.warnings.length > 0) setDubError(outcome.warnings.join(' '));
+      store.setNotice(
+        importedLabel
+          ? `Doblaje importado a Medios: ${importedLabel}.`
+          : 'El doblaje ya estaba importado en Medios.',
+      );
+    } catch (failure) {
+      setDubError(
+        failure instanceof Error ? failure.message : 'no se pudo importar el doblaje',
+      );
+    } finally {
+      setDubImporting(false);
     }
   }
 
@@ -965,34 +1072,14 @@ export function LocalizationView({
           </p>
         ) : null}
         {dubResult ? (
-          <div className="localization-dub-result" role="status">
-            <p className="compress-numbers">
-              MP4 {dubResult.width}×{dubResult.height} ·{' '}
-              <strong>{formatLocalizationBytes(dubResult.bytes)}</strong> ·{' '}
-              {dubResult.durationSeconds.toFixed(1)} s · {dubResult.cues} subtítulos
-            </p>
-            <p className="compress-path">{dubResult.path}</p>
-            <p className="fine-print">
-              Voz: {dubResult.voice}.{' '}
-              {dubResult.replacedOriginalAudio
-                ? 'Audio original reemplazado.'
-                : `Audio original al ${Math.round(dubResult.originalAudioVolume * 100)}%.`}
-            </p>
-            {dubResult.warnings.length > 0 ? (
-              <ul className="fine-print">
-                {dubResult.warnings.map((warning) => (
-                  <li key={warning}>{warning}</li>
-                ))}
-              </ul>
-            ) : null}
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => void store.service.revealOutput(dubResult.path)}
-            >
-              Mostrar en carpeta
-            </button>
-          </div>
+          <DubResultCard
+            result={dubResult}
+            importing={dubImporting}
+            imported={dubImported}
+            onImport={() => void importDubResult()}
+            onReveal={() => void store.service.revealOutput(dubResult.path)}
+            onOpenMedia={() => onNavigate('assets')}
+          />
         ) : null}
       </section>
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Track } from '@editor-ia/project-schema';
-import { useProjectStore } from '../../state/project-store';
+import { useProjectPlaying, useProjectStore } from '../../state/project-store';
 import {
   isPreviewAudioSupported,
   levelPercentFromDb,
@@ -99,7 +99,9 @@ function levelRow(
 
 export function LiveMeters({ tracks }: { readonly tracks: readonly Track[] }) {
   const store = useProjectStore();
-  const playing = store.state.playing;
+  // Sólo importa saber si hay reproducción: el contexto de `playing` cambia
+  // una vez por play/pausa, no por frame.
+  const playing = useProjectPlaying();
   const project = store.state.project;
   // Niveles instantáneos de la última lectura; el pico sostenido vive en un
   // ref para no depender del render.

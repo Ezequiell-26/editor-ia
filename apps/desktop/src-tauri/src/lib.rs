@@ -496,6 +496,8 @@ pub fn run() {
             commands::recovery::list_project_versions,
             commands::recovery::restore_project_version,
             commands::recovery::find_duplicate_assets,
+            commands::files::fs_list,
+            commands::files::fs_read,
         ])
         .build(tauri::generate_context!())
         .expect("Editor IA no pudo iniciar la ventana nativa");

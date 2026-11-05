@@ -32,7 +32,7 @@ describe('apariencia local', () => {
     expect(appearance.sidebarWidth).toBe(150);
     expect(appearance.radius).toBe(2);
     expect(appearance.timelineRows).toBe(76);
-    expect(appearance.density).toBe('comfortable');
+    expect(appearance.density).toBe('compact');
   });
 
   it('ajusta la escala a pasos de 10 % para no emborronar el texto', () => {
@@ -113,9 +113,9 @@ describe('apariencia local', () => {
 });
 
 describe('apariencia · paleta de 34 tokens', () => {
-  it('la apariencia por defecto usa Olyvia y espeja los cinco colores base', () => {
-    expect(DEFAULT_APPEARANCE.preset).toBe('olyvia');
-    expect(DEFAULT_APPEARANCE.palette).toEqual(THEME_PALETTES.olyvia);
+  it('la apariencia por defecto usa Filmora 12 y espeja los cinco colores base', () => {
+    expect(DEFAULT_APPEARANCE.preset).toBe('filmora');
+    expect(DEFAULT_APPEARANCE.palette).toEqual(THEME_PALETTES.filmora);
     expect(DEFAULT_APPEARANCE.accent).toBe(DEFAULT_APPEARANCE.palette.accent);
     expect(DEFAULT_APPEARANCE.info).toBe(DEFAULT_APPEARANCE.palette.info);
     expect(DEFAULT_APPEARANCE.background).toBe(DEFAULT_APPEARANCE.palette.bg);
@@ -126,11 +126,11 @@ describe('apariencia · paleta de 34 tokens', () => {
 
   it('emite toda la paleta y conserva las variables no-color de siempre', () => {
     const vars = appearanceCssVariables(DEFAULT_APPEARANCE);
-    expect(vars['--color-bg']).toBe('#0f1115');
-    expect(vars['--color-panel-raised']).toBe('#1b2029');
-    expect(vars['--color-text-faint']).toBe('#6b7480');
-    expect(vars['--commercial-canvas']).toBe('#0f1115');
-    expect(vars['--commercial-accent']).toBe('#1f5eff');
+    expect(vars['--color-bg']).toBe('#0e141c');
+    expect(vars['--color-panel-raised']).toBe('#1c2633');
+    expect(vars['--color-text-faint']).toBe('#6f8096');
+    expect(vars['--commercial-canvas']).toBe('#0e141c');
+    expect(vars['--commercial-accent']).toBe('#00c9a7');
     expect(vars['--olyvia-cyan']).toBe('#35d6ff');
     expect(vars['--color-ok']).toBe('#22c55e');
     expect(vars['--brand-gradient']).toContain('#35d6ff');
@@ -138,8 +138,8 @@ describe('apariencia · paleta de 34 tokens', () => {
     expect(vars['--primary-hue']).toBe(String(hueOf(DEFAULT_APPEARANCE.palette.accent)));
 
     // Variables no-color: no las toca la paleta.
-    expect(vars['--font-ui']).toContain('Segoe UI Variable Text');
-    expect(vars['--font-display']).toContain('Segoe UI Variable Display');
+    expect(vars['--font-ui']).toContain('Segoe UI');
+    expect(vars['--font-display']).toContain('Segoe UI');
     expect(vars['--font-mono']).toContain('Cascadia Mono');
     expect(vars['--sidebar-width']).toBe('40px');
     expect(vars['--sidebar-min']).toBe('40px');
@@ -148,7 +148,7 @@ describe('apariencia · paleta de 34 tokens', () => {
     expect(vars['--app-zoom']).toBe('1');
     expect(vars['--app-width']).toBe('100vw');
     expect(vars['--app-height']).toBe('100dvh');
-    expect(vars['--radius-2']).toBe('10px');
+    expect(vars['--radius-2']).toBe('2px');
   });
 
   it('migra datos v4 con sólo los 5 colores a una paleta derivada completa', () => {
@@ -188,8 +188,8 @@ describe('apariencia · paleta de 34 tokens', () => {
     expect(appearance.accent).toBe('#00ff88');
     expect(appearance.palette.accent).toBe('#00ff88');
     // El resto de la paleta guardada no se descarta.
-    expect(appearance.palette.bg).toBe(THEME_PALETTES.olyvia.bg);
-    expect(appearance.palette.brandViolet).toBe(THEME_PALETTES.olyvia.brandViolet);
+    expect(appearance.palette.bg).toBe(THEME_PALETTES.filmora.bg);
+    expect(appearance.palette.brandViolet).toBe(THEME_PALETTES.filmora.brandViolet);
   });
 
   it('no propaga basura de una paleta corrupta', () => {
@@ -254,7 +254,7 @@ describe('apariencia · paleta de 34 tokens', () => {
     } as unknown as HTMLElement;
     applyAppearance(DEFAULT_APPEARANCE, darkRoot);
     expect((darkRoot.style as CSSStyleDeclaration).colorScheme).toBe('dark');
-    expect(darkProperties.get('--color-bg')).toBe('#0f1115');
+    expect(darkProperties.get('--color-bg')).toBe('#0e141c');
 
     const light = normalizeAppearance({
       preset: 'custom',

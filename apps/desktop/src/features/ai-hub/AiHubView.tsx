@@ -192,7 +192,7 @@ export function AiHubView({
                 templateVersion: '1.0.0',
                 props,
                 durationFrames: Math.max(1, Math.round(fpsOf(current) * 3)),
-                atFrame: store.state.playheadFrame,
+                atFrame: store.getPlayhead(),
                 label: action.text.slice(0, 80),
               });
               clipId = added.clipId;
@@ -214,7 +214,7 @@ export function AiHubView({
     } else if (action.kind === 'status') {
       const project = store.state.project;
       reply = project
-        ? `${project.name}: ${project.timeline.clips.length} clip(s), playhead en frame ${store.state.playheadFrame}.`
+        ? `${project.name}: ${project.timeline.clips.length} clip(s), playhead en frame ${store.getPlayhead()}.`
         : 'No hay un proyecto abierto.';
     } else if (action.kind === 'help') {
       reply = OPERATOR_HELP;

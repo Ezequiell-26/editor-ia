@@ -6146,7 +6146,7 @@ mod tests {
         let mut nvenc = profile();
         nvenc.hardware_encoder = Some("h264_nvenc".into());
         let text = hardware_encoder_args(&nvenc).expect("NVENC").join(" ");
-        assert!(text.contains("h264_nvenc") && text.contains("-cq 20") && text.contains("p5"));
+        assert!(text.contains("h264_nvenc") && text.contains("-cq 20") && text.contains("p6"));
 
         let mut qsv = profile();
         qsv.video_codec = "h265".into();

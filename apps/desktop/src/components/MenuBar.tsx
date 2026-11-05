@@ -12,7 +12,7 @@ import { autoPilotSummary, runAutoPilot } from '../state/auto-pilot';
 import { ReviewDialog } from '../features/editor/ReviewDialog';
 import { CriticDialog } from '../features/editor/CriticDialog';
 import { applyProjectTitleCard } from '../state/auto-title';
-import { useProjectStore } from '../state/project-store';
+import { useProjectPlaying, useProjectStore } from '../state/project-store';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
 
@@ -58,6 +58,10 @@ export function MenuBar({
   onOpenTour,
 }: MenuBarProps) {
   const store = useProjectStore();
+  // Sólo se necesita saber si está sonando (etiqueta Reproducir/Pausar): el
+  // frame del playhead se lee con `getPlayhead()` dentro de cada acción para
+  // no re-renderizar el menú ~30 veces por segundo durante la reproducción.
+  const playing = useProjectPlaying();
   const { appearance, update, reset } = useAppearance();
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
   const [modal, setModal] = useState<'shortcuts' | 'about' | 'review' | 'critic' | null>(null);
@@ -209,7 +213,7 @@ export function MenuBar({
   function splitSelected(): void {
     if (!clipId) return;
     store.mutate((current) => {
-      const split = splitClip(current, clipId, store.state.playheadFrame);
+      const split = splitClip(current, clipId, store.getPlayhead());
       if (!split) throw new Error('el cabezal no está dentro del clip seleccionado');
       return { project: split.project, rightClipId: split.rightClipId };
     });
@@ -320,7 +324,7 @@ export function MenuBar({
         return next;
       });
       store.setSelection({ kind: 'none' });
-      store.setPlayhead(Math.min(store.state.playheadFrame, duration));
+      store.setPlayhead(Math.min(store.getPlayhead(), duration));
       return;
     }
     if (cueId) {
@@ -569,10 +573,10 @@ export function MenuBar({
       entries: [
         {
           kind: 'item',
-          label: store.state.playing ? 'Pausar' : 'Reproducir',
+          label: playing ? 'Pausar' : 'Reproducir',
           shortcut: 'Espacio',
           disabled: !canEdit,
-          action: () => store.setPlaying(!store.state.playing),
+          action: () => store.setPlaying(!playing),
         },
         { kind: 'separator', id: 'playback-seek' },
         {
@@ -585,13 +589,13 @@ export function MenuBar({
           kind: 'item',
           label: 'Frame anterior',
           disabled: !canEdit,
-          action: () => seek(store.state.playheadFrame - 1),
+          action: () => seek(store.getPlayhead() - 1),
         },
         {
           kind: 'item',
           label: 'Frame siguiente',
           disabled: !canEdit,
-          action: () => seek(store.state.playheadFrame + 1),
+          action: () => seek(store.getPlayhead() + 1),
         },
         {
           kind: 'item',

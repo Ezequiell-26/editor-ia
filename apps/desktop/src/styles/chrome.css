@@ -3999,6 +3999,18 @@
   background: color-mix(in srgb, var(--color-accent) 5%, transparent);
 }
 
+.localization-dub-summary {
+  display: grid;
+  gap: 4px;
+}
+
+.localization-dub-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
 .localization-dub-result .compress-numbers,
 .localization-dub-result .compress-path {
   margin: 0;

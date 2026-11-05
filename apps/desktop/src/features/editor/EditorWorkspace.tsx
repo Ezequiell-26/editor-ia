@@ -121,7 +121,9 @@ function TimelineFallback() {
 // Inspector derecho redimensionable (patrón CapCut/Filmora): el ancho se
 // persiste por equipo y el divisor es accesible por puntero y teclado.
 const INSPECTOR_WIDTH_KEY = 'editoria.inspector-width.v1';
-const INSPECTOR_WIDTH_DEFAULT = 320;
+// 400 px acerca el panel de propiedades al ~25 % del ancho que muestran las
+// referencias de Filmora; el rango 280–560 del divisor sigue intacto.
+const INSPECTOR_WIDTH_DEFAULT = 400;
 const INSPECTOR_WIDTH_MIN = 280;
 const INSPECTOR_WIDTH_MAX = 560;
 
@@ -262,7 +264,7 @@ export const EditorWorkspace = memo(function EditorWorkspace({
             return next;
           });
           store.setSelection({ kind: 'none' });
-          store.setPlayhead(Math.min(store.state.playheadFrame, nextDuration));
+          store.setPlayhead(Math.min(store.getPlayhead(), nextDuration));
         } else if (selection.kind === 'cue') {
           event.preventDefault();
           store.update((current) => deleteCaptionCue(current, selection.id));
@@ -273,7 +275,7 @@ export const EditorWorkspace = memo(function EditorWorkspace({
         if (selection.kind === 'clip') {
           event.preventDefault();
           store.mutate((current) => {
-            const split = splitClip(current, selection.id, store.state.playheadFrame);
+            const split = splitClip(current, selection.id, store.getPlayhead());
             if (!split) throw new Error('el playhead no está dentro del clip seleccionado');
             return { project: split.project, rightClipId: split.rightClipId };
           });
@@ -286,7 +288,7 @@ export const EditorWorkspace = memo(function EditorWorkspace({
         const step = preferences.jumpStepFrames;
         const delta = event.shiftKey ? step * 10 : step;
         store.setPlaying(false);
-        store.setPlayhead(store.state.playheadFrame + (event.key === 'ArrowLeft' ? -delta : delta));
+        store.setPlayhead(store.getPlayhead() + (event.key === 'ArrowLeft' ? -delta : delta));
       }
     };
     window.addEventListener('keydown', onKeyDown);

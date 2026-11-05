@@ -68,8 +68,6 @@ interface StoreState {
   undo: ProjectDocument[];
   redo: ProjectDocument[];
   selection: Selection;
-  playheadFrame: number;
-  playing: boolean;
   lastSavedAt: string | null;
   exportRequested: boolean;
   /** Oferta de recuperación de la sesión anterior, o null si no hay ninguna. */
@@ -85,8 +83,6 @@ const INITIAL: StoreState = {
   undo: [],
   redo: [],
   selection: { kind: 'none' },
-  playheadFrame: 0,
-  playing: false,
   lastSavedAt: null,
   exportRequested: false,
   recoveryOffer: null,
@@ -129,6 +125,10 @@ export interface ProjectStoreValue {
   setSelection(selection: Selection): void;
   setPlayhead(frame: number): void;
   setPlaying(playing: boolean): void;
+  /** Playhead actual sin suscribir el componente (siempre fresco). */
+  getPlayhead(): number;
+  /** Estado de reproducción actual sin suscribir el componente. */
+  getPlaying(): boolean;
   requestExport(): void;
   consumeExportRequest(): void;
   /** Abre el proyecto de la oferta de recuperación; false si no hay oferta o falló. */
@@ -140,6 +140,16 @@ export interface ProjectStoreValue {
 }
 
 const ProjectContext = createContext<ProjectStoreValue | null>(null);
+/**
+ * El playhead y el estado de reproducción viven en contextos separados del
+ * proyecto: cambian ~30-60 veces por segundo durante la reproducción y antes
+ * invalidaban a los ~100 consumidores de `useProjectStore` (menú, barra
+ * lateral, dock del asistente, cromo completo) en cada frame. Ahora sólo se
+ * re-renderizan quienes leen estos contextos; los handlers usan
+ * `getPlayhead()`/`getPlaying()` que leen un ref sin suscribir nada.
+ */
+const PlayheadContext = createContext<number>(0);
+const PlayingContext = createContext<boolean>(false);
 
 function messageOf(error: unknown): string {
   if (error instanceof ProjectActionError) {
@@ -183,6 +193,13 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   );
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Playhead y reproducción en estado propio: ver PlayheadContext arriba.
+  // `playbackRef` se actualiza de forma síncrona para que `getPlayhead()` /
+  // `getPlaying()` devuelvan el valor recién fijado aunque `setState` aún no
+  // haya llegado al render.
+  const [playheadFrame, setPlayheadFrame] = useState(0);
+  const [playing, setPlayingState] = useState(false);
+  const playbackRef = useRef({ frame: 0, playing: false });
   /**
    * `totalFrames` recorre todos los clips y cues. Antes se ejecutaba una vez
    * por render del provider (es decir, en cada frame de reproducción) y otra
@@ -235,6 +252,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     // Un proyecto recién abierto desde disco invalida cualquier instantánea
     // previa: el registro de recuperación solo cubre trabajo sin persistir.
     clearRecoverySnapshot();
+    playbackRef.current = { frame: 0, playing: false };
+    setPlayheadFrame(0);
+    setPlayingState(false);
     setState({
       ...INITIAL,
       project: opened.project,
@@ -596,22 +616,28 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     setState((current) => (current.exportRequested ? { ...current, exportRequested: false } : current));
   }, []);
 
-  const setPlayhead = useCallback((frame: number) => {
-    setState((current) => {
-      const duration = durationOf(current.project);
-      const target = Math.max(0, Math.min(duration, Math.round(frame)));
-      if (current.playheadFrame === target) {
-        return current;
-      }
-      return {
-        ...current,
-        playheadFrame: target,
-      };
-    });
-  }, [durationOf]);
+  const getPlayhead = useCallback((): number => playbackRef.current.frame, []);
+  const getPlaying = useCallback((): boolean => playbackRef.current.playing, []);
 
-  const setPlaying = useCallback((playing: boolean) => {
-    setState((current) => (current.playing === playing ? current : { ...current, playing }));
+  const setPlayhead = useCallback(
+    (frame: number) => {
+      const duration = durationOf(stateRef.current.project);
+      const target = Math.max(0, Math.min(duration, Math.round(frame)));
+      if (playbackRef.current.frame === target) {
+        return;
+      }
+      playbackRef.current = { ...playbackRef.current, frame: target };
+      setPlayheadFrame(target);
+    },
+    [durationOf],
+  );
+
+  const setPlaying = useCallback((next: boolean) => {
+    if (playbackRef.current.playing === next) {
+      return;
+    }
+    playbackRef.current = { ...playbackRef.current, playing: next };
+    setPlayingState(next);
   }, []);
 
   const closeProject = useCallback(() => {
@@ -619,6 +645,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     persistedVersionRef.current = 0;
     // Cierre voluntario: la instantánea deja de representar trabajo pendiente.
     clearRecoverySnapshot();
+    playbackRef.current = { frame: 0, playing: false };
+    setPlayheadFrame(0);
+    setPlayingState(false);
     setState(INITIAL);
   }, []);
 
@@ -690,6 +719,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setSelection,
       setPlayhead,
       setPlaying,
+      getPlayhead,
+      getPlaying,
       requestExport,
       consumeExportRequest,
       acceptRecovery,
@@ -707,6 +738,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       durationFrames,
       getProject,
       openProject,
+      getPlayhead,
+      getPlaying,
       openProjectAt,
       packageProject,
       redo,
@@ -726,7 +759,13 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     ],
   );
 
-  return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;
+  return (
+    <PlayheadContext.Provider value={playheadFrame}>
+      <PlayingContext.Provider value={playing}>
+        <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
+      </PlayingContext.Provider>
+    </PlayheadContext.Provider>
+  );
 }
 
 export function useProjectStore(): ProjectStoreValue {
@@ -741,16 +780,26 @@ export function useProjectDocument(): ProjectDocument | null {
   return useProjectStore().state.project;
 }
 
+/** Frame del playhead: sólo re-renderiza a quienes lo muestran. */
+export function usePlayheadFrame(): number {
+  return useContext(PlayheadContext);
+}
+
+/** Estado de reproducción: cambia sólo al play/pausa, no por frame. */
+export function useProjectPlaying(): boolean {
+  return useContext(PlayingContext);
+}
+
+/** Atajo para quien necesita ambos (preview, transport, loop de playback). */
+export function useProjectPlayback(): { readonly frame: number; readonly playing: boolean } {
+  const frame = usePlayheadFrame();
+  const playing = useProjectPlaying();
+  return useMemo(() => ({ frame, playing }), [frame, playing]);
+}
+
 // Selectors especializados para evitar re-renders globales
 export function useProjectPlayhead() {
-  const store = useProjectStore();
-  return useMemo(
-    () => ({
-      frame: store.state.playheadFrame,
-      playing: store.state.playing,
-    }),
-    [store.state.playheadFrame, store.state.playing],
-  );
+  return useProjectPlayback();
 }
 
 export function useProjectSelection() {

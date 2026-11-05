@@ -10,7 +10,7 @@ import {
   setTrackGainKeyframe,
   setTrackPanKeyframe,
 } from '../../state/track-automation';
-import { useProjectStore } from '../../state/project-store';
+import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 
 /**
  * Panel de captura de automatización de una pista de la mesa: fija claves de
@@ -24,11 +24,12 @@ import { useProjectStore } from '../../state/project-store';
  */
 export function TrackAutomationPanel({ track }: { readonly track: Track }) {
   const store = useProjectStore();
+  const playheadFrame = usePlayheadFrame();
   const project = store.state.project;
   const live = project?.timeline.tracks.find((item) => item.id === track.id) ?? track;
   if (!project) return null;
   const fps = fpsOf(project);
-  const playhead = store.state.playheadFrame;
+  const playhead = playheadFrame;
   const gainKeyframes = live.gainKeyframes ?? [];
   const panKeyframes = live.panKeyframes ?? [];
   const hasAutomation = gainKeyframes.length > 0 || panKeyframes.length > 0;
