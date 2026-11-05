@@ -470,6 +470,7 @@ pub fn run() {
             commands::lip_sync::lip_sync,
             commands::voice_isolation::voice_isolation_status,
             commands::voice_isolation::voice_isolate_media,
+            commands::voice_isolation::prepare_voice_isolation,
             commands::audio_providers::get_audio_provider,
             commands::audio_providers::save_audio_provider,
             commands::audio_providers::clear_audio_provider_key,

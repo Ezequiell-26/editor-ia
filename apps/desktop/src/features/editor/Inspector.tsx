@@ -522,10 +522,14 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const [effectApproved, setEffectApproved] = useState(false);
   const [effectBusy, setEffectBusy] = useState(false);
   const [effectError, setEffectError] = useState<string | null>(null);
+  const [voiceIsoBusy, setVoiceIsoBusy] = useState(false);
+  const [voiceIsoInfo, setVoiceIsoInfo] = useState<string | null>(null);
   useEffect(() => {
     setSceneCuts([]);
     setSceneBusy(false);
     setTranscribeInfo(null);
+    setVoiceIsoInfo(null);
+    setVoiceIsoBusy(false);
     setSelectedKeyframe(null);
     setBeatAnalysis(null);
     setBeatBusy(false);
@@ -4281,6 +4285,91 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             El efecto se aplica en el render con filtros locales (`asetrate`, `aecho`, `vibrato`,
             high/low-pass). La preview reproduce la voz original.
           </p>
+          {source.type === 'asset' && (asset?.kind === 'audio' || asset?.kind === 'video') ? (
+            <div className="inspector-block">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={audio.voiceIsolation?.enabled ?? false}
+                  onChange={(event) =>
+                    patchAudio({
+                      voiceIsolation: event.target.checked
+                        ? {
+                            enabled: true,
+                            model: 'demucs-v4',
+                            quality: audio.voiceIsolation?.quality ?? 'medium',
+                          }
+                        : undefined,
+                    })
+                  }
+                />
+                <span>Aislar voz (IA local, Demucs)</span>
+              </label>
+              <label className="field">
+                <span>Calidad del stem</span>
+                <select
+                  value={audio.voiceIsolation?.quality ?? 'medium'}
+                  onChange={(event) =>
+                    patchAudio({
+                      voiceIsolation: {
+                        enabled: audio.voiceIsolation?.enabled ?? false,
+                        model: 'demucs-v4',
+                        quality: event.target.value as 'low' | 'medium' | 'high' | 'best',
+                      },
+                    })
+                  }
+                >
+                  <option value="low">Baja (rápida)</option>
+                  <option value="medium">Media</option>
+                  <option value="high">Alta</option>
+                  <option value="best">Máxima</option>
+                </select>
+              </label>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  disabled={voiceIsoBusy || !asset}
+                  onClick={async () => {
+                    if (!asset) return;
+                    setVoiceIsoBusy(true);
+                    setVoiceIsoInfo(null);
+                    try {
+                      const outcome = await store.service.voiceIsolationPrepare(
+                        asset.id,
+                        audio.voiceIsolation?.quality ?? 'medium',
+                      );
+                      patchAudio({
+                        voiceIsolation: {
+                          enabled: true,
+                          model: 'demucs-v4',
+                          quality: audio.voiceIsolation?.quality ?? 'medium',
+                        },
+                      });
+                      setVoiceIsoInfo(
+                        outcome.cached
+                          ? 'Stem de voz reutilizado.'
+                          : `Stem listo en ${(outcome.processingTimeMs / 1000).toFixed(1)} s de proceso.`,
+                      );
+                    } catch (error) {
+                      setVoiceIsoInfo(
+                        error instanceof Error ? error.message : 'No se pudo aislar la voz.',
+                      );
+                    } finally {
+                      setVoiceIsoBusy(false);
+                    }
+                  }}
+                >
+                  {voiceIsoBusy ? 'Aislando voz…' : 'Generar stem de voz'}
+                </button>
+              </div>
+              <p className="fine-print">
+                Requiere Python con Demucs; la primera vez descarga el modelo (~2 GB). El audio
+                exportado usa sólo la voz; el video no cambia. La preview reproduce el original.
+              </p>
+              {voiceIsoInfo ? <p className="fine-print">{voiceIsoInfo}</p> : null}
+            </div>
+          ) : null}
           <AudioEffectStack
             stack={audioStack as EffectStack}
             onChange={(next) =>

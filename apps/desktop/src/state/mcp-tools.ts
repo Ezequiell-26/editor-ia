@@ -437,6 +437,15 @@ export async function executeMcpTool(
       return JSON.stringify({ ok: true, ...outcome });
     }
 
+    case 'voice_isolation_prepare': {
+      const outcome = await context.store.service.voiceIsolationPrepare(
+        text(args, 'assetId'),
+        optionalText(args, 'quality'),
+        optionalBoolean(args, 'force'),
+      );
+      return JSON.stringify({ ok: true, ...outcome });
+    }
+
     case 'markers_list':
       return JSON.stringify(
         projectOf(context).markers.map((marker) => ({

@@ -577,6 +577,15 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       quality: { type: 'string', enum: ['low', 'medium', 'high', 'best'], description: 'Calidad vs velocidad (por defecto medium).' },
     }, ['path']),
   },
+  {
+    name: 'voice_isolation_prepare',
+    description: `${WRITE} Genera (o reutiliza) el stem vocals.wav de un asset de audio/video DEL PROYECTE ABIERTO en media/isolation/<assetId>/. Los clips con audio.voiceIsolation.enabled lo usan automáticamente al exportar. Requiere Python con demucs; la primera vez descarga el modelo (~2 GB).`,
+    inputSchema: obj({
+      assetId: { type: 'string', minLength: 1, maxLength: 256, description: 'Id del asset del proyecto (ver assets_list).' },
+      quality: { type: 'string', enum: ['low', 'medium', 'high', 'best'], description: 'Calidad vs velocidad (por defecto medium).' },
+      force: { type: 'boolean', description: 'Regenera el stem aunque ya exista.' },
+    }, ['assetId']),
+  },
 
   // ── Marcadores ──────────────────────────────────────────────────────
   {

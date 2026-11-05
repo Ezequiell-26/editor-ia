@@ -78,3 +78,27 @@ Verificación: `tsc --noEmit` 0 errores · `test:serial` **2024 passed /
   `tsc --noEmit` 0 · `mcp-tools.test.ts` 24/24.
 - Pendiente: UI del inspector (`voiceIsolation.enabled` existe en schema pero
   el render no consume el stem) y rebuild de la app instalada.
+
+## Voice isolation extremo a extremo (2026-11-05, cierre)
+
+- Wrapper `demucs-wrapper.py` reescrito contra la API real: `Separator(model,
+  device, shifts)` + `separate(tensor (channels,samples))`. Antes llamaba
+  `separate()` con kwargs inexistentes y tenía el typo `separated["vocicals"]`.
+  Decodifica cualquier contenedor vía ffmpeg a f32le estéreo 44.1 kHz
+  (`--ffmpeg` lo pasa Rust desde `resolve_tools`); fallback soundfile+resample.
+  `quality` → `shifts` de Demucs (low=1 … best=8).
+- `prepare_voice_isolation(asset_id, quality?, force?)`: resuelve el asset del
+  proyecto abierto, corre el modelo y deja el stem en la ruta fija
+  `<root>/media/isolation/<assetId>/vocals.wav`. Reutiliza el stem si existe
+  (`cached: true`) salvo `force`.
+- Render (`render/ffmpeg.rs`): clips de video con `audio.voiceIsolation.enabled`
+  agregan el stem como input extra `-ss/-t/-i` (misma ventana que el video) y la
+  cadena de audio toma `[stem:a]`; clips de audio reemplazan el `-i` por el
+  stem. Sin stem → fallback transparente al source.
+- UI Inspector: checkbox "Aislar voz (IA local, Demucs)" + selector de calidad
+  + botón "Generar stem de voz" en la pestaña de audio del clip.
+- MCP: `voice_isolation_prepare` (write) además de `voice_isolate`/`status`.
+- Verificación: cargo check 0 err · cargo test --lib 573/573 · 2 tests nuevos de
+  render (stem routing + fallback) · tsc 0 · mcp-tools 24/24 · py_compile OK.
+- Pendiente honesto: inferencia real no probada (requiere `pip install torch
+  torchaudio demucs soundfile` + modelo ~2 GB); rebuild release en curso.

@@ -3,19 +3,17 @@
 Wrapper para Demucs - Aislamiento de voz y separación de stems.
 
 Modelo: Demucs v4 (Facebook AI Research, MIT License)
-URL: https://github.com/facebookresearch/segment-anything
-Ref: https://huggingface.co/facebook/htdemufs
 
-Este script provee una API CLI simple para extraer stem de voces humanas
-de grabaciones complejas (música de fondo, ruido ambiental, etc.).
+Este script provee una API CLI simple para extraer stems de un archivo de
+audio o video. La entrada se decodifica a PCM float32 estéreo a 44.1 kHz con
+FFmpeg (cualquier contenedor: mp4, m4a, mp3, wav...) antes de la inferencia.
 
 Uso desde Editor IA:
-    python demucs-wrapper.py --input <audio.mp3> --output-dir <dir> [options]
+    python demucs-wrapper.py --input <media.mp4> --output-dir <dir> [options]
 
-Salida generada:
+Salida generada (modo isolate):
     - vocals.wav (solo voz humana, sin música ni efectos)
     - accompaniment.wav (resto: música + efectos + ruido)
-    - stats.json (metadatos del procesamiento)
 
 Requisitos:
     pip install torch torchaudio demucs soundfile numpy scipy
@@ -23,138 +21,184 @@ Requisitos:
 
 import argparse
 import json
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import soundfile as sf
 import torch
 from demucs.api import Separator
-from demucs.apply import apply_model
-from demucs.pretrained import get_model
+
+TARGET_SAMPLE_RATE = 44100
+
+
+def _decode_with_ffmpeg(input_path: Path, ffmpeg: str) -> "np.ndarray":
+    """Decodifica cualquier contenedor a float32 estéreo 44.1 kHz.
+
+    Devuelve un array (samples, channels). FFmpeg escribe s16 por defecto;
+    pedimos f32le para evitar una conversión extra.
+    """
+    command = [
+        ffmpeg,
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(input_path),
+        "-vn",
+        "-f",
+        "f32le",
+        "-acodec",
+        "pcm_f32le",
+        "-ac",
+        "2",
+        "-ar",
+        str(TARGET_SAMPLE_RATE),
+        "-",
+    ]
+    result = subprocess.run(command, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg no pudo decodificar el audio: {result.stderr.decode('utf-8', 'replace')[:500]}"
+        )
+    audio = np.frombuffer(result.stdout, dtype=np.float32)
+    if audio.size == 0:
+        raise RuntimeError("ffmpeg devolvió audio vacío")
+    return audio.reshape(-1, 2)
+
+
+def _decode_with_soundfile(input_path: Path) -> "tuple[np.ndarray, int]":
+    audio, sample_rate = sf.read(str(input_path), dtype="float32", always_2d=True)
+    return audio, sample_rate
+
+
+def _resample_stereo(audio: np.ndarray, sample_rate: int) -> np.ndarray:
+    """Remuestrea (samples, channels) a TARGET_SAMPLE_RATE con polyphase FIR."""
+    if sample_rate == TARGET_SAMPLE_RATE:
+        return audio
+    from math import gcd
+
+    from scipy.signal import resample_poly
+
+    divisor = gcd(int(sample_rate), TARGET_SAMPLE_RATE)
+    up = TARGET_SAMPLE_RATE // divisor
+    down = int(sample_rate) // divisor
+    return np.stack(
+        [resample_poly(audio[:, channel], up, down) for channel in range(audio.shape[1])],
+        axis=1,
+    ).astype(np.float32)
 
 
 class VoiceIsolationEngine:
     """Motor de aislamiento de voz usando Demucs v4."""
 
-    def __init__(self, model_name: str = "htdemucs", device: str = "auto"):
-        """
-        Inicializa el motor de aislamiento.
+    # `shifts` es el ensamble de inferencia de Demucs: más shifts = mejor
+    # calidad y más tiempo. Mapea los niveles de calidad del editor.
+    QUALITY_SHIFTS = {"low": 1, "medium": 2, "high": 4, "best": 8}
 
-        Args:
-            model_name: Nombre del modelo (htdemucs, mdx_extra, etc.)
-            device: Device para inferencia ('cpu', 'cuda', 'auto')
-        """
+    def __init__(
+        self,
+        model_name: str = "htdemucs",
+        device: str = "auto",
+        quality: str = "medium",
+        ffmpeg: str = "ffmpeg",
+    ):
         self.model_name = model_name
-        self.device = device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
-        
-        print(f"[INFO] Loading model '{model_name}' on {self.device}...", file=sys.stderr)
-        
-        # Cargar modelo pre-entrenado
+        self.ffmpeg = ffmpeg
+        resolved = device if device != "auto" else ("cuda" if torch.cuda.is_available() else "cpu")
+        shifts = self.QUALITY_SHIFTS.get(quality, 2)
+
+        print(
+            f"[INFO] Loading model '{model_name}' on {resolved} (shifts={shifts})...",
+            file=sys.stderr,
+        )
         try:
-            self.separator = Separator(model=model_name)
-            print(f"[OK] Model loaded successfully.", file=sys.stderr)
+            self.separator = Separator(model=model_name, device=resolved, shifts=shifts)
+            print("[OK] Model loaded successfully.", file=sys.stderr)
         except Exception as e:
             print(f"[ERROR] Failed to load model: {e}", file=sys.stderr)
             raise
 
-    @torch.no_grad()
+    def _load_audio(self, input_path: Path) -> "tuple[np.ndarray, int]":
+        """Devuelve (samples, channels) float32 estéreo a 44.1 kHz."""
+        try:
+            audio, sample_rate = _decode_with_ffmpeg(input_path, self.ffmpeg)
+            return audio, TARGET_SAMPLE_RATE
+        except Exception as ffmpeg_error:
+            try:
+                audio, sample_rate = _decode_with_soundfile(input_path)
+            except Exception:
+                raise RuntimeError(
+                    f"no se pudo decodificar el audio ni con ffmpeg ni con soundfile: {ffmpeg_error}"
+                )
+        audio = _resample_stereo(audio, sample_rate)
+        return audio, TARGET_SAMPLE_RATE
+
+    def _separate(self, input_path: Path) -> "tuple[dict[str, np.ndarray], float]":
+        """Corre la separación y devuelve stems float32 (samples, channels)."""
+        import time
+
+        start = time.perf_counter()
+        audio, sample_rate = self._load_audio(input_path)
+        duration_seconds = len(audio) / sample_rate
+
+        # Demucs espera (channels, samples); separamos en mono para ahorrar
+        # memoria y duplicamos a estéreo al guardar.
+        mono = audio.mean(axis=1).astype(np.float32)
+        waveform = torch.from_numpy(mono).unsqueeze(0)
+
+        print(
+            f"[INFO] Separating {duration_seconds:.2f}s of audio on device...",
+            file=sys.stderr,
+        )
+        sources = self.separator.separate(waveform)
+        elapsed = time.perf_counter() - start
+
+        stems: dict[str, np.ndarray] = {}
+        for name, tensor in sources.items():
+            array = tensor.detach().float().cpu().numpy()
+            if array.ndim == 1:
+                array = array.reshape(1, -1)
+            # (channels, samples) -> (samples,) mono
+            stems[name] = array.mean(axis=0).astype(np.float32)
+        return stems, duration_seconds
+
     def isolate_vocals(
         self,
         input_path: Path,
         output_dir: Path,
         quality: str = "medium",
-        segment_duration: float = 10.0,
     ) -> dict:
-        """
-        Aísla la voz humana del audio de entrada.
-
-        Args:
-            input_path: Ruta al audio de entrada (WAV/MP3/M4A)
-            output_dir: Directorio para guardar resultados
-            quality: Calidad vs velocidad tradeoff ('low' | 'medium' | 'high' | 'best')
-            segment_duration: Duración máxima por segmento (segundos)
-
-        Returns:
-            dict con metadatos del procesamiento:
-                {
-                    "input_path": str,
-                    "output_files": {
-                        "vocals": str,
-                        "accompaniment": str,
-                    },
-                    "duration_seconds": float,
-                    "sample_rate": int,
-                    "channels": int,
-                    "model_used": str,
-                    "processing_time_ms": int,
-                }
-        """
+        """Aísla la voz humana y guarda vocals.wav + accompaniment.wav."""
         import time
 
         start_time = time.perf_counter()
-
-        # Asegurar directorio de salida
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Cargar audio
-        print(f"[INFO] Reading audio from {input_path}", file=sys.stderr)
-        audio, sample_rate = sf.read(str(input_path))
+        stems, duration_seconds = self._separate(input_path)
 
-        # Normalizar a mono si es stereo
-        channels = audio.shape[1] if len(audio.shape) > 1 else 1
-        if channels > 1:
-            audio = audio.mean(axis=1)
-
-        duration_seconds = len(audio) / sample_rate
-
-        # Configurar parámetros según calidad
-        batch_size = {"low": 8, "medium": 4, "high": 2, "best": 1}[quality]
-        shift = {"low": 0.5, "medium": 0.25, "high": 0.125, "best": 0.0625}[quality]
-
-        print(
-            f"[INFO] Processing {duration_seconds:.2f}s audio at {sample_rate}Hz, {channels}ch",
-            file=sys.stderr,
-        )
-        print(f"[INFO] Using batch_size={batch_size}, shift={shift}s for {quality} quality", file=sys.stderr)
-
-        # Inferir con separador
-        try:
-            separated = self.separator.separate(
-                audio.astype(np.float32),
-                samplerate=sample_rate,
-                device=self.device,
-                shift=shift,
-                split=True,
-                overlap=0.25,
-                segment=int(segment_duration * sample_rate),
+        vocals = stems.get("vocals")
+        if vocals is None:
+            raise RuntimeError(
+                f"el modelo '{self.model_name}' no produjo stem 'vocals' (stems: {sorted(stems)})"
             )
-        except Exception as e:
-            print(f"[ERROR] Separation failed: {e}", file=sys.stderr)
-            raise
-
-        # Extraer stems
-        vocals = separated["vocals"].mean(0) if len(separated["vocicals"].shape) > 1 else separated["vocals"]
-        accompaniment = np.zeros_like(audio)
-
-        # Sumar todos los otros stems para acompañamiento
-        for stem in ["drums", "bass", "other"]:
-            if stem in separated:
-                stem_audio = separated[stem].mean(0) if len(separated[stem].shape) > 1 else separated[stem]
+        accompaniment = np.zeros_like(vocals)
+        for name, stem_audio in stems.items():
+            if name != "vocals":
                 accompaniment += stem_audio
 
-        # Guardar archivos
+        vocals_stereo = np.stack([vocals, vocals], axis=1)
+        accompaniment_stereo = np.stack([accompaniment, accompaniment], axis=1)
+
         vocals_path = output_dir / "vocals.wav"
         accompaniment_path = output_dir / "accompaniment.wav"
 
         print(f"[INFO] Saving vocals to {vocals_path}", file=sys.stderr)
-        sf.write(str(vocals_path), vocals, sample_rate)
-
+        sf.write(str(vocals_path), vocals_stereo, TARGET_SAMPLE_RATE)
         print(f"[INFO] Saving accompaniment to {accompaniment_path}", file=sys.stderr)
-        sf.write(str(accompaniment_path), accompaniment, sample_rate)
-
-        processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+        sf.write(str(accompaniment_path), accompaniment_stereo, TARGET_SAMPLE_RATE)
 
         return {
             "input_path": str(input_path.absolute()),
@@ -163,67 +207,45 @@ class VoiceIsolationEngine:
                 "accompaniment": str(accompaniment_path.absolute()),
             },
             "duration_seconds": float(duration_seconds),
-            "sample_rate": int(sample_rate),
-            "channels": int(channels),
+            "sample_rate": TARGET_SAMPLE_RATE,
+            "channels": 2,
             "model_used": self.model_name,
             "quality": quality,
-            "processing_time_ms": processing_time_ms,
+            "processing_time_ms": int((time.perf_counter() - start_time) * 1000),
         }
 
-    @torch.no_grad()
     def separate_stems(self, input_path: Path, output_dir: Path) -> dict:
-        """
-        Separa audio en stems individuales (vocales, batería, bajo, otro).
-
-        Similar a isolate_vocals pero guarda cada stem por separado.
-
-        Returns:
-            dict con metadatos y rutas a cada stem
-        """
+        """Separa el audio en stems individuales (vocals, drums, bass, other)."""
         import time
 
         start_time = time.perf_counter()
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Cargar audio
-        audio, sample_rate = sf.read(str(input_path))
-        if len(audio.shape) > 1:
-            audio = audio.mean(axis=1)
+        stems, duration_seconds = self._separate(input_path)
 
-        # Inferir
-        separated = self.separator.separate(
-            audio.astype(np.float32),
-            samplerate=sample_rate,
-            device=self.device,
-            split=True,
-            overlap=0.25,
-        )
-
-        # Guardar cada stem
         output_files = {}
-        for stem in ["vocals", "drums", "bass", "other"]:
-            if stem in separated:
-                stem_audio = separated[stem].mean(0) if len(separated[stem].shape) > 1 else separated[stem]
-                stem_path = output_dir / f"{stem}.wav"
-                sf.write(str(stem_path), stem_audio, sample_rate)
-                output_files[stem] = str(stem_path.absolute())
-
-        processing_time_ms = int((time.perf_counter() - start_time) * 1000)
+        for name, stem_audio in stems.items():
+            safe_name = "".join(c for c in name if c.isalnum() or c in "-_") or "stem"
+            stem_path = output_dir / f"{safe_name}.wav"
+            stereo = np.stack([stem_audio, stem_audio], axis=1)
+            sf.write(str(stem_path), stereo, TARGET_SAMPLE_RATE)
+            output_files[name] = str(stem_path.absolute())
 
         return {
             "input_path": str(input_path.absolute()),
             "output_files": output_files,
-            "duration_seconds": float(len(audio) / sample_rate),
-            "sample_rate": int(sample_rate),
+            "duration_seconds": float(duration_seconds),
+            "sample_rate": TARGET_SAMPLE_RATE,
             "model_used": self.model_name,
-            "processing_time_ms": processing_time_ms,
+            "processing_time_ms": int((time.perf_counter() - start_time) * 1000),
         }
 
 
 def main():
     parser = argparse.ArgumentParser(description="Voice isolation using Demucs v4")
-    parser.add_argument("--input", required=True, help="Input audio file")
+    parser.add_argument("--input", required=True, help="Input audio/video file")
     parser.add_argument("--output-dir", required=True, help="Output directory for results")
+    parser.add_argument("--ffmpeg", default="ffmpeg", help="Path to ffmpeg executable")
     parser.add_argument(
         "--mode",
         choices=["isolate", "separate"],
@@ -263,7 +285,12 @@ def main():
         sys.exit(1)
 
     try:
-        engine = VoiceIsolationEngine(model_name=args.model, device=args.device)
+        engine = VoiceIsolationEngine(
+            model_name=args.model,
+            device=args.device,
+            quality=args.quality,
+            ffmpeg=args.ffmpeg,
+        )
 
         if args.mode == "isolate":
             result = engine.isolate_vocals(

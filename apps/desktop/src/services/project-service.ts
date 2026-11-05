@@ -1599,6 +1599,8 @@ export interface VoiceIsolationOutcome {
   readonly sampleRate: number;
   readonly channels: number;
   readonly processingTimeMs: number;
+  /** true cuando se reutilizó un stem ya generado (no corrió el modelo). */
+  readonly cached: boolean;
 }
 
 export interface MatchMediaPlanResult {
@@ -2355,6 +2357,16 @@ export interface DesktopService {
     model?: string,
     quality?: string,
   ): Promise<VoiceIsolationOutcome>;
+  /**
+   * Genera (o reutiliza) el stem `vocals.wav` de un asset del proyecto en
+   * `media/isolation/<assetId>/`. El render lo usa automáticamente en los
+   * clips cuyo `audio.voiceIsolation.enabled` está activo.
+   */
+  voiceIsolationPrepare(
+    assetId: string,
+    quality?: string,
+    force?: boolean,
+  ): Promise<VoiceIsolationOutcome>;
   systemInfo(): Promise<SystemInfo>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
@@ -2655,6 +2667,7 @@ export const PROJECT_COMMANDS = {
   transcribeAsset: 'transcribe_asset',
   voiceIsolationStatus: 'voice_isolation_status',
   voiceIsolateMedia: 'voice_isolate_media',
+  voiceIsolationPrepare: 'prepare_voice_isolation',
   systemInfo: 'system_info',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
@@ -3849,6 +3862,7 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         sample_rate: number;
         channels: number;
         processing_time_ms: number;
+        cached?: boolean;
       };
       return {
         vocalsPath: raw.vocals_path,
@@ -3857,6 +3871,31 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         sampleRate: raw.sample_rate,
         channels: raw.channels,
         processingTimeMs: raw.processing_time_ms,
+        cached: raw.cached ?? false,
+      };
+    },
+    async voiceIsolationPrepare(assetId, quality, force) {
+      const raw = (await call(PROJECT_COMMANDS.voiceIsolationPrepare, {
+        assetId,
+        quality: quality ?? null,
+        force: force ?? null,
+      })) as {
+        vocals_path: string;
+        accompaniment_path: string | null;
+        duration_seconds: number;
+        sample_rate: number;
+        channels: number;
+        processing_time_ms: number;
+        cached?: boolean;
+      };
+      return {
+        vocalsPath: raw.vocals_path,
+        accompanimentPath: raw.accompaniment_path,
+        durationSeconds: raw.duration_seconds,
+        sampleRate: raw.sample_rate,
+        channels: raw.channels,
+        processingTimeMs: raw.processing_time_ms,
+        cached: raw.cached ?? false,
       };
     },
     async systemInfo() {
@@ -4278,6 +4317,7 @@ function createUnavailableService(): DesktopService {
     transcribeAsset: async () => unavailable(),
     voiceIsolationStatus: async () => unavailable(),
     voiceIsolateMedia: async () => unavailable(),
+    voiceIsolationPrepare: async () => unavailable(),
     systemInfo: async () => unavailable(),
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),

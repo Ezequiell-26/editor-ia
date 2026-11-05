@@ -16,6 +16,7 @@ use std::process::{Child, Command, Stdio};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::commands::voice_isolation::isolation_stem_path;
 use crate::media::resolve_inside_root;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::effect_recipes::{find as find_recipe, ParamKind, Recipe};
@@ -3869,6 +3870,37 @@ pub(crate) fn build_plan_range(
         }
         let index = inputs;
         inputs += 1;
+        // Aislamiento de voz: si el clip lo pide y `prepare_voice_isolation`
+        // ya generó el stem, su audio reemplaza al del material. El stem es el
+        // wav del archivo completo, así que se le aplica la misma ventana
+        // -ss/-t que al input de video para alinear el in-point del clip.
+        let stem_index = if !is_image
+            && clip["audio"]["voiceIsolation"]["enabled"].as_bool() == Some(true)
+        {
+            let stem = isolation_stem_path(input.root, asset_id);
+            if stem.is_file() {
+                let in_seconds =
+                    clip["source"]["inFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
+                let ratio = speed_num as f64 / speed_den as f64;
+                let source_seconds = (clip_seconds + lead_seconds) * ratio;
+                let seek_seconds = (in_seconds - lead_seconds * ratio).max(0.0);
+                args.extend([
+                    "-ss".into(),
+                    seconds(seek_seconds),
+                    "-t".into(),
+                    seconds(source_seconds),
+                    "-i".into(),
+                    stem.to_string_lossy().into_owned(),
+                ]);
+                let stem_index = inputs;
+                inputs += 1;
+                Some(stem_index)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         filters.push(visual_filter(
             index,
             clip,
@@ -3971,18 +4003,20 @@ pub(crate) fn build_plan_range(
         let has_audio = if is_image {
             false
         } else {
-            *probed_audio
-                .entry(asset_id.to_owned())
-                .or_insert_with(|| has_audio_stream(input.ffprobe, &path))
+            stem_index.is_some()
+                || *probed_audio
+                    .entry(asset_id.to_owned())
+                    .or_insert_with(|| has_audio_stream(input.ffprobe, &path))
         };
         if has_audio
             && !muted
             && (!any_solo || track_solo || clip["audio"]["solo"].as_bool().unwrap_or(false))
             && clip["audio"]["muted"].as_bool() != Some(true)
         {
+            let audio_source_index = stem_index.unwrap_or(index);
             let track = track_by_id.get(track_id).cloned().unwrap_or(Value::Null);
             let chain = audio_filter(
-                index,
+                audio_source_index,
                 profile,
                 project_fps,
                 clip_seconds,
@@ -3998,7 +4032,7 @@ pub(crate) fn build_plan_range(
             );
             filters.push(chain.clone());
             audio_filters.push(chain);
-            audio_labels.push(format!("[a{index}]"));
+            audio_labels.push(format!("[a{audio_source_index}]"));
             audio_track_ids.push(track_id.to_owned());
         }
     }
@@ -4097,6 +4131,15 @@ pub(crate) fn build_plan_range(
         let relative = asset["source"]["path"].as_str().unwrap_or("");
         let path = resolve_inside_root(input.root, relative)?;
         ensure_asset_unchanged(asset, &path)?;
+        // Aislamiento de voz: el stem generado por `prepare_voice_isolation`
+        // reemplaza al audio original cuando el clip lo pide.
+        let mut audio_path = path.clone();
+        if clip["audio"]["voiceIsolation"]["enabled"].as_bool() == Some(true) {
+            let stem = isolation_stem_path(input.root, asset_id);
+            if stem.is_file() {
+                audio_path = stem;
+            }
+        }
         let start_seconds = clip["startFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
         let clip_seconds = clip["durationFrames"].as_u64().unwrap_or(0) as f64 / project_fps;
         if clip_seconds <= 0.0 {
@@ -4116,7 +4159,7 @@ pub(crate) fn build_plan_range(
             "-t".into(),
             seconds(source_seconds),
             "-i".into(),
-            path.to_string_lossy().into_owned(),
+            audio_path.to_string_lossy().into_owned(),
         ]);
         let index = inputs;
         inputs += 1;
@@ -11257,6 +11300,119 @@ mod tests {
             "der(0.5) debe estar entre 0 y 1 para una ease-in, dio {mitad}"
         );
     }
+    #[test]
+    fn voice_isolation_routes_the_generated_stem_instead_of_the_source() {
+        let root = std::env::temp_dir().join(format!("editor-ia-voice-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        // Solo existe el stem del asset de video: el clip de audio con
+        // voiceIsolation enabled debe caer al source original.
+        let stem_dir = media.join("isolation").join("asset1");
+        std::fs::create_dir_all(&stem_dir).unwrap();
+        std::fs::write(stem_dir.join("vocals.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let mut project = project();
+        for clip_id in ["c1", "c2"] {
+            let clip = project["timeline"]["clips"]
+                .as_array_mut()
+                .unwrap()
+                .iter_mut()
+                .find(|clip| clip["id"].as_str() == Some(clip_id))
+                .unwrap();
+            clip["audio"] = serde_json::json!({
+                "voiceIsolation": { "enabled": true, "model": "demucs-v4", "quality": "medium" }
+            });
+        }
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile(),
+            output_path: &root.join("salida.mp4"),
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
+        })
+        .expect("el plan deberia construirse");
+
+        // Los -i del plan: el stem del asset1 entra como input extra del clip
+        // de video; el clip de audio (asset2, sin stem) sigue con audio.wav.
+        let inputs: Vec<&str> = plan
+            .args
+            .iter()
+            .zip(plan.args.iter().skip(1))
+            .filter(|(flag, _)| *flag == "-i")
+            .map(|(_, value)| value.as_str())
+            .collect();
+        assert!(
+            inputs.iter().any(|value| value.contains("vocals.wav")),
+            "falta el stem en los inputs: {:?}",
+            inputs
+        );
+        assert!(
+            inputs.iter().any(|value| value.ends_with("audio.wav")),
+            "el clip sin stem debe usar el source original: {:?}",
+            inputs
+        );
+        // El clip de video (index 1) toma su audio del stem (index 2); el clip
+        // de audio (index 3) del source. Sin stem, el probe de ffprobe falla y
+        // no habria cadena de audio para el video.
+        let graph = plan
+            .args
+            .iter()
+            .find(|arg| arg.contains("[aout]"))
+            .expect("falta el grafo de audio");
+        assert!(graph.contains("[2:a]"), "el audio del video debe venir del stem: {}", graph);
+        assert!(graph.contains("[3:a]"), "el clip de audio debe seguir sonando: {}", graph);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn voice_isolation_without_stem_falls_back_to_source_audio() {
+        let root = std::env::temp_dir().join(format!("editor-ia-voice2-{}", uuid::Uuid::new_v4()));
+        let media = root.join("media");
+        std::fs::create_dir_all(&media).unwrap();
+        std::fs::write(media.join("video.mp4"), b"x").unwrap();
+        std::fs::write(media.join("audio.wav"), b"x").unwrap();
+        let temp = root.join("temp");
+        std::fs::create_dir_all(&temp).unwrap();
+
+        let mut project = project();
+        let clip = project["timeline"]["clips"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|clip| clip["id"].as_str() == Some("c2"))
+            .unwrap();
+        clip["audio"] = serde_json::json!({
+            "voiceIsolation": { "enabled": true, "model": "demucs-v4", "quality": "medium" }
+        });
+        let plan = build_plan(BuildPlanInput {
+            audio_only: false,
+            project: &project,
+            root: &root,
+            profile: &profile(),
+            output_path: &root.join("salida.mp4"),
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
+        })
+        .expect("el plan deberia construirse");
+
+        // Sin stem generado el clip de audio usa el source original: no debe
+        // aparecer ningun vocals.wav en los inputs.
+        let joined = plan.args.join("\n");
+        assert!(!joined.contains("vocals.wav"), "sin stem no debe haber input extra");
+        assert!(joined.contains("audio.wav"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
 }
 
 #[cfg(test)]

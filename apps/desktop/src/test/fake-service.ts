@@ -1935,6 +1935,9 @@ export function createFakeService(): FakeService {
     async voiceIsolateMedia() {
       throw new Error('voice isolation no disponible en el servicio de prueba');
     },
+    async voiceIsolationPrepare() {
+      throw new Error('voice isolation no disponible en el servicio de prueba');
+    },
     async systemInfo(): Promise<SystemInfo> {
       return {
         appVersion: '0.1.0-test',
