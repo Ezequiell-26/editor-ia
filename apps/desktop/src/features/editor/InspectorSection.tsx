@@ -13,11 +13,16 @@ export function InspectorSection({
   title,
   children,
   group,
+  subtab,
   className,
 }: {
   readonly title: string;
   readonly children: ReactNode;
   readonly group?: string | undefined;
+  /** Token(s) de sub-pestaña (separados por espacio) de las capturas
+   *  113–125. La capa Filmora oculta la sección si la sub-pestaña activa
+   *  no está entre esos tokens. Sin este prop la sección siempre se ve. */
+  readonly subtab?: string | undefined;
   readonly className?: string | undefined;
 }) {
   const [open, setOpen] = useState(true);
@@ -25,6 +30,7 @@ export function InspectorSection({
     <section
       className={`inspector-section${className ? ` ${className}` : ''}${open ? '' : ' is-collapsed'}`}
       {...(group ? { 'data-group': group } : {})}
+      {...(subtab ? { 'data-subtab': subtab } : {})}
     >
       <h4>
         <button

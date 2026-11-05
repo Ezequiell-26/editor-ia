@@ -27,7 +27,7 @@ describe('StartScreen · trampa de foco en el diálogo de nuevo proyecto', () =>
   it('al abrir enfoca el botón cerrar, el Tab recorre el formulario y no abandona el diálogo', () => {
     renderStartScreen();
 
-    fireEvent.click(screen.getByRole('button', { name: /Crear proyecto/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Crear proyecto.*Personalizar formato y fps/i }));
 
     const dialogo = screen.getByRole('dialog', { name: /Nuevo proyecto/i });
     const cerrar = screen.getByRole('button', { name: 'Cerrar diálogo' });
@@ -49,7 +49,7 @@ describe('StartScreen · trampa de foco en el diálogo de nuevo proyecto', () =>
   it('cierra con Escape y devuelve el foco a la tarjeta que lo abrió', () => {
     renderStartScreen();
 
-    const tarjeta = screen.getByRole('button', { name: /Crear proyecto/i });
+    const tarjeta = screen.getByRole('button', { name: /Crear proyecto.*Personalizar formato y fps/i });
     tarjeta.focus();
     fireEvent.click(tarjeta);
     expect(screen.getByRole('dialog', { name: /Nuevo proyecto/i })).toBeTruthy();

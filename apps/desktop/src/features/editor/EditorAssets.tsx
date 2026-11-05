@@ -13,7 +13,7 @@ import {
   toggleAssetFavorite,
   updateClip,
 } from '../../state/project-actions';
-import { filterAssets, type AssetKindFilter } from '../../state/asset-organization';
+import { assetBins, filterAssets, type AssetKindFilter } from '../../state/asset-organization';
 import {
   EFFECT_PRESETS,
   applyEffectPreset,
@@ -122,6 +122,413 @@ const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'slide-up', label: 'Deslizar Arriba', description: 'El clip sube desde abajo', iconSymbol: '▲' },
   { id: 'slide-down', label: 'Deslizar Abajo', description: 'El clip baja desde arriba', iconSymbol: '▼' },
 ];
+
+/* ── Árbol por módulo (capturas 100, 102–111, 114) ─────────────────────────
+   Cada entrada filtra datos REALES del proyecto o navega a una vista que ya
+   existe. Las funciones de IA/stock que las capturas muestran pero que
+   requieren backend se declaran `pending`: se ven, están deshabilitadas y no
+   simulan estar implementadas. */
+interface RailTreeItem {
+  readonly id: string;
+  readonly label: string;
+  readonly pending?: boolean;
+  readonly target?: ViewId;
+  readonly action?: 'add-text';
+  readonly badge?: string;
+}
+interface RailTreeGroup {
+  readonly label: string;
+  readonly items: readonly RailTreeItem[];
+}
+const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
+  media: [{ label: 'Medios del proyecto', items: [{ id: 'all', label: 'Todos los medios' }] }],
+  audio: [
+    {
+      label: 'Audio',
+      items: [
+        { id: 'all', label: 'My File' },
+        { id: 'sfx', label: 'Efectos de sonido' },
+        { id: 'assets', label: 'Audios del proyecto' },
+        { id: 'tts', label: 'Texto a voz', target: 'production' },
+        { id: 'audio-ai', label: 'Audio de IA', pending: true },
+        { id: 'music-ai', label: 'Música con IA', pending: true },
+        { id: 'sfx-ai', label: 'Efecto de sonido con IA', pending: true },
+      ],
+    },
+    { label: 'Mis elementos', items: [{ id: 'downloads', label: 'Descargas', target: 'download' }] },
+  ],
+  titles: [
+    {
+      label: 'Añadir texto',
+      items: [
+        { id: 'add-text', label: 'Añadir texto', action: 'add-text' },
+        { id: 'all', label: 'Plantilla de texto' },
+        { id: 'subtitles', label: 'Mis subtítulos', target: 'localization' },
+      ],
+    },
+    {
+      label: 'Texto con IA',
+      items: [
+        { id: 'ai-text', label: 'Texto con IA', target: 'ai-hub' },
+        { id: 'trending', label: 'Tendencias' },
+        { id: 'effects', label: 'Efectos' },
+      ],
+    },
+  ],
+  stickers: [
+    {
+      label: 'Stickers',
+      items: [
+        { id: 'all', label: 'Todos' },
+        { id: 'trending', label: 'Tendencias' },
+        { id: 'social', label: 'Redes sociales' },
+        { id: 'arrows', label: 'Flechas' },
+        { id: 'emojis', label: 'Emoji' },
+        { id: 'sticker-ai', label: 'Sticker de IA', pending: true },
+        { id: 'premium', label: 'Premium', pending: true },
+      ],
+    },
+    { label: 'Mis elementos', items: [{ id: 'downloads', label: 'Descargas', target: 'download' }] },
+  ],
+  effects: [
+    {
+      label: 'Efectos',
+      items: [
+        { id: 'all', label: 'Efectos de video' },
+        { id: 'color', label: 'Color' },
+        { id: 'blur', label: 'Desenfoque' },
+        { id: 'bw', label: 'Blanco y negro' },
+        { id: 'vignette', label: 'Viñeta' },
+        { id: 'sharpen', label: 'Nitidez' },
+        { id: 'body', label: 'Efectos corporales', pending: true },
+        { id: 'audio-fx', label: 'Efectos de audio', pending: true },
+        { id: 'plugins', label: 'Complementos', pending: true },
+        { id: 'ai', label: 'Efectos de IA', pending: true },
+      ],
+    },
+    { label: 'Mis elementos', items: [{ id: 'downloads', label: 'Descargas', target: 'download' }] },
+  ],
+  transitions: [
+    {
+      label: 'Transiciones',
+      items: [
+        { id: 'all', label: 'Tendencias' },
+        { id: 'fade', label: 'Desvanecimiento y disolución' },
+        { id: 'slide', label: 'Deslizar' },
+        { id: 'zoom', label: 'Zoom', pending: true },
+        { id: '3d', label: 'Efectos 3D', pending: true },
+        { id: 'premium', label: 'Premium', pending: true },
+      ],
+    },
+    { label: 'Mis elementos', items: [{ id: 'downloads', label: 'Descargas', target: 'download' }] },
+  ],
+  filters: [
+    {
+      label: 'Filtros',
+      items: [
+        { id: 'all', label: 'Básico' },
+        { id: 'cinematic', label: 'Cinemático' },
+        { id: 'bw', label: 'Blanco y negro' },
+        { id: 'vintage', label: 'Retro' },
+        { id: 'lifestyle', label: 'Estilo de Vida' },
+        { id: 'warm', label: 'Cálidos' },
+        { id: 'cool', label: 'Fríos' },
+        { id: 'premium', label: 'Premium', pending: true },
+      ],
+    },
+    { label: 'Mis elementos', items: [{ id: 'downloads', label: 'Descargas', target: 'download' }] },
+  ],
+  adjustments: [
+    {
+      label: 'Ajustes',
+      items: [
+        { id: 'all', label: 'Capas de ajuste' },
+        { id: 'basic', label: 'Básico' },
+        { id: 'color', label: 'Color' },
+        { id: 'looks', label: 'Looks rápidos' },
+        { id: 'wheels', label: 'Ruedas cromáticas', pending: true },
+        { id: 'hdr', label: 'HDR', pending: true },
+      ],
+    },
+  ],
+};
+
+function effectMatchesSetting(preset: (typeof EFFECT_PRESETS)[number], id: string): boolean {
+  const s = preset.settings;
+  switch (id) {
+    case 'color':
+      return s.saturation !== undefined || s.hueRotateDeg !== undefined || s.brightness !== undefined;
+    case 'blur':
+      return (s.blur ?? 0) > 0;
+    case 'bw':
+      return s.grayscale === true;
+    case 'vignette':
+      return (s.vignette ?? 0) > 0;
+    case 'sharpen':
+      return (s.sharpen ?? 0) > 0;
+    default:
+      return true;
+  }
+}
+function transitionMatchesPreset(preset: (typeof TRANSITION_PRESETS)[number], id: string): boolean {
+  if (id === 'fade') return preset.id === 'dissolve' || preset.id.startsWith('fade-');
+  if (id === 'slide') return preset.id.startsWith('slide-');
+  return true;
+}
+function lookMatchesPreset(look: (typeof COLOR_LOOKS)[number], id: string): boolean {
+  switch (id) {
+    case 'cinematic':
+      return look.id === 'cinema';
+    case 'bw':
+      return look.id === 'mono' || look.effects.grayscale === true;
+    case 'vintage':
+      return look.id === 'vintage' || look.effects.sepia === true;
+    case 'lifestyle':
+      return look.id === 'warm' || look.id === 'neutral';
+    case 'warm':
+      return (look.effects.temperature ?? 0) > 0;
+    case 'cool':
+      return (look.effects.temperature ?? 0) < 0;
+    default:
+      return true;
+  }
+}
+function templateMatchesPreset(template: (typeof TITLE_TEMPLATES)[number], id: string): boolean {
+  if (id === 'trending') return template.animation === 'pop' || template.animation === 'slide-up';
+  if (id === 'effects') return template.animation !== 'pop' && template.animation !== 'slide-up';
+  return true;
+}
+
+/* ── Facetas por módulo (capturas 103–105, 100, 106–111) ─────────────────
+   Cada módulo tiene facetas de contenido local y facetas de IA. Las de IA
+   muestran el formulario de las referencias con estado local REAL (prompt,
+   chips, contador, archivo elegido) pero el botón de generación queda
+   deshabilitado: no hay backend de IA de video/audio y no se simula. */
+interface RailFacet {
+  readonly id: string;
+  readonly label: string;
+  readonly ai?: boolean;
+}
+const FACETS: Record<RailView, readonly RailFacet[]> = {
+  media: [
+    { id: 'files', label: 'Archivos multimedia' },
+    { id: 'stock', label: 'Media de stock', ai: true },
+    { id: 'image-to-video', label: 'Imagen a video', ai: true },
+  ],
+  audio: [
+    { id: 'files', label: 'Mis archivos' },
+    { id: 'sfx', label: 'Efectos de sonido' },
+    { id: 'ai', label: 'Audio de IA', ai: true },
+  ],
+  titles: [
+    { id: 'text', label: 'Añadir texto' },
+    { id: 'ai', label: 'Texto con IA', ai: true },
+    { id: 'subs', label: 'Subtítulos por IA', ai: true },
+  ],
+  stickers: [
+    { id: 'all', label: 'Todos' },
+    { id: 'mine', label: 'Mis elementos' },
+    { id: 'ai', label: 'Sticker de IA', ai: true },
+  ],
+  effects: [
+    { id: 'all', label: 'Efectos de video' },
+    { id: 'plugins', label: 'Complementos' },
+    { id: 'ai', label: 'Efectos de IA', ai: true },
+  ],
+  transitions: [
+    { id: 'trending', label: 'Tendencias' },
+    { id: 'premium', label: 'Premium' },
+    { id: 'downloads', label: 'Descargas' },
+  ],
+  filters: [
+    { id: 'basic', label: 'Básico' },
+    { id: 'premium', label: 'Premium' },
+    { id: 'downloads', label: 'Descargas' },
+  ],
+  adjustments: [
+    { id: 'all', label: 'Capas de ajuste' },
+    { id: 'wheels', label: 'Ruedas cromáticas' },
+    { id: 'hdr', label: 'HDR' },
+  ],
+};
+
+function AiFacetPanel({ view, facet }: { readonly view: RailView; readonly facet: string }) {
+  const [prompt, setPrompt] = useState('');
+  const [chip, setChip] = useState('Objeto');
+  const [duration, setDuration] = useState('00:05');
+  const [file, setFile] = useState<string | null>(null);
+  const [tab, setTab] = useState('Imagen a video');
+  const isVideo = view === 'media' && facet === 'image-to-video';
+  const isAudio = view === 'audio' && facet === 'ai';
+  const isTitles = view === 'titles';
+  const model = isVideo ? 'Estándar-4.0' : isAudio ? 'Estándar 1.5' : 'Estándar 1.0';
+  const modelTag = isVideo ? 'NEW' : isAudio ? 'SALE' : 'IA';
+  const tabs = isVideo
+    ? ['Imagen a video', 'Referencia a video', 'Edición de elementos de video']
+    : isAudio
+      ? ['Efecto de sonido', 'Música', 'Texto a voz']
+      : isTitles
+        ? ['Texto con IA', 'Subtítulos por IA']
+        : ['Generación', 'Edición'];
+  const chips = isAudio
+    ? ['Objeto', 'Abstracto', 'Animal', 'Fondo']
+    : ['Realista', 'Cinemático', 'Animado', 'Blanco y negro'];
+  return (
+    <div className="ai-facet-panel" data-view={view}>
+      <div className="ai-facet-tabs" role="tablist" aria-label="Variantes de IA">
+        {tabs.map((item) => (
+          <button
+            key={item}
+            type="button"
+            role="tab"
+            aria-selected={tab === item}
+            className={tab === item ? 'active' : ''}
+            onClick={() => setTab(item)}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+      <div className="ai-facet-model">
+        <span className="ai-facet-model-name">{model}</span>
+        <span className="ai-facet-model-tag">{modelTag}</span>
+        <span className="ai-facet-model-pending">Requiere backend de IA local</span>
+      </div>
+      <h4 className="ai-facet-title">
+        {isVideo
+          ? tab
+          : isAudio
+            ? 'Generar efectos de sonido de IA'
+            : isTitles
+              ? 'Escribí con IA'
+              : 'Generar contenido con IA'}
+      </h4>
+      <label className="ai-facet-field">
+        <span>Indicación (necesaria)</span>
+        <textarea
+          value={prompt}
+          maxLength={100}
+          rows={3}
+          placeholder={
+            isAudio
+              ? 'Describí el efecto de sonido que querés crear…'
+              : 'Describí el video que querés generar…'
+          }
+          onChange={(event) => setPrompt(event.target.value)}
+        />
+        <span className="ai-facet-counter">{prompt.length}/100</span>
+      </label>
+      {isVideo ? (
+        <label className="ai-facet-dropzone">
+          <Icon name="thumbnails" size={18} />
+          <span>{file ?? 'Arrastrá o elegí una imagen inicial'}</span>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(event) => setFile(event.target.files?.[0]?.name ?? null)}
+          />
+        </label>
+      ) : null}
+      <div className="ai-facet-chips" role="group" aria-label="Estilo">
+        {chips.map((item) => (
+          <button
+            key={item}
+            type="button"
+            className={chip === item ? 'active' : ''}
+            aria-pressed={chip === item}
+            onClick={() => setChip(item)}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
+      <label className="ai-facet-duration">
+        <span>Duración</span>
+        <select value={duration} onChange={(event) => setDuration(event.target.value)}>
+          {['00:05', '00:10', '00:15', '00:30'].map((value) => (
+            <option key={value} value={value}>{value}</option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        className="ai-facet-generate"
+        disabled
+        title="Estructura preparada · requiere integración de backend de IA (pendiente)"
+      >
+        Generar
+      </button>
+      <p className="rail-pending-note">
+        Formulario de las capturas 103–105. El estado local es real; la
+        generación está declarada pendiente y no se simula.
+      </p>
+    </div>
+  );
+}
+
+function ModuleTree({
+  view,
+  active,
+  downloads,
+  onSelect,
+  onNavigate,
+  onAddText,
+}: {
+  readonly view: RailView;
+  readonly active: string;
+  readonly downloads: number;
+  readonly onSelect: (id: string) => void;
+  readonly onNavigate: (id: ViewId) => void;
+  readonly onAddText: () => void;
+}) {
+  return (
+    <nav className="rail-categories rail-tree" aria-label="Categorías del módulo">
+      {RAIL_TREES[view].map((group) => (
+        <details key={group.label} className="rail-tree-group" open>
+          <summary className="rail-category-group">
+            <Icon name="chevron-down" size={11} />
+            <span>{group.label}</span>
+          </summary>
+          <div className="rail-category-items">
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={active === item.id ? 'active' : ''}
+                disabled={item.pending}
+                title={
+                  item.pending
+                    ? 'Estructura preparada · requiere integración de backend (pendiente)'
+                    : item.label
+                }
+                onClick={() => {
+                  if (item.target) {
+                    onNavigate(item.target);
+                    return;
+                  }
+                  if (item.action === 'add-text') {
+                    onAddText();
+                    return;
+                  }
+                  onSelect(item.id);
+                }}
+              >
+                <span>{item.label}</span>
+                {item.id === 'downloads' ? (
+                  <span className="rail-category-badge">{downloads}</span>
+                ) : null}
+                {item.badge ? <span className="rail-category-badge">{item.badge}</span> : null}
+                {item.pending ? (
+                  <span className="rail-category-badge is-pending">Pendiente</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </details>
+      ))}
+    </nav>
+  );
+}
 
 function kindLabel(kind: Asset['kind']): string {
   switch (kind) {
@@ -302,7 +709,13 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [filter, setFilter] = useState<AssetFilter>('all');
   const [query, setQuery] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [activeBin, setActiveBin] = useState<string | null>(null);
+  const [mineOpen, setMineOpen] = useState(true);
+  const [typesOpen, setTypesOpen] = useState(true);
+  const [libraryOpen, setLibraryOpen] = useState(true);
   const [view, setView] = useState<RailView>('media');
+  const [treeFilter, setTreeFilter] = useState('all');
+  const [facet, setFacet] = useState('files');
   const [titleText, setTitleText] = useState('Tu título aquí');
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const [stickerCategory, setStickerCategory] = useState<'all' | 'trending' | 'social' | 'arrows' | 'emojis'>('all');
@@ -319,14 +732,38 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
     };
   }, [project]);
 
+  const bins = useMemo(() => assetBins(project?.assets ?? []), [project]);
+
   const visibleAssets = useMemo(
     () =>
       filterAssets(project?.assets ?? [], {
         query,
         kind: view === 'audio' ? 'audio' : filter,
         favoritesOnly,
+        bin: activeBin,
       }),
-    [favoritesOnly, filter, project, query, view],
+    [activeBin, favoritesOnly, filter, project, query, view],
+  );
+
+  const visibleStickers =
+    stickerCategory === 'all'
+      ? STICKER_LIBRARY
+      : STICKER_LIBRARY.filter((item) => item.category === stickerCategory);
+  const visibleEffects = useMemo(
+    () => EFFECT_PRESETS.filter((preset) => effectMatchesSetting(preset, treeFilter)),
+    [treeFilter],
+  );
+  const visibleTransitions = useMemo(
+    () => TRANSITION_PRESETS.filter((preset) => transitionMatchesPreset(preset, treeFilter)),
+    [treeFilter],
+  );
+  const visibleLooks = useMemo(
+    () => COLOR_LOOKS.filter((look) => lookMatchesPreset(look, treeFilter)),
+    [treeFilter],
+  );
+  const visibleTemplates = useMemo(
+    () => TITLE_TEMPLATES.filter((template) => templateMatchesPreset(template, treeFilter)),
+    [treeFilter],
   );
 
   const selectedClip = useMemo(() => {
@@ -334,6 +771,30 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
     if (selection.kind !== 'clip' || !project) return null;
     return project.timeline.clips.find((clip) => clip.id === selection.id) ?? null;
   }, [project, store.state.selection]);
+
+  function changeView(next: RailView): void {
+    setView(next);
+    setTreeFilter('all');
+    setFacet(FACETS[next][0]?.id ?? 'files');
+    setStickerCategory('all');
+  }
+  function selectTree(id: string): void {
+    setTreeFilter(id);
+    if (view === 'stickers' && ['all', 'trending', 'social', 'arrows', 'emojis'].includes(id)) {
+      setStickerCategory(id as typeof stickerCategory);
+    }
+  }
+  const treeItems = RAIL_TREES[view].flatMap((group) => group.items);
+  const activeTreeLabel = treeItems.find((item) => item.id === treeFilter)?.label ?? 'Todos';
+  const pendingTotal = treeItems.filter((item) => item.pending).length;
+  const moduleCount =
+    view === 'effects' ? visibleEffects.length
+      : view === 'transitions' ? visibleTransitions.length
+      : view === 'filters' || view === 'adjustments' ? visibleLooks.length
+      : view === 'titles' ? visibleTemplates.length
+      : view === 'stickers' ? visibleStickers.length
+      : view === 'audio' ? SFX_PRESETS.length + counts.audio
+      : visibleAssets.length;
 
   if (!project) return null;
 
@@ -522,11 +983,6 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const activeView = RAIL_VIEWS.find((item) => item.id === view) ?? RAIL_VIEWS[0]!;
   const isMediaView = view === 'media';
 
-  const visibleStickers =
-    stickerCategory === 'all'
-      ? STICKER_LIBRARY
-      : STICKER_LIBRARY.filter((item) => item.category === stickerCategory);
-
   return (
     <aside className="asset-rail" data-tour="assets" aria-label="Herramientas y biblioteca del editor">
       {/* Pestañas de categoría estilo CapCut */}
@@ -539,7 +995,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
               aria-selected={view === item.id}
               aria-label={item.label}
               className={view === item.id ? 'active' : ''}
-              onClick={() => setView(item.id)}
+              onClick={() => changeView(item.id)}
               title={item.label}
             >
             <Icon name={item.icon} size={15} />
@@ -548,6 +1004,189 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
         ))}
       </div>
 
+      {/* Rail de fuentes y categorías: reproduce la columna izquierda de la
+          referencia sin inventar pantallas. Cada entrada acciona un filtro
+          real (`assetBins`, `filterAssets`, favoritos) o navega a una vista
+          que ya existe en `app/navigation.ts`. */}
+      <div className="rail-stage">
+        {view === 'media' ? (
+        <nav className="rail-categories" aria-label="Categorías de la biblioteca">
+          <button
+            type="button"
+            className="rail-category-group"
+            aria-expanded={mineOpen}
+            onClick={() => setMineOpen((value) => !value)}
+          >
+            <Icon name="chevron-down" size={11} />
+            <span>Mi proyecto</span>
+          </button>
+          {mineOpen ? (
+            <div className="rail-category-items">
+              <button
+                type="button"
+                className={!activeBin && !favoritesOnly && filter === 'all' ? 'active' : ''}
+                onClick={() => {
+                  setActiveBin(null);
+                  setFavoritesOnly(false);
+                  setFilter('all');
+                }}
+              >
+                <Icon name="assets" size={12} />
+                <span>Todos los medios</span>
+              </button>
+              <button
+                type="button"
+                className={favoritesOnly ? 'active' : ''}
+                onClick={() => setFavoritesOnly((value) => !value)}
+              >
+                <Icon name="star" size={12} />
+                <span>Favoritos</span>
+              </button>
+              {bins.map((bin) => (
+                <button
+                  key={bin}
+                  type="button"
+                  className={activeBin === bin ? 'active' : ''}
+                  title={bin}
+                  onClick={() => setActiveBin((current) => (current === bin ? null : bin))}
+                >
+                  <Icon name="folder" size={12} />
+                  <span>{bin}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="rail-category-group"
+            aria-expanded={typesOpen}
+            onClick={() => setTypesOpen((value) => !value)}
+          >
+            <Icon name="chevron-down" size={11} />
+            <span>Tipos</span>
+          </button>
+          {typesOpen ? (
+            <div className="rail-category-items">
+              {(['video', 'image', 'audio'] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  className={filter === kind && !activeBin && !favoritesOnly ? 'active' : ''}
+                  onClick={() => {
+                    setActiveBin(null);
+                    setFavoritesOnly(false);
+                    setFilter((current) => (current === kind ? 'all' : kind));
+                  }}
+                >
+                  <span>{kind === 'video' ? 'Videos' : kind === 'image' ? 'Imágenes' : 'Audio'}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            className="rail-category-group"
+            aria-expanded={libraryOpen}
+            onClick={() => setLibraryOpen((value) => !value)}
+          >
+            <Icon name="chevron-down" size={11} />
+            <span>Biblioteca</span>
+          </button>
+          {libraryOpen ? (
+            <div className="rail-category-items">
+              <button type="button" onClick={() => onNavigate('assets')}>
+                <span>Archivos</span>
+              </button>
+              <button type="button" onClick={() => onNavigate('ai-hub')}>
+                <span>AI Hub</span>
+                <span className="rail-category-badge">IA</span>
+              </button>
+              <button type="button" onClick={() => onNavigate('download')}>
+                <span>Descargas</span>
+              </button>
+              <button type="button" onClick={() => onNavigate('motion')}>
+                <span>Motion</span>
+              </button>
+              <button type="button" onClick={() => onNavigate('localization')}>
+                <span>Subtítulos</span>
+              </button>
+              <button type="button" onClick={() => onNavigate('learn')}>
+                <span>Aprender</span>
+              </button>
+            </div>
+          ) : null}
+        </nav>
+        ) : (
+        <ModuleTree
+          view={view}
+          active={treeFilter}
+          downloads={moduleCount}
+          onSelect={selectTree}
+          onNavigate={onNavigate}
+          onAddText={addDefaultText}
+        />
+        )}
+
+        <div className="rail-main" data-ai={FACETS[view].find((item) => item.id === facet)?.ai ? 'true' : 'false'}>
+      <div className="rail-module-bar">
+        <div className="rail-facets" role="tablist" aria-label="Facetas del módulo">
+          {FACETS[view].map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={facet === item.id}
+              className={facet === item.id ? 'active' : ''}
+              onClick={() => setFacet(item.id)}
+            >
+              {item.label}
+              {item.ai ? <span className="rail-facet-badge">IA</span> : null}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="rail-commercial-toggle"
+            disabled
+            title="Filtro de licencia comercial · requiere catálogo de stock (pendiente)"
+          >
+            Comercial
+          </button>
+        </div>
+      {view !== 'media' ? (
+        <>
+          <div className="rail-chips" role="group" aria-label="Categorías del módulo">
+            {treeItems
+              .filter((item) => !item.pending && !item.target && item.action !== 'add-text')
+              .slice(0, 6)
+              .map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={treeFilter === item.id ? 'rail-chip active' : 'rail-chip'}
+                  aria-pressed={treeFilter === item.id}
+                  onClick={() => selectTree(item.id)}
+                >
+                  {item.label}
+                </button>
+              ))}
+          </div>
+          <div className="rail-section-head">
+            <span>{activeTreeLabel}</span>
+            <span className="rail-section-count">{moduleCount}</span>
+          </div>
+          {pendingTotal > 0 ? (
+            <p className="rail-pending-note">
+              {pendingTotal} funciones de IA / stock preparadas · requieren backend
+            </p>
+          ) : null}
+        </>
+      ) : null}
+      </div>
+      {FACETS[view].find((item) => item.id === facet)?.ai ? (
+        <AiFacetPanel view={view} facet={facet} />
+      ) : null}
       <div className="rail-head">
         <div>
           <p className="eyebrow">{activeView.label}</p>
@@ -570,10 +1209,21 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
           </strong>
         </div>
         {isMediaView ? (
-          <button type="button" className="small icon-text" onClick={() => onNavigate('assets')}>
-            <Icon name="plus" size={12} />
-            <span>Importar</span>
-          </button>
+          <>
+            <button type="button" className="small icon-text" onClick={() => onNavigate('assets')}>
+              <Icon name="plus" size={12} />
+              <span>Importar</span>
+            </button>
+            <button
+              type="button"
+              className="small ghost icon-text"
+              disabled
+              title="Grabación de pantalla/cámara · requiere integración nativa (pendiente)"
+            >
+              <Icon name="film" size={12} />
+              <span>Grabar</span>
+            </button>
+          </>
         ) : view === 'adjustments' ? (
           <button type="button" className="small primary icon-text" onClick={addAdjustment}>
             <Icon name="plus" size={12} />
@@ -611,18 +1261,6 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 </button>
               ) : null}
             </div>
-            <select
-              className="rail-filter"
-              value={filter}
-              aria-label="Filtrar medios por tipo"
-              onChange={(event) => setFilter(event.target.value as AssetFilter)}
-            >
-              {filters.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label} · {item.count}
-                </option>
-              ))}
-            </select>
             <button
               type="button"
               className={favoritesOnly ? 'rail-fav-filter active' : 'rail-fav-filter'}
@@ -634,13 +1272,52 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
               <span>Favoritos</span>
             </button>
           </div>
+          <div className="rail-chips" role="group" aria-label="Filtrar medios por tipo">
+            {filters.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={filter === item.id ? 'rail-chip active' : 'rail-chip'}
+                aria-pressed={filter === item.id}
+                onClick={() => setFilter(item.id)}
+              >
+                {item.label}
+                <span className="rail-chip-count">{item.count}</span>
+              </button>
+            ))}
+          </div>
+          <div className="rail-section-head">
+            <span>{activeBin ?? (favoritesOnly ? 'Favoritos' : 'Todos los medios')}</span>
+            <span className="rail-section-count">{visibleAssets.length}</span>
+          </div>
           <div className="rail-list">
             {visibleAssets.length === 0 ? (
-              <p className="empty-inline">
-                {project.assets.length === 0
-                  ? 'No hay medios cargados. Hacé clic en Importar para agregar videos o imágenes.'
-                  : 'Ningún medio coincide con los filtros aplicados.'}
-              </p>
+              <>
+              {project.assets.length === 0 ? (
+                <div className="rail-empty-import">
+                  <button
+                    type="button"
+                    className="rail-dropzone"
+                    onClick={() => onNavigate('assets')}
+                  >
+                    <Icon name="plus" size={22} />
+                    <strong>Importar</strong>
+                    <span>Arrastrá videos, imágenes o audio aquí</span>
+                    <em>Escanear para importar</em>
+                  </button>
+                  <button
+                    type="button"
+                    className="rail-import-project"
+                    onClick={() => onNavigate('projects')}
+                  >
+                    <Icon name="folder" size={14} />
+                    <span>Importar proyecto</span>
+                  </button>
+                </div>
+              ) : (
+                <p className="empty-inline">Ningún medio coincide con los filtros aplicados.</p>
+              )}
+              </>
             ) : (
               visibleAssets.map((asset) => (
                 <RailAsset key={asset.id} asset={asset} fps={fps} onMount={mount} />
@@ -664,7 +1341,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             Sonidos y pistas para sincronizar. Podés montar clips de audio directo al playhead o grabar narraciones.
           </p>
 
-          <div className="audio-category-group">
+          <div className="audio-category-group" hidden={treeFilter === 'assets'}>
             <h5 className="rail-subheading">Efectos de sonido (SFX)</h5>
             <div className="sfx-list">
               {SFX_PRESETS.map((sfx) => (
@@ -687,7 +1364,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </div>
           </div>
 
-          <div className="audio-category-group">
+          <div className="audio-category-group" hidden={treeFilter === 'sfx'}>
             <h5 className="rail-subheading">Audios del proyecto ({counts.audio})</h5>
             <div className="rail-list">
               {visibleAssets.filter((a) => a.kind === 'audio').length === 0 ? (
@@ -736,7 +1413,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             Hacé clic en una plantilla para montarla en el cursor con su estilo y animación.
           </p>
           <div className="title-template-list">
-            {TITLE_TEMPLATES.map((template) => (
+            {visibleTemplates.map((template) => (
               <button
                 key={template.id}
                 type="button"
@@ -829,7 +1506,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </p>
           ) : null}
           <div className="preset-grid">
-            {EFFECT_PRESETS.map((preset) => (
+            {visibleEffects.map((preset) => (
               <button
                 key={preset.id}
                 type="button"
@@ -866,7 +1543,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </label>
           </div>
           <div className="transition-grid">
-            {TRANSITION_PRESETS.map((transition) => (
+            {visibleTransitions.map((transition) => (
               <div key={transition.id} className="transition-card">
                 <div className="transition-icon-wrap" aria-hidden="true">
                   <span className="transition-symbol">{transition.iconSymbol}</span>
@@ -910,7 +1587,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
             </p>
           ) : null}
           <div className="preset-grid">
-            {COLOR_LOOKS.map((look) => (
+            {visibleLooks.map((look) => (
               <button
                 key={look.id}
                 type="button"
@@ -948,7 +1625,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
           <div className="adjustment-presets">
             <h5 className="rail-subheading">Looks rápidos para la capa</h5>
             <div className="preset-grid">
-              {COLOR_LOOKS.map((look) => (
+              {visibleLooks.map((look) => (
                 <button
                   key={look.id}
                   type="button"
@@ -967,6 +1644,8 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
         </div>
       ) : null}
       <ProxyToolsPanel />
+        </div>
+      </div>
     </aside>
   );
 }

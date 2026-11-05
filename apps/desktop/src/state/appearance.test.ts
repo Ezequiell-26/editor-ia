@@ -126,11 +126,11 @@ describe('apariencia · paleta de 34 tokens', () => {
 
   it('emite toda la paleta y conserva las variables no-color de siempre', () => {
     const vars = appearanceCssVariables(DEFAULT_APPEARANCE);
-    expect(vars['--color-bg']).toBe('#0e141c');
-    expect(vars['--color-panel-raised']).toBe('#1c2633');
-    expect(vars['--color-text-faint']).toBe('#6f8096');
-    expect(vars['--commercial-canvas']).toBe('#0e141c');
-    expect(vars['--commercial-accent']).toBe('#00c9a7');
+    expect(vars['--color-bg']).toBe('#0d1116');
+    expect(vars['--color-panel-raised']).toBe('#232a31');
+    expect(vars['--color-text-faint']).toBe('#6f7983');
+    expect(vars['--commercial-canvas']).toBe('#0d1116');
+    expect(vars['--commercial-accent']).toBe('#3df4ba');
     expect(vars['--olyvia-cyan']).toBe('#35d6ff');
     expect(vars['--color-ok']).toBe('#22c55e');
     expect(vars['--brand-gradient']).toContain('#35d6ff');
@@ -254,7 +254,7 @@ describe('apariencia · paleta de 34 tokens', () => {
     } as unknown as HTMLElement;
     applyAppearance(DEFAULT_APPEARANCE, darkRoot);
     expect((darkRoot.style as CSSStyleDeclaration).colorScheme).toBe('dark');
-    expect(darkProperties.get('--color-bg')).toBe('#0e141c');
+    expect(darkProperties.get('--color-bg')).toBe('#0d1116');
 
     const light = normalizeAppearance({
       preset: 'custom',

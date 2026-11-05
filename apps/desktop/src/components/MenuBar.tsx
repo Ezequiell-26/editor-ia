@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { NavView, ViewId } from '../app/navigation';
 import { NAV_VIEWS } from '../app/navigation';
@@ -49,6 +49,86 @@ interface MenuBarProps {
   readonly onOpenTour?: () => void;
 }
 
+const NEWS_FEATURES: readonly string[] = [
+  'Timeline multicapa con cabezal y zoom reales',
+  'Exportación MP4 verificada y perfiles 16:9 / 9:16',
+  'Vista previa 1:1 y proxy de edición',
+  'Subtítulos, traducción y localización',
+  'Motion graphics y títulos con render local',
+  'Efectos, transiciones, filtros y capas de ajuste',
+  'Director local y edición automática',
+  'Servidores MCP y operador de IA local',
+  'Atajos de teclado y temas claro / oscuro',
+  'Información de proyecto y ruedas de color',
+  'Menús contextuales con muestras de color',
+];
+
+function NewsDialog(): ReactNode {
+  const [loading, setLoading] = useState(true);
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setLoading(false), 500);
+    return () => window.clearTimeout(timer);
+  }, []);
+  if (loading) {
+    return (
+      <div className="app-modal-body news-dialog">
+        <div className="news-loading">Actualización en vivo · Cargando…</div>
+      </div>
+    );
+  }
+  return (
+    <div className="app-modal-body news-dialog">
+      <p className="news-version">Novedades de Editor IA {CURRENT_APP_VERSION}</p>
+      <h3>{NEWS_FEATURES[index]}</h3>
+      <p className="news-detail">
+        Función disponible en esta instalación. Elegí «Siguiente función» para
+        recorrer las {NEWS_FEATURES.length} novedades reales del estudio.
+      </p>
+      <ol className="news-list">
+        {NEWS_FEATURES.map((item, i) => (
+          <li key={item} className={i === index ? 'active' : ''}>
+            <button type="button" onClick={() => setIndex(i)}>{item}</button>
+          </li>
+        ))}
+      </ol>
+      <div className="news-actions">
+        <button type="button" className="small ghost" onClick={() => setIndex((i) => (i + 1) % NEWS_FEATURES.length)}>
+          Siguiente función
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LoginDialog(): ReactNode {
+  return (
+    <div className="app-modal-body login-dialog">
+      <p className="login-lead">INICIA SESIÓN AHORA PARA OBTENER:</p>
+      <ul className="login-benefits">
+        {['Sincronización en la nube', 'Recursos de stock', 'Exportación a redes', 'Copias de seguridad', 'Soporte prioritario'].map(
+          (item) => <li key={item}>{item}</li>,
+        )}
+      </ul>
+      <p className="login-pending">
+        Editor IA es 100% local: no existe cuenta ni backend de sincronización.
+        Este diálogo reproduce la estructura de la captura 101 y está declarado
+        pendiente, no simulado.
+      </p>
+      <div className="login-fields">
+        <input type="email" placeholder="Correo electrónico" disabled />
+        <input type="password" placeholder="Contraseña" disabled />
+        <button type="button" className="primary" disabled>Iniciar sesión</button>
+      </div>
+      <div className="login-social">
+        {['Google', 'Facebook', 'X'].map((item) => (
+          <button key={item} type="button" disabled>{item}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function MenuBar({
   activeId,
   views = NAV_VIEWS,
@@ -64,7 +144,7 @@ export function MenuBar({
   const playing = useProjectPlaying();
   const { appearance, update, reset } = useAppearance();
   const [openMenu, setOpenMenu] = useState<MenuId | null>(null);
-  const [modal, setModal] = useState<'shortcuts' | 'about' | 'review' | 'critic' | null>(null);
+  const [modal, setModal] = useState<'shortcuts' | 'about' | 'review' | 'critic' | 'news' | 'login' | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [configDir, setConfigDir] = useState<string | null>(null);
   const [menuTabIndex, setMenuTabIndex] = useState(0);
@@ -646,6 +726,16 @@ export function MenuBar({
         },
         {
           kind: 'item',
+          label: 'Novedades de la versión',
+          action: () => setModal('news'),
+        },
+        {
+          kind: 'item',
+          label: 'Iniciar sesión (pendiente)',
+          action: () => setModal('login'),
+        },
+        {
+          kind: 'item',
           label: 'Documentación en GitHub',
           action: () => {
             void store.service
@@ -863,7 +953,11 @@ export function MenuBar({
                   ? 'Revisar automatización'
                   : modal === 'critic'
                     ? 'Criticar edición'
-                    : 'Acerca de Olyvia'
+                    : modal === 'news'
+                      ? 'Novedades de Editor IA'
+                      : modal === 'login'
+                        ? 'Iniciar sesión'
+                        : 'Acerca de Olyvia'
             }
           >
             <header>
@@ -874,7 +968,11 @@ export function MenuBar({
                     ? 'Revisar automatización'
                     : modal === 'critic'
                       ? 'Criticar edición'
-                      : 'Acerca de Olyvia'}
+                      : modal === 'news'
+                        ? 'Novedades de Editor IA'
+                        : modal === 'login'
+                          ? 'Iniciar sesión'
+                          : 'Acerca de Olyvia'}
               </h2>
               <button
                 type="button"
@@ -886,7 +984,11 @@ export function MenuBar({
                 <Icon name="close" size={16} />
               </button>
             </header>
-            {modal === 'critic' ? (
+            {modal === 'news' ? (
+              <NewsDialog />
+            ) : modal === 'login' ? (
+              <LoginDialog />
+            ) : modal === 'critic' ? (
               <CriticDialog onClose={() => setModal(null)} />
             ) : modal === 'review' ? (
               <ReviewDialog onClose={() => setModal(null)} />

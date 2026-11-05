@@ -72,6 +72,16 @@ function projectTone(name: string): number {
   return hash % 6;
 }
 
+const ONBOARDING_KEY = 'editor-ia.onboarding.v1';
+const ONBOARDING_OPTIONS: readonly string[] = [
+  'Soy principiante',
+  'Suelo usar Filmora',
+  'Premiere Pro',
+  'Final Cut Pro',
+  'CapCut',
+  'Otro',
+];
+
 const QUICK_AI_TOOLS: readonly {
   readonly id: ViewId;
   readonly label: string;
@@ -178,6 +188,12 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   // Updater state
   const [showUpdaterModal, setShowUpdaterModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  // Captura 94: modal de primer arranque. En jsdom (sin runtime nativo) no
+  // se abre, así las pruebas del lanzador siguen siendo deterministas.
+  const [onboardingOpen, setOnboardingOpen] = useState(
+    () => detectNativeRuntime() && !window.localStorage.getItem(ONBOARDING_KEY),
+  );
+  const [onboardingChoice, setOnboardingChoice] = useState<string | null>(null);
   const [recentThumbs, setRecentThumbs] = useState<Record<string, string>>({});
   const requestedThumbs = useRef(new Set<string>());
 
@@ -705,6 +721,27 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               </div>
             </div>
 
+            <div className="start-pane-section">
+              <div className="start-section-header">
+                <span className="start-section-title">Servicios</span>
+              </div>
+              <div className="start-services">
+                {['Filmora Cloud', 'Centro de creadores', 'Caja de herramientas', 'Invita Amigos'].map(
+                  (label) => (
+                    <button
+                      key={label}
+                      type="button"
+                      disabled
+                      title="Estructura preparada · requiere cuenta y backend (pendiente)"
+                    >
+                      <span>{label}</span>
+                      <span className="start-service-badge">Pendiente</span>
+                    </button>
+                  ),
+                )}
+              </div>
+            </div>
+
             <div className="start-left-spacer" />
 
             {/* Status note */}
@@ -718,6 +755,19 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
           <main className="start-right-pane">
             <div className="start-welcome-banner">
               <div className="start-welcome-eyebrow">ESTUDIO DE CREACIÓN AUDIOVISUAL</div>
+              {/* CTA principal de las referencias 93/94: mismo handler real que
+                  la tarjeta «Crear proyecto» de la columna izquierda. No es un
+                  botón decorativo: abre el diálogo de nuevo proyecto. */}
+              <button
+                type="button"
+                className="start-hero-cta"
+                onClick={() => setShowCreateModal(true)}
+                disabled={busy || browserMode}
+                title={browserMode ? browserReason : undefined}
+              >
+                <Icon name="plus" size={20} />
+                <span>Crear Proyecto</span>
+              </button>
               <h1 className="start-welcome-title">Olyvia · Editor de Video con Inteligencia Artificial</h1>
               <p className="start-welcome-desc">
                 Edita videos con timeline multi-pista, generación de guiones con IA, locución en audio y corte automático de silencios. Ideal para creadores de YouTube, TikTok y cine.
@@ -727,6 +777,24 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 <span className="start-feature-chip">✨ Subtítulos & Auto-Corte</span>
                 <span className="start-feature-chip">🎙️ Voces & Locución IA</span>
                 <span className="start-feature-chip">📱 Formatos 9:16 y 16:9</span>
+              </div>
+              {/* Fila de 6 accesos rápidos de la captura 93. Cada tarjeta
+                  navega a una vista REAL mediante `transitionOut`. */}
+              <div className="start-quick-access" role="group" aria-label="Accesos rápidos">
+                {QUICK_AI_TOOLS.map((tool) => (
+                  <button
+                    key={tool.id}
+                    type="button"
+                    className="start-quick-card"
+                    onClick={() => transitionOut(tool.id)}
+                    disabled={busy}
+                    title={tool.label}
+                  >
+                    <span className="start-quick-icon"><Icon name={tool.icon} size={18} /></span>
+                    <span className="start-quick-label">{tool.label}</span>
+                    <span className="start-quick-tag">{tool.tag}</span>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1049,6 +1117,56 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
         <SettingsWindow onClose={() => setShowSettings(false)}>
           <SettingsHome />
         </SettingsWindow>
+      ) : null}
+
+      {/* Captura 94 · «Selecciona el producto que más uses». La elección se
+          persiste y define la vista de entrada: principiantes al tutorial,
+          el resto directo al editor. No es un modal decorativo. */}
+      {onboardingOpen ? (
+        <div className="start-onboarding-backdrop" role="presentation">
+          <div className="start-onboarding" role="dialog" aria-modal="true" aria-label="Selecciona el producto que más uses">
+            <div className="start-onboarding-brand">Editor IA</div>
+            <h2>Selecciona el producto que más uses</h2>
+            <p>Personalizaremos tu experiencia en función de lo que elijas</p>
+            <div className="start-onboarding-options" role="radiogroup" aria-label="Producto habitual">
+              {ONBOARDING_OPTIONS.map((option) => (
+                <label key={option} className={onboardingChoice === option ? 'active' : ''}>
+                  <input
+                    type="radio"
+                    name="onboarding-product"
+                    checked={onboardingChoice === option}
+                    onChange={() => setOnboardingChoice(option)}
+                  />
+                  <span>{option}</span>
+                </label>
+              ))}
+            </div>
+            <div className="start-onboarding-actions">
+              <button
+                type="button"
+                className="start-btn"
+                disabled={!onboardingChoice}
+                onClick={() => {
+                  window.localStorage.setItem(ONBOARDING_KEY, onboardingChoice ?? '');
+                  setOnboardingOpen(false);
+                  transitionOut(onboardingChoice === 'Soy principiante' ? 'learn' : 'editor');
+                }}
+              >
+                Comenzar
+              </button>
+              <button
+                type="button"
+                className="start-btn start-btn--ghost"
+                onClick={() => {
+                  window.localStorage.setItem(ONBOARDING_KEY, 'skipped');
+                  setOnboardingOpen(false);
+                }}
+              >
+                Saltar
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

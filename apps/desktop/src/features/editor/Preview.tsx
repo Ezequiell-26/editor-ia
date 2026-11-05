@@ -1213,6 +1213,39 @@ export const Preview = memo(function Preview() {
             </span>
           ) : null}
         </div>
+        {/* Capturas 95/103/104/105: pestañas de fuente y «Calidad total».
+            «Origen» activa el comparador real; «Calidad total» pide el frame
+            1:1 nativo mediante `showPixelPerfect`. Nada decorativo. */}
+        <div className="preview-source-tabs" role="tablist" aria-label="Fuente del visor">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!compare}
+            className={compare ? '' : 'active'}
+            onClick={() => setCompare(false)}
+          >
+            Línea de tiempo
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={compare}
+            className={compare ? 'active' : ''}
+            onClick={() => setCompare(true)}
+          >
+            Origen
+          </button>
+        </div>
+        <select
+          className="preview-quality-select"
+          value={pixelPerfect ? 'full' : 'performance'}
+          aria-label="Calidad de la vista previa"
+          title="Calidad total inspecciona el frame a resolución nativa"
+          onChange={() => { void showPixelPerfect(); }}
+        >
+          <option value="performance">Calidad total</option>
+          <option value="full">1:1 nativo</option>
+        </select>
         <div className="preview-tools">
           <select
             className="preview-ratio-select"

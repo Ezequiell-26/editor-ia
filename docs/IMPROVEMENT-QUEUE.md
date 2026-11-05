@@ -4,6 +4,37 @@ Actualizado: 2026-11-05. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Reconstrucción integral Filmora · 36 capturas (93)–(128) (2026-11-05)** —
+  auditoría completa en `docs/RECONSTRUCCION-FILMORA-93-128.md` e implementación
+  sobre el frontend real, sin demo ni mockup.
+  - **36/36** imágenes inventariadas (todas 1360×768, 36 SHA-256 distintos,
+    0 duplicados exactos), inspeccionadas a resolución original; 7 pares de
+    estados y 7 grupos funcionales documentados.
+  - Proporciones corregidas por medición, no a ojo: editor
+    `571 / 388 / 1 / 400 px` a 1360 (referencia `590 / 385 / 385`),
+    sub-rail `160 + 410 px`, módulos `44 px`, grillas de 2 columnas 16:9.
+  - Funcionalidad real nueva: grupos colapsables (`aria-expanded`), chips de
+    filtro con `filterAssets` (3 → 0 medios al filtrar Imagen), contador de
+    sección, desplegable «» del inspector con 8 pestañas y selección real,
+    CTA degradado del lanzador que abre el diálogo de proyecto.
+  - **3 bugs reales detectados y corregidos por medición**: `scrollBy` sin
+    desborde propagaba el scroll al inspector y cortaba etiquetas; el grid
+    `auto` de `.clip-inspector` lo ensanchaba a 441 px en un cuerpo de 373;
+    a ≤1240 px el inspector caía en la columna de 1 px del divisor y
+    desaparecía. HUD del visor ahora desplazable sin recortar chips.
+  - **Verificación**: typecheck 0 · `vite build` 0 (368 módulos, 7 corridas) ·
+    pruebas dirigidas **60/60** · suite serial raíz **2010 passed / 3 skipped /
+    14 failed** (los 13 previos + `LottiePanel` flaky, aislado 3/3) · e2e
+    **19 passed / 1 skipped / 4 failed** (los 4 previos de selectores
+    `input[type=color]`). Arnés Playwright sobre build de producción:
+    0 errores de consola, `pageOverflow 0`, 1360/1600/1100 px sin solapes.
+  - Capturas finales en `.tmp-redesign/recon/final/` (19 PNG + `results.json`).
+  - `[next]` Diferencias honestas: identidad «Olyvia» vs Filmora, fila extra
+    de modos del editor, árbol de categorías genérico (no por módulo),
+    miniaturas de stock no cargadas en el arnés, toolbars con más controles
+    funcionales que la referencia, y sub-pestañas Básico/HSL/Curvas/Ruedas
+    del inspector colour no reproducidas. Verificación CDP nativa pendiente.
+
 - `[done]` **Rediseño visual Filmora 12 (2026-11-05)** — pedido del usuario
   con 4 capturas de referencia. Sistema global, no una pantalla:
   - Nuevo preset `filmora` en `state/theme-palette.ts` (34 tokens, grafito
@@ -55,9 +86,41 @@ reconstruye el instalador salvo que el ítem lo pida.
     cerrar Olyvia y ejecutar `Actualizar Olyvia.cmd` (cierra instancias,
     recompila y copia) o copiar manualmente el exe de `target\release`.
   - `[next]` Diferencias pendientes: marca «Olyvia» vs Filmora (identidad
-    de producto), rail de iconos, filmstrip de clips en el arnés (en nativo
-    sí cargan), árbol «Project Media» y pestañas Video/Color/Speed del
-    inspector sin clip; verificar con CDP nativo tras reinstalar.
+    de producto), filmstrip de clips en el arnés (en nativo sí cargan),
+    pestañas exactas Video/Color/Speed del inspector y verificación con
+    CDP nativo tras reinstalar. El rail de iconos, el sub-rail de
+    categorías, el mosaico 2 columnas y el tooltip del cabezal ya están
+    resueltos en la segunda pasada.
+
+- `[done]` **Segunda pasada Filmora · dos capturas nuevas (2026-11-05)** —
+  pedido del usuario con `new-image-to-video-windows-29.jpg` y
+  `filmora-split-button.jpg`; rediseño sobre el código real, sin demo ni
+  mockup aparte.
+  - Color medido con moda de rejilla: las referencias son grafito
+    **neutro** (`#181d1f`/`#20262d`) con menta `#3df4ba`, clip
+    periwinkle `#607eff` y cabezal rojo `#f96976`. Se corrigió la paleta
+    global (antes azulada, acento `#00c9a7`, clip `#1c5f96`):
+    `state/theme-palette.ts` (incluido `THEME_PRESETS.filmora`),
+    `styles/tokens.css`, `state/appearance.test.ts` y los tokens `--fm-*`
+    de `styles/filmora/filmora.css`. `LIGHT_PALETTE` sin tocar.
+  - Sección 13 de `filmora.css`: módulos con icono+etiqueta, sub-rail de
+    categorías y mosaico 2 columnas 16:9, pestañas/toggles/sliders del
+    inspector, toolbar de timeline compacta, clips periwinkle, cabezal
+    rojo circular y tooltip de dos líneas.
+  - `EditorAssets.tsx`: `rail-stage` con `rail-categories` funcional
+    (filtros reales `assetBins`/`filterAssets` y navegación a vistas
+    existentes) sin tocar negocio. `Timeline.tsx`: sólo `data-tip` en el
+    grip; lógica, atajos y scrub intactos.
+  - **Hallazgo**: `app.css:5334` aplica `clip-path: polygon(...)` al grip,
+    que recortaba también el `::after` del tooltip. Se resetea en la capa
+    final (`clip-path: none`). El tooltip usa `S` y no `Ctrl+E`, porque en
+    Olyvia `Ctrl+E` exporta.
+  - Verificación: typecheck 0 · build 0 · suite serial raíz **2010
+    passed / 3 skipped / 14 failed** (13 previos + 1 flake de foco que
+    aislado pasa) · e2e **19 passed / 1 skipped / 4 failed** (los 4
+    previos de ColorWheel), repetido dos veces. 13 vistas con paleta
+    uniforme, `pageOverflow 0` y 0 errores de consola; capturas en
+    `.tmp-redesign/filmora/final/`. Sin commits ni cambios Rust/servicios.
 
 - `[done]` **Corte de contexto de playback (2026-11-05)** — pedido del usuario
   («que funcione rápida, consuma lo mínimo, extremadamente eficiente»).
@@ -2061,3 +2124,23 @@ independiente: `.tmp-theme-shots/after/report.json` + `METHOD.md`.
   con la evidencia.
 - Un solo escritor por archivo; no commit/push/install sin pedido explícito.
 - Al cerrar: actualizar este archivo y la memoria con números medidos.
+
+- `[done]` **Segunda pasada de contenido sobre las 36 capturas (2026-11-05)** —
+  el cierre anterior sólo tenía estructura y proporciones; faltaban los
+  elementos visibles. Ver `docs/RECONSTRUCCION-FILMORA-93-128.md` §9.
+  - Árbol por módulo con filtros reales (Efectos «Blanco y negro»: 9 → 1
+    tarjetas), chips, contadores, «Descargas N» y entradas IA deshabilitadas.
+  - Sub-pestañas del inspector con 21 secciones etiquetadas; en Video
+    «Básico» y «Máscara» muestran secciones distintas y reales.
+  - Menú contextual con 22 ítems, 8 muestras de color accionando
+    `updateClip({ colorTag })`, y desborde «Más» con 30 ítems que reutiliza
+    los botones reales de la toolbar («Agregar pista»: 3 → 4 pistas).
+  - Inicio: 6 accesos rápidos + 4 servicios pendientes; exportación: tira de
+    7 destinos con «Local» activo y 6 pendientes.
+  - Verificación: typecheck 0 · build 0 · dirigidas **51/51** · serial
+    **2011 passed / 3 skipped / 13 failed** (los 13 previos, 0 regresiones) ·
+    e2e **19 passed / 1 skipped / 4 failed** (previos) · 16 capturas con
+    0 errores de consola y `pageOverflow 0` en `.tmp-redesign/recon2/final/`.
+  - `[next]` Siguen pendientes por backend real: sub-pestañas HSL/Curvas/
+    Ruedas/HDR, generación IA de video/audio, stock, login y exportación a
+    redes. Están visibles pero deshabilitadas, no simuladas.

@@ -25,6 +25,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+function sidebarTool(name: RegExp): HTMLElement {
+  const chips = document.querySelector('.start-tools-chips');
+  if (!chips) throw new Error('No se encontró el panel de herramientas IA');
+  return within(chips as HTMLElement).getByRole('button', { name });
+}
+
 describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
   it('muestra la tarjeta principal Crear proyecto, plantillas y herramientas IA', () => {
     renderStartScreen();
@@ -36,8 +42,11 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     // Botón de versión y actualizador
     expect(screen.getByRole('button', { name: /actualizador/i })).toBeTruthy();
 
-    // Tarjeta hero "Crear proyecto"
-    expect(screen.getByRole('button', { name: /Crear proyecto/i })).toBeTruthy();
+    // Dos acciones reales de creación: la tarjeta lateral y el CTA degradado
+    // del hero (referencias Filmora 93/94). Se distingue la tarjeta por su
+    // descripción para no ambiguar el nombre accesible.
+    expect(screen.getByRole('button', { name: /Crear proyecto.*Personalizar formato y fps/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Crear Proyecto' })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Abrir proyecto/i })).toBeTruthy();
 
     // Plantillas rápidas 1-clic
@@ -47,14 +56,14 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     expect(templates.getByRole('button', { name: /Instagram Feed/i })).toBeTruthy();
 
     // Atajos de herramientas rápidas
-    expect(screen.getByRole('button', { name: /Director IA/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Guion IA/i })).toBeTruthy();
+    expect(sidebarTool(/Director IA/i)).toBeTruthy();
+    expect(sidebarTool(/Guion IA/i)).toBeTruthy();
     // Anclado al inicio: los proyectos demo se llaman «… con Locución IA» y también
     // son botones, así que /Locución/ a secas encontraba tres.
-    expect(screen.getByRole('button', { name: /^Locución/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Quitar fondo/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Upscale 4K/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: /Comprimir/i })).toBeTruthy();
+    expect(sidebarTool(/^Locución/i)).toBeTruthy();
+    expect(sidebarTool(/Quitar fondo/i)).toBeTruthy();
+    expect(sidebarTool(/Upscale 4K/i)).toBeTruthy();
+    expect(sidebarTool(/Comprimir/i)).toBeTruthy();
   });
 
   it('crea un proyecto al instante con 1-clic usando una plantilla rápida', async () => {
@@ -76,7 +85,7 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
   it('abre el diálogo de creación al hacer clic en Crear proyecto con nombre por defecto', async () => {
     const { onEnterApp } = renderStartScreen();
 
-    const createBtn = screen.getByRole('button', { name: /Crear proyecto/i });
+    const createBtn = screen.getByRole('button', { name: /Crear proyecto.*Personalizar formato y fps/i });
     fireEvent.click(createBtn);
 
     // Diálogo modal abierto
@@ -119,7 +128,7 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
   it('navega directamente a la herramienta al hacer clic en una herramienta rápida', async () => {
     const { onEnterApp } = renderStartScreen();
 
-    const directorBtn = screen.getByRole('button', { name: /Director IA/i });
+    const directorBtn = sidebarTool(/Director IA/i);
     fireEvent.click(directorBtn);
 
     await waitFor(
@@ -193,7 +202,7 @@ describe('StartScreen · honestidad de los flujos de proyecto', () => {
     };
     renderStartScreen(vi.fn(), service);
 
-    expect(screen.getByRole('button', { name: /Crear proyecto/i })).toHaveProperty(
+    expect(screen.getByRole('button', { name: /Crear proyecto.*Personalizar formato y fps/i })).toHaveProperty(
       'disabled',
       true,
     );

@@ -15,6 +15,7 @@ import {
   ensureDelivery,
   fpsOf,
   updateAudioMix,
+  updateProjectSettings,
 } from '../../state/project-actions';
 import {
   clearSettled,
@@ -88,10 +89,40 @@ interface BatchResult {
   readonly message: string | null;
 }
 
+const EXPORT_DESTINATIONS: readonly { readonly id: string; readonly label: string; readonly pending?: boolean }[] = [
+  { id: 'local', label: 'Local' },
+  { id: 'social', label: 'Redes sociales', pending: true },
+  { id: 'youtube', label: 'YouTube', pending: true },
+  { id: 'tiktok', label: 'TikTok', pending: true },
+  { id: 'vimeo', label: 'Vimeo', pending: true },
+  { id: 'device', label: 'Dispositivo', pending: true },
+  { id: 'dvd', label: 'DVD', pending: true },
+];
+
+const EXPORT_FORMATS = ['MP4', 'MOV', 'MKV', 'WebM'];
+const EXPORT_RESOLUTIONS = [
+  '1920*1080 Full HD 1080p',
+  '1280*720 HD 720p',
+  '3840*2160 UHD 4K',
+  '1080*1920 Vertical 1080p',
+];
+const EXPORT_CODECS = ['H.264', 'H.265/HEVC', 'VP9', 'AV1'];
+const EXPORT_QUALITIES = ['Baja', 'Media', 'Alta', 'Máxima'];
+const EXPORT_MEDIA_TYPES = ['Video', 'Audio', 'Imagen', 'Live Photo'];
+
 export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const store = useProjectStore();
   const project = store.state.project;
   const [profileId, setProfileId] = useState('');
+  const [destination, setDestination] = useState('local');
+  const [exportFolder, setExportFolder] = useState<string | null>(null);
+  const [matchMode, setMatchMode] = useState('project');
+  const [mediaType, setMediaType] = useState('Video');
+  const [exportFormat, setExportFormat] = useState('MP4');
+  const [exportResolution, setExportResolution] = useState(EXPORT_RESOLUTIONS[0]!);
+  const [exportCodec, setExportCodec] = useState('H.264');
+  const [exportQuality, setExportQuality] = useState('Media');
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [includeCaptions, setIncludeCaptions] = useState(true);
   const [rangeStart, setRangeStart] = useState(0);
   const [rangeEnd, setRangeEnd] = useState(0);
@@ -702,6 +733,27 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
             ×
           </button>
         </header>
+        {/* Destinos de la captura 96. Sólo «Local» está implementado; el
+            resto se muestra deshabilitado en vez de simular una subida. */}
+        <div className="export-destinations" role="group" aria-label="Destino de exportación">
+          {EXPORT_DESTINATIONS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              className={destination === item.id ? 'active' : ''}
+              aria-pressed={destination === item.id}
+              disabled={item.pending}
+              title={
+                item.pending
+                  ? 'Estructura preparada · requiere integración de cuenta (pendiente)'
+                  : item.label
+              }
+              onClick={() => setDestination(item.id)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         {profiles.length === 0 ? (
           <div className="modal-body">
@@ -720,6 +772,132 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         ) : (
           <>
             <div className="modal-body">
+              {/* Panel de la captura 96: título, destino, coincidencia con el
+                  proyecto, tipo de medio, formato, resolución, codificador,
+                  calidad y avanzado. Todo con estado real. */}
+              <div className="export-settings-card">
+                <div className="export-settings-head">
+                  <span>Títulos</span>
+                  <span className="export-settings-hint">Nombre del proyecto y del archivo</span>
+                </div>
+                <label className="field">
+                  <span>Nombre</span>
+                  <input
+                    type="text"
+                    value={project?.name ?? ''}
+                    maxLength={120}
+                    disabled={running}
+                    onChange={(event) =>
+                      store.update((current) =>
+                        updateProjectSettings(current, { name: event.target.value }),
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Guardar en</span>
+                  <div className="export-path-row">
+                    <span className="export-path-value">
+                      {exportFolder ?? store.state.opened?.root ?? 'Elegí una carpeta de salida'}
+                    </span>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      disabled={running}
+                      onClick={async () => {
+                        const folder = await store.service.chooseExportDirectory();
+                        if (!folder) return;
+                        folderRef.current = folder;
+                        setExportFolder(folder);
+                      }}
+                    >
+                      Examinar
+                    </button>
+                  </div>
+                </label>
+                <label className="field">
+                  <span>Hacer coincidir con la configuración del proyecto</span>
+                  <select value={matchMode} onChange={(event) => setMatchMode(event.target.value)}>
+                    <option value="project">Proyecto · {project ? fpsOf(project) : 30} fps</option>
+                    <option value="custom">Personalizado</option>
+                  </select>
+                </label>
+                <div className="export-media-types" role="radiogroup" aria-label="Tipo de medio">
+                  {EXPORT_MEDIA_TYPES.map((item) => (
+                    <label key={item} className="export-radio">
+                      <input
+                        type="radio"
+                        name="export-media-type"
+                        checked={mediaType === item}
+                        onChange={() => setMediaType(item)}
+                      />
+                      <span>{item}</span>
+                    </label>
+                  ))}
+                </div>
+                {mediaType !== 'Video' ? (
+                  <p className="export-settings-note">
+                    Sólo la exportación de video está implementada en este build.
+                    Las otras opciones están preparadas, no simuladas.
+                  </p>
+                ) : null}
+                <div className="export-settings-grid">
+                  <label className="field">
+                    <span>Formato</span>
+                    <select
+                      value={exportFormat}
+                      disabled={matchMode === 'project'}
+                      onChange={(event) => setExportFormat(event.target.value)}
+                    >
+                      {EXPORT_FORMATS.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Resolución</span>
+                    <select
+                      value={exportResolution}
+                      disabled={matchMode === 'project'}
+                      onChange={(event) => setExportResolution(event.target.value)}
+                    >
+                      {EXPORT_RESOLUTIONS.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Codificador</span>
+                    <select
+                      value={exportCodec}
+                      disabled={matchMode === 'project'}
+                      onChange={(event) => setExportCodec(event.target.value)}
+                    >
+                      {EXPORT_CODECS.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Calidad</span>
+                    <select value={exportQuality} onChange={(event) => setExportQuality(event.target.value)}>
+                      {EXPORT_QUALITIES.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <div className="export-settings-foot">
+                  <span>
+                    {project ? fpsOf(project) : 30} fps · {selected?.container?.toUpperCase() ?? 'MP4'} ·{' '}
+                    {selected?.videoCodec?.toUpperCase() ?? 'H264'} · SDR · Rec.709
+                  </span>
+                  <button type="button" className="small ghost" onClick={() => setAdvancedOpen((v) => !v)}>
+                    Avanzado {advancedOpen ? '‹' : '›'}
+                  </button>
+                </div>
+                {advancedOpen ? (
+                  <div className="export-advanced">
+                    <p>Fotogramas: {project ? fpsOf(project) : 30} fps</p>
+                    <p>Velocidad: {compression}</p>
+                    <p>Perfil activo: {selected?.name ?? '—'}</p>
+                    <p>Duración estimada: {store.durationFrames} frames</p>
+                    <p>Tamaño estimado: {exportQuality} · {exportResolution}</p>
+                  </div>
+                ) : null}
+              </div>
               <label className="field">
                 <span>Perfil</span>
                 <select

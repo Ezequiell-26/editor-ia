@@ -599,6 +599,50 @@ function clampTimelineHeight(value: number): number {
   return Math.min(TIMELINE_MAX, Math.max(TIMELINE_MIN, Math.round(value)));
 }
 
+const PENDING_CONTEXT_ACTIONS: readonly string[] = [
+  'Sugerencias de edición inteligente',
+  'Herramienta de montaje preliminar',
+  'Edición de atributos',
+  'Recortar y Zoom',
+  'Separar audio',
+  'Eliminador de voz con IA',
+  'Voz a texto',
+  'Traducción con IA',
+  'Crear clip compuesto',
+  'Reemplazar clip',
+];
+
+interface OverflowTool {
+  readonly label: string;
+  readonly aria: string;
+  readonly shortcut?: string;
+  readonly needsClip?: boolean;
+  readonly needsClipboard?: boolean;
+}
+/** Reutiliza los botones REALES de la toolbar por `aria-label`: el menú de
+ *  desborde no duplica lógica de edición, sólo dispara el control existente. */
+const OVERFLOW_TOOLS: readonly OverflowTool[] = [
+  { label: 'Velocidad · dividir en playhead', aria: 'Dividir en playhead', needsClip: true },
+  { label: 'Marcador', aria: 'Agregar o quitar marcador', shortcut: 'M' },
+  { label: 'Borrar clip', aria: 'Borrar clip', shortcut: 'Supr', needsClip: true },
+  { label: 'Copiar', aria: 'Copiar clip seleccionado', shortcut: 'Ctrl+C', needsClip: true },
+  { label: 'Pegar en el playhead', aria: 'Pegar clip copiado en el playhead', shortcut: 'Ctrl+V', needsClipboard: true },
+  { label: 'Ripple · cerrar hueco', aria: 'Borrar clip y cerrar el hueco', needsClip: true },
+  { label: 'Cerrar huecos de la pista', aria: 'Cerrar huecos de la pista del clip', needsClip: true },
+  { label: 'Agregar pista', aria: 'Agregar pista' },
+  { label: 'Agregar capa de ajuste', aria: 'Agregar capa de ajuste en el playhead' },
+  { label: 'Ajustar zoom a la duración', aria: 'Ajustar zoom a la duración' },
+];
+const OVERFLOW_PENDING: readonly string[] = [
+  'Duración', 'Fotogramas Clave', 'Editar >', 'Detección de Silencio',
+  'Editar Dispositivos', 'Detección de ritmo', 'Voz a texto', 'Texto a Voz',
+  'Extensión con IA', 'Extensión de audio', 'Generación de música ambiental inteligente',
+  'Herramientas de recorte de IA >', 'Eliminador de objetos con IA',
+  'Herramientas de seguimiento con IA >', 'Edición basada en texto',
+  'Paleta de colores con IA', 'Traducción con IA', 'Sincronización automática',
+  'Imagen a video', 'Texto a video',
+];
+
 export const Timeline = memo(function Timeline() {
   const store = useProjectStore();
   // La línea del playhead, el overview y el seguimiento sí necesitan el frame
@@ -821,6 +865,9 @@ export const Timeline = memo(function Timeline() {
   const scrubRafRef = useRef(0);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
+  const [toolsMenuPos, setToolsMenuPos] = useState({ left: 0, top: 0 });
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     clipId: string;
     x: number;
@@ -1186,6 +1233,16 @@ export const Timeline = memo(function Timeline() {
     store.setSelection({ kind: 'none' });
     store.setPlayhead(Math.min(playback.frame, nextDuration));
   }
+
+  useEffect(() => {
+    if (!toolsMenuOpen) return;
+    const close = (event: PointerEvent): void => {
+      if (event.target instanceof Node && toolsMenuRef.current?.contains(event.target)) return;
+      setToolsMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [toolsMenuOpen]);
 
   useEffect(() => {
     if (!contextMenu) return;
@@ -2194,6 +2251,86 @@ export const Timeline = memo(function Timeline() {
             <span className="tool-label">Borrar subtítulo</span>
           </button>
         </div>
+        <div
+          className="timeline-tools-overflow"
+          ref={toolsMenuRef}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') setToolsMenuOpen(false);
+          }}
+        >
+          <button
+            type="button"
+            className="small ghost icon-text"
+            aria-label="Más herramientas"
+            aria-haspopup="menu"
+            aria-expanded={toolsMenuOpen}
+            title="Más herramientas de la timeline"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              const height = Math.min(520, window.innerHeight - 16);
+              const spaceBelow = window.innerHeight - rect.bottom;
+              setToolsMenuPos({
+                left: Math.max(8, Math.min(rect.left, window.innerWidth - 280)),
+                // Si el menú no entra debajo del botón, se abre hacia arriba
+                // (como en la referencia 128) en vez de salir de pantalla.
+                top:
+                  spaceBelow >= height + 8
+                    ? rect.bottom + 2
+                    : Math.max(8, rect.top - height - 2),
+              });
+              setToolsMenuOpen((value) => !value);
+            }}
+          >
+            <Icon name="chevron-down" size={13} />
+            <span className="tool-label">Más</span>
+          </button>
+          {toolsMenuOpen ? (
+            <div
+              className="timeline-overflow-menu"
+              role="menu"
+              aria-label="Más herramientas"
+              style={{ left: toolsMenuPos.left, top: toolsMenuPos.top }}
+            >
+              {OVERFLOW_TOOLS.map((item) => {
+                const disabled =
+                  (item.needsClip === true && !selectedClip) ||
+                  (item.needsClipboard === true && !clipboardReady);
+                return (
+                  <button
+                    key={item.label}
+                    type="button"
+                    role="menuitem"
+                    disabled={disabled}
+                    onClick={() => {
+                      const target = document.querySelector<HTMLButtonElement>(
+                        `.timeline-toolbar button[aria-label="${item.aria}"]`,
+                      );
+                      target?.click();
+                      setToolsMenuOpen(false);
+                    }}
+                  >
+                    <span>{item.label}</span>
+                    {item.shortcut ? <span className="timeline-menu-hint">{item.shortcut}</span> : null}
+                  </button>
+                );
+              })}
+              <div className="timeline-menu-separator" role="separator" />
+              <p className="timeline-menu-group-title">Herramientas de IA · pendientes</p>
+              {OVERFLOW_PENDING.map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="menuitem"
+                  disabled
+                  title="Estructura preparada · requiere integración de backend (pendiente)"
+                >
+                  <span>{label}</span>
+                  <span className="timeline-menu-hint">Pendiente</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
         <span className="timeline-duration">
           {formatTimecode(store.durationFrames, fps)}
           <span className="duration-tracks"> · {project.timeline.tracks.length} pistas</span>
@@ -2551,6 +2688,7 @@ export const Timeline = memo(function Timeline() {
               aria-valuemax={duration}
               aria-valuenow={Math.round(playback.frame)}
               title="Arrastrá para mover el cabezal"
+              data-tip={'Dividir en el playhead (S)\nArrastrá para mover el cabezal'}
               onPointerDown={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
@@ -2578,8 +2716,8 @@ export const Timeline = memo(function Timeline() {
               role="menu"
               aria-label={`Acciones para ${contextClip.label ?? 'el clip'}`}
               style={{
-                left: Math.max(8, Math.min(contextMenu.x, window.innerWidth - 244)),
-                top: Math.max(8, Math.min(contextMenu.y, window.innerHeight - 300)),
+                left: Math.max(8, Math.min(contextMenu.x, document.documentElement.clientWidth - 268)),
+                top: Math.max(8, Math.min(contextMenu.y, document.documentElement.clientHeight - 536)),
               }}
               onContextMenu={(event) => event.preventDefault()}
               onKeyDown={(event) => {
@@ -2670,6 +2808,80 @@ export const Timeline = memo(function Timeline() {
               >
                 <span>Pegar atributos</span>
               </button>
+              <div className="timeline-menu-separator" role="separator" />
+              <div className="timeline-menu-colors" role="group" aria-label="Color del clip">
+                {CLIP_COLORS.map((color) => (
+                  <button
+                    key={color.id}
+                    type="button"
+                    className={
+                      contextClip.colorTag === color.id
+                        ? 'timeline-menu-color active'
+                        : 'timeline-menu-color'
+                    }
+                    aria-label={`Marcar clip como ${color.label}`}
+                    aria-pressed={contextClip.colorTag === color.id}
+                    title={`Marcar clip como ${color.label}`}
+                    onClick={() => {
+                      store.update((current) =>
+                        updateClip(current, contextClip.id, { colorTag: color.id }),
+                      );
+                      setContextMenu(null);
+                    }}
+                  >
+                    <i style={{ background: color.hex }} />
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className="timeline-menu-color clear"
+                  aria-label="Quitar color del clip"
+                  title="Quitar color del clip"
+                  onClick={() => {
+                    store.update((current) =>
+                      updateClip(current, contextClip.id, { colorTag: undefined }),
+                    );
+                    setContextMenu(null);
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+              <div className="timeline-menu-separator" role="separator" />
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  store.setSelection({ kind: 'clip', id: contextClip.id });
+                  setContextMenu(null);
+                }}
+              >
+                <span>Seleccionar clip</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  store.setPlayhead(contextClip.startFrame + contextClip.durationFrames - 1);
+                  setContextMenu(null);
+                }}
+              >
+                <span>Ir al final del clip</span>
+              </button>
+              <div className="timeline-menu-separator" role="separator" />
+              <p className="timeline-menu-group-title">Edición con IA · pendiente</p>
+              {PENDING_CONTEXT_ACTIONS.map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="menuitem"
+                  disabled
+                  title="Estructura preparada · requiere integración de backend (pendiente)"
+                >
+                  <span>{label}</span>
+                  <span className="timeline-menu-hint">Pendiente</span>
+                </button>
+              ))}
               <button
                 type="button"
                 role="menuitem"
