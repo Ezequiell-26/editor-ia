@@ -563,6 +563,38 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     annotations: { readOnlyHint: true },
   },
   {
+    name: 'fs_write',
+    description: `${WRITE} Escribe texto en un archivo de la PC (lo crea si no existe, junto con las carpetas padre). Sirve para guiones, subtítulos, scripts, JSON de proyecto, configs — cualquier texto hasta 10 MiB.`,
+    inputSchema: obj({
+      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta del archivo a escribir.' },
+      content: { type: 'string', maxLength: 10_485_760, description: 'Contenido de texto a escribir.' },
+    }, ['path', 'content']),
+  },
+  {
+    name: 'fs_mkdir',
+    description: `${WRITE} Crea una carpeta en la PC (con todas las carpetas padre por defecto).`,
+    inputSchema: obj({
+      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de la carpeta a crear.' },
+      recursive: { type: 'boolean', description: 'Crear también las carpetas padre (por defecto true).' },
+    }, ['path']),
+  },
+  {
+    name: 'fs_delete',
+    description: `${WRITE} Borra un archivo o carpeta de la PC. Las carpetas con contenido exigen recursive=true explícito. Rechaza rutas protegidas (raíz de unidad, Windows, Program Files).`,
+    inputSchema: obj({
+      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta a borrar.' },
+      recursive: { type: 'boolean', description: 'Borrar carpetas con contenido (por defecto false).' },
+    }, ['path']),
+  },
+  {
+    name: 'fs_move',
+    description: `${WRITE} Mueve o renombra un archivo/carpeta de la PC a otra ruta. El destino no debe existir (no sobrescribe); puede cruzar carpetas del mismo disco.`,
+    inputSchema: obj({
+      from: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de origen.' },
+      to: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de destino.' },
+    }, ['from', 'to']),
+  },
+  {
     name: 'voice_isolation_status',
     description: `${READ} Estado del motor de aislación de voz (Demucs): si hay un Python con torch+demucs instalado y el motivo cuando no.`,
     inputSchema: obj({}),
@@ -585,6 +617,67 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       quality: { type: 'string', enum: ['low', 'medium', 'high', 'best'], description: 'Calidad vs velocidad (por defecto medium).' },
       force: { type: 'boolean', description: 'Regenera el stem aunque ya exista.' },
     }, ['assetId']),
+  },
+  {
+    name: 'flow_browser_status',
+    description: `${READ} Estado del navegador dedicado de la app (Chrome/Edge real con perfil propio y CDP en 127.0.0.1): si está instalado, corriendo y su endpoint de depuración.`,
+    inputSchema: obj({}),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'flow_browser_launch',
+    description: `${WRITE} Lanza el navegador dedicado de la app (Chrome/Edge real, perfil persistente en LOCALAPPDATA\\Olyvia, CDP en 127.0.0.1) y abre una URL (por defecto https://flow.google.com). La sesión de Google persiste entre ejecuciones. Para controlar la página usá un servidor MCP tipo Playwright con --cdp-endpoint <cdpUrl>.`,
+    inputSchema: obj({
+      url: { type: 'string', maxLength: 2_048, description: 'URL http(s) a abrir (por defecto flow.google.com).' },
+    }),
+  },
+  {
+    name: 'flow_browser_stop',
+    description: `${WRITE} Cierra el navegador dedicado lanzado por la app.`,
+    inputSchema: obj({}),
+  },
+  {
+    name: 'flow_embed_status',
+    description: `${READ} Estado del navegador embebido de Olyvia (ventana propia con WebView2 y CDP en 127.0.0.1): si está abierto, qué URL muestra y su endpoint de depuración. Para ver TODAS las sesiones web abiertas usá web_sessions_status.`,
+    inputSchema: obj({}),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'flow_embed_open',
+    description: `${WRITE} Abre (o reutiliza) una sesión del navegador embebido de Olyvia y navega a una URL http(s). Por defecto abre Flow (slot "flow", https://flow.google.com); con «slot» abre cualquier otra web en su propia ventana (varias webs activas a la vez, cada una con su CDP). Úsala para que el usuario inicie sesión dentro de la app. Si Google rechaza el login en webviews, usá flow_browser_launch (Chrome real por CDP) como alternativa.`,
+    inputSchema: obj({
+      url: { type: 'string', maxLength: 2_048, description: 'URL http(s) a abrir (por defecto flow.google.com para el slot flow).' },
+      slot: { type: 'string', maxLength: 32, description: 'Nombre de la sesión web (1-32 chars, letras/números/-/_). Por defecto "flow".' },
+    }),
+  },
+  {
+    name: 'web_sessions_status',
+    description: `${READ} Lista todas las sesiones del navegador embebido abiertas (nombre, URL y endpoint CDP de cada una).`,
+    inputSchema: obj({}),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'flow_embed_close',
+    description: `${WRITE} Cierra una sesión del navegador embebido de Olyvia (por defecto Flow; indicá «slot» para otra).`,
+    inputSchema: obj({
+      slot: { type: 'string', maxLength: 32, description: 'Sesión a cerrar (por defecto "flow").' },
+    }),
+  },
+  {
+    name: 'flow_embed_nav',
+    description: `${WRITE} Navegación histórica de una sesión del navegador embebido: back, forward o reload (por defecto Flow; «slot» para otra).`,
+    inputSchema: obj({
+      direction: { type: 'string', enum: ['back', 'forward', 'reload'], description: 'Dirección de navegación.' },
+      slot: { type: 'string', maxLength: 32, description: 'Sesión (por defecto "flow").' },
+    }, ['direction']),
+  },
+  {
+    name: 'flow_embed_eval',
+    description: `${WRITE} Ejecuta JavaScript en la página de una sesión del navegador embebido y devuelve el resultado serializado (JSON; «slot» para elegir sesión, por defecto Flow). Para control completo (clicks, screenshots, descargas) usá el endpoint CDP de web_sessions_status con un cliente CDP/Playwright.`,
+    inputSchema: obj({
+      js: { type: 'string', maxLength: 65_536, description: 'Código JavaScript a evaluar en la página.' },
+      slot: { type: 'string', maxLength: 32, description: 'Sesión (por defecto "flow").' },
+    }, ['js']),
   },
 
   // ── Marcadores ──────────────────────────────────────────────────────

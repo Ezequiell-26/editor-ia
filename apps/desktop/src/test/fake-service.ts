@@ -1,6 +1,6 @@
-import type { Asset, ProjectDocument } from '@editor-ia/project-schema';
-import { createEmptyProject } from '@editor-ia/project-schema';
-import { FALLBACK_VISUAL_CATALOG } from '../features/visuals/visuals';
+import type { Asset, ProjectDocument } from'@editor-ia/project-schema';
+import { createEmptyProject } from'@editor-ia/project-schema';
+import { FALLBACK_VISUAL_CATALOG } from'../features/visuals/visuals';
 import type {
   AlphaFramesRequest,
   AlphaSequenceRequest,
@@ -42,8 +42,8 @@ import type {
   SystemInfo,
   YouTubeChannelReport,
   VoiceInfo,
-} from '../services/project-service';
-import { ensureDelivery, newId } from '../state/project-actions';
+} from'../services/project-service';
+import { ensureDelivery, newId } from'../state/project-actions';
 
 /** Medición de mezcla determinista: 6 s, objetivo −14 LUFS, delta +2,2 dB. */
 export function fakeMixLoudnessReport(): MixLoudnessReport {
@@ -66,19 +66,19 @@ export function fakeMixLoudnessReport(): MixLoudnessReport {
   };
 }
 
-const THUMB = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
-const NOW = '2025-01-01T00:00:00.000Z';
+const THUMB ='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+const NOW ='2025-01-01T00:00:00.000Z';
 
 export function readyAsset(overrides: Partial<Asset> = {}): Asset {
   const base: Asset = {
     id: newId(),
     label: 'Toma de prueba',
     kind: 'video',
-    source: { type: 'local', path: 'media/toma.mp4' },
+    source: { type: 'local', path: 'media/toma.mp4'},
     status: 'ready',
     integrity: { sha256: 'a'.repeat(64), bytes: 120_000 },
     rights: {
-      license: { id: 'user-declared', commercialUse: 'allowed' },
+      license: { id: 'user-declared', commercialUse: 'allowed'},
       provenance: { origin: 'user-imported', acquiredAt: NOW },
     },
     media: { width: 1920, height: 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } },
@@ -93,14 +93,14 @@ export function unverifiedAudioAsset(): Asset {
     kind: 'audio',
     source: {
       type: 'generated',
-      provider: { id: 'windows-sapi', model: 'Microsoft Helena' },
+      provider: { id: 'windows-sapi', model: 'Microsoft Helena'},
       path: 'media/narracion.wav',
       generatedAt: NOW,
     },
     status: 'unverified',
     integrity: { sha256: 'b'.repeat(64), bytes: 50_000 },
     rights: {
-      license: { id: 'unknown', commercialUse: 'unknown' },
+      license: { id: 'unknown', commercialUse: 'unknown'},
       provenance: {
         origin: 'generated-locally',
         acquiredAt: NOW,
@@ -133,7 +133,7 @@ export interface FakeService extends DesktopService {
   current: OpenedProject | null;
 }
 
-function opened(project: ProjectDocument, name = 'proyecto.editoria.json'): OpenedProject {
+function opened(project: ProjectDocument, name ='proyecto.editoria.json'): OpenedProject {
   return {
     project,
     label: name,
@@ -142,9 +142,9 @@ function opened(project: ProjectDocument, name = 'proyecto.editoria.json'): Open
   };
 }
 
-export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'): YouTubeChannelReport {
+export function fakeChannelReport(channelUrl ='https://www.youtube.com/@demo'): YouTubeChannelReport {
   const preview =
-    'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AFwD/2Q==';
+  'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AFwD/2Q==';
   return {
     channelName: 'Canal de prueba',
     channelUrl,
@@ -168,7 +168,7 @@ export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'):
         viewsPerDay: 1_500,
         engagementRate: 4.2,
         score: 92,
-        titleFlags: ['número', 'tutorial'],
+        titleFlags: ['número','tutorial'],
         reasons: ['1,8× las vistas por día de la mediana del canal'],
         thumbnailUrl: 'https://i.ytimg.com/vi/aaaaaaaaaaa/maxresdefault.jpg',
         thumbnail: {
@@ -177,7 +177,7 @@ export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'):
           brightness: 64,
           saturation: 48,
           contrast: 31,
-          palette: ['#ff8844', '#222222', '#ffffff'],
+          palette: ['#ff8844','#222222','#ffffff'],
           preview,
         },
         commentAnalysis: {
@@ -251,7 +251,7 @@ export function fakeChannelReport(channelUrl = 'https://www.youtube.com/@demo'):
   };
 }
 
-export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtítulos y Música', isVertical = true): ProjectDocument {  const base = createEmptyProject(title, NOW);
+export function createDemoProject(title ='Demo: TikTok / Reels 9:16 con Subtítulos y Música', isVertical = true): ProjectDocument {  const base = createEmptyProject(title, NOW);
   base.video = {
     width: isVertical ? 1080 : 1920,
     height: isVertical ? 1920 : 1080,
@@ -262,22 +262,22 @@ export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtít
     id: '11111111-1111-4111-8111-111111111111',
     label: 'Toma principal (1080p)',
     kind: 'video',
-    source: { type: 'local', path: 'media/toma-principal.mp4' },
+    source: { type: 'local', path: 'media/toma-principal.mp4'},
     media: { width: isVertical ? 1080 : 1920, height: isVertical ? 1920 : 1080, durationFrames: 600, frameRate: { num: 30, den: 1 } },
   });
   const brollAsset = readyAsset({
     id: '22222222-2222-4222-8222-222222222222',
     label: 'B-Roll cinemático',
     kind: 'video',
-    source: { type: 'local', path: 'media/broll.mp4' },
+    source: { type: 'local', path: 'media/broll.mp4'},
     media: { width: isVertical ? 1080 : 1920, height: isVertical ? 1920 : 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } },
   });
   const audioAsset = unverifiedAudioAsset();
   base.assets = [videoAsset, brollAsset, audioAsset];
 
-  const trackV1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-  const trackV2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
-  const trackA1 = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  const trackV1 ='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const trackV2 ='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const trackA1 ='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
   base.timeline.tracks = [
     { id: trackV1, kind: 'video', label: 'V1 · Video Principal', order: 0, muted: false, hidden: false, locked: false },
     { id: trackV2, kind: 'video', label: 'V2 · B-Roll / Inserción', order: 1, muted: false, hidden: false, locked: false },
@@ -315,21 +315,21 @@ export function createDemoProject(title = 'Demo: TikTok / Reels 9:16 con Subtít
   base.captions = {
     styles: [],
     cues: [
-      { id: 'cue-1', trackId: trackA1, language: 'es', startFrame: 15, endFrame: 100, text: '¡Bienvenido a Olyvia Video Editor!' },
-      { id: 'cue-2', trackId: trackA1, language: 'es', startFrame: 105, endFrame: 200, text: 'Edición multi-pista y subtítulos con IA' },
-      { id: 'cue-3', trackId: trackA1, language: 'es', startFrame: 205, endFrame: 300, text: 'Exporta tus videos en segundos con IA' },
+      { id: 'cue-1', trackId: trackA1, language: 'es', startFrame: 15, endFrame: 100, text: '¡Bienvenido a Olyvia Video Editor!'},
+      { id: 'cue-2', trackId: trackA1, language: 'es', startFrame: 105, endFrame: 200, text: 'Edición multi-pista y subtítulos con IA'},
+      { id: 'cue-3', trackId: trackA1, language: 'es', startFrame: 205, endFrame: 300, text: 'Exporta tus videos en segundos con IA'},
     ],
   };
   return ensureDelivery(base);
 }
 
-/** Límites del comando real `audio_peaks` (Rust): el fake los replica igual. */
+/** Límites del comando real`audio_peaks`(Rust): el fake los replica igual. */
 const FAKE_PEAK_MIN_BUCKETS = 16;
 const FAKE_PEAK_MAX_BUCKETS = 4000;
 const FAKE_PEAK_DEFAULT_BUCKETS = 600;
 
 /**
- * Picos deterministas con el contrato exacto de `audio_peaks`: `buckets`
+ * Picos deterministas con el contrato exacto de`audio_peaks`: `buckets`
  * efectivo clampeado a [16, 4000], pares min/max mono en [-1, 1] y duración
  * fija de 4 s (el fake no decodifica archivos). Sirve para tests y para el
  * harness de capturas, donde no hay runtime nativo.
@@ -401,14 +401,14 @@ export function createFakeService(): FakeService {
         backgroundColor: '#0b0e13',
       };
       const project = ensureDelivery(base);
-      current = opened(project, `${input.name.toLowerCase().replace(/\s+/g, '-')}.editoria.json`);
+      current = opened(project,`${input.name.toLowerCase().replace(/\s+/g,'-')}.editoria.json`);
       service.current = current;
       return current;
     },
     async openProject() {
       calls.open += 1;
-      const project = createDemoProject('🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música', true);
-      current = opened(project, 'demo-reels-subtitulos.editoria.json');
+      const project = createDemoProject('Demo: TikTok / Reels 9:16 con Subtítulos y Música', true);
+      current = opened(project,'demo-reels-subtitulos.editoria.json');
       service.current = current;
       return current;
     },
@@ -417,12 +417,12 @@ export function createFakeService(): FakeService {
       const lower = path.toLowerCase();
       const isVertical = lower.includes('reels') || lower.includes('vertical') || lower.includes('9-16');
       const title = isVertical
-        ? '🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música'
+        ? 'Demo: TikTok / Reels 9:16 con Subtítulos y Música'
         : lower.includes('youtube') || lower.includes('tutorial')
-          ? '🎬 Demo: Tutorial YouTube 16:9 con Locución IA'
+          ? 'Demo: Tutorial YouTube 16:9 con Locución IA'
           : lower.includes('podcast') || lower.includes('multicam')
-            ? '🎙️ Demo: Podcast & Multicámara con Mezcla de Audio'
-            : (path.split(/[\\/]/).pop()?.replace('.editoria.json', '') ?? 'Proyecto');
+            ? 'Demo: Podcast & Multicámara con Mezcla de Audio'
+            : (path.split(/[\\/]/).pop()?.replace('.editoria.json','') ?? 'Proyecto');
       const project = createDemoProject(title, isVertical);
       current = { ...opened(project, path.split(/[\\/]/).pop() ?? 'proyecto.editoria.json'), path };
       service.current = current;
@@ -433,8 +433,8 @@ export function createFakeService(): FakeService {
         current = service.current;
       }
       if (!current) {
-        const project = createDemoProject('🌟 Demo: TikTok / Reels 9:16 con Subtítulos y Música', true);
-        current = opened(project, 'demo-reels-subtitulos.editoria.json');
+        const project = createDemoProject('Demo: TikTok / Reels 9:16 con Subtítulos y Música', true);
+        current = opened(project,'demo-reels-subtitulos.editoria.json');
         service.current = current;
       }
       return current;
@@ -452,13 +452,13 @@ export function createFakeService(): FakeService {
       if (saveFailure) {
         throw new Error(saveFailure);
       }
-      current = opened(project, 'copia.editoria.json');
+      current = opened(project,'copia.editoria.json');
       service.current = current;
       return current;
     },
     async saveDeliveryPackage(bytes: Uint8Array, fileName: string) {
       deliveries.push({ fileName, bytes });
-      return `C:\\salida\\${fileName}`;
+      return`C:\\salida\\${fileName}`;
     },
     async closeProject() {
       current = null;
@@ -493,7 +493,19 @@ export function createFakeService(): FakeService {
       return { directory: '', entries: [], truncated: false };
     },
     async readTextFile(path: string) {
-      return { path, bytes: 0, truncated: false, content: '' };
+      return { path, bytes: 0, truncated: false, content: ''};
+    },
+    async writeTextFile(path: string) {
+      return { path, bytes: 0 };
+    },
+    async makeDirectory(path: string) {
+      return { path, bytes: 0 };
+    },
+    async deletePath(path: string) {
+      return { path, recursive: false };
+    },
+    async movePath(_from: string, to: string) {
+      return { path: to, bytes: 0 };
     },
     async matchMediaPlan(input) {
       return {
@@ -508,13 +520,13 @@ export function createFakeService(): FakeService {
       // luz y color para que el planificador tenga señales distintas.
       return assetIds.map((assetId, index) => {
         const landscape = index % 2 === 0;
-        const temperatures = ['warm', 'cool', 'neutral'] as const;
+        const temperatures = ['warm','cool','neutral'] as const;
         return {
           assetId,
           width: landscape ? 1920 : 1080,
           height: landscape ? 1080 : 1920,
           aspect: landscape ? 1.778 : 0.563,
-          orientation: landscape ? ('landscape' as const) : ('portrait' as const),
+          orientation: landscape ? ('landscape'as const) : ('portrait'as const),
           lumaMean: 60 + ((index * 37) % 150),
           lumaStd: 40,
           saturationMean: 80,
@@ -543,7 +555,7 @@ export function createFakeService(): FakeService {
       }));
     },
     async importLut() {
-      return { path: 'media/luts/fake.cube', name: 'fake.cube' };
+      return { path: 'media/luts/fake.cube', name: 'fake.cube'};
     },
     async chooseSubtitleFile() {
       return {
@@ -552,7 +564,7 @@ export function createFakeService(): FakeService {
       };
     },
     async chooseTimelineFile() {
-      return 'C:\\demo\\timeline.edl';
+      return'C:\\demo\\timeline.edl';
     },
     async downloaderStatus() {
       return {
@@ -615,8 +627,8 @@ export function createFakeService(): FakeService {
       return request.aspects?.map((kind) => ({
         path: `${request.outputDir}\\${kind}.mp4`,
         kind,
-        width: kind === 'vertical' ? 1080 : kind === 'square' ? 1080 : 1920,
-        height: kind === 'vertical' ? 1920 : kind === 'square' ? 1080 : 1080,
+        width: kind ==='vertical'? 1080 : kind ==='square'? 1080 : 1920,
+        height: kind ==='vertical'? 1920 : kind ==='square'? 1080 : 1080,
         durationSeconds: 10,
         bytes: 1_000_000,
       })) ?? [];
@@ -675,7 +687,7 @@ export function createFakeService(): FakeService {
       return 500_000_000_000;
     },
     async chooseDownloadDirectory() {
-      return 'D:\\Videos descargados';
+      return'D:\\Videos descargados';
     },
     async extensionStatus() {
       return {
@@ -702,7 +714,7 @@ export function createFakeService(): FakeService {
         uploader: 'Canal de prueba',
         durationSeconds: 600,
         thumbnail: THUMB,
-        kind: 'video' as const,
+        kind: 'video'as const,
         entryCount: 1,
         maxHeight: 4320,
         estimatedBytes: 300_000_000,
@@ -729,12 +741,12 @@ export function createFakeService(): FakeService {
       };
     },
     async chooseCookiesFile() {
-      return 'C:\\cookies\\cookies.txt';
+      return'C:\\cookies\\cookies.txt';
     },
     async sponsorblockPreview() {
       return [
-        { category: 'sponsor', startSeconds: 15, endSeconds: 42, action: 'skip' },
-        { category: 'intro', startSeconds: 0, endSeconds: 8, action: 'skip' },
+        { category: 'sponsor', startSeconds: 15, endSeconds: 42, action: 'skip'},
+        { category: 'intro', startSeconds: 0, endSeconds: 8, action: 'skip'},
       ];
     },
     async notifyUser() {},
@@ -744,7 +756,7 @@ export function createFakeService(): FakeService {
           path: 'D:\\Listas\\pendientes.txt',
           name: 'pendientes.txt',
           modifiedSeconds: 1700000000,
-          urls: ['https://www.youtube.com/watch?v=abc123', 'https://youtu.be/def456'],
+          urls: ['https://www.youtube.com/watch?v=abc123','https://youtu.be/def456'],
         },
       ];
     },
@@ -768,8 +780,8 @@ export function createFakeService(): FakeService {
     },
     async listAudioTracks() {
       return [
-        { formatId: '251', language: 'es', ext: 'webm', abr: 160, note: 'opus' },
-        { formatId: '140', language: 'en', ext: 'm4a', abr: 129, note: 'aac' },
+        { formatId: '251', language: 'es', ext: 'webm', abr: 160, note: 'opus'},
+        { formatId: '140', language: 'en', ext: 'm4a', abr: 129, note: 'aac'},
       ];
     },
     async probeSourceChecksum() {
@@ -780,13 +792,13 @@ export function createFakeService(): FakeService {
       };
     },
     async installWatchdog() {
-      return { installed: true, tasks: ['Olyvia Queue Agent (watchdog)'], hint: 'activo' };
+      return { installed: true, tasks: ['Olyvia Queue Agent (watchdog)'], hint: 'activo'};
     },
     async removeWatchdog() {
-      return { installed: false, tasks: [], hint: 'inactivo' };
+      return { installed: false, tasks: [], hint: 'inactivo'};
     },
     async watchdogStatus() {
-      return { installed: false, tasks: [], hint: 'inactivo' };
+      return { installed: false, tasks: [], hint: 'inactivo'};
     },
     async downloadMedia(request) {
       calls.destination = request.destinationRoot ?? null;
@@ -798,10 +810,10 @@ export function createFakeService(): FakeService {
             path: 'C:\\cache\\downloads\\fake\\video.mp4',
             name: 'video.mp4',
             bytes: 90_000_000,
-            kind: 'video' as const,
+            kind: 'video'as const,
           },
         ],
-        compressed: request.compression !== 'none',
+        compressed: request.compression !=='none',
         warnings: [],
       };
     },
@@ -823,7 +835,7 @@ export function createFakeService(): FakeService {
         id: newId(),
         label: 'Freeze frame',
         kind: 'image',
-        source: { type: 'local', path: 'media/freeze.png' },
+        source: { type: 'local', path: 'media/freeze.png'},
         media: { width: 1920, height: 1080 },
       });
     },
@@ -856,7 +868,7 @@ export function createFakeService(): FakeService {
         }
       );
     },
-    async ensureProxy(assetId: string, quality: ProxyQuality = '540p') {
+    async ensureProxy(assetId: string, quality: ProxyQuality ='540p') {
       const status: ProxyStatus = {
         assetId,
         state: 'ready',
@@ -864,9 +876,9 @@ export function createFakeService(): FakeService {
         path: `media/proxies/proxy-${assetId}-${quality}.mp4`,
         exists: true,
         upToDate: true,
-        width: quality === '720p' ? 1280 : 960,
-        height: quality === '720p' ? 720 : 540,
-        bytes: quality === '720p' ? 1_800_000 : 900_000,
+        width: quality ==='720p'? 1280 : 960,
+        height: quality ==='720p'? 720 : 540,
+        bytes: quality ==='720p'? 1_800_000 : 900_000,
         durationSeconds: 4,
         percent: 100,
         phase: 'ready',
@@ -892,7 +904,7 @@ export function createFakeService(): FakeService {
       if (!current) {
         return {
           assetId,
-          state: 'missing' as const,
+          state: 'missing'as const,
           quality: null,
           path: null,
           exists: false,
@@ -908,7 +920,7 @@ export function createFakeService(): FakeService {
           updatedAtMs: 0,
         };
       }
-      if (current.state !== 'generating' && current.state !== 'queued') return current;
+      if (current.state !=='generating'&& current.state !=='queued') return current;
       const cancelled: ProxyStatus = {
         ...current,
         state: 'cancelled',
@@ -919,10 +931,10 @@ export function createFakeService(): FakeService {
       return cancelled;
     },
     async applyProxyToAsset(assetId: string) {
-      // El fake no genera archivos: si no hay proxy "ready" devuelve null, igual
+      // El fake no genera archivos: si no hay proxy"ready"devuelve null, igual
       // que el backend cuando el proxy falta o está viejo.
       const status = proxyStatuses.get(assetId);
-      if (!status || status.state !== 'ready' || !status.path) return null;
+      if (!status || status.state !=='ready'|| !status.path) return null;
       const project = current?.project;
       const asset = project?.assets.find((item) => item.id === assetId);
       if (!asset) return null;
@@ -956,7 +968,7 @@ export function createFakeService(): FakeService {
       return paths.map<AssetFileInfo>((path) => ({ path, exists: true, bytes: 1000 }));
     },
     async chooseMediaFolder() {
-      return 'C:\\tester\\medios';
+      return'C:\\tester\\medios';
     },
     async findMissingAssets() {
       return [] as MissingAssetInfo[];
@@ -965,7 +977,7 @@ export function createFakeService(): FakeService {
       return {
         ok: true,
         assetId,
-        path: newPath.replaceAll('\\', '/'),
+        path: newPath.replaceAll('\\','/'),
         copied: false,
         validatedBy: 'name-size',
         bytes: 1000,
@@ -1017,7 +1029,7 @@ export function createFakeService(): FakeService {
     ) {
       return {
         assetId,
-        kind: 'video' as const,
+        kind: 'video'as const,
         durationSeconds: 10,
         fpsNum: 30,
         fpsDen: 1,
@@ -1153,7 +1165,7 @@ export function createFakeService(): FakeService {
       return {};
     },
     async startMcpServer() {
-      return { url: 'http://127.0.0.1:9999/mcp', token: 'token-de-prueba' };
+      return { url: 'http://127.0.0.1:9999/mcp', token: 'token-de-prueba'};
     },
     async mcpServerStatus() {
       return null;
@@ -1179,7 +1191,7 @@ export function createFakeService(): FakeService {
     async diarizeAudio() {
       return {
         provider: 'deepgram',
-        segments: [{ start: 0, end: 1.5, text: 'Hola', speaker: '0' }],
+        segments: [{ start: 0, end: 1.5, text: 'Hola', speaker: '0'}],
       };
     },
     async audioPeaksPath(path, buckets) {
@@ -1200,18 +1212,18 @@ export function createFakeService(): FakeService {
     async exportCapabilities() {
       return {
         containers: [
-          { container: 'mp4', videoCodecs: ['h264', 'h265'], audioCodecs: ['aac'] },
-          { container: 'mov', videoCodecs: ['h264', 'h265'], audioCodecs: ['aac'] },
-          { container: 'webm', videoCodecs: ['vp9', 'av1'], audioCodecs: ['opus'] },
+          { container: 'mp4', videoCodecs: ['h264','h265'], audioCodecs: ['aac'] },
+          { container: 'mov', videoCodecs: ['h264','h265'], audioCodecs: ['aac'] },
+          { container: 'webm', videoCodecs: ['vp9','av1'], audioCodecs: ['opus'] },
         ],
-        pixelFormats: ['yuv420p', 'yuv444p', 'rgb24'],
+        pixelFormats: ['yuv420p','yuv444p','rgb24'],
         videoCodecs: {
           h264: { software: ['libopenh264'], hardware: [] },
           h265: { software: ['hevc_mf'], hardware: [] },
           vp9: { software: ['libvpx-vp9'], hardware: [] },
           av1: { software: ['libsvtav1'], hardware: [] },
         },
-        audioCodecs: ['aac', 'opus'],
+        audioCodecs: ['aac','opus'],
         hdr: false,
         maxWidth: 16_384,
         maxHeight: 16_384,
@@ -1220,9 +1232,9 @@ export function createFakeService(): FakeService {
     async verifyExport(path: string) {
       return {
         path,
-        container: path.toLowerCase().endsWith('.webm') ? 'webm' : 'mp4',
-        videoCodec: path.toLowerCase().endsWith('.webm') ? 'vp9' : 'h264',
-        audioCodec: path.toLowerCase().endsWith('.webm') ? 'opus' : 'aac',
+        container: path.toLowerCase().endsWith('.webm') ? 'webm': 'mp4',
+        videoCodec: path.toLowerCase().endsWith('.webm') ? 'vp9': 'h264',
+        audioCodec: path.toLowerCase().endsWith('.webm') ? 'opus': 'aac',
         width: 1920,
         height: 1080,
         fpsNum: 30,
@@ -1272,19 +1284,19 @@ export function createFakeService(): FakeService {
           {
             name: 'echo',
             description: 'Devuelve el texto recibido',
-            inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
+            inputSchema: { type: 'object', properties: { text: { type: 'string'} } },
           },
           ...(flow
             ? [
                 {
                   name: 'flow_generate_image',
                   description: 'Genera una imagen con Google Flow',
-                  inputSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
+                  inputSchema: { type: 'object', properties: { prompt: { type: 'string'} } },
                 },
                 {
                   name: 'flow_generate_video',
                   description: 'Genera un video con Google Flow',
-                  inputSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
+                  inputSchema: { type: 'object', properties: { prompt: { type: 'string'} } },
                 },
               ]
             : []),
@@ -1295,7 +1307,7 @@ export function createFakeService(): FakeService {
     async callMcpTool(id: string, tool: string, args: unknown): Promise<McpCallResult> {
       openSessions.add(id);
       sessionCalls.set(id, (sessionCalls.get(id) ?? 0) + 1);
-      if (tool === 'flow_generate_image') {
+      if (tool ==='flow_generate_image') {
         flowGenerations += 1;
         return {
           serverId: id,
@@ -1306,7 +1318,7 @@ export function createFakeService(): FakeService {
                 type: 'text',
                 text: JSON.stringify({
                   artifacts: [
-                    { type: 'image', path: `C:\\media\\flow-${flowGenerations}.png` },
+                    { type: 'image', path: `C:\\media\\flow-${flowGenerations}.png`},
                   ],
                 }),
               },
@@ -1316,7 +1328,7 @@ export function createFakeService(): FakeService {
           elapsedMs: 5,
         };
       }
-      if (tool === 'flow_status') {
+      if (tool ==='flow_status') {
         return {
           serverId: id,
           toolName: tool,
@@ -1335,11 +1347,11 @@ export function createFakeService(): FakeService {
     },
     async chooseVideoFile(title?: string) {
       void title;
-      return 'C:////media////toma.mp4';
+      return'C:////media////toma.mp4';
     },
     async chooseAudioFile(title?: string) {
       void title;
-      return 'C:////media////voz.wav';
+      return'C:////media////voz.wav';
     },
     async probeMediaFile(path: string) {
       return {
@@ -1399,7 +1411,7 @@ export function createFakeService(): FakeService {
           purpose: 'Recorta el sujeto de una foto generando su recorte con transparencia.',
           bytes: 4_574_861,
           downloaded: true,
-          license: { id: 'apache-2.0', detail: 'Pesos de U²-Net (Apache-2.0).', url: '' },
+          license: { id: 'apache-2.0', detail: 'Pesos de U²-Net (Apache-2.0).', url: ''},
           sourceUrl: 'https://github.com/danielgatis/rembg',
         },
         {
@@ -1408,20 +1420,20 @@ export function createFakeService(): FakeService {
           purpose: 'Detecta rostros para smart reframe.',
           bytes: 1_209_904,
           downloaded: true,
-          license: { id: 'bsd-2-clause', detail: 'SeetaFace (BSD-2-Clause).', url: '' },
+          license: { id: 'bsd-2-clause', detail: 'SeetaFace (BSD-2-Clause).', url: ''},
           sourceUrl: 'https://github.com/seetaface/SeetaFaceEngine',
         },
       ];
     },
     async downloadModel(id: string) {
-      if (id === 'seeta-face') {
+      if (id ==='seeta-face') {
         return {
           id,
           capability: 'face-detection',
           purpose: 'Detecta rostros para smart reframe.',
           bytes: 1_209_904,
           downloaded: true,
-          license: { id: 'bsd-2-clause', detail: 'SeetaFace (BSD-2-Clause).', url: '' },
+          license: { id: 'bsd-2-clause', detail: 'SeetaFace (BSD-2-Clause).', url: ''},
           sourceUrl: 'https://github.com/seetaface/SeetaFaceEngine',
         };
       }
@@ -1431,12 +1443,12 @@ export function createFakeService(): FakeService {
         purpose: 'Recorta el sujeto de una foto generando su recorte con transparencia.',
         bytes: 4_574_861,
         downloaded: true,
-        license: { id: 'apache-2.0', detail: 'Pesos de U²-Net (Apache-2.0).', url: '' },
+        license: { id: 'apache-2.0', detail: 'Pesos de U²-Net (Apache-2.0).', url: ''},
         sourceUrl: 'https://github.com/danielgatis/rembg',
       };
     },
     async deleteModel(id: string) {
-      return id === 'u2netp';
+      return id ==='u2netp';
     },
     async listCapabilities() {
       return [
@@ -1471,7 +1483,7 @@ export function createFakeService(): FakeService {
     },
     async upscaleImage(inputPath: string) {
       return {
-        path: inputPath.replace(/\.[^.]+$/, '-x4.png'),
+        path: inputPath.replace(/\.[^.]+$/,'-x4.png'),
         inputWidth: 128,
         inputHeight: 128,
         outputWidth: 512,
@@ -1481,19 +1493,19 @@ export function createFakeService(): FakeService {
     },
     async removeBackground(inputPath: string) {
       return {
-        path: inputPath.replace(/\.[^.]+$/, '-sin-fondo.png'),
+        path: inputPath.replace(/\.[^.]+$/,'-sin-fondo.png'),
         width: 1920,
         height: 1080,
       };
     },
     async removeBackgroundAsset(request) {
-      if (request.kind === 'video') {
+      if (request.kind ==='video') {
         return readyAsset({
           label: 'Toma sin fondo (video)',
           kind: 'video',
           source: {
             type: 'local',
-            path: request.path.replace(/\.[^.]+$/, '-sin-fondo.webm'),
+            path: request.path.replace(/\.[^.]+$/,'-sin-fondo.webm'),
           },
           media: {
             width: 1920,
@@ -1509,7 +1521,7 @@ export function createFakeService(): FakeService {
         kind: 'image',
         source: {
           type: 'local',
-          path: request.path.replace(/\.[^.]+$/, '-sin-fondo.png'),
+          path: request.path.replace(/\.[^.]+$/,'-sin-fondo.png'),
         },
         media: { width: 1920, height: 1080 },
       });
@@ -1529,10 +1541,10 @@ export function createFakeService(): FakeService {
       return readyAsset({
         label: request.label,
         kind: 'video',
-        source: { type: 'local', path: `media/${request.label}.webm` },
+        source: { type: 'local', path: `media/${request.label}.webm`},
         status: 'unverified',
         rights: {
-          license: { id: 'unknown', commercialUse: 'unknown' },
+          license: { id: 'unknown', commercialUse: 'unknown'},
           provenance: { origin: 'generated-locally', acquiredAt: NOW },
         },
         media: {
@@ -1546,9 +1558,9 @@ export function createFakeService(): FakeService {
     },
     async discardAlphaFrames() {},
     async denoiseMedia(request) {
-      const extension = request.mode === 'image' ? 'png' : 'mp4';
+      const extension = request.mode ==='image'? 'png': 'mp4';
       return {
-        path: request.inputPath.replace(/\.[^.]+$/, `-denoise.${extension}`),
+        path: request.inputPath.replace(/\.[^.]+$/,`-denoise.${extension}`),
         bytes: 1_500_000,
         sourceBytes: 2_000_000,
         filter: 'hqdn3d=2.50:1.80:6.00:4.00',
@@ -1562,9 +1574,9 @@ export function createFakeService(): FakeService {
     },
     async sharpenMedia(request) {
       calls.sharpenRenders += 1;
-      const extension = request.mode === 'image' ? 'png' : 'mp4';
+      const extension = request.mode ==='image'? 'png': 'mp4';
       return {
-        path: request.inputPath.replace(/\.[^.]+$/, `-definicion.${extension}`),
+        path: request.inputPath.replace(/\.[^.]+$/,`-definicion.${extension}`),
         bytes: 1_800_000,
         sourceBytes: 2_000_000,
         filter:
@@ -1588,7 +1600,7 @@ export function createFakeService(): FakeService {
         bytes: 2_500_000,
         durationSeconds: 4.2,
         preset,
-        effects: ['denoise', 'dehum', 'deesser', 'compressor', 'limiter'],
+        effects: ['denoise','dehum','deesser','compressor','limiter'],
       };
     },
     async onDialogueProgress() {
@@ -1664,7 +1676,7 @@ export function createFakeService(): FakeService {
       const asset = readyAsset({
         id: newId(),
         label: 'Toma importada',
-        source: { type: 'local', path: 'media/toma.mp4' },
+        source: { type: 'local', path: 'media/toma.mp4'},
       });
       const trackId = newId();
       return {
@@ -1674,7 +1686,7 @@ export function createFakeService(): FakeService {
         tracks: [
           {
             id: trackId,
-            kind: 'video' as const,
+            kind: 'video'as const,
             label: 'V1 · EDL',
             order: 0,
             muted: false,
@@ -1689,9 +1701,9 @@ export function createFakeService(): FakeService {
             label: 'Toma importada',
             startFrame: 0,
             durationFrames: 60,
-            kind: 'video' as const,
+            kind: 'video'as const,
             source: {
-              type: 'asset' as const,
+              type: 'asset'as const,
               assetId: asset.id,
               inFrame: 0,
               outFrame: 60,
@@ -1718,12 +1730,12 @@ export function createFakeService(): FakeService {
     async generateMotion(request) {
       const text = request.brief.slice(0, 60);
       const props =
-        request.templateId === 'lower-third'
-          ? { name: text, role: 'Olyvia', accent: '#7dd3c0', side: 'left', animation: 'slide-left' }
-          : request.templateId === 'end-card'
-            ? { title: text, cta: 'Suscribite', background: '#0f172a', accent: '#7dd3c0', animation: 'fade' }
-            : request.templateId === 'stat-callout'
-              ? { value: '+120%', label: text, accent: '#7dd3c0', animation: 'pop' }
+        request.templateId ==='lower-third'
+          ? { name: text, role: 'Olyvia', accent: '#7dd3c0', side: 'left', animation: 'slide-left'}
+          : request.templateId ==='end-card'
+            ? { title: text, cta: 'Suscribite', background: '#0f172a', accent: '#7dd3c0', animation: 'fade'}
+            : request.templateId ==='stat-callout'
+              ? { value: '+120%', label: text, accent: '#7dd3c0', animation: 'pop'}
               : {
                   title: text,
                   subtitle: 'Generado localmente',
@@ -1741,12 +1753,12 @@ export function createFakeService(): FakeService {
       };
     },
     async assistantChat(request) {
-      const last = [...request.messages].reverse().find((message) => message.role === 'user');
+      const last = [...request.messages].reverse().find((message) => message.role ==='user');
       const text = last?.content.toLowerCase() ?? '';
       if (text.includes('editor')) {
         return {
           reply: 'Abriendo el editor.',
-          action: { kind: 'navigate', view: 'editor' },
+          action: { kind: 'navigate', view: 'editor'},
           providerId: 'mock',
           model: 'mock',
           simulated: true,
@@ -1755,7 +1767,7 @@ export function createFakeService(): FakeService {
       if (text.includes('estado')) {
         return {
           reply: 'Te muestro el estado del proyecto.',
-          action: { kind: 'status' },
+          action: { kind: 'status'},
           providerId: 'mock',
           model: 'mock',
           simulated: true,
@@ -1780,7 +1792,7 @@ export function createFakeService(): FakeService {
     async translateSubtitles(request) {
       return {
         texts: request.texts.map(
-          (text) => `${request.targetLanguage.toUpperCase()}: ${text}`,
+          (text) =>`${request.targetLanguage.toUpperCase()}: ${text}`,
         ),
         providerId: 'mock',
         model: 'simulado',
@@ -1846,7 +1858,7 @@ export function createFakeService(): FakeService {
         width: 1080,
         height: 1920,
         durationSeconds: request.endSeconds - request.startSeconds,
-        reframe: request.smartReframe ? 'smart' : 'center',
+        reframe: request.smartReframe ? 'smart': 'center',
         facesDetected: request.smartReframe ? 8 : 0,
       };
     },
@@ -1880,7 +1892,7 @@ export function createFakeService(): FakeService {
     async chooseImageFile(title?: string) {
       // El arnés devuelve una ruta fija; el test que necesite otra la pisa.
       void title;
-      return 'C:////media////foto.png';
+      return'C:////media////foto.png';
     },
     absoluteFileUrl(path: string) {
       return THUMB;
@@ -1930,13 +1942,80 @@ export function createFakeService(): FakeService {
       };
     },
     async voiceIsolationStatus() {
-      return { available: false, python: null, reason: 'fake service' };
+      return { available: false, python: null, reason: 'fake service'};
     },
     async voiceIsolateMedia() {
       throw new Error('voice isolation no disponible en el servicio de prueba');
     },
     async voiceIsolationPrepare() {
       throw new Error('voice isolation no disponible en el servicio de prueba');
+    },
+    async flowBrowserStatus() {
+      return {
+        browser: null,
+        browserName: null,
+        running: false,
+        port: null,
+        cdpUrl: null,
+        profileDir: 'C:\\fake\\flow-browser-profile',
+        reason: null,
+      };
+    },
+    async flowBrowserLaunch() {
+      throw new Error('navegador no disponible en el servicio de prueba');
+    },
+    async flowBrowserStop() {
+      return false;
+    },
+    async flowEmbedStatus() {
+      return { open: false, url: null, cdpUrl: null };
+    },
+    async flowEmbedOpen() {
+      return {
+        open: true,
+        url: 'https://flow.google.com',
+        cdpUrl: 'http://127.0.0.1:19223',
+      };
+    },
+    async flowEmbedClose() {
+      return false;
+    },
+    async flowEmbedNav() {
+      return true;
+    },
+    async flowEmbedEval() {
+      return 'null';
+    },
+    async webSessionsStatus() {
+      return {
+        sessions: [
+          {
+            name: 'flow',
+            url: 'https://flow.google.com',
+            cdpUrl: 'http://127.0.0.1:19223',
+          },
+        ],
+      };
+    },
+    async webSessionOpen() {
+      return {
+        sessions: [
+          {
+            name: 'flow',
+            url: 'https://flow.google.com',
+            cdpUrl: 'http://127.0.0.1:19223',
+          },
+        ],
+      };
+    },
+    async webSessionClose() {
+      return true;
+    },
+    async webSessionNav() {
+      return true;
+    },
+    async webSessionEval() {
+      return 'null';
     },
     async systemInfo(): Promise<SystemInfo> {
       return {
@@ -2026,7 +2105,7 @@ export function createFakeService(): FakeService {
       return;
     },
     async savePublicationManifest() {
-      return 'C:\\Users\\tester\\Proyectos\\publicacion.json';
+      return'C:\\Users\\tester\\Proyectos\\publicacion.json';
     },
     async generateScript(request: GenerateScriptRequest): Promise<ScriptPlan> {
       return {
@@ -2040,7 +2119,7 @@ export function createFakeService(): FakeService {
           id: newId(),
           order: index,
           title: `Escena ${index + 1}`,
-          intent: index === 0 ? 'hook' : 'explainer',
+          intent: index === 0 ? 'hook': 'explainer',
           narration: `Narración de la escena ${index + 1}.`,
           visual: 'Plano de apoyo.',
           estimatedSeconds: 8,
@@ -2049,24 +2128,24 @@ export function createFakeService(): FakeService {
     },
     async listVoices(): Promise<VoiceInfo[]> {
       return [
-        { id: 'Microsoft Helena', name: 'Microsoft Helena', culture: 'es-ES', gender: 'Female' },
-        { id: 'Microsoft Sabina', name: 'Microsoft Sabina', culture: 'es-MX', gender: 'Female' },
-        { id: 'Microsoft Zira', name: 'Microsoft Zira', culture: 'en-US', gender: 'Female' },
+        { id: 'Microsoft Helena', name: 'Microsoft Helena', culture: 'es-ES', gender: 'Female'},
+        { id: 'Microsoft Sabina', name: 'Microsoft Sabina', culture: 'es-MX', gender: 'Female'},
+        { id: 'Microsoft Zira', name: 'Microsoft Zira', culture: 'en-US', gender: 'Female'},
       ];
     },
     async synthesizeNarration(): Promise<NarrationResult> {
-      return { asset: unverifiedAudioAsset(), voice: 'Microsoft Helena', provider: 'windows-sapi' };
+      return { asset: unverifiedAudioAsset(), voice: 'Microsoft Helena', provider: 'windows-sapi'};
     },
     async startRender(): Promise<RenderStarted> {
       calls.render += 1;
-      return { jobId: 'job-1', profileName: 'YouTube 1080p' };
+      return { jobId: 'job-1', profileName: 'YouTube 1080p'};
     },
     async startRenderTo(_profileId: string, outputPath: string): Promise<RenderStarted> {
       calls.render += 1;
-      return { jobId: `job-${calls.render}`, profileName: outputPath.split(/[\\/]/).pop() ?? 'lote' };
+      return { jobId: `job-${calls.render}`, profileName: outputPath.split(/[\\/]/).pop() ?? 'lote'};
     },
     async chooseExportDirectory() {
-      return 'C:\\Users\\tester\\Exports';
+      return'C:\\Users\\tester\\Exports';
     },
     async cancelRender() {
       return;
@@ -2087,12 +2166,12 @@ export function createFakeService(): FakeService {
     },
     mediaUrl(_root, relative) {
       if (relative.endsWith('.wav') || relative.endsWith('.mp3') || relative.endsWith('.aac') || relative.endsWith('.ogg')) {
-        return 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+        return'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
       }
-      return '/editor_preview.jpg';
+      return'/editor_preview.jpg';
     },
     joinPath(root, relative) {
-      return `${root}\\${relative.replace(/\//g, '\\')}`;
+      return`${root}\\${relative.replace(/\//g,'\\')}`;
     },
     emitProgress(event) {
       for (const handler of progressHandlers) handler(event);

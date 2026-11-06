@@ -70,6 +70,16 @@ export interface FsFileContent {
   readonly content: string;
 }
 
+export interface FsWriteResult {
+  readonly path: string;
+  readonly bytes: number;
+}
+
+export interface FsDeleteResult {
+  readonly path: string;
+  readonly recursive: boolean;
+}
+
 export interface ExecutableInfo {
   readonly available: boolean;
   readonly path: string | null;
@@ -1603,6 +1613,32 @@ export interface VoiceIsolationOutcome {
   readonly cached: boolean;
 }
 
+export interface FlowBrowserStatus {
+  readonly browser: string | null;
+  readonly browserName: string | null;
+  readonly running: boolean;
+  readonly port: number | null;
+  readonly cdpUrl: string | null;
+  readonly profileDir: string;
+  readonly reason: string | null;
+}
+
+export interface FlowEmbedStatus {
+  readonly open: boolean;
+  readonly url: string | null;
+  readonly cdpUrl: string | null;
+}
+
+export interface WebSessionInfo {
+  readonly name: string;
+  readonly url: string | null;
+  readonly cdpUrl: string | null;
+}
+
+export interface WebSessionsStatus {
+  readonly sessions: readonly WebSessionInfo[];
+}
+
 export interface MatchMediaPlanResult {
   readonly assignments: readonly number[];
   readonly model: string;
@@ -2066,6 +2102,14 @@ export interface DesktopService {
   listDirectory(path: string): Promise<FsListing>;
   /** Lee un archivo de texto acotado (512 KiB máx). */
   readTextFile(path: string): Promise<FsFileContent>;
+  /** Escribe texto en un archivo del disco (crea carpetas padre). Tope 10 MiB. */
+  writeTextFile(path: string, content: string): Promise<FsWriteResult>;
+  /** Crea una carpeta en el disco (padres incluidos por defecto). */
+  makeDirectory(path: string, recursive?: boolean): Promise<FsWriteResult>;
+  /** Borra un archivo o carpeta del disco; carpetas con contenido exigen recursive=true. */
+  deletePath(path: string, recursive?: boolean): Promise<FsDeleteResult>;
+  /** Mueve o renombra un archivo/carpeta del disco (el destino no debe existir). */
+  movePath(from: string, to: string): Promise<FsWriteResult>;
   matchMediaPlan(input: {
     sentences: readonly string[];
     images: readonly string[];
@@ -2367,6 +2411,19 @@ export interface DesktopService {
     quality?: string,
     force?: boolean,
   ): Promise<VoiceIsolationOutcome>;
+  flowBrowserStatus(): Promise<FlowBrowserStatus>;
+  flowBrowserLaunch(url?: string): Promise<FlowBrowserStatus>;
+  flowBrowserStop(): Promise<boolean>;
+  flowEmbedStatus(): Promise<FlowEmbedStatus>;
+  flowEmbedOpen(url?: string): Promise<FlowEmbedStatus>;
+  flowEmbedClose(): Promise<boolean>;
+  flowEmbedNav(direction: 'back' | 'forward' | 'reload'): Promise<boolean>;
+  flowEmbedEval(js: string): Promise<string>;
+  webSessionsStatus(): Promise<WebSessionsStatus>;
+  webSessionOpen(url: string, slot?: string): Promise<WebSessionsStatus>;
+  webSessionClose(slot?: string): Promise<boolean>;
+  webSessionNav(direction: 'back' | 'forward' | 'reload', slot?: string): Promise<boolean>;
+  webSessionEval(js: string, slot?: string): Promise<string>;
   systemInfo(): Promise<SystemInfo>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
@@ -2521,6 +2578,10 @@ export const PROJECT_COMMANDS = {
   listMediaFolder: 'list_media_folder',
   fsList: 'fs_list',
   fsRead: 'fs_read',
+  fsWrite: 'fs_write',
+  fsMkdir: 'fs_mkdir',
+  fsDelete: 'fs_delete',
+  fsMove: 'fs_move',
   matchMediaPlan: 'match_media_plan',
   analyzeImages: 'analyze_images',
   analyzeMediaFrames: 'analyze_media_frames',
@@ -2668,6 +2729,19 @@ export const PROJECT_COMMANDS = {
   voiceIsolationStatus: 'voice_isolation_status',
   voiceIsolateMedia: 'voice_isolate_media',
   voiceIsolationPrepare: 'prepare_voice_isolation',
+  flowBrowserStatus: 'flow_browser_status',
+  flowBrowserLaunch: 'flow_browser_launch',
+  flowBrowserStop: 'flow_browser_stop',
+  flowEmbedStatus: 'flow_embed_status',
+  flowEmbedOpen: 'flow_embed_open',
+  flowEmbedClose: 'flow_embed_close',
+  flowEmbedNav: 'flow_embed_nav',
+  flowEmbedEval: 'flow_embed_eval',
+  webSessionsStatus: 'web_sessions_status',
+  webSessionOpen: 'web_session_open',
+  webSessionClose: 'web_session_close',
+  webSessionNav: 'web_session_nav',
+  webSessionEval: 'web_session_eval',
   systemInfo: 'system_info',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
@@ -3032,6 +3106,46 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         bytes: Number(raw.bytes ?? 0),
         truncated: raw.truncated === true,
         content: typeof raw.content === 'string' ? raw.content : '',
+      };
+    },
+    async writeTextFile(path, content) {
+      const raw = (await call(PROJECT_COMMANDS.fsWrite, { path, content })) as {
+        path?: unknown;
+        bytes?: unknown;
+      };
+      return {
+        path: typeof raw.path === 'string' ? raw.path : path,
+        bytes: Number(raw.bytes ?? 0),
+      };
+    },
+    async makeDirectory(path, recursive) {
+      const raw = (await call(PROJECT_COMMANDS.fsMkdir, {
+        path,
+        recursive: recursive ?? null,
+      })) as { path?: unknown };
+      return {
+        path: typeof raw.path === 'string' ? raw.path : path,
+        bytes: 0,
+      };
+    },
+    async movePath(from, to) {
+      const raw = (await call(PROJECT_COMMANDS.fsMove, { from, to })) as {
+        path?: unknown;
+        bytes?: unknown;
+      };
+      return {
+        path: typeof raw.path === 'string' ? raw.path : to,
+        bytes: Number(raw.bytes ?? 0),
+      };
+    },
+    async deletePath(path, recursive) {
+      const raw = (await call(PROJECT_COMMANDS.fsDelete, {
+        path,
+        recursive: recursive ?? null,
+      })) as { path?: unknown; recursive?: unknown };
+      return {
+        path: typeof raw.path === 'string' ? raw.path : path,
+        recursive: raw.recursive === true,
       };
     },
     async importLut() {
@@ -3898,6 +4012,62 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         cached: raw.cached ?? false,
       };
     },
+    async flowBrowserStatus() {
+      return (await call(PROJECT_COMMANDS.flowBrowserStatus)) as FlowBrowserStatus;
+    },
+    async flowBrowserLaunch(url) {
+      return (await call(PROJECT_COMMANDS.flowBrowserLaunch, {
+        url: url ?? null,
+      })) as FlowBrowserStatus;
+    },
+    async flowBrowserStop() {
+      return (await call(PROJECT_COMMANDS.flowBrowserStop)) as boolean;
+    },
+    async flowEmbedStatus() {
+      return (await call(PROJECT_COMMANDS.flowEmbedStatus)) as FlowEmbedStatus;
+    },
+    async flowEmbedOpen(url) {
+      return (await call(PROJECT_COMMANDS.flowEmbedOpen, {
+        url: url ?? null,
+      })) as FlowEmbedStatus;
+    },
+    async flowEmbedClose() {
+      return (await call(PROJECT_COMMANDS.flowEmbedClose)) as boolean;
+    },
+    async flowEmbedNav(direction) {
+      return (await call(PROJECT_COMMANDS.flowEmbedNav, {
+        direction,
+      })) as boolean;
+    },
+    async flowEmbedEval(js) {
+      return (await call(PROJECT_COMMANDS.flowEmbedEval, { js })) as string;
+    },
+    async webSessionsStatus() {
+      return (await call(PROJECT_COMMANDS.webSessionsStatus)) as WebSessionsStatus;
+    },
+    async webSessionOpen(url, slot) {
+      return (await call(PROJECT_COMMANDS.webSessionOpen, {
+        url,
+        slot: slot ?? null,
+      })) as WebSessionsStatus;
+    },
+    async webSessionClose(slot) {
+      return (await call(PROJECT_COMMANDS.webSessionClose, {
+        slot: slot ?? null,
+      })) as boolean;
+    },
+    async webSessionNav(direction, slot) {
+      return (await call(PROJECT_COMMANDS.webSessionNav, {
+        direction,
+        slot: slot ?? null,
+      })) as boolean;
+    },
+    async webSessionEval(js, slot) {
+      return (await call(PROJECT_COMMANDS.webSessionEval, {
+        js,
+        slot: slot ?? null,
+      })) as string;
+    },
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
     },
@@ -4148,6 +4318,10 @@ function createUnavailableService(): DesktopService {
     listMediaFolder: async () => unavailable(),
     listDirectory: async () => unavailable(),
     readTextFile: async () => unavailable(),
+    writeTextFile: async () => unavailable(),
+    makeDirectory: async () => unavailable(),
+    deletePath: async () => unavailable(),
+    movePath: async () => unavailable(),
     matchMediaPlan: async () => unavailable(),
     analyzeImages: async () => unavailable(),
     analyzeMediaFrames: async () => unavailable(),
@@ -4318,6 +4492,19 @@ function createUnavailableService(): DesktopService {
     voiceIsolationStatus: async () => unavailable(),
     voiceIsolateMedia: async () => unavailable(),
     voiceIsolationPrepare: async () => unavailable(),
+    flowBrowserStatus: async () => unavailable(),
+    flowBrowserLaunch: async () => unavailable(),
+    flowBrowserStop: async () => unavailable(),
+    flowEmbedStatus: async () => unavailable(),
+    flowEmbedOpen: async () => unavailable(),
+    flowEmbedClose: async () => unavailable(),
+    flowEmbedNav: async () => unavailable(),
+    flowEmbedEval: async () => unavailable(),
+    webSessionsStatus: async () => unavailable(),
+    webSessionOpen: async () => unavailable(),
+    webSessionClose: async () => unavailable(),
+    webSessionNav: async () => unavailable(),
+    webSessionEval: async () => unavailable(),
     systemInfo: async () => unavailable(),
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),

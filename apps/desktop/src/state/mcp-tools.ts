@@ -423,6 +423,38 @@ export async function executeMcpTool(
       });
     }
 
+    case 'fs_write': {
+      const written = await context.store.service.writeTextFile(
+        text(args, 'path'),
+        text(args, 'content'),
+      );
+      return JSON.stringify({ ok: true, ...written });
+    }
+
+    case 'fs_mkdir': {
+      const created = await context.store.service.makeDirectory(
+        text(args, 'path'),
+        optionalBoolean(args, 'recursive'),
+      );
+      return JSON.stringify({ ok: true, ...created });
+    }
+
+    case 'fs_delete': {
+      const removed = await context.store.service.deletePath(
+        text(args, 'path'),
+        optionalBoolean(args, 'recursive'),
+      );
+      return JSON.stringify({ ok: true, ...removed });
+    }
+
+    case 'fs_move': {
+      const moved = await context.store.service.movePath(
+        text(args, 'from'),
+        text(args, 'to'),
+      );
+      return JSON.stringify({ ok: true, ...moved });
+    }
+
     case 'voice_isolation_status': {
       const status = await context.store.service.voiceIsolationStatus();
       return JSON.stringify({ ok: true, ...status });
@@ -444,6 +476,68 @@ export async function executeMcpTool(
         optionalBoolean(args, 'force'),
       );
       return JSON.stringify({ ok: true, ...outcome });
+    }
+
+    case 'flow_browser_status': {
+      const status = await context.store.service.flowBrowserStatus();
+      return JSON.stringify({ ok: true, ...status });
+    }
+
+    case 'flow_browser_launch': {
+      const status = await context.store.service.flowBrowserLaunch(
+        optionalText(args, 'url'),
+      );
+      return JSON.stringify({ ok: true, ...status });
+    }
+
+    case 'flow_browser_stop': {
+      const stopped = await context.store.service.flowBrowserStop();
+      return JSON.stringify({ ok: true, stopped });
+    }
+
+    case 'flow_embed_status': {
+      const status = await context.store.service.flowEmbedStatus();
+      return JSON.stringify({ ok: true, ...status });
+    }
+
+    case 'web_sessions_status': {
+      const status = await context.store.service.webSessionsStatus();
+      return JSON.stringify({ ok: true, ...status });
+    }
+
+    case 'flow_embed_open': {
+      const status = await context.store.service.webSessionOpen(
+        optionalText(args, 'url') ?? 'https://flow.google.com',
+        optionalText(args, 'slot'),
+      );
+      return JSON.stringify({ ok: true, ...status });
+    }
+
+    case 'flow_embed_close': {
+      const closed = await context.store.service.webSessionClose(
+        optionalText(args, 'slot'),
+      );
+      return JSON.stringify({ ok: true, closed });
+    }
+
+    case 'flow_embed_nav': {
+      const direction = text(args, 'direction');
+      if (direction !== 'back' && direction !== 'forward' && direction !== 'reload') {
+        throw new Error('direction debe ser back, forward o reload');
+      }
+      const navigated = await context.store.service.webSessionNav(
+        direction,
+        optionalText(args, 'slot'),
+      );
+      return JSON.stringify({ ok: true, navigated });
+    }
+
+    case 'flow_embed_eval': {
+      const result = await context.store.service.webSessionEval(
+        text(args, 'js'),
+        optionalText(args, 'slot'),
+      );
+      return JSON.stringify({ ok: true, result });
     }
 
     case 'markers_list':

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import type {
+  FlowBrowserStatus,
+  FlowEmbedStatus,
   McpProbeResult,
   McpServerConfig,
   McpServerInfo,
@@ -213,6 +215,10 @@ export function McpView() {
   const [flowBusy, setFlowBusy] = useState(false);
   const [flowAccounts, setFlowAccounts] = useState<readonly FlowAccount[]>([]);
   const [flowProxies, setFlowProxies] = useState<Record<string, string>>({});
+  const [flowBrowser, setFlowBrowser] = useState<FlowBrowserStatus | null>(null);
+  const [flowEmbed, setFlowEmbed] = useState<FlowEmbedStatus | null>(null);
+  const [flowEmbedBusy, setFlowEmbedBusy] = useState(false);
+  const [flowBrowserBusy, setFlowBrowserBusy] = useState(false);
   const [flowAccountId, setFlowAccountId] = useState('');
   const [flowRotate, setFlowRotate] = useState(true);
   const [flowError, setFlowError] = useState<string | null>(null);
@@ -250,6 +256,80 @@ export function McpView() {
   useEffect(() => {
     void refreshOwnServer();
   }, [refreshOwnServer]);
+
+  const refreshFlowBrowser = useCallback(async () => {
+    try {
+      setFlowBrowser(await store.service.flowBrowserStatus());
+    } catch {
+      setFlowBrowser(null);
+    }
+  }, [store.service]);
+
+  useEffect(() => {
+    void refreshFlowBrowser();
+  }, [refreshFlowBrowser]);
+
+  const refreshFlowEmbed = useCallback(async () => {
+    try {
+      setFlowEmbed(await store.service.flowEmbedStatus());
+    } catch {
+      setFlowEmbed(null);
+    }
+  }, [store.service]);
+
+  useEffect(() => {
+    void refreshFlowEmbed();
+  }, [refreshFlowEmbed]);
+
+  async function toggleFlowEmbed(): Promise<void> {
+    setFlowEmbedBusy(true);
+    setError(null);
+    try {
+      if (flowEmbed?.open) {
+        await store.service.flowEmbedClose();
+        store.setNotice('Navegador embebido cerrado.');
+      } else {
+        const status = await store.service.flowEmbedOpen();
+        setFlowEmbed(status);
+        store.setNotice(
+          'Se abrió el navegador dentro de Olyvia. Iniciá sesión en Google una vez; la sesión queda guardada en el perfil de la app.',
+        );
+      }
+      await refreshFlowEmbed();
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : 'no se pudo abrir el navegador embebido',
+      );
+    } finally {
+      setFlowEmbedBusy(false);
+    }
+  }
+
+  async function toggleFlowBrowser(): Promise<void> {
+    setFlowBrowserBusy(true);
+    setError(null);
+    try {
+      if (flowBrowser?.running) {
+        await store.service.flowBrowserStop();
+        store.setNotice('Navegador dedicado cerrado.');
+      } else {
+        const status = await store.service.flowBrowserLaunch();
+        setFlowBrowser(status);
+        store.setNotice(
+          status.running
+            ? `Navegador dedicado activo en ${status.cdpUrl ?? 'CDP'}. Iniciá sesión en Google una vez; queda guardada en el perfil.`
+            : 'No se pudo levantar el navegador dedicado.',
+        );
+      }
+      await refreshFlowBrowser();
+    } catch (failure) {
+      setError(
+        failure instanceof Error ? failure.message : 'no se pudo manejar el navegador dedicado',
+      );
+    } finally {
+      setFlowBrowserBusy(false);
+    }
+  }
 
   async function startOwnServer(): Promise<void> {
     setOwnBusy(true);
@@ -360,6 +440,24 @@ export function McpView() {
       name: 'Google Flow MCP',
       command: 'node',
       argsText: 'C:////ruta////google-flow-mcp////dist////index.js',
+      envText: '',
+      workingDir: '',
+      enabled: true,
+    });
+    setFormError(null);
+  }
+
+  /**
+   * Preset de automatización: `@playwright/mcp` (Apache-2.0) enganchado al
+   * CDP del navegador embebido de Olyvia (puerto 19223 para la sesión Flow).
+   * npx lo descarga la primera vez; después queda en caché. Requiere la
+   * ventana embebida abierta (botón "Abrir Flow dentro de Olyvia").
+   */
+  function newPlaywrightPreset(): void {
+    setDraft({
+      name: 'Navegador IA (Playwright)',
+      command: 'npx',
+      argsText: '-y\n@playwright/mcp@0.0.84\n--cdp-endpoint\nhttp://127.0.0.1:19223',
       envText: '',
       workingDir: '',
       enabled: true,
@@ -751,6 +849,103 @@ export function McpView() {
         </div>
       ) : null}
 
+      <section className="card" aria-labelledby="flow-browser-title">
+        <div className="production-card-head">
+          <div>
+            <p className="eyebrow">Navegador para Flow</p>
+            <h3 id="flow-browser-title">Navegá y generá sin salir de Olyvia</h3>
+          </div>
+          <span
+            className={`status-pill ${flowEmbed?.open || flowBrowser?.running ? 'saved' : ''}`}
+          >
+            {flowEmbed?.open
+              ? 'Embebido abierto'
+              : flowBrowser?.running
+                ? 'Chrome activo'
+                : 'Cerrado'}
+          </span>
+        </div>
+        <p className="muted">
+          <strong>Dentro de la app:</strong> abre una ventana propia de Olyvia con el motor
+          Chromium (WebView2) en flow.google.com. Tu sesión de Google queda guardada en el
+          perfil de la app entre aperturas.
+        </p>
+        <div className="actions">
+          <button
+            type="button"
+            className={flowEmbed?.open ? 'ghost small' : 'primary small'}
+            onClick={() => void toggleFlowEmbed()}
+            disabled={flowEmbedBusy}
+          >
+            {flowEmbedBusy
+              ? 'Trabajando…'
+              : flowEmbed?.open
+                ? 'Cerrar navegador de Olyvia'
+                : 'Abrir Flow dentro de Olyvia'}
+          </button>
+          {flowEmbed?.open && flowEmbed.url ? (
+            <span className="path">{flowEmbed.url}</span>
+          ) : null}
+          {flowEmbed?.open && flowEmbed.cdpUrl ? (
+            <span className="fine-print" title="Endpoint CDP para que un agente (Playwright, MCP) controle la página">
+              CDP: {flowEmbed.cdpUrl}
+            </span>
+          ) : null}
+        </div>
+        <p className="muted" style={{ marginTop: '0.75rem' }}>
+          Si Google rechaza el inicio de sesión dentro de la app, la alternativa es un
+          Chrome real con perfil dedicado y depuración remota (CDP):
+        </p>
+        {flowBrowser ? (
+          <dl className="data-list">
+            <div>
+              <dt>Navegador</dt>
+              <dd>{flowBrowser.browserName ?? 'No encontrado'}</dd>
+            </div>
+            {flowBrowser.running && flowBrowser.cdpUrl ? (
+              <div>
+                <dt>CDP</dt>
+                <dd className="path">{flowBrowser.cdpUrl}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>Perfil</dt>
+              <dd className="path">{flowBrowser.profileDir}</dd>
+            </div>
+          </dl>
+        ) : null}
+        {!flowBrowser?.browser ? (
+          <p className="notice notice-warning" role="alert">
+            No se encontró Chrome ni Edge en el equipo.
+          </p>
+        ) : null}
+        <div className="actions">
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => void toggleFlowBrowser()}
+            disabled={flowBrowserBusy || !flowBrowser?.browser}
+          >
+            {flowBrowserBusy
+              ? 'Trabajando…'
+              : flowBrowser?.running
+                ? 'Cerrar Chrome dedicado'
+                : 'Usar Chrome dedicado (CDP)'}
+          </button>
+          <button
+            type="button"
+            className="ghost small"
+            onClick={() => {
+              void refreshFlowBrowser();
+              void refreshFlowEmbed();
+            }}
+            disabled={flowBrowserBusy || flowEmbedBusy}
+          >
+            Comprobar estado
+          </button>
+        </div>
+      </section>
+
       <section className="card" aria-labelledby="own-mcp-title">
         <div className="production-card-head">
           <div>
@@ -974,9 +1169,19 @@ export function McpView() {
             >
               <p className="eyebrow">{draft.id ? 'Editar servidor' : 'Nuevo servidor'}</p>
               {!draft.id ? (
-                <button type="button" className="small ghost" onClick={newFlowServer}>
-                  Preset: Google Flow
-                </button>
+                <div className="actions">
+                  <button type="button" className="small ghost" onClick={newFlowServer}>
+                    Preset: Google Flow
+                  </button>
+                  <button
+                    type="button"
+                    className="small ghost"
+                    onClick={newPlaywrightPreset}
+                    title="Automatización del navegador embebido vía CDP (Playwright MCP)"
+                  >
+                    Preset: Playwright (navegador IA)
+                  </button>
+                </div>
               ) : null}
               <div className="form-grid">
                 <label className="field">

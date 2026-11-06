@@ -309,6 +309,26 @@ pub fn run() {
             });
 
             reveal_after_ready(&handle);
+
+            // Hook de verificación: EDITORIA_OPEN_EMBED=1 abre el navegador
+            // embebido al arrancar (testing manual/automatizado, no UI).
+            if std::env::var("EDITORIA_OPEN_EMBED").is_ok() {
+                let embed_handle = handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    let url = std::env::var("EDITORIA_OPEN_EMBED_URL").ok();
+                    // Las ventanas WebView2 sólo se crean en el hilo principal.
+                    let inner = embed_handle.clone();
+                    let marker = std::env::temp_dir().join("olyvia-embed-test.txt");
+                    let _ = embed_handle.run_on_main_thread(move || {
+                        let result = commands::flow_embed::flow_embed_open(inner, url);
+                        let _ = std::fs::write(
+                            &marker,
+                            format!("{result:?}"),
+                        );
+                    });
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -471,6 +491,19 @@ pub fn run() {
             commands::voice_isolation::voice_isolation_status,
             commands::voice_isolation::voice_isolate_media,
             commands::voice_isolation::prepare_voice_isolation,
+            commands::flow_browser::flow_browser_status,
+            commands::flow_browser::flow_browser_launch,
+            commands::flow_browser::flow_browser_stop,
+            commands::flow_embed::flow_embed_status,
+            commands::flow_embed::flow_embed_open,
+            commands::flow_embed::flow_embed_close,
+            commands::flow_embed::flow_embed_nav,
+            commands::flow_embed::flow_embed_eval,
+            commands::flow_embed::web_sessions_status,
+            commands::flow_embed::web_session_open,
+            commands::flow_embed::web_session_close,
+            commands::flow_embed::web_session_nav,
+            commands::flow_embed::web_session_eval,
             commands::audio_providers::get_audio_provider,
             commands::audio_providers::save_audio_provider,
             commands::audio_providers::clear_audio_provider_key,
@@ -500,6 +533,10 @@ pub fn run() {
             commands::recovery::find_duplicate_assets,
             commands::files::fs_list,
             commands::files::fs_read,
+            commands::files::fs_write,
+            commands::files::fs_mkdir,
+            commands::files::fs_delete,
+            commands::files::fs_move,
         ])
         .build(tauri::generate_context!())
         .expect("Editor IA no pudo iniciar la ventana nativa");

@@ -1,13 +1,14 @@
-//! Exploración y lectura de archivos del disco.
+//! Exploración, lectura y escritura de archivos del disco.
 //!
-//! Estas dos primitivas son las que le permiten a la IA (vía MCP) *ver* la PC:
-//! `fs_list` muestra el contenido de una carpeta (carpetas primero, después
-//! archivos, con tipo y tamaño) y `fs_read` devuelve el texto de un archivo
-//! acotado. Son de sólo lectura y están pensadas para que el modelo descubra
-//! material antes de pedir `asset_import` o abrir un proyecto.
+//! `fs_list`/`fs_read` muestran el contenido de carpetas y archivos (la IA
+//! *ve* la PC); `fs_write`/`fs_mkdir`/`fs_delete` le dan poder de escritura
+//! real: crear scripts, subtítulos, JSON de proyecto, mover material de
+//! trabajo — cualquier archivo que el token MCP autorice.
 //!
-//! No hay escritura: modificar archivos del disco sigue siendo trabajo de los
-//! comandos de proyecto/exportación, que validan rutas y formatos.
+//! Límites deliberados: escritura de texto hasta `FS_WRITE_MAX_BYTES`,
+//! `fs_delete` exige `recursive` explícito para carpetas y rechaza rutas
+//! protegidas (raíz de unidad, perfil de usuario, Windows). Nunca se
+//! ejecuta el contenido escrito.
 
 use std::path::{Path, PathBuf};
 
@@ -21,6 +22,9 @@ const FS_LIST_MAX_ENTRIES: usize = 500;
 /// Tope de lectura: alcanza para subtítulos, proyectos `.editoria.json` y
 /// cualquier texto de trabajo; un binario grande no entra por esta puerta.
 const FS_READ_MAX_BYTES: u64 = 512 * 1024;
+/// Tope de escritura: alcanza para scripts, subtítulos, JSON y texto de
+/// trabajo; no para volcar videos/binarios por esta puerta.
+const FS_WRITE_MAX_BYTES: usize = 10 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +53,21 @@ pub struct FsFileContent {
     /// `true` cuando el archivo superaba el tope y el contenido viene cortado.
     pub truncated: bool,
     pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsWriteResult {
+    pub path: String,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FsDeleteResult {
+    pub path: String,
+    /// `true` cuando se borró una carpeta con todo su contenido.
+    pub recursive: bool,
 }
 
 const FS_IMAGE_EXTENSIONS: [&str; 9] = [
@@ -168,6 +187,134 @@ pub fn fs_read(path: String) -> Result<FsFileContent, ProjectError> {
     })
 }
 
+/// Rutas que `fs_delete` nunca toca: raíces de unidad, el perfil del usuario
+/// y carpetas críticas de Windows. La escritura (`fs_write`/`fs_mkdir`) sí
+/// puede crear dentro de ellas — es el trabajo normal de la IA.
+fn protected_delete_target(path: &Path) -> bool {
+    if path.parent().is_none() {
+        return true;
+    }
+    let text = path.to_string_lossy().replace('/', "\\").to_lowercase();
+    text.starts_with("c:\\windows")
+        || text.starts_with("c:\\program files")
+        || text.starts_with("c:\\programdata\\microsoft")
+        || text.starts_with("c:\\users\\public")
+}
+
+fn normalize_target(raw: &str) -> Result<PathBuf, ProjectError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(invalid("la ruta está vacía"));
+    }
+    let path = PathBuf::from(trimmed);
+    if path.as_os_str().is_empty() {
+        return Err(invalid("la ruta está vacía"));
+    }
+    Ok(path)
+}
+
+/// Escribe texto en un archivo creándolo si no existe (y sus carpetas
+/// padre). Sirve para guiones, subtítulos, JSON, configs — lo que la IA
+/// necesite dejar en disco.
+#[tauri::command]
+pub fn fs_write(path: String, content: String) -> Result<FsWriteResult, ProjectError> {
+    let target = normalize_target(&path)?;
+    if content.len() > FS_WRITE_MAX_BYTES {
+        return Err(invalid("el contenido supera el tope de escritura (10 MiB)"));
+    }
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|_| invalid("no se pudieron crear las carpetas padre"))?;
+        }
+    }
+    std::fs::write(&target, content.as_bytes())
+        .map_err(|_| invalid("no se pudo escribir el archivo"))?;
+    let bytes = target
+        .metadata()
+        .map(|meta| meta.len())
+        .unwrap_or(content.len() as u64);
+    Ok(FsWriteResult {
+        path: target.to_string_lossy().into_owned(),
+        bytes,
+    })
+}
+
+/// Crea una carpeta (con padres si `recursive`, por defecto true).
+#[tauri::command]
+pub fn fs_mkdir(path: String, recursive: Option<bool>) -> Result<FsWriteResult, ProjectError> {
+    let target = normalize_target(&path)?;
+    let recursive = recursive.unwrap_or(true);
+    if recursive {
+        std::fs::create_dir_all(&target)
+            .map_err(|_| invalid("no se pudo crear la carpeta"))?;
+    } else {
+        std::fs::create_dir(&target).map_err(|_| invalid("no se pudo crear la carpeta"))?;
+    }
+    Ok(FsWriteResult {
+        path: target.to_string_lossy().into_owned(),
+        bytes: 0,
+    })
+}
+
+/// Borra un archivo, o una carpeta vacía; para carpetas con contenido hay
+/// que pasar `recursive: true` explícitamente. Rechaza rutas protegidas.
+#[tauri::command]
+pub fn fs_delete(path: String, recursive: Option<bool>) -> Result<FsDeleteResult, ProjectError> {
+    let target = normalize_target(&path)?;
+    if protected_delete_target(&target) {
+        return Err(invalid("esa ruta está protegida y no se puede borrar"));
+    }
+    let recursive = recursive.unwrap_or(false);
+    if target.is_dir() {
+        if recursive {
+            std::fs::remove_dir_all(&target)
+                .map_err(|_| invalid("no se pudo borrar la carpeta"))?;
+        } else {
+            std::fs::remove_dir(&target)
+                .map_err(|_| invalid("la carpeta no está vacía: usá recursive=true"))?;
+        }
+    } else if target.exists() {
+        std::fs::remove_file(&target).map_err(|_| invalid("no se pudo borrar el archivo"))?;
+    } else {
+        return Err(invalid("la ruta no existe"));
+    }
+    Ok(FsDeleteResult {
+        path: target.to_string_lossy().into_owned(),
+        recursive,
+    })
+}
+
+/// Mueve o renombra un archivo/carpeta. El destino puede estar en otra
+/// carpeta; si existe, falla (no se sobrescribe sin querer).
+#[tauri::command]
+pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> {
+    let source = normalize_target(&from)?;
+    let target = normalize_target(&to)?;
+    if !source.exists() {
+        return Err(invalid("el origen no existe"));
+    }
+    if target.exists() {
+        return Err(invalid("el destino ya existe"));
+    }
+    if protected_delete_target(&target) {
+        return Err(invalid("el destino está en una ruta protegida"));
+    }
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|_| invalid("no se pudieron crear las carpetas padre"))?;
+        }
+    }
+    std::fs::rename(&source, &target).map_err(|_| {
+        invalid("no se pudo mover (¿cruzando unidades o permisos?)")
+    })?;
+    Ok(FsWriteResult {
+        path: target.to_string_lossy().into_owned(),
+        bytes: 0,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -226,5 +373,89 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         assert!(fs_read(dir.to_string_lossy().into_owned()).is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn fs_write_creates_parents_and_overwrites() {
+        let root = std::env::temp_dir().join(format!("olyvia-fs-write-{}", uuid::Uuid::new_v4()));
+        let file = root.join("sub").join("guion.txt");
+        let result = fs_write(
+            file.to_string_lossy().into_owned(),
+            "línea 1\nlínea 2".to_owned(),
+        )
+        .unwrap();
+        assert!(result.bytes > 0);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "línea 1\nlínea 2");
+        fs_write(file.to_string_lossy().into_owned(), "nuevo".to_owned()).unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "nuevo");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn fs_write_rejects_empty_path_and_oversized_content() {
+        assert!(fs_write("   ".to_owned(), "x".to_owned()).is_err());
+        let big = "x".repeat(FS_WRITE_MAX_BYTES + 1);
+        assert!(fs_write(
+            std::env::temp_dir()
+                .join(format!("olyvia-fs-big-{}.txt", uuid::Uuid::new_v4()))
+                .to_string_lossy()
+                .into_owned(),
+            big
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fs_mkdir_creates_nested_and_fs_delete_respects_recursive() {
+        let root = std::env::temp_dir().join(format!("olyvia-fs-del-{}", uuid::Uuid::new_v4()));
+        let nested = root.join("a").join("b");
+        fs_mkdir(nested.to_string_lossy().into_owned(), None).unwrap();
+        assert!(nested.is_dir());
+        // Carpeta no vacía sin recursive debe fallar.
+        std::fs::write(nested.join("f.txt"), "x").unwrap();
+        assert!(fs_delete(root.to_string_lossy().into_owned(), None).is_err());
+        let removed = fs_delete(root.to_string_lossy().into_owned(), Some(true)).unwrap();
+        assert!(removed.recursive);
+        assert!(!root.exists());
+    }
+
+    #[test]
+    fn fs_delete_rejects_protected_paths_and_missing() {
+        assert!(fs_delete("C:\\".to_owned(), None).is_err());
+        assert!(fs_delete("C:\\Windows".to_owned(), Some(true)).is_err());
+        assert!(fs_delete(
+            "C:\\no\\existe\\archivo-xyz.txt".to_owned(),
+            None
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fs_move_renames_and_relocates() {
+        let root = std::env::temp_dir().join(format!("olyvia-fs-move-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let from = root.join("viejo.txt");
+        let to = root.join("nuevo").join("renombrado.txt");
+        std::fs::write(&from, "datos").unwrap();
+        let moved = fs_move(
+            from.to_string_lossy().into_owned(),
+            to.to_string_lossy().into_owned(),
+        )
+        .unwrap();
+        assert!(!from.exists());
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "datos");
+        assert_eq!(moved.path, to.to_string_lossy());
+        // Destino existente falla.
+        assert!(fs_move(
+            to.to_string_lossy().into_owned(),
+            root.join("otro.txt").to_string_lossy().into_owned(),
+        )
+        .is_ok());
+        assert!(fs_move(
+            to.to_string_lossy().into_owned(),
+            root.join("otro.txt").to_string_lossy().into_owned(),
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

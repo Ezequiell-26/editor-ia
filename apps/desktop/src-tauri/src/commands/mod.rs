@@ -122,6 +122,8 @@ pub mod creator;
 pub mod denoise;
 pub mod dialogue;
 pub mod diarize;
+pub mod flow_browser;
+pub mod flow_embed;
 pub mod flow_profiles;
 pub mod lossless;
 pub mod plugins;
