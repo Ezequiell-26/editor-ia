@@ -144,16 +144,16 @@ class VoiceIsolationEngine:
         audio, sample_rate = self._load_audio(input_path)
         duration_seconds = len(audio) / sample_rate
 
-        # Demucs espera (channels, samples); separamos en mono para ahorrar
-        # memoria y duplicamos a estéreo al guardar.
-        mono = audio.mean(axis=1).astype(np.float32)
-        waveform = torch.from_numpy(mono).unsqueeze(0)
+        # Demucs espera (channels, samples) float32; htdemucs requiere
+        # estéreo, que es lo que ya decodifica ffmpeg. `separate_tensor`
+        # devuelve (wave_original, {stem: tensor}) y re-muestrea si hace falta.
+        waveform = torch.from_numpy(np.ascontiguousarray(audio.T)).float()
 
         print(
             f"[INFO] Separating {duration_seconds:.2f}s of audio on device...",
             file=sys.stderr,
         )
-        sources = self.separator.separate(waveform)
+        _, sources = self.separator.separate_tensor(waveform, sr=sample_rate)
         elapsed = time.perf_counter() - start
 
         stems: dict[str, np.ndarray] = {}
@@ -161,8 +161,8 @@ class VoiceIsolationEngine:
             array = tensor.detach().float().cpu().numpy()
             if array.ndim == 1:
                 array = array.reshape(1, -1)
-            # (channels, samples) -> (samples,) mono
-            stems[name] = array.mean(axis=0).astype(np.float32)
+            # (channels, samples) -> (samples, channels) conserva el estéreo.
+            stems[name] = np.ascontiguousarray(array.T).astype(np.float32)
         return stems, duration_seconds
 
     def isolate_vocals(
@@ -189,16 +189,15 @@ class VoiceIsolationEngine:
             if name != "vocals":
                 accompaniment += stem_audio
 
-        vocals_stereo = np.stack([vocals, vocals], axis=1)
-        accompaniment_stereo = np.stack([accompaniment, accompaniment], axis=1)
-
         vocals_path = output_dir / "vocals.wav"
         accompaniment_path = output_dir / "accompaniment.wav"
 
         print(f"[INFO] Saving vocals to {vocals_path}", file=sys.stderr)
-        sf.write(str(vocals_path), vocals_stereo, TARGET_SAMPLE_RATE)
+        sf.write(str(vocals_path), vocals, TARGET_SAMPLE_RATE)
         print(f"[INFO] Saving accompaniment to {accompaniment_path}", file=sys.stderr)
-        sf.write(str(accompaniment_path), accompaniment_stereo, TARGET_SAMPLE_RATE)
+        sf.write(str(accompaniment_path), accompaniment, TARGET_SAMPLE_RATE)
+
+        channels = int(vocals.shape[1]) if vocals.ndim == 2 else 1
 
         return {
             "input_path": str(input_path.absolute()),
@@ -208,7 +207,7 @@ class VoiceIsolationEngine:
             },
             "duration_seconds": float(duration_seconds),
             "sample_rate": TARGET_SAMPLE_RATE,
-            "channels": 2,
+            "channels": channels,
             "model_used": self.model_name,
             "quality": quality,
             "processing_time_ms": int((time.perf_counter() - start_time) * 1000),
@@ -227,8 +226,7 @@ class VoiceIsolationEngine:
         for name, stem_audio in stems.items():
             safe_name = "".join(c for c in name if c.isalnum() or c in "-_") or "stem"
             stem_path = output_dir / f"{safe_name}.wav"
-            stereo = np.stack([stem_audio, stem_audio], axis=1)
-            sf.write(str(stem_path), stereo, TARGET_SAMPLE_RATE)
+            sf.write(str(stem_path), stem_audio, TARGET_SAMPLE_RATE)
             output_files[name] = str(stem_path.absolute())
 
         return {

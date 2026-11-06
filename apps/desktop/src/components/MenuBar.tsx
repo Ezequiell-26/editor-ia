@@ -15,6 +15,7 @@ import { applyProjectTitleCard } from '../state/auto-title';
 import { useProjectPlaying, useProjectStore } from '../state/project-store';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
+import { LIVE_UPDATE_FEATURES, LiveUpdateFeatureList } from '../features/editor/FilmoraStates';
 
 type MenuId = 'file' | 'edit' | 'view' | 'playback' | 'tools' | 'help';
 
@@ -49,23 +50,71 @@ interface MenuBarProps {
   readonly onOpenTour?: () => void;
 }
 
-const NEWS_FEATURES: readonly string[] = [
-  'Timeline multicapa con cabezal y zoom reales',
-  'Exportación MP4 verificada y perfiles 16:9 / 9:16',
-  'Vista previa 1:1 y proxy de edición',
-  'Subtítulos, traducción y localización',
-  'Motion graphics y títulos con render local',
-  'Efectos, transiciones, filtros y capas de ajuste',
-  'Director local y edición automática',
-  'Servidores MCP y operador de IA local',
-  'Atajos de teclado y temas claro / oscuro',
-  'Información de proyecto y ruedas de color',
-  'Menús contextuales con muestras de color',
-];
+/** Disponibilidad real de cada entrada visible en la captura 99. Las que ya
+ *  existen en Editor IA permiten abrir su superficie; las demás se declaran
+ *  pendientes en lugar de simular que funcionan. */
+interface NewsAvailability {
+  readonly detail: string;
+  readonly view?: ViewId;
+  readonly pending?: boolean;
+}
+const NEWS_AVAILABILITY: Record<string, NewsAvailability> = {
+  'Seguimiento de cámara': {
+    detail: 'Seguimiento de objeto/cámara sobre la timeline. Requiere el motor de tracking; la estructura del inspector está preparada.',
+    pending: true,
+  },
+  'Máscara de color': {
+    detail: 'Pestaña del inspector con capas de gradación, Básico, HSL, Curvas, Ruedas cromáticas y HDR. Los controles tienen estado real de capa.',
+    view: 'editor',
+  },
+  'Recuadre de vídeo inteligente': {
+    detail: 'Reencuadre automático por sujeto. Editor IA ofrece variantes de formato 9:16 / 16:9 / 1:1 en el Creador.',
+    view: 'creator',
+  },
+  'Análisis multimedia con IA': {
+    detail: 'Análisis medido de clips, cortes con motivo y shorts. Disponible en el Director local y el Editor automático.',
+    view: 'director',
+  },
+  'Corrección inteligente de color': {
+    detail: 'Corrección automática asistida. Los ajustes manuales de Color y Máscara de color funcionan; el automático requiere motor de color.',
+    pending: true,
+  },
+  'Grabación de varias fuentes': {
+    detail: 'Captura multipantalla/multicámara con conmutación en vivo. La superficie Multicámara está preparada, la captura requiere backend.',
+    pending: true,
+  },
+  'Atajos de teclado': {
+    detail: 'Atajos configurables del estudio, disponibles desde el menú Ayuda y desde Ajustes.',
+    view: 'settings',
+  },
+  'Contenedor multimedia': {
+    detail: 'Biblioteca local de vídeo, imagen y audio con importación, metadatos y estados de verificación.',
+    view: 'assets',
+  },
+  'Exportación por lotes': {
+    detail: 'Cola de renders múltiples. La exportación individual verificada con FFmpeg funciona; el lote requiere integración.',
+    pending: true,
+  },
+  'Color automático': {
+    detail: 'Balance de blancos y color automáticos. Los controles manuales están activos; el cálculo automático requiere motor de color.',
+    pending: true,
+  },
+  'Animación combinada': {
+    detail: 'Presets de entrada, salida y combinados sobre el clip. Disponible en la pestaña Animación del inspector.',
+    view: 'editor',
+  },
+};
 
-function NewsDialog(): ReactNode {
+function NewsDialog({
+  onSelect,
+  onClose,
+}: {
+  readonly onSelect: (id: ViewId) => void;
+  readonly onClose: () => void;
+}): ReactNode {
   const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
   useEffect(() => {
     const timer = window.setTimeout(() => setLoading(false), 500);
     return () => window.clearTimeout(timer);
@@ -77,26 +126,59 @@ function NewsDialog(): ReactNode {
       </div>
     );
   }
+  const label = LIVE_UPDATE_FEATURES[index] ?? LIVE_UPDATE_FEATURES[0]!;
+  const availability = NEWS_AVAILABILITY[label];
   return (
-    <div className="app-modal-body news-dialog">
+    <div className="app-modal-body news-dialog fm-news-dialog">
       <p className="news-version">Novedades de Editor IA {CURRENT_APP_VERSION}</p>
-      <h3>{NEWS_FEATURES[index]}</h3>
-      <p className="news-detail">
-        Función disponible en esta instalación. Elegí «Siguiente función» para
-        recorrer las {NEWS_FEATURES.length} novedades reales del estudio.
-      </p>
-      <ol className="news-list">
-        {NEWS_FEATURES.map((item, i) => (
-          <li key={item} className={i === index ? 'active' : ''}>
-            <button type="button" onClick={() => setIndex(i)}>{item}</button>
-          </li>
-        ))}
-      </ol>
+      <div className="fm-news-layout">
+        <div className="fm-news-stage">
+          <div className="fm-news-art" aria-hidden="true">
+            <Icon name="sparkles" size={42} />
+            <span>{String(index + 1).padStart(2, '0')} / {LIVE_UPDATE_FEATURES.length}</span>
+          </div>
+          <h3>{label}</h3>
+          <p className="news-detail">{availability?.detail ?? ''}</p>
+          {availability?.pending ? (
+            <span className="fm-news-pending">
+              Estructura preparada · requiere integración de backend (pendiente)
+            </span>
+          ) : availability?.view ? (
+            <button
+              type="button"
+              className="small primary"
+              onClick={() => {
+                onSelect(availability.view!);
+                onClose();
+              }}
+            >
+              Abrir en Editor IA
+            </button>
+          ) : null}
+        </div>
+        <div className="fm-news-index">
+          <LiveUpdateFeatureList activeIndex={index} onSelect={setIndex} />
+        </div>
+      </div>
       <div className="news-actions">
-        <button type="button" className="small ghost" onClick={() => setIndex((i) => (i + 1) % NEWS_FEATURES.length)}>
+        <button type="button" className="small ghost" onClick={() => setShowHistory((value) => !value)}>
+          {showHistory ? 'Ocultar historial' : 'Ver historial de actualizaciones de versión'}
+        </button>
+        <button
+          type="button"
+          className="small ghost"
+          onClick={() => setIndex((i) => (i + 1) % LIVE_UPDATE_FEATURES.length)}
+        >
           Siguiente función
         </button>
       </div>
+      {showHistory ? (
+        <ol className="fm-news-history" aria-label="Historial de actualizaciones de versión">
+          <li><strong>Editor IA {CURRENT_APP_VERSION}</strong> · Máscara de color, rueda HDR y estados de la interfaz.</li>
+          <li><strong>Editor IA 0.2.0</strong> · Timeline multicapa, exportación verificada con FFmpeg y servicios locales.</li>
+          <li><strong>Editor IA 0.1.0</strong> · Proyectos, importación de medios y vista previa.</li>
+        </ol>
+      ) : null}
     </div>
   );
 }
@@ -985,7 +1067,7 @@ export function MenuBar({
               </button>
             </header>
             {modal === 'news' ? (
-              <NewsDialog />
+              <NewsDialog onSelect={onSelect} onClose={() => setModal(null)} />
             ) : modal === 'login' ? (
               <LoginDialog />
             ) : modal === 'critic' ? (

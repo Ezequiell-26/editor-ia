@@ -102,3 +102,16 @@ Verificación: `tsc --noEmit` 0 errores · `test:serial` **2024 passed /
   render (stem routing + fallback) · tsc 0 · mcp-tools 24/24 · py_compile OK.
 - Pendiente honesto: inferencia real no probada (requiere `pip install torch
   torchaudio demucs soundfile` + modelo ~2 GB); rebuild release en curso.
+
+## Voice isolation: inferencia real verificada (2026-11-05, noche)
+
+- Entorno: venv uv en `D:\Users\ofici\MCPs\Video-Editing\demucs-env`
+  (Python 3.11, torch 2.15, demucs 4.1.0). `EDITORIA_DEMUCS_PYTHON` apunta ahí
+  (setx persistente).
+- Wrapper corregido tras probarlo de verdad: `Separator.separate` no existe en
+  demucs 4.1 → ahora `separate_tensor(wav (channels,samples), sr)` que devuelve
+  (wave, {stem:tensor}); htdemucs exige estéreo → se alimenta el estéreo
+  decodificado por ffmpeg (antes se promediaba a mono y fallaba); stems se
+  guardan conservando canales.
+- Prueba real: wav 8s → vocals.wav + accompaniment.wav en ~9 s CPU (low),
+  ffprobe confirma pcm_s16le 44100Hz estéreo 8.0s. JSON calza con el parser Rust.

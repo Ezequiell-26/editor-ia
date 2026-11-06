@@ -40,6 +40,7 @@ import { buildProjectMotionPlans } from '../motion/plan';
 import { chooseExportProfile } from '../../state/render-profile';
 import { hasEmoji } from '../emoji/emoji';
 import { gpuRecommendation } from './gpu-policy';
+import { RenderSuccessCard } from './FilmoraStates';
 import {
   deleteExportPreset,
   loadExportPresets,
@@ -527,6 +528,15 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     // Depende del archivo terminado; no revalidar en cada render del diálogo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, finished?.outputPath, finished?.status, store.service]);
+
+  // Captura 97: la tarjeta de éxito y el botón «Abrir carpeta» comparten el
+  // mismo comando real del servicio (revealOutput); no se simula ningún éxito.
+  const revealFinishedOutput = (): void => {
+    if (!finished?.outputPath) return;
+    void store.service.revealOutput(finished.outputPath).catch((cause) => {
+      setError(cause instanceof Error ? cause.message : 'no se pudo abrir la carpeta');
+    });
+  };
 
   if (!open || !project) return null;
   const currentProject = project;
@@ -1493,6 +1503,10 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                 <div className={finished.status === 'completed' ? 'render-result success' : 'render-result'}>
                   {finished.status === 'completed' ? (
                     <>
+                      <RenderSuccessCard
+                        name={basename(finished.outputPath ?? '')}
+                        onOpenFolder={revealFinishedOutput}
+                      />
                       <strong>Render completado y verificado.</strong>
                       <p className="render-file">{basename(finished.outputPath ?? '')}</p>
                       <p>
@@ -1532,13 +1546,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         <button
                           type="button"
                           className="small"
-                          onClick={() => {
-                            if (finished.outputPath) {
-                              void store.service.revealOutput(finished.outputPath).catch((cause) => {
-                                setError(cause instanceof Error ? cause.message : 'no se pudo abrir la carpeta');
-                              });
-                            }
-                          }}
+                          onClick={revealFinishedOutput}
                         >
                           Abrir carpeta
                         </button>

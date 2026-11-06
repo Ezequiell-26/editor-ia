@@ -36,6 +36,10 @@ import './styles/premium/launcher.css';
 // no se repite: sus reglas usan la especificidad y !important necesarios
 // para ganar igual (verificado con SSIM 1.0 en 10 vistas).
 import './styles/filmora/filmora.css';
+// Estados/overlays de las capturas 93–128 que se añadieron después de la capa
+// base. Debe ir DESPUÉS de filmora.css: sus reglas complementan (no repiten)
+// la cascada y usan la misma especificidad `.app-shell … !important`.
+import './styles/filmora/filmora-states.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.

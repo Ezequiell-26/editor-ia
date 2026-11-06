@@ -110,6 +110,7 @@ import {
 import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
 import { InspectorSection as Section } from './InspectorSection';
+import { ColorMaskSections, HdrWheelsSection } from './ColorMaskSections';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
@@ -331,7 +332,7 @@ const MARKER_COLOR_LABELS: Record<MarkerColor, string> = {
   slate: 'Gris',
 };
 
-type ClipTab = 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'style' | 'all';
+type ClipTab = 'video' | 'audio' | 'speed' | 'trim' | 'animation' | 'color' | 'mask' | 'style' | 'all';
 
 /** Esquinas por defecto de la corrección de perspectiva: el cuadro completo. */
 const DEFAULT_PERSPECTIVE_CORNERS: [
@@ -468,7 +469,17 @@ const SUB_TABS: Record<ClipTab, readonly InspectorSubTab[]> = {
     { id: 'hsl', label: 'HSL' },
     { id: 'curves', label: 'Curvas' },
     { id: 'wheels', label: 'Ruedas cromáticas' },
-    { id: 'hdr', label: 'HDR', pending: true },
+    { id: 'hdr', label: 'HDR' },
+  ],
+  // Capturas 119–125: pestaña de primer nivel «Máscara de color». El botón
+  // «Añadir capa de gradación de color» se mantiene en las seis subpestañas.
+  mask: [
+    { id: 'layers', label: 'Capas' },
+    { id: 'basic', label: 'Básico' },
+    { id: 'hsl', label: 'HSL' },
+    { id: 'curves', label: 'Curvas' },
+    { id: 'wheels', label: 'Ruedas cromáticas' },
+    { id: 'hdr', label: 'HDR' },
   ],
   style: [
     { id: 'presets', label: 'Presets' },
@@ -484,6 +495,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const playheadFrame = usePlayheadFrame();
   const tabListRef = useRef<HTMLDivElement | null>(null);
   const [tabsMenuOpen, setTabsMenuOpen] = useState(false);
+  const [subTabsMenuOpen, setSubTabsMenuOpen] = useState(false);
   const [subTab, setSubTab] = useState('basic');
   const [tab, setTab] = useState<ClipTab>(
     clip.kind === 'audio' ? 'audio' : clip.kind === 'adjustment' ? 'color' : 'video',
@@ -491,6 +503,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   useEffect(() => {
     const first = SUB_TABS[tab].find((item) => !item.pending);
     setSubTab(first?.id ?? 'all');
+    setSubTabsMenuOpen(false);
   }, [tab]);
   const [sceneThreshold, setSceneThreshold] = useState(0.35);
   const [sceneCuts, setSceneCuts] = useState<number[]>([]);
@@ -1398,6 +1411,9 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
     ...(visual || isAdjustment
       ? [{ id: 'color' as const, label: isAdjustment ? 'Ajuste' : 'Color' }]
       : []),
+    ...(visual || isAdjustment
+      ? [{ id: 'mask' as const, label: 'Máscara de color' }]
+      : []),
     ...(visual ? [{ id: 'style' as const, label: 'Estilo' }] : []),
     { id: 'all', label: 'Todo' },
   ];
@@ -1518,6 +1534,53 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               {item.label}
             </button>
           ))}
+          {/* Captura 125: el desplegable «» lista TODAS las subpestañas,
+              incluida HDR cuando la barra está desplazada. Selecciona de
+              verdad y respeta las funciones aún pendientes. */}
+          <div
+            className="inspector-subtabs-overflow"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') setSubTabsMenuOpen(false);
+            }}
+          >
+            <button
+              type="button"
+              className="inspector-subtabs-more"
+              aria-label="Mostrar todas las subpestañas"
+              aria-haspopup="menu"
+              aria-expanded={subTabsMenuOpen}
+              title="Todas las subpestañas"
+              onClick={() => setSubTabsMenuOpen((value) => !value)}
+            >
+              <span aria-hidden="true">»</span>
+            </button>
+            {subTabsMenuOpen ? (
+              <div className="inspector-subtabs-menu" role="menu" aria-label="Subpestañas de propiedades">
+                {SUB_TABS[tab].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={subTab === item.id}
+                    disabled={item.pending}
+                    title={
+                      item.pending
+                        ? 'Estructura preparada · requiere integración de backend (pendiente)'
+                        : item.label
+                    }
+                    className={subTab === item.id ? 'active' : ''}
+                    onClick={() => {
+                      setSubTab(item.id);
+                      setSubTabsMenuOpen(false);
+                    }}
+                  >
+                    <span>{item.label}</span>
+                    {subTab === item.id ? <Icon name="check" size={11} /> : null}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
         </div>
       ) : null}
       <div
@@ -1526,6 +1589,16 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         aria-labelledby={`inspector-tab-${tab}`}
         className="inspector-tabpanel"
       >
+      {/* Capturas 119–125: la pestaña «Máscara de color» sustituye el cuerpo
+          estándar por sus propias secciones (Capas / Básico / HSL / Curvas /
+          Ruedas cromáticas / HDR). El resto de pestañas conserva intacta toda
+          la lógica original del inspector. */}
+      {tab === 'mask' ? (
+        <div className="fm-mask-root" data-group="mask">
+          <ColorMaskSections activeLayer={clip.label ?? 'Clip'} />
+        </div>
+      ) : (
+        <>
       <Section title="Clip">
         <TextField
           label="Nombre"
@@ -4595,6 +4668,11 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           {beatInfo ? <p className="fine-print">{beatInfo}</p> : null}
         </Section>
       ) : null}
+      {/* Captura 124/125 compartida: la subpestaña HDR de «Color» también
+          muestra la rueda cromática HDR 2×2, ya no queda deshabilitada. */}
+      {tab === 'color' ? <HdrWheelsSection group="color" subtab="hdr" /> : null}
+        </>
+      )}
       </div>
     </div>
   );

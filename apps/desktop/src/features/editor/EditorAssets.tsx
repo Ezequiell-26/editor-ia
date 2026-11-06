@@ -25,6 +25,7 @@ import { useProjectStore } from '../../state/project-store';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
 import { ProxyToolsPanel } from './ProxyToolsPanel';
+import { SPLIT_SCREEN_TEMPLATES, SplitScreenTemplates } from './FilmoraStates';
 
 type AssetFilter = AssetKindFilter;
 
@@ -36,7 +37,8 @@ export type RailView =
   | 'effects'
   | 'transitions'
   | 'filters'
-  | 'adjustments';
+  | 'adjustments'
+  | 'templates';
 
 /** Barra de herramientas CapCut Pro: iconos y pestañas de creación y edición. */
 const RAIL_VIEWS: readonly { readonly id: RailView; readonly label: string; readonly icon: IconName }[] = [
@@ -48,6 +50,7 @@ const RAIL_VIEWS: readonly { readonly id: RailView; readonly label: string; read
   { id: 'transitions', label: 'Transiciones', icon: 'refresh' },
   { id: 'filters', label: 'Filtros', icon: 'filters' },
   { id: 'adjustments', label: 'Ajustes', icon: 'layers' },
+  { id: 'templates', label: 'Plantillas', icon: 'grid' },
 ];
 
 /** Biblioteca de stickers estilo CapCut */
@@ -251,6 +254,22 @@ const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
       ],
     },
   ],
+  // Capturas 114–117: árbol «Plantilla» con el grupo «Split Screen». Las
+  // entradas de diseño/colección siguen la convención de pendiente de backend.
+  templates: [
+    {
+      label: 'Plantilla',
+      items: [
+        { id: 'all', label: 'Todas las plantillas' },
+        { id: 'variants', label: 'Diseño de variantes', pending: true },
+        { id: 'collections', label: 'Selecciones de colección', pending: true },
+      ],
+    },
+    {
+      label: 'Split Screen',
+      items: [{ id: 'split', label: 'Pantalla dividida' }],
+    },
+  ],
 };
 
 function effectMatchesSetting(preset: (typeof EFFECT_PRESETS)[number], id: string): boolean {
@@ -349,6 +368,10 @@ const FACETS: Record<RailView, readonly RailFacet[]> = {
     { id: 'all', label: 'Capas de ajuste' },
     { id: 'wheels', label: 'Ruedas cromáticas' },
     { id: 'hdr', label: 'HDR' },
+  ],
+  templates: [
+    { id: 'basic', label: 'BÁSICO' },
+    { id: 'split', label: 'Split Screen' },
   ],
 };
 
@@ -714,6 +737,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [typesOpen, setTypesOpen] = useState(true);
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [view, setView] = useState<RailView>('media');
+  const [splitTemplate, setSplitTemplate] = useState<string | null>(null);
   const [treeFilter, setTreeFilter] = useState('all');
   const [facet, setFacet] = useState('files');
   const [titleText, setTitleText] = useState('Tu título aquí');
@@ -794,6 +818,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
       : view === 'titles' ? visibleTemplates.length
       : view === 'stickers' ? visibleStickers.length
       : view === 'audio' ? SFX_PRESETS.length + counts.audio
+      : view === 'templates' ? SPLIT_SCREEN_TEMPLATES.length
       : visibleAssets.length;
 
   if (!project) return null;
@@ -1205,7 +1230,9 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
                         ? TRANSITION_PRESETS.length
                         : view === 'filters'
                           ? COLOR_LOOKS.length
-                          : 'Ajuste'}
+                          : view === 'templates'
+                            ? SPLIT_SCREEN_TEMPLATES.length
+                            : 'Ajuste'}
           </strong>
         </div>
         {isMediaView ? (
@@ -1431,6 +1458,16 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
               </button>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {/* ─── VISTA: PLANTILLAS / SPLIT SCREEN (capturas 114–117) ─── */}
+      {view === 'templates' ? (
+        <div className="rail-presets fm-rail-templates">
+          <SplitScreenTemplates
+            selectedId={splitTemplate}
+            onSelect={(template) => setSplitTemplate(template.id)}
+          />
         </div>
       ) : null}
 
