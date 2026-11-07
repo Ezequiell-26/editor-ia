@@ -191,8 +191,8 @@ describe('shell de Olyvia', () => {
     await createProject('Obra descarga');
     await nav('Descargar');
     const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('Motor de descargas'));
-    await waitFor(() => expect(main.textContent).toContain('Copiar conexión'));
+    await waitFor(() => expect(main.textContent).toContain('Motor de descargas'), { timeout: 5000 });
+    await waitFor(() => expect(main.textContent).toContain('Copiar conexión'), { timeout: 5000 });
     const url = within(main).getByRole('textbox', { name: /URL para descargar/i });
     fireEvent.change(url, { target: { value: 'https://example.com/video' } });
     fireEvent.click(within(main).getByRole('button', { name: /Analizar/i }));

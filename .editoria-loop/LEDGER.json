@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T17:12:22.708Z"
+    "lastPassAt": "2026-11-07T17:35:20.454Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -408,6 +408,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-11-07T17:35:20.454Z",
+      "taskId": null,
+      "status": "done",
+      "note": "Pasada sobre la cola de mejora (ledger cerrado: preflight idle). Item: regresión de suite en App.test.tsx — nav('Descargar') con proyecto monta DownloadsHubView/DownloadView lazy dentro del editor (unificación F2/T1) y el waitFor default de 1s vencía antes del chunk. No era bug de producto. Fix: timeouts de 5000 en las dos esperas (mismo criterio que createProject/.timeline-surface). Verificación: vitest App.test.tsx 76/76; npm run typecheck 0 errores. No se corrió npm run verify completo. Registrado en docs/IMPROVEMENT-QUEUE.md y memory/2026-11-07-app-test-descargar-lazy-timeout.md.",
+      "remedy": null,
+      "verifyRan": false
+    },
     {
       "at": "2026-11-07T17:12:22.708Z",
       "taskId": "10",
