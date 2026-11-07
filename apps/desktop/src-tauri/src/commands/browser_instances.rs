@@ -299,6 +299,16 @@ pub async fn browser_instance_navigate(
     url: String,
 ) -> Result<bool, ProjectError> {
     let id = sanitize_id(&profile_id)?;
+    // Sólo http(s): file:// leería archivos locales al contexto de la
+    // página y Runtime.evaluate podría exfiltrarlos; javascript: ejecuta
+    // script arbitrario en el origen activo.
+    let url = url.trim();
+    if url.len() > 2_048 || !(url.starts_with("https://") || url.starts_with("http://")) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la URL debe ser http(s)",
+        ));
+    }
     let port = {
         let guard = instances();
         guard
