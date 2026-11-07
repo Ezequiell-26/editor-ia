@@ -134,7 +134,17 @@ pub fn screen_record_status() -> ScreenRecordStatus {
 
 fn sanitize_device(device: &str) -> Result<String, ProjectError> {
     let trimmed = device.trim();
-    if trimmed.is_empty() || trimmed.len() > 200 || trimmed.contains('"') || trimmed.contains('\'') {
+    // dshow parsea `-i video=...:audio=...` con ':' como separador y ffmpeg
+    // usa ','/';' en grafos: sin estos filtros un nombre podría inyectar
+    // opciones extra dentro del argumento -i.
+    if trimmed.is_empty()
+        || trimmed.len() > 200
+        || trimmed.contains('"')
+        || trimmed.contains('\'')
+        || trimmed.contains(':')
+        || trimmed.contains(',')
+        || trimmed.contains(';')
+    {
         return Err(invalid("el nombre del dispositivo de webcam no es válido"));
     }
     Ok(trimmed.to_owned())
@@ -298,7 +308,15 @@ pub async fn screen_record_start(
         .as_deref()
         .map(|t| {
             let t = t.trim();
-            if t.is_empty() || t.len() > 300 || t.contains('"') {
+            // gdigrab parsea `-i title=...:offset_x=...` con ':' separador:
+            // un título con ':' inyectaría opciones de captura extra.
+            if t.is_empty()
+                || t.len() > 300
+                || t.contains('"')
+                || t.contains(':')
+                || t.contains(',')
+                || t.contains(';')
+            {
                 Err(invalid("el título de ventana no es válido"))
             } else {
                 Ok(t.to_owned())
@@ -695,7 +713,15 @@ pub async fn screen_record_snapshot(
         .as_deref()
         .map(|t| {
             let t = t.trim();
-            if t.is_empty() || t.len() > 300 || t.contains('"') {
+            // gdigrab parsea `-i title=...:offset_x=...` con ':' separador:
+            // un título con ':' inyectaría opciones de captura extra.
+            if t.is_empty()
+                || t.len() > 300
+                || t.contains('"')
+                || t.contains(':')
+                || t.contains(',')
+                || t.contains(';')
+            {
                 Err(invalid("el título de ventana no es válido"))
             } else {
                 Ok(t.to_owned())
@@ -901,6 +927,11 @@ mod tests {
         assert!(sanitize_device("").is_err());
         assert!(sanitize_device("  ").is_err());
         assert!(sanitize_device("cam\"evil").is_err());
+        // ':' ',' ';' permitirían inyectar opciones dentro del arg -i de
+        // ffmpeg (dshow separa video=/audio= con ':').
+        assert!(sanitize_device("cam:audio=Mic").is_err());
+        assert!(sanitize_device("cam,evil").is_err());
+        assert!(sanitize_device("cam;evil").is_err());
         assert!(sanitize_device("Integrated Camera").is_ok());
     }
 
