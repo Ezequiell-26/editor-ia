@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T18:18:54.165Z"
+    "lastPassAt": "2026-11-07T21:18:49.673Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -408,6 +408,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-11-07T21:18:49.673Z",
+      "taskId": null,
+      "status": "done",
+      "note": "Pasada sobre la cola de mejora (ledger cerrado: preflight idle). Item: miniaturas del catalogo — EffectBrowser pedia /thumbnails/effects/<id>.svg para ~100 manifiestos pero solo existian 15 SVG del catalogo viejo (~85 tarjetas con img roto); VisualsView pedia 8 presets y 4/7 transiciones sin archivo. Fix: packages/effect-kit/scripts/generate-thumbnails.ts nuevo (npm run thumbnails:effects, SVG determinista por manifiesto, 100 archivos), generate-thumbnails.js con ids reales del catalogo visual, ThumbnailBrowser onError->placeholder, effect-thumbnails.test.ts cobertura catalogo<->archivos (3 tests). Son previews representativos, no renders de shader. Verificacion: vitest effect-thumbnails 3/3, vfx+visuals+components 98/99 (EffectTemplates 'importa JSON corrupto' flaky de FileReader en jsdom, 4/4 aislado, ajeno), tsc desktop 0, tsc effect-kit 4 errores preexistentes del WIP del usuario en engine.test.ts. Commit 278be53 (solo archivos de la pasada; IMPROVEMENT-QUEUE.md quedo sin commitear por mezclar ediciones concurrentes del usuario). Registrado en docs/IMPROVEMENT-QUEUE.md y memory/2026-11-08-thumbnails-catalogo-efectos.md.",
+      "remedy": null,
+      "verifyRan": false
+    },
     {
       "at": "2026-11-07T18:18:54.164Z",
       "taskId": null,
