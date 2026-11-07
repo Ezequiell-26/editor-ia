@@ -828,9 +828,9 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
 
   {
     name: 'obs_scenes',
-    description: `${WRITE} Gestiona escenas OBS persistentes (fuentes+streaming con nombre). action=list devuelve escenas guardadas; save crea/actualiza {id?, name, fps, captureTarget, windowTitle, region*, webcamDevice, audioDevice, streamUrl, encoder, captureScreen}; delete {id}; start {id, outputDir} aplica la escena y arranca grabación/streaming.`,
+    description: `${WRITE} Gestiona escenas OBS persistentes (fuentes+streaming con nombre). action=list devuelve escenas guardadas; save crea/actualiza {id?, name, fps, captureTarget, windowTitle, region*, webcamDevice, audioDevice, streamUrl, encoder, captureScreen}; delete {id}; start {id, outputDir} aplica la escena y arranca grabación/streaming; preview {id} captura UN frame PNG de la escena sin grabar.`,
     inputSchema: obj({
-      action: { type: 'string', enum: ['list', 'save', 'delete', 'start'] },
+      action: { type: 'string', enum: ['list', 'save', 'delete', 'start', 'preview'] },
       id: { type: 'string', maxLength: 64 },
       outputDir: { type: 'string', maxLength: 32_768 },
       name: { type: 'string', maxLength: 120 },

@@ -684,6 +684,9 @@ export async function executeMcpTool(
           await context.store.service.obsSceneStart(text(args, 'id'), text(args, 'outputDir')),
         );
       }
+      if (action === 'preview') {
+        return JSON.stringify(await context.store.service.obsScenePreview(text(args, 'id')));
+      }
       if (action === 'save') {
         const num = (key: string) => optionalNumber(args, key);
         const captureTargetRaw = optionalText(args, 'captureTarget');
@@ -714,7 +717,7 @@ export async function executeMcpTool(
         };
         return JSON.stringify(await context.store.service.obsSceneSave(scene));
       }
-      throw new Error('«action» debe ser list, save, delete o start');
+      throw new Error('«action» debe ser list, save, delete, start o preview');
     }
 
     case 'browser_instances': {

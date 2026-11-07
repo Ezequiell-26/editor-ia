@@ -189,6 +189,35 @@ pub async fn obs_scene_start(
     .await
 }
 
+/// Preview de una escena guardada: captura UN frame con la misma
+/// configuración de fuentes (pantalla/ventana/región + webcam PiP) y lo
+/// devuelve como PNG en `<config_dir>/obs-previews/`. No graba ni
+/// streamea nada — es el monitor de preview antes de empezar.
+#[tauri::command]
+pub async fn obs_scene_preview(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<crate::commands::screen_record::ScreenRecordPreview, ProjectError> {
+    let scenes = read_scenes(state.inner())?;
+    let scene = scenes
+        .into_iter()
+        .find(|s| s.id == id)
+        .ok_or_else(|| ProjectError::message(ProjectErrorCode::NotFound, "escena no encontrada"))?;
+    crate::commands::screen_record::screen_record_snapshot(
+        state,
+        scene.fps,
+        scene.webcam_device,
+        scene.capture_screen,
+        scene.capture_target,
+        scene.window_title,
+        scene.region_x,
+        scene.region_y,
+        scene.region_width,
+        scene.region_height,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

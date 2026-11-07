@@ -1727,6 +1727,14 @@ export interface ObsScene {
 
 export type ObsSceneInput = Omit<ObsScene, 'id'> & { readonly id?: string };
 
+export interface ScreenRecordPreview {
+  readonly ok: boolean;
+  readonly path?: string;
+  readonly width?: number;
+  readonly height?: number;
+  readonly error?: string;
+}
+
 export interface StickmanRenderResult {
   readonly ok: boolean;
   readonly path?: string;
@@ -2583,6 +2591,7 @@ export interface DesktopService {
   obsSceneSave(scene: ObsSceneInput): Promise<ObsScene>;
   obsSceneDelete(id: string): Promise<boolean>;
   obsSceneStart(id: string, outputDir: string): Promise<ScreenRecordStatus>;
+  obsScenePreview(id: string): Promise<ScreenRecordPreview>;
   stickmanRender(input: {
     outputPath: string;
     action?: 'idle' | 'walk' | 'run' | 'wave' | 'jump';
@@ -2931,6 +2940,7 @@ export const PROJECT_COMMANDS = {
   obsSceneSave: 'obs_scene_save',
   obsSceneDelete: 'obs_scene_delete',
   obsSceneStart: 'obs_scene_start',
+  obsScenePreview: 'obs_scene_preview',
   systemInfo: 'system_info',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
@@ -4336,6 +4346,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async obsSceneStart(id, outputDir) {
       return (await call(PROJECT_COMMANDS.obsSceneStart, { id, outputDir })) as ScreenRecordStatus;
     },
+    async obsScenePreview(id) {
+      return (await call(PROJECT_COMMANDS.obsScenePreview, { id })) as ScreenRecordPreview;
+    },
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
     },
@@ -4791,6 +4804,7 @@ function createUnavailableService(): DesktopService {
     obsSceneSave: async () => unavailable(),
     obsSceneDelete: async () => unavailable(),
     obsSceneStart: async () => unavailable(),
+    obsScenePreview: async () => unavailable(),
     systemInfo: async () => unavailable(),
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),

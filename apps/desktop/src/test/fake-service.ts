@@ -2115,6 +2115,14 @@ export function createFakeService(): FakeService {
     async obsSceneStart() {
       return { recording: true, output: 'C:\recordings\obs-scene.mp4', elapsedSecs: 0 };
     },
+    async obsScenePreview() {
+      return {
+        ok: true,
+        path: 'C:\\fake\\obs-previews\\preview-test.png',
+        width: 1920,
+        height: 1080,
+      };
+    },
     async stickmanRender() {
       return {
         ok: true,
