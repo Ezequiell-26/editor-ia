@@ -43,3 +43,17 @@ Test: `build_command_rejects_cmd_metachars_for_shell_launchers` → 18/18 mcp.
 - Secretos en mensajes de error/logs (stderr tails de MCP, ffmpeg).
 - `flow_browser.rs`/`browser_instances.rs`: flags de Chrome con input
   de usuario (window_title → filtro ffmpeg).
+
+## 3-5. Endurecimientos posteriores (misma sesión)
+
+- `d7d0a62`: `resolved_for_check()` canonicaliza el ancestro existente →
+  junctions/symlinks ya no evaden los chequeos de sistema.
+- `c44b7ad`: URL RTMP (con clave) redactada del tail de stderr en errores
+  de grabación.
+- `bbc42bc`: `:`, `,`, `;` bloqueados en window_title/devices ffmpeg.
+- `d8d4f05` (loop externo): `.devin/` agents+skills+hooks guard — el
+  scheduler ya commitea por su cuenta.
+- Último: `sensitive_component()` en files.rs bloquea `.ssh`, `.aws`,
+  `.azure`, `.gnupg`, `.kube`, `.docker`, `.git-credentials`, `.netrc`,
+  `.npmrc` y bases de credenciales del navegador en fs_read/list/write/
+  mkdir/delete/move (evita lectura Y escritura de authorized_keys).
