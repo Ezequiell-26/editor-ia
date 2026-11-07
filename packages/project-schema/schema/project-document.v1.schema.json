@@ -1051,6 +1051,113 @@
                       "lutIntensity": {
                         "$ref": "#/properties/look/properties/fade"
                       },
+                      "lookId": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 80
+                      },
+                      "hdrWheels": {
+                        "type": "object",
+                        "properties": {
+                          "black": {
+                            "type": "object",
+                            "properties": {
+                              "x": {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              "y": {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              "luma": {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              }
+                            },
+                            "required": [
+                              "x",
+                              "y",
+                              "luma"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "dark": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/hdrWheels/properties/black"
+                          },
+                          "shadow": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/hdrWheels/properties/black"
+                          },
+                          "light": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/hdrWheels/properties/black"
+                          }
+                        },
+                        "required": [
+                          "black",
+                          "dark",
+                          "shadow",
+                          "light"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "keyed": {
+                        "type": "array",
+                        "items": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40
+                        },
+                        "maxItems": 32
+                      },
+                      "panel": {
+                        "type": "object",
+                        "properties": {
+                          "autoColor": {
+                            "type": "boolean"
+                          },
+                          "lut": {
+                            "type": "boolean"
+                          },
+                          "color": {
+                            "type": "boolean"
+                          },
+                          "light": {
+                            "type": "boolean"
+                          },
+                          "whiteBalance": {
+                            "type": "string",
+                            "enum": [
+                              "auto",
+                              "manual"
+                            ]
+                          },
+                          "interference": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          "styleTab": {
+                            "type": "string",
+                            "enum": [
+                              "default",
+                              "custom"
+                            ]
+                          },
+                          "hslSwatch": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 7
+                          }
+                        },
+                        "required": [
+                          "autoColor",
+                          "lut",
+                          "color",
+                          "light",
+                          "whiteBalance",
+                          "interference",
+                          "styleTab",
+                          "hslSwatch"
+                        ],
+                        "additionalProperties": false
+                      },
                       "mix": {
                         "$ref": "#/properties/look/properties/fade"
                       }

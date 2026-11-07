@@ -87,6 +87,7 @@ function AssetThumbnailCard({
   const store = useProjectStore();
   const thumbnail = useThumbnail(store.service, asset, root);
   const [relinkBusy, setRelinkBusy] = useState(false);
+  const fps = projectFps(store);
 
   const relinkable =
     asset.kind === 'video' || asset.kind === 'image' || asset.kind === 'audio';
@@ -129,7 +130,8 @@ function AssetThumbnailCard({
 
   const getDuration = () => {
     if (asset.kind === 'video' && asset.media) {
-      const fps = 30; // TODO: Get from project
+      // `durationFrames` se guarda en frames del proyecto (ver media/mod.rs):
+      // la duración real es frames ÷ fps del proyecto, no un 30 fijo.
       const seconds = asset.media.durationFrames / fps;
       const mins = Math.floor(seconds / 60);
       const secs = Math.floor(seconds % 60);
@@ -181,7 +183,7 @@ function AssetThumbnailCard({
         </span>
         {'media' in asset && asset.media && (
           <span className="asset-thumbnail-meta">
-            {getResolution(asset)}
+            {getResolution(asset, fps)}
           </span>
         )}
         {relinkable ? (
@@ -221,6 +223,7 @@ function AssetListItem({
 }: AssetListItemProps) {
   const store = useProjectStore();
   const thumbnail = useThumbnail(store.service, asset, root);
+  const fps = projectFps(store);
 
   return (
     <div
@@ -238,7 +241,7 @@ function AssetListItem({
       <div className="asset-list-info">
         <span className="asset-list-name">{asset.label}</span>
         <span className="asset-list-meta">
-          {getAssetTypeLabel(asset.kind)} · {getResolution(asset)}
+          {getAssetTypeLabel(asset.kind)} · {getResolution(asset, fps)}
         </span>
       </div>
       {asset.favorite && <Icon name="star" size={14} className="asset-list-favorite" />}
@@ -280,7 +283,13 @@ function getAssetTypeLabel(kind: Asset['kind']): string {
   }
 }
 
-function getResolution(asset: Asset): string {
+/** fps del proyecto abierto; 30 como respaldo si no hay proyecto (navegador). */
+function projectFps(store: ReturnType<typeof useProjectStore>): number {
+  const rate = store.state.project?.video.frameRate;
+  return rate && rate.den > 0 ? rate.num / rate.den : 30;
+}
+
+function getResolution(asset: Asset, fps: number): string {
   if (asset.kind === 'video' && 'media' in asset && asset.media) {
     return `${asset.media.width}×${asset.media.height}`;
   }
@@ -288,7 +297,7 @@ function getResolution(asset: Asset): string {
     return `${asset.media.width}×${asset.media.height}`;
   }
   if (asset.kind === 'audio' && 'media' in asset && asset.media) {
-    const seconds = asset.media.durationFrames / 30; // TODO: Get fps from project
+    const seconds = asset.media.durationFrames / fps;
     return `${Math.floor(seconds)}s`;
   }
   return '';

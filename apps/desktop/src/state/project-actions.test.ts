@@ -1982,6 +1982,32 @@ describe('velocidad y efectos de clip', () => {
     validated(compressed);
   });
 
+  it('cambiar a VP9/AV1 reacomoda contenedor y audio según la matriz', () => {
+    const webm = applyCompression(base(), 'equilibrado', 'av1');
+    for (const profile of webm.renderProfiles) {
+      expect(profile.videoCodec).toBe('av1');
+      expect(profile.container).toBe('webm');
+      expect(profile.audioCodec).toBe('opus');
+    }
+    validated(webm);
+
+    const vp9 = applyCompression(webm, 'compacto', 'vp9');
+    for (const profile of vp9.renderProfiles) {
+      expect(profile.videoCodec).toBe('vp9');
+      expect(profile.container).toBe('webm');
+      expect(profile.audioCodec).toBe('opus');
+    }
+    validated(vp9);
+
+    const back = applyCompression(vp9, 'equilibrado', 'h264');
+    for (const profile of back.renderProfiles) {
+      expect(profile.videoCodec).toBe('h264');
+      expect(profile.container).toBe('mp4');
+      expect(profile.audioCodec).toBe('aac');
+    }
+    validated(back);
+  });
+
   it('rechaza velocidad en imágenes y limita el rango', () => {
     const project = base();
     const image = imageAsset();

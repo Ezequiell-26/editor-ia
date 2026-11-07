@@ -79,6 +79,27 @@ describe('tarjeta de plugins', () => {
     window.removeEventListener('olyvia:run-command', listener);
   });
 
+  it('muestra la respuesta del operador junto al comando', async () => {
+    const service = createFakeService();
+    service.listPlugins = async () => [OFFICIAL];
+    const listener = (event: Event): void => {
+      const detail = (event as CustomEvent<{ onResult?: (reply: string) => void }>).detail;
+      detail.onResult?.('Listo: video limpio y subtitulado.');
+    };
+    window.addEventListener('olyvia:run-command', listener);
+    render(
+      <ProjectProvider service={service}>
+        <PluginsCard />
+      </ProjectProvider>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Limpiar el video completo' }));
+    expect(await screen.findByText('Ejecutando…')).toBeTruthy();
+    expect(
+      await screen.findByText('Listo: video limpio y subtitulado.'),
+    ).toBeTruthy();
+    window.removeEventListener('olyvia:run-command', listener);
+  });
+
   it('instala desde una carpeta y avisa', async () => {
     const service = createFakeService();
     service.listPlugins = async () => [];

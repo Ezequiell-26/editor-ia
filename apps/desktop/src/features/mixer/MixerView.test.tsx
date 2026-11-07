@@ -76,6 +76,17 @@ describe('vista de mezcla', () => {
     );
   });
 
+  it('ofrece «Centro» visible para volver el paneo de pista a cero', () => {
+    renderMixer();
+    const pan = screen.getByRole('slider', { name: /Paneo de Música/i }) as HTMLInputElement;
+    // Sin paneo no hay botón de reset.
+    expect(screen.queryByRole('button', { name: 'Centro' })).toBeNull();
+    fireEvent.change(pan, { target: { value: '-0.5' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Centro' }));
+    expect(pan.value).toBe('0');
+    expect(screen.queryByRole('button', { name: 'Centro' })).toBeNull();
+  });
+
   it('cambia paneo y EQ de pista y los deja en el proyecto', () => {
     renderMixer();
     const pan = screen.getByRole('slider', { name: /Paneo de Música/i }) as HTMLInputElement;

@@ -61,6 +61,12 @@ const SOFTWARE_H264: [&str; 6] = [
     "h264_amf",
 ];
 const SOFTWARE_H265: [&str; 5] = ["libx265", "hevc_mf", "hevc_nvenc", "hevc_qsv", "hevc_amf"];
+/// VP9 sólo tiene encoder de software en la práctica (`libvpx-vp9`); `vp9_qsv`
+/// existe pero es nicho y se ofrece por `hardwareEncoder` explícito.
+const SOFTWARE_VP9: [&str; 1] = ["libvpx-vp9"];
+/// AV1: SVT-AV1 primero (el más rápido de los software), después los de
+/// hardware como fallback y libaom como último recurso compatible.
+const SOFTWARE_AV1: [&str; 5] = ["libsvtav1", "av1_nvenc", "av1_qsv", "av1_amf", "libaom-av1"];
 
 static ENCODER_CACHE: std::sync::Mutex<Option<(PathBuf, Vec<String>)>> =
     std::sync::Mutex::new(None);
@@ -112,7 +118,12 @@ fn available_encoders(ffmpeg: &Path) -> Vec<String> {
 
 /// Elige el encoder de software según lo que el binario realmente ofrece.
 fn choose_encoder(available: &[String], codec: &str) -> String {
-    let prefs: &[&str] = if codec == "h265" { &SOFTWARE_H265 } else { &SOFTWARE_H264 };
+    let prefs: &[&str] = match codec {
+        "h265" => &SOFTWARE_H265,
+        "vp9" => &SOFTWARE_VP9,
+        "av1" => &SOFTWARE_AV1,
+        _ => &SOFTWARE_H264,
+    };
     for name in prefs {
         if available.iter().any(|candidate| candidate == name) {
             return (*name).to_owned();
@@ -144,6 +155,8 @@ pub(crate) fn software_encoder(ffprobe: &Path, codec: &str) -> String {
     }
 }
 const HARDWARE_HEVC: [&str; 3] = ["hevc_amf", "hevc_nvenc", "hevc_qsv"];
+const HARDWARE_AV1: [&str; 3] = ["av1_amf", "av1_nvenc", "av1_qsv"];
+const HARDWARE_VP9: [&str; 1] = ["vp9_qsv"];
 
 fn validate_hardware_encoder(
     video_codec: &str,
@@ -151,10 +164,11 @@ fn validate_hardware_encoder(
     width: u32,
     height: u32,
 ) -> Result<(), ProjectError> {
-    let supported = if video_codec == "h265" {
-        HARDWARE_HEVC.contains(&encoder)
-    } else {
-        HARDWARE_H264.contains(&encoder)
+    let supported = match video_codec {
+        "h265" => HARDWARE_HEVC.contains(&encoder),
+        "av1" => HARDWARE_AV1.contains(&encoder),
+        "vp9" => HARDWARE_VP9.contains(&encoder),
+        _ => HARDWARE_H264.contains(&encoder),
     };
     if !supported {
         return Err(ProjectError::message(
@@ -240,16 +254,24 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
     let container = text(value, "container").unwrap_or("mp4").to_owned();
     let video_codec = text(value, "videoCodec").unwrap_or("h264").to_owned();
     let audio_codec = text(value, "audioCodec").unwrap_or("aac").to_owned();
-    if container != "mp4" && container != "mov" {
+    // Misma matriz que `CONTAINER_MATRIX` de packages/project-schema/delivery.ts:
+    // MP4/MOV llevan H.264/H.265 + AAC; WebM lleva VP9/AV1 + Opus.
+    let webm = container == "webm";
+    if container != "mp4" && container != "mov" && !webm {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
-            "esta versión exporta MP4/MOV; el perfil pide otro contenedor",
+            "esta versión exporta MP4/MOV/WebM; el perfil pide otro contenedor",
         ));
     }
-    if video_codec != "h264" && video_codec != "h265" {
+    let codec_ok = if webm {
+        video_codec == "vp9" || video_codec == "av1"
+    } else {
+        video_codec == "h264" || video_codec == "h265"
+    };
+    if !codec_ok {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
-            "esta versión exporta H.264/H.265; el perfil pide otro códec",
+            "el códec de video no corresponde al contenedor del perfil",
         ));
     }
     // libx264 rechaza anchos/altos de más de 16 384; libx265 sí acepta 32K.
@@ -260,10 +282,15 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
             "H.264 no admite más de 16 384 px por lado; para 32K elegí H.265",
         ));
     }
-    if audio_codec != "aac" {
+    let audio_ok = if webm {
+        audio_codec == "opus"
+    } else {
+        audio_codec == "aac"
+    };
+    if !audio_ok {
         return Err(ProjectError::message(
             ProjectErrorCode::RenderFailed,
-            "esta versión exporta audio AAC; el perfil pide otro códec",
+            "el códec de audio no corresponde al contenedor del perfil",
         ));
     }
     let bitrate_mode = value["bitrate"]["mode"].as_str().unwrap_or("crf");
@@ -376,6 +403,108 @@ fn hardware_encoder_args(profile: &Profile) -> Option<Vec<String>> {
         args.extend(["-global_quality".to_owned(), quality]);
     }
     Some(args)
+}
+
+/// Argumentos de calidad por familia de encoder de software.
+///
+/// Cada familia habla un dialecto distinto: x264/x265 usan `-preset`+`-crf`;
+/// libvpx-vp9 y libaom-av1 exigen `-b:v 0` en modo CRF; libsvtav1 usa su propia
+/// escala de presets (0-13); el resto (mf/openh264) sólo entiende bitrate.
+/// Encoder y sample rate de audio según el códec del perfil.
+/// Opus sólo existe como `libopus` y trabaja a 48 kHz: se fuerza el rate
+/// aunque el perfil pida otra cosa (FFmpeg rechazaría el resto).
+fn audio_encoder_for(profile: &Profile) -> (&'static str, u32) {
+    if profile.audio_codec == "opus" {
+        ("libopus", 48_000)
+    } else {
+        ("aac", profile.audio_rate)
+    }
+}
+
+fn software_video_args(encoder: &str, profile: &Profile) -> Vec<String> {
+    let mut args = vec!["-c:v".to_owned(), encoder.to_owned()];
+    let crf = profile.crf.map(|value| value.to_string());
+    let bps = profile.target_bps.map(|value| value.to_string());
+    if encoder.starts_with("libx26") {
+        args.extend(["-preset".into(), profile.video_preset.clone()]);
+        if let Some(crf) = crf {
+            args.extend(["-crf".into(), crf]);
+        }
+        if let Some(bps) = bps {
+            args.extend(["-b:v".into(), bps]);
+        }
+    } else if encoder == "libvpx-vp9" {
+        // cpu-used 0-8: más alto = más rápido (8 es el tope de libvpx).
+        let cpu_used = match profile.video_preset.as_str() {
+            "ultrafast" | "superfast" => 8,
+            "veryfast" => 7,
+            "faster" => 6,
+            "fast" => 5,
+            "medium" => 4,
+            "slow" => 3,
+            _ => 2,
+        };
+        args.extend([
+            "-cpu-used".into(),
+            cpu_used.to_string(),
+            "-row-mt".into(),
+            "1".into(),
+        ]);
+        match (crf, bps) {
+            (Some(crf), _) => args.extend(["-crf".into(), crf, "-b:v".into(), "0".into()]),
+            (None, Some(bps)) => args.extend(["-b:v".into(), bps]),
+            (None, None) => args.extend(["-b:v".into(), "0".into(), "-crf".into(), "32".into()]),
+        }
+    } else if encoder == "libsvtav1" {
+        // SVT-AV1: presets 0-13, más alto = más rápido.
+        let preset = match profile.video_preset.as_str() {
+            "ultrafast" => 13,
+            "superfast" => 12,
+            "veryfast" => 11,
+            "faster" => 10,
+            "fast" => 9,
+            "medium" => 8,
+            "slow" => 7,
+            _ => 6,
+        };
+        args.extend(["-preset".into(), preset.to_string()]);
+        if let Some(crf) = crf {
+            args.extend(["-crf".into(), crf]);
+        }
+        if let Some(bps) = bps {
+            args.extend(["-b:v".into(), bps]);
+        }
+    } else if encoder == "libaom-av1" {
+        // libaom es el más lento: cpu-used 0-8 con multithreading por filas.
+        let cpu_used = match profile.video_preset.as_str() {
+            "ultrafast" | "superfast" => 8,
+            "veryfast" => 7,
+            "faster" => 6,
+            "fast" => 5,
+            "medium" => 4,
+            "slow" => 3,
+            _ => 2,
+        };
+        args.extend([
+            "-cpu-used".into(),
+            cpu_used.to_string(),
+            "-row-mt".into(),
+            "1".into(),
+        ]);
+        match (crf, bps) {
+            (Some(crf), _) => args.extend(["-crf".into(), crf, "-b:v".into(), "0".into()]),
+            (None, Some(bps)) => args.extend(["-b:v".into(), bps]),
+            (None, None) => args.extend(["-b:v".into(), "0".into(), "-crf".into(), "40".into()]),
+        }
+    } else {
+        // h264_mf/libopenh264/av1_mf no aceptan CRF: sólo bitrate.
+        if let Some(bps) = bps {
+            args.extend(["-b:v".into(), bps]);
+        } else {
+            args.extend(["-b:v".into(), "8000000".into()]);
+        }
+    }
+    args
 }
 
 fn seconds(value: f64) -> String {
@@ -4417,48 +4546,33 @@ pub(crate) fn build_plan_range(
         args.append(&mut hardware);
     } else {
         let encoder = software_encoder(input.ffprobe, &profile.video_codec);
-        let software_x26 = encoder.starts_with("libx26");
-        // `-preset` sólo existe en x264/x265, NVENC y QSV. AMF usa `-quality` y
-        // MediaFoundation/OpenH264 no lo aceptan: pasarlo rompería el render.
-        let accepts_preset =
-            software_x26 || encoder.ends_with("nvenc") || encoder.ends_with("qsv");
-        args.extend(["-c:v".into(), encoder.clone()]);
-        if accepts_preset {
-            args.extend(["-preset".into(), profile.video_preset.clone()]);
-        }
-        if software_x26 {
-            if let Some(crf) = profile.crf {
-                args.extend(["-crf".into(), crf.to_string()]);
-            }
-        }
-        if let Some(bps) = profile.target_bps {
-            args.extend(["-b:v".into(), bps.to_string()]);
-        } else if !software_x26 {
-            // h264_mf/libopenh264 no aceptan CRF: sin bitrate no saben qué hacer.
-            args.extend(["-b:v".into(), "8000000".into()]);
-        }
+        args.extend(software_video_args(&encoder, &profile));
     }
     if profile.video_codec == "h265" {
         args.extend(["-tag:v".into(), "hvc1".into()]);
     }
+    let (audio_encoder, audio_rate) = audio_encoder_for(&profile);
     args.extend([
         "-pix_fmt".into(),
         "yuv420p".into(),
         "-r".into(),
         profile.fps_arg(),
         "-c:a".into(),
-        "aac".into(),
+        audio_encoder.to_owned(),
         "-b:a".into(),
         profile.audio_bps.to_string(),
         "-ar".into(),
-        profile.audio_rate.to_string(),
+        audio_rate.to_string(),
         "-ac".into(),
         profile.audio_channels.to_string(),
         "-map_metadata".into(),
         "-1".into(),
-        "-movflags".into(),
-        "+faststart".into(),
     ]);
+    // `-movflags` es del muxer MP4/MOV; en WebM se omite (la extensión .webm
+    // ya define el muxer Matroska).
+    if profile.container != "webm" {
+        args.extend(["-movflags".into(), "+faststart".into()]);
+    }
     if output_start_seconds > 0.0001 {
         args.extend(["-ss".into(), seconds(output_start_seconds)]);
     }
@@ -6242,6 +6356,117 @@ mod tests {
             parse_profile(&value).is_err(),
             "AMF HEVC no debe aceptar 32K"
         );
+    }
+
+    fn webm_profile() -> serde_json::Value {
+        serde_json::json!({
+            "id": "w",
+            "name": "WebM VP9",
+            "container": "webm",
+            "videoCodec": "vp9",
+            "audioCodec": "opus",
+            "resolution": { "width": 1920, "height": 1080 },
+            "frameRate": { "num": 30, "den": 1 },
+            "bitrate": { "mode": "crf", "crf": 30 },
+            "qualityGate": { "minOutputBytes": 1 }
+        })
+    }
+
+    #[test]
+    fn webm_profile_follows_the_container_matrix() {
+        let parsed = parse_profile(&webm_profile()).expect("WebM VP9 + Opus es válido");
+        assert_eq!(parsed.container, "webm");
+        assert_eq!(parsed.video_codec, "vp9");
+        assert_eq!(parsed.audio_codec, "opus");
+
+        let mut bad = webm_profile();
+        bad["videoCodec"] = serde_json::json!("h264");
+        assert!(parse_profile(&bad).is_err(), "WebM no lleva H.264");
+
+        let mut bad = webm_profile();
+        bad["audioCodec"] = serde_json::json!("aac");
+        assert!(parse_profile(&bad).is_err(), "WebM no lleva AAC");
+
+        let mut bad = webm_profile();
+        bad["container"] = serde_json::json!("mp4");
+        assert!(parse_profile(&bad).is_err(), "MP4 no lleva VP9+Opus");
+
+        let mut av1 = webm_profile();
+        av1["videoCodec"] = serde_json::json!("av1");
+        let parsed = parse_profile(&av1).expect("WebM AV1 + Opus es válido");
+        assert_eq!(parsed.video_codec, "av1");
+
+        let mut bad = webm_profile();
+        bad["container"] = serde_json::json!("mkv");
+        assert!(parse_profile(&bad).is_err());
+    }
+
+    #[test]
+    fn software_video_args_match_each_encoder_family() {
+        let mut vp9 = profile();
+        vp9.video_codec = "vp9".into();
+        vp9.audio_codec = "opus".into();
+        vp9.container = "webm".into();
+        let args = software_video_args("libvpx-vp9", &vp9).join(" ");
+        assert!(args.contains("-c:v libvpx-vp9"));
+        assert!(args.contains("-cpu-used"), "VP9 usa cpu-used: {args}");
+        assert!(args.contains("-row-mt 1"));
+        assert!(
+            args.contains("-crf 20") && args.contains("-b:v 0"),
+            "VP9 CRF exige -b:v 0: {args}"
+        );
+        assert!(
+            !args.contains("-preset"),
+            "libvpx-vp9 no acepta -preset: {args}"
+        );
+
+        let mut svt = vp9.clone();
+        let args = software_video_args("libsvtav1", &svt).join(" ");
+        assert!(
+            args.contains("-preset"),
+            "SVT-AV1 usa su escala de presets: {args}"
+        );
+        assert!(args.contains("-crf 20"));
+
+        svt.target_bps = Some(4_000_000);
+        svt.crf = None;
+        let args = software_video_args("libsvtav1", &svt).join(" ");
+        assert!(args.contains("-b:v 4000000"));
+
+        let args = software_video_args("libaom-av1", &vp9).join(" ");
+        assert!(args.contains("-cpu-used") && args.contains("-crf 20") && args.contains("-b:v 0"));
+
+        // Las familias viejas no cambian.
+        let args = software_video_args("libx264", &profile()).join(" ");
+        assert!(args.contains("-preset veryfast") && args.contains("-crf 20"));
+        let args = software_video_args("h264_mf", &profile()).join(" ");
+        assert!(args.contains("-b:v 8000000") && !args.contains("-crf"));
+    }
+
+    #[test]
+    fn choose_encoder_picks_by_codec() {
+        let available = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let list = available(&["libx264", "libvpx-vp9", "libsvtav1", "libaom-av1"]);
+        assert_eq!(choose_encoder(&list, "vp9"), "libvpx-vp9");
+        // SVT-AV1 encabeza la preferencia AV1.
+        assert_eq!(choose_encoder(&list, "av1"), "libsvtav1");
+        let no_svt = available(&["libaom-av1"]);
+        assert_eq!(choose_encoder(&no_svt, "av1"), "libaom-av1");
+        let empty = Vec::new();
+        // Sin encoders disponibles devuelve el primero de la lista igual
+        // (el binario fallará y el error será honesto), no entra en pánico.
+        assert_eq!(choose_encoder(&empty, "vp9"), "libvpx-vp9");
+    }
+
+    #[test]
+    fn opus_forces_libopus_and_48k() {
+        let mut vp9 = profile();
+        vp9.video_codec = "vp9".into();
+        vp9.audio_codec = "opus".into();
+        vp9.container = "webm".into();
+        vp9.audio_rate = 44_100; // Opus fuerza 48 kHz igual.
+        assert_eq!(audio_encoder_for(&vp9), ("libopus", 48_000));
+        assert_eq!(audio_encoder_for(&profile()), ("aac", 48_000));
     }
 
     #[test]

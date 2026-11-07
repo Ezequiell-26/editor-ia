@@ -364,16 +364,23 @@ export function compressionPresetOf(
 export function applyCompression(
   project: ProjectDocument,
   presetId: CompressionPresetId,
-  videoCodec?: 'h264' | 'h265',
+  videoCodec?: 'h264' | 'h265' | 'vp9' | 'av1',
 ): ProjectDocument {
   const preset = COMPRESSION_PRESETS.find((item) => item.id === presetId);
   if (!preset) throw new ProjectActionError('el preset de compresión no existe');
   const next = cloneProject(project);
+  // Misma matriz que CONTAINER_MATRIX del schema: WebM lleva VP9/AV1 + Opus;
+  // MP4/MOV llevan H.264/H.265 + AAC. Cambiar el códec reacomoda el resto.
+  const webm = videoCodec === 'vp9' || videoCodec === 'av1';
   for (const profile of next.renderProfiles) {
     profile.bitrate = { mode: 'crf', crf: preset.crf };
     profile.videoPreset = preset.videoPreset;
     profile.audioBitsPerSecond = preset.audioBitsPerSecond;
-    if (videoCodec) profile.videoCodec = videoCodec;
+    if (videoCodec) {
+      profile.videoCodec = videoCodec;
+      profile.container = webm ? 'webm' : 'mp4';
+      profile.audioCodec = webm ? 'opus' : 'aac';
+    }
   }
   touch(next);
   return next;

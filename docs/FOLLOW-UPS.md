@@ -237,32 +237,52 @@ sigue quedó **fuera** de este incremento y la UI no debe ofrecerlo todavía.
   contenedor, resolución, fps, pixel format, bitrates, color space/transfer/
   primaries, HDR detectado, duración, bytes, warnings) y
   `render-finished.verification` con ese reporte al completar.
-- **Límite actual:** el worker de render sigue emitiendo **MP4/MOV H.264/H.265 +
-  AAC**. El schema permite `webm/vp9/av1/opus` y FFmpeg puede tener esos
-  encoders, pero el pipeline no los produce: `export_capabilities` **no** los
-  ofrece (no se deben mostrar opciones falsas).
+- **Límite actual:** el worker emite **MP4/MOV H.264/H.265 + AAC** y
+  **WebM VP9/AV1 + Opus** (implementado 2026-11-07: `parse_profile` valida la
+  matriz del schema, `software_video_args` habla el dialecto de cada encoder
+  —libvpx-vp9/libaom-av1 con `-cpu-used`+`-row-mt` y CRF con `-b:v 0`,
+  libsvtav1 con presets 0-13—, Opus→`libopus` a 48 kHz, `-movflags` sólo en
+  MP4/MOV, y `export_capabilities` sólo ofrece WebM si el binario tiene
+  encoder VP9/AV1 **y** `libopus`). Verificado con renders reales de 1 s en
+  VP9+Opus y AV1+Opus.
+- **Límites del soporte WebM:** `pixelFormat` sigue fijo `yuv420p` (sin
+  alpha ni 10-bit); la sonda `hardware_encoders` sólo mide H.264/H.265, así
+  que VP9/AV1 van por software aunque el binario tenga `av1_*`/`vp9_qsv`
+  (válidos vía `hardwareEncoder` explícito del perfil).
 - **HDR:** no soportado en export (no se inyecta metadata HDR10/HLG). El reporte
   de verificación sólo *detecta* HDR en archivos existentes.
-- **Pendiente:** soporte de render webm/vp9/av1/opus + `pixelFormat` real en el
-  plan de FFmpeg (toca `render/ffmpeg.rs` y el worker; requiere pruebas de
-  roundtrip). Presets actuales siguen intactos.
+- **Pendiente:** `pixelFormat` real en el plan de FFmpeg (toca `render/ffmpeg.rs`
+  y el worker; requiere pruebas de roundtrip). Sonda de hardware para
+  AV1/VP9. Presets actuales siguen intactos.
 
-### 6.3 Cola de render persistente (no implementada en este incremento)
+### 6.3 Cola de render persistente (persistencia nativa v1 implementada)
 - Hoy: el backend tiene **un render activo a la vez** (`start_render`,
   `cancel_render`, `active_render`, eventos `render-progress`/`render-finished`),
-  sin pausa ni persistencia propia; la cola es la de la UI
-  (`state/render-queue.ts`, localStorage, `running`→`pending` al cargar).
+  sin pausa propia; la cola vive en la UI (`state/render-queue.ts`) y ahora se
+  **espeja al backend**: `commands/render_queue.rs` persiste la cola como JSON en
+  `%LOCALAPPDATA%\com.editoria.desktop\render-queue.json` con los mismos estados
+  (`pending`/`running`/`done`/`error`/`cancelled`), el mismo tope de 50, la misma
+  recuperación `running`→`pending` al cargar y tolerancia a JSON corrupto.
+- IPC: `render_queue_load`, `render_queue_save`, `render_queue_clear_finished`
+  (registrados en `lib.rs`). `DesktopService` expone `renderQueueLoad` /
+  `renderQueueSave` / `renderQueueClearFinished`; la UI hidrata desde el backend
+  cuando responde (manda sobre localStorage) y le espejo cada cambio —
+  localStorage queda como respaldo en navegador y como caché offline.
 - `pause_render`, `resume_render` y `move_render_queue_entry` **no existen**: pausa
   y reanudar quedan deshabilitados con motivo «la cola persistente del backend
   llega en una próxima fase». **Reordenar ya funciona**: permutar entradas
   `pending` es real sin backend (el runner drena `nextPending` en orden), así que
   `movePending` (`state/render-queue.ts`) + el botón «Reordenar» del diálogo
   intercambian las dos primeras pendientes cuando el servicio no expone
-  `moveRenderQueueEntry`; si el backend lo soporta, se delega a él. 2 tests.
-- **Pendiente:** cola persistente en Rust (JSON en app-data, estados
-  queued/paused/running/completed/failed/cancelled, recuperación al iniciar,
-  reintento) y contrato tipado. La persistencia entre sesiones ya existe a nivel
-  UI (`localStorage`, `running`→`pending` al cargar, con tests).
+  `moveRenderQueueEntry`; si el backend lo soporta, se delega a él.
+- Verificación: 5 tests cargo del módulo (roundtrip, `running`→`pending`, JSON
+  corrupto, entradas basura, tope 50) + 15 tests de `render-queue` + 6 de
+  ExportDialog + 18 de project-service en verde; `tsc --noEmit` limpio.
+- **Pendiente:** pausa/reanudación/reorden real del lado del worker (hoy la cola
+  durable es un espejo de la de la UI, no un scheduler del backend), estados
+  intermedios (`paused`) y reintento automático al iniciar la app. La
+  persistencia entre sesiones ya existe en dos capas (backend JSON +
+  localStorage).
 
 ### 6.4 Recuperación, historial y duplicados (hecho)
 - Rust: `commands/recovery.rs` → `choose_media_folder`, `find_missing_assets`,

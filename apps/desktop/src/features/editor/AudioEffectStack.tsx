@@ -11,6 +11,7 @@ import {
 } from '@editor-ia/effect-kit';
 import { EffectBrowser } from '../vfx/EffectBrowser';
 import { EffectStackPanel } from '../vfx/EffectStackPanel';
+import { EffectTemplates } from '../vfx/EffectTemplates';
 
 export interface AudioEffectStackProps {
   readonly stack: EffectStack;
@@ -53,6 +54,7 @@ export function AudioEffectStack({ stack, onChange, clipLabel }: AudioEffectStac
       </p>
       <EffectBrowser kind="audio" onAdd={add} disabled={full} />
       <EffectStackPanel stack={stack} onChange={onChange} />
+      <EffectTemplates kind="audio" stack={stack} onApply={(next) => onChange(next)} />
       {compiled.filters.length > 0 ? (
         <details className="audio-chain">
           <summary>Cadena de filtros ({compiled.filters.length})</summary>

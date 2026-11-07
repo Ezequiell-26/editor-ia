@@ -4,6 +4,8 @@
  * DaVinci encola renders y los procesa en orden aunque el usuario siga
  * editando. Acá la cola es un valor inmutable y puro: la UI la persiste en
  * `localStorage` y el runner del diálogo de exportación la drena de a una.
+ * En el escritorio además se espeja al backend (`render_queue_*`), que guarda
+ * la copia durable en app-data; esta capa sigue siendo la que manda en la UI.
  *
  * Reglas que importan:
  * - Un perfil sólo puede estar una vez pendiente o corriendo (evita duplicar
@@ -14,7 +16,7 @@
  *   el arranque.
  */
 
-export type RenderQueueStatus = 'pending' | 'running' | 'done' | 'error';
+export type RenderQueueStatus = 'pending' | 'running' | 'done' | 'error' | 'cancelled';
 
 export interface RenderQueueEntry {
   readonly id: string;
@@ -37,6 +39,7 @@ export interface QueueSummary {
   readonly running: number;
   readonly done: number;
   readonly error: number;
+  readonly cancelled: number;
   readonly total: number;
 }
 
@@ -121,10 +124,10 @@ export function markFailed(queue: RenderQueue, id: string, message: string): Ren
   }));
 }
 
-/** Devuelve una entrada fallida a `pending` conservando su posición. */
+/** Devuelve una entrada fallida o cancelada a `pending` conservando su posición. */
 export function retryEntry(queue: RenderQueue, id: string): RenderQueue {
   return replace(queue, id, (entry) =>
-    entry.status === 'error' || entry.status === 'done'
+    entry.status === 'error' || entry.status === 'done' || entry.status === 'cancelled'
       ? { ...entry, status: 'pending', outputPath: null, message: null }
       : entry,
   );
@@ -166,7 +169,14 @@ export function movePending(
 }
 
 export function summarizeQueue(queue: RenderQueue): QueueSummary {
-  const summary = { pending: 0, running: 0, done: 0, error: 0, total: queue.length };
+  const summary = {
+    pending: 0,
+    running: 0,
+    done: 0,
+    error: 0,
+    cancelled: 0,
+    total: queue.length,
+  };
   for (const entry of queue) {
     summary[entry.status] += 1;
   }
@@ -184,7 +194,8 @@ function isEntry(value: unknown): value is RenderQueueEntry {
     (record.status === 'pending' ||
       record.status === 'running' ||
       record.status === 'done' ||
-      record.status === 'error')
+      record.status === 'error' ||
+      record.status === 'cancelled')
   );
 }
 

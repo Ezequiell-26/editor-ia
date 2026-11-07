@@ -1261,19 +1261,29 @@ export function AssistantDock({
    */
   useEffect(() => {
     const handler = (event: Event): void => {
-      const detail = (event as CustomEvent<{ text?: unknown }>).detail;
+      const detail = (event as CustomEvent<{ text?: unknown; onResult?: unknown }>).detail;
       const text = typeof detail?.text === 'string' ? detail.text.trim() : '';
       if (!text) return;
+      // Quien disparó el comando puede pedir la respuesta (PluginsCard la
+      // muestra inline); el chat la recibe siempre como antes.
+      const report =
+        typeof detail?.onResult === 'function'
+          ? (detail.onResult as (reply: string) => void)
+          : null;
       void (async () => {
         append({ role: 'user', text });
         try {
           const reply = await runLocalCommand(text);
+          report?.(reply);
           append({ role: 'assistant', text: reply });
           flashReply();
         } catch (error) {
+          const message =
+            error instanceof Error ? error.message : 'no pude ejecutar el comando';
+          report?.(message);
           append({
             role: 'assistant',
-            text: error instanceof Error ? error.message : 'no pude ejecutar el comando',
+            text: message,
           });
         }
       })();

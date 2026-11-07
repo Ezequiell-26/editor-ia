@@ -736,7 +736,9 @@
   font-size: 8px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 42%, transparent);
+  /* Token medido AA en los dos esquemas; el color-mix al 42% quedaba por
+   * debajo de 3:1 con el tema claro. */
+  color: var(--color-text-faint);
 }
 
 /* Tonos de miniatura: cada par --tone-a/--tone-b es un tinte del color de

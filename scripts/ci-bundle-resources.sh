@@ -22,6 +22,11 @@ extract() {
   fi
 }
 
+download() {
+  curl -fsSL --retry 5 --retry-delay 2 --retry-max-time 120 --retry-connrefused \
+    -o "$2" "$1"
+}
+
 ensure_ffmpeg() {
   if [ -f "$ffmpeg_dir/ffmpeg.exe" ] && [ -f "$ffmpeg_dir/ffprobe.exe" ]; then
     return
@@ -29,8 +34,7 @@ ensure_ffmpeg() {
   local dir="$work/ffmpeg-static"
   mkdir -p "$dir"
   echo "Descargando FFmpeg estático"
-  curl -fsSL -o "$work/ffmpeg-static.zip" \
-    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+  download "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" "$work/ffmpeg-static.zip"
   extract "$work/ffmpeg-static.zip" "$dir"
   local ffmpeg ffprobe
   ffmpeg="$(find "$dir" -type f -path '*/bin/ffmpeg.exe' | head -1)"
@@ -48,8 +52,7 @@ ensure_ytdlp() {
     return
   fi
   echo "Descargando yt-dlp"
-  curl -fsSL -o "$tools_dir/yt-dlp.exe" \
-    "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+  download "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe" "$tools_dir/yt-dlp.exe"
 }
 
 ensure_onnxruntime() {
@@ -59,8 +62,7 @@ ensure_onnxruntime() {
   local dir="$work/onnxruntime"
   mkdir -p "$dir"
   echo "Descargando ONNX Runtime 1.22"
-  curl -fsSL -o "$work/onnxruntime.zip" \
-    "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip"
+  download "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip" "$work/onnxruntime.zip"
   extract "$work/onnxruntime.zip" "$dir"
   local dll
   dll="$(find "$dir" -type f -name onnxruntime.dll | head -1)"
@@ -83,8 +85,7 @@ ensure_piper() {
   if [ ! -f "$piper_exe" ] || [ ! -d "$piper_dir/espeak-ng-data" ]; then
     mkdir -p "$unpack"
     echo "Descargando Piper TTS Windows 2023.11.14-2"
-    curl -fsSL --retry 3 -o "$archive" \
-      "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip"
+    download "https://github.com/rhasspy/piper/releases/download/2023.11.14-2/piper_windows_amd64.zip" "$archive"
     printf '%s  %s\n' \
       "f3c58906402b24f3a96d92145f58acba6d86c9b5db896d207f78dc80811efcea" \
       "$archive" | sha256sum --check -
@@ -102,24 +103,21 @@ ensure_piper() {
 
   if [ ! -f "$model" ]; then
     echo "Descargando voz es_ES-davefx-medium"
-    curl -fsSL --retry 3 -o "$model" \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx"
+    download "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx" "$model"
   fi
   printf '%s  %s\n' \
     "6658b03b1a6c316ee4c265a9896abc1393353c2d9e1bca7d66c2c442e222a917" \
     "$model" | sha256sum --check -
 
   if [ ! -f "$config" ]; then
-    curl -fsSL --retry 3 -o "$config" \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json"
+    download "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/es_ES-davefx-medium.onnx.json" "$config"
   fi
   printf '%s  %s\n' \
     "0e0dda87c732f6f38771ff274a6380d9252f327dca77aa2963d5fbdf9ec54842" \
     "$config" | sha256sum --check -
 
   if [ ! -f "$piper_dir/MODEL_CARD" ]; then
-    curl -fsSL --retry 3 -o "$piper_dir/MODEL_CARD" \
-      "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/MODEL_CARD"
+    download "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/es/es_ES/davefx/medium/MODEL_CARD" "$piper_dir/MODEL_CARD"
   fi
   cat > "$piper_dir/THIRD-PARTY-NOTICES.txt" <<'EOF'
 Piper TTS (https://github.com/rhasspy/piper) — MIT License.

@@ -164,6 +164,7 @@ pub mod providers;
 pub mod publish;
 pub mod recovery;
 pub mod render;
+pub mod render_queue;
 pub mod rules;
 pub mod obs_scenes;
 pub mod screen_record;

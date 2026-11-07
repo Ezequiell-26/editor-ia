@@ -44,6 +44,7 @@ import type {
   VoiceInfo,
 } from'../services/project-service';
 import { ensureDelivery, newId } from'../state/project-actions';
+import type { RenderQueueEntry } from'../state/render-queue';
 
 /** Medición de mezcla determinista: 6 s, objetivo −14 LUFS, delta +2,2 dB. */
 export function fakeMixLoudnessReport(): MixLoudnessReport {
@@ -371,6 +372,8 @@ export function createFakeService(): FakeService {
   const proxyProgressHandlers = new Set<(event: ProxyProgressEvent) => void>();
   const alphaFrameBatches: { token: string; startIndex: number; count: number }[] = [];
   const alphaSequences: AlphaSequenceRequest[] = [];
+  // Cola de entregas persistida en memoria, como la copia JSON del backend.
+  let persistedRenderQueue: RenderQueueEntry[] = [];
   const calls = {
     create: 0,
     open: 0,
@@ -2277,6 +2280,24 @@ export function createFakeService(): FakeService {
     },
     async pruneRenderCache() {
       return 0;
+    },
+    async renderQueueLoad() {
+      // Misma recuperación que el backend: lo que quedó corriendo vuelve a pending.
+      persistedRenderQueue = persistedRenderQueue.map((entry) =>
+        entry.status === 'running'
+          ? { ...entry, status: 'pending', outputPath: null, message: null }
+          : entry,
+      );
+      return persistedRenderQueue;
+    },
+    async renderQueueSave(queue) {
+      persistedRenderQueue = [...queue];
+    },
+    async renderQueueClearFinished() {
+      persistedRenderQueue = persistedRenderQueue.filter(
+        (entry) => entry.status === 'pending' || entry.status === 'running',
+      );
+      return persistedRenderQueue;
     },
     async onRenderProgress(handler) {
       progressHandlers.add(handler);

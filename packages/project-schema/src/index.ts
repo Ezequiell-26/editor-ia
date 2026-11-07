@@ -220,8 +220,14 @@ export {
   RgbMixerSchema,
   ColorWarperSchema,
   ColorWheelValueSchema,
+  WheelXYSchema,
+  HdrWheelsSchema,
+  GradePanelStateSchema,
   ColorNodeKindSchema,
   createDefaultColorGrade,
+  createNeutralHdrWheels,
+  createNeutralWheelXY,
+  createNeutralPanelState,
   createNeutralLayer,
   createNeutralPrimaries,
   createNeutralHdr,
@@ -245,6 +251,9 @@ export type {
   RgbMixer,
   ColorWarper,
   ColorWheelValue,
+  WheelXY,
+  HdrWheels,
+  GradePanelState,
 } from './color-grade.ts';
 
 export {

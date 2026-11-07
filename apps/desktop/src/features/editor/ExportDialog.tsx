@@ -84,6 +84,11 @@ function joinOutputPath(folder: string, file: string): string {
   return `${folder.replace(/[\\/]+$/, '')}${separator}${file}`;
 }
 
+/** Extensión del archivo según el contenedor del perfil (ffmpeg la usa para el muxer). */
+function containerExtension(container: string | undefined): string {
+  return container === 'webm' || container === 'mov' ? container : 'mp4';
+}
+
 interface BatchResult {
   readonly name: string;
   readonly status: string;
@@ -164,6 +169,9 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const [queueBusy, setQueueBusy] = useState(false);
   const jobRef = useRef<string | null>(null);
   const batchResolverRef = useRef<((event: RenderFinishedEvent) => void) | null>(null);
+  // true cuando el backend confirmó su cola persistida: recién ahí se le
+  // espejo la cola, para no pisar la copia durable con la hidratación local.
+  const nativeQueueRef = useRef(false);
   const folderRef = useRef<string | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   jobRef.current = jobId;
@@ -216,6 +224,9 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       | undefined,
   ): string | null {
     if (!hardware || !profile) return null;
+    // La sonda de hardware sólo mide H.264/H.265: VP9/AV1 van por software
+    // (libvpx-vp9/libsvtav1) hasta que se agreguen sondas propias.
+    if (profile.videoCodec !== 'h264' && profile.videoCodec !== 'h265') return null;
     const encoder = profile.videoCodec === 'h265' ? hardware.hevc : hardware.h264;
     if (!encoder) return null;
     const maxSide = profile.videoCodec === 'h265' ? 8192 : 4096;
@@ -307,11 +318,38 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   }, [open, project, profileId, useGpu, hardware, store.durationFrames]);
 
   // La cola se persiste en cada cambio para que un cierre abrupto no pierda
-  // los pendientes; la hidratación ya ocurrió en el estado inicial.
+  // los pendientes; la hidratación ya ocurrió en el estado inicial. Cuando el
+  // backend nativo está disponible su copia JSON es la durable y se le espejo.
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.localStorage) return;
-    saveRenderQueue(window.localStorage, queue);
-  }, [queue]);
+    if (typeof window === 'undefined') return;
+    if (window.localStorage) saveRenderQueue(window.localStorage, queue);
+    if (nativeQueueRef.current) {
+      void store.service.renderQueueSave(queue).catch(() => {
+        // La copia durable es best-effort: localStorage sigue cubriendo la UI.
+      });
+    }
+  }, [queue, store.service]);
+
+  // Hidratación desde el backend: si hay cola persistida en app-data manda
+  // sobre localStorage (sobrevive aunque se limpie el storage del WebView).
+  // `null` = runtime sin soporte: queda lo que trajo localStorage.
+  useEffect(() => {
+    if (!open || !store.service.available) return;
+    let active = true;
+    void store.service
+      .renderQueueLoad()
+      .then((entries) => {
+        if (!active || !entries) return;
+        nativeQueueRef.current = true;
+        setQueue(entries);
+      })
+      .catch(() => {
+        // Sin backend durable: la cola sigue viviendo en localStorage.
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, store.service]);
 
   // Runner de la cola: toma el primer pendiente y lo drena de a uno. El guardia
   // de `queueBusy` evita arrancar dos renders si el efecto se reejecuta por un
@@ -347,9 +385,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
           folderRef.current = folder;
         }
         setQueue((current) => markRunning(current, entry.id));
-        const outputPath = joinOutputPath(folder, queueFileName(currentProject.name, entry.profileName));
         const queueProfile = currentProject.renderProfiles.find(
           (profile) => profile.id === entry.profileId,
+        );
+        const outputPath = joinOutputPath(
+          folder,
+          queueFileName(
+            currentProject.name,
+            entry.profileName,
+            containerExtension(queueProfile?.container),
+          ),
         );
         const started = await store.service.startRenderTo(
           entry.profileId,
@@ -585,7 +630,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         applyCompression(
           current,
           targetCompression,
-          target?.videoCodec === 'h265' ? 'h265' : 'h264',
+          target?.videoCodec,
         ),
       );
     }
@@ -671,7 +716,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       if (!folder) return;
       const results: BatchResult[] = [];
       for (const profile of selectedBatchProfiles) {
-        const fileName = `${safeFilePart(currentProject.name)}-${safeFilePart(profile.name)}.mp4`;
+        const fileName = `${safeFilePart(currentProject.name)}-${safeFilePart(profile.name)}.${containerExtension(profile.container)}`;
         const outputPath = joinOutputPath(folder, fileName);
         const started = await store.service.startRenderTo(
           profile.id,
@@ -1037,7 +1082,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   {selected && !(capabilities.containers.some(
                     (entry) =>
                       entry.container === selected.container &&
-                      entry.videoCodecs.includes(selected.videoCodec === 'h265' ? 'hevc' : selected.videoCodec),
+                      entry.videoCodecs.includes(selected.videoCodec),
                   )) ? (
                     <p className="notice notice-warning">
                       El perfil «{selected.name}» usa {selected.container.toUpperCase()}/
@@ -1063,17 +1108,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         disabled={running}
                         onClick={() =>
                           store.update((current) =>
-                            applyCompression(
-                              current,
-                              preset.id,
-                              selected.videoCodec === 'h265' ? 'h265' : 'h264',
-                            ),
+                            applyCompression(current, preset.id, selected.videoCodec),
                           )
                         }
                       >
                         <strong>{preset.label}</strong>
                         <span>{preset.note}</span>
-                        <em>CRF {preset.crf} · AAC {Math.round(preset.audioBitsPerSecond / 1000)}k</em>
+                        <em>
+                          CRF {preset.crf} · {selected.container === 'webm' ? 'Opus' : 'AAC'}{' '}
+                          {Math.round(preset.audioBitsPerSecond / 1000)}k
+                        </em>
                       </button>
                     ))}
                   </div>
@@ -1081,20 +1125,22 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     <label className="field">
                       <span>Códec de video</span>
                       <select
-                        value={selected.videoCodec === 'h265' ? 'h265' : 'h264'}
+                        value={selected.videoCodec}
                         disabled={running}
                         onChange={(event) =>
                           store.update((current) =>
                             applyCompression(
                               current,
                               compression === 'custom' ? 'equilibrado' : compression,
-                              event.target.value === 'h265' ? 'h265' : 'h264',
+                              event.target.value as 'h264' | 'h265' | 'vp9' | 'av1',
                             ),
                           )
                         }
                       >
                         <option value="h264">H.264 · máxima compatibilidad</option>
                         <option value="h265">H.265/HEVC · archivos más chicos</option>
+                        <option value="vp9">VP9 · WebM, buen equilibrio</option>
+                        <option value="av1">AV1 · WebM, máxima compresión</option>
                       </select>
                     </label>
                     <label className="field">
@@ -1123,9 +1169,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     </div>
                   </div>
                   <p className="fine-print">
-                    {selected.videoCodec === 'h265'
-                      ? 'H.265 reduce el tamaño, pero algunos reproductores y plataformas lo recomprimen o no lo aceptan. Para publicar sin sorpresas, H.264 es la opción segura. '
-                      : 'Los tamaños reales dependen del contenido. “Compacto” usa CRF 27 y audio de 96 kbps; “Rápido” usa ultrafast para terminar antes. '}
+                    {selected.container === 'webm'
+                      ? 'WebM con VP9/AV1 + Opus pesa menos y es ideal para la web, pero no todos los editores y reproductores lo aceptan; para publicar sin sorpresas, MP4/H.264 es la opción segura. '
+                      : selected.videoCodec === 'h265'
+                        ? 'H.265 reduce el tamaño, pero algunos reproductores y plataformas lo recomprimen o no lo aceptan. Para publicar sin sorpresas, H.264 es la opción segura. '
+                        : 'Los tamaños reales dependen del contenido. “Compacto” usa CRF 27 y audio de 96 kbps; “Rápido” usa ultrafast para terminar antes. '}
                     “Recortar para llenar” hace un recorte centrado en el render; no es smart reframe por IA.
                   </p>
                 </div>
@@ -1437,10 +1485,26 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   <button
                     type="button"
                     className="small ghost"
-                    onClick={() => setQueue(clearSettled)}
+                    onClick={() => {
+                      if (nativeQueueRef.current) {
+                        void store.service
+                          .renderQueueClearFinished()
+                          .then((entries) => {
+                            if (entries) setQueue(entries);
+                          })
+                          .catch(() => setQueue(clearSettled));
+                      } else {
+                        setQueue(clearSettled);
+                      }
+                    }}
                     disabled={
                       running ||
-                      !queue.some((entry) => entry.status === 'done' || entry.status === 'error')
+                      !queue.some(
+                        (entry) =>
+                          entry.status === 'done' ||
+                          entry.status === 'error' ||
+                          entry.status === 'cancelled',
+                      )
                     }
                   >
                     Limpiar terminadas
@@ -1458,9 +1522,13 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                               ? 'Renderizando…'
                               : entry.status === 'done'
                                 ? `OK · ${basename(entry.outputPath ?? '')}`
-                                : `Falló · ${entry.message ?? 'error'}`}
+                                : entry.status === 'cancelled'
+                                  ? 'Cancelado'
+                                  : `Falló · ${entry.message ?? 'error'}`}
                         </span>
-                        {entry.status === 'error' || entry.status === 'done' ? (
+                        {entry.status === 'error' ||
+                        entry.status === 'done' ||
+                        entry.status === 'cancelled' ? (
                           <button
                             type="button"
                             className="small"
@@ -1491,6 +1559,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     <p className="fine-print">
                       {summary.pending} en cola · {summary.running} en curso · {summary.done} listos ·{' '}
                       {summary.error} con error
+                      {summary.cancelled > 0 ? ` · ${summary.cancelled} cancelados` : ''}
                     </p>
                   );
                 })()}

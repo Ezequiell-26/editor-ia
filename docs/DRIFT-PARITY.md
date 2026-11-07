@@ -140,8 +140,10 @@ Verificación real (no declarativa):
 
 - **Efectos de audio (30 en Drift).** Cerrado en §4.5. Límite: la preview no los simula; el
   panel lo dice y el MP4 los aplica. Un preview Web Audio por efecto queda como trabajo aparte.
-- **Plantillas de efecto.** El stack ya soporta guardar una lista de instancias; falta la UI
-  de "guardar/aplicar plantilla" y el formato en disco. Drift trae 23.
+- **Plantillas de efecto.** Resuelto (parcial): `state/effect-templates.ts` +
+  `EffectTemplates` permiten guardar/aplicar/exportar/importar stacks de video
+  y audio como JSON portable. Drift trae 23 de fábrica; acá las plantillas son
+  del usuario (no hay catálogo curado).
 - **Keyframes en export.** El preview anima parámetros; el export usa el valor estático.
   FFmpeg no acepta expresiones genéricas por filtro, así que esto pide un camino de render
   por frame o una tabla de expresiones por filtro.

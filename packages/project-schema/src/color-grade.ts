@@ -166,6 +166,47 @@ export const ColorWarperSchema = z
   .strict();
 export type ColorWarper = z.infer<typeof ColorWarperSchema>;
 
+/**
+ * Filmora-style colour wheel position. `x`/`y` are the chromatic offset in the
+ * wheel plane and `luma` is the exposure of that tonal zone. Kept as geometry
+ * (not RGB) because the UI shows X/Y fields, and converted to the existing RGB
+ * wheel model by the single compiler in `color-engine.ts`.
+ */
+export const WheelXYSchema = z
+  .object({ x: SignedUnit, y: SignedUnit, luma: SignedUnit })
+  .strict();
+export type WheelXY = z.infer<typeof WheelXYSchema>;
+
+/** Four HDR zones of the reference captures: Negro / Oscuro / Sombra / Claro. */
+export const HdrWheelsSchema = z
+  .object({
+    black: WheelXYSchema,
+    dark: WheelXYSchema,
+    shadow: WheelXYSchema,
+    light: WheelXYSchema,
+  })
+  .strict();
+export type HdrWheels = z.infer<typeof HdrWheelsSchema>;
+
+/**
+ * UI state of the properties panel that must survive a project reload. It is
+ * stored next to the correction it describes so there is no second, local copy
+ * of a toggle in React state. Every field has a real effect on the controls.
+ */
+export const GradePanelStateSchema = z
+  .object({
+    autoColor: z.boolean(),
+    lut: z.boolean(),
+    color: z.boolean(),
+    light: z.boolean(),
+    whiteBalance: z.enum(['auto', 'manual']),
+    interference: z.number().gte(0).lte(100),
+    styleTab: z.enum(['default', 'custom']),
+    hslSwatch: z.number().int().gte(0).lte(7),
+  })
+  .strict();
+export type GradePanelState = z.infer<typeof GradePanelStateSchema>;
+
 /** All corrections that a single node can apply. */
 export const ColorGradeLayerSchema = z
   .object({
@@ -181,6 +222,14 @@ export const ColorGradeLayerSchema = z
     /** Relative path of an imported .cube LUT (existing FFmpeg `lut3d` path). */
     lutFile: z.string().min(1).max(500).optional(),
     lutIntensity: UnitIntervalSchema,
+    /** Built-in / custom look applied from the properties panel. */
+    lookId: z.string().min(1).max(80).optional(),
+    /** Four-zone HDR wheels; optional so older documents stay valid. */
+    hdrWheels: HdrWheelsSchema.optional(),
+    /** Parameters the editor marked with a keyframe (marks, not a time curve). */
+    keyed: z.array(z.string().min(1).max(40)).max(32).optional(),
+    /** Persisted state of the properties panel controls. */
+    panel: GradePanelStateSchema.optional(),
     /** 0..1 wet/dry of this whole node. */
     mix: UnitIntervalSchema,
   })
@@ -265,6 +314,32 @@ export function createNeutralQualifier(): GradeQualifier {
 
 export function createNeutralMixer(): RgbMixer {
   return { red: [1, 0, 0], green: [0, 1, 0], blue: [0, 0, 1] };
+}
+
+export function createNeutralWheelXY(): WheelXY {
+  return { x: 0, y: 0, luma: 0 };
+}
+
+export function createNeutralPanelState(): GradePanelState {
+  return {
+    autoColor: false,
+    lut: true,
+    color: true,
+    light: true,
+    whiteBalance: 'auto',
+    interference: 80,
+    styleTab: 'default',
+    hslSwatch: 0,
+  };
+}
+
+export function createNeutralHdrWheels(): HdrWheels {
+  return {
+    black: createNeutralWheelXY(),
+    dark: createNeutralWheelXY(),
+    shadow: createNeutralWheelXY(),
+    light: createNeutralWheelXY(),
+  };
 }
 
 export function createNeutralLayer(): ColorGradeLayer {

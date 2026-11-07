@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '../../state/project-store';
-import type { PluginInfo } from '../../services/project-service';
+import type { PluginCommandInfo, PluginInfo } from '../../services/project-service';
 
 /**
  * Extensiones: plugins, skills y conectores.
@@ -21,20 +21,14 @@ const KIND_LABEL: Record<PluginInfo['kind'], string> = {
   plugin: 'Plugins',
 };
 
-function runSteps(steps: readonly string[]): void {
-  steps.forEach((text, index) => {
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent('olyvia:run-command', { detail: { text } }));
-    }, index * 600);
-  });
-}
-
 export function PluginsCard() {
   const store = useProjectStore();
   const [items, setItems] = useState<readonly PluginInfo[]>([]);
   const [path, setPath] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Respuesta del operador por comando (`pluginId:commandId` → texto).
+  const [commandFeedback, setCommandFeedback] = useState<Record<string, string>>({});
 
   async function refresh(): Promise<void> {
     try {
@@ -103,6 +97,28 @@ export function PluginsCard() {
     }
   }
 
+  /**
+   * Dispara los pasos del comando por el puente del asistente y muestra la
+   * respuesta inline: sin `onResult` el usuario no vería que pasó nada.
+   */
+  function runCommand(plugin: PluginInfo, command: PluginCommandInfo): void {
+    const key = `${plugin.id}:${command.id}`;
+    setCommandFeedback((current) => ({ ...current, [key]: 'Ejecutando…' }));
+    command.steps.forEach((text, index) => {
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent('olyvia:run-command', {
+            detail: {
+              text,
+              onResult: (reply: string) =>
+                setCommandFeedback((current) => ({ ...current, [key]: reply })),
+            },
+          }),
+        );
+      }, index * 600);
+    });
+  }
+
   const groups: PluginInfo['kind'][] = ['connector', 'skill', 'plugin'];
 
   return (
@@ -166,11 +182,19 @@ export function PluginsCard() {
                               type="button"
                               className="small ghost"
                               disabled={!item.enabled}
-                              onClick={() => runSteps(command.steps)}
+                              onClick={() => runCommand(item, command)}
                             >
                               {command.label}
                             </button>
                           ))}
+                          {item.commands.map((command) => {
+                            const reply = commandFeedback[`${item.id}:${command.id}`];
+                            return reply ? (
+                              <p key={command.id} className="fine-print plugin-command-reply">
+                                {reply}
+                              </p>
+                            ) : null;
+                          })}
                         </div>
                       ) : null}
                     </div>

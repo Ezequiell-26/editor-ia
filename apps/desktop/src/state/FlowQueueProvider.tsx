@@ -9,7 +9,12 @@ import {
   type ReactNode,
 } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
-import { artifactPaths, buildFlowArgs, toolPayload } from './flow';
+import { artifactPaths, buildFlowArgs, flowFailure, toolPayload } from './flow';
+import {
+  generateWithRotation,
+  parseFlowAccounts,
+  type FlowAccount,
+} from './flow-accounts';
 import {
   EMPTY_FLOW_QUEUE,
   createFlowQueue,
@@ -90,6 +95,9 @@ export function FlowQueueProvider({ children }: { readonly children: ReactNode }
   const runningRef = useRef(false);
   const cancelRef = useRef(false);
   const wakeRef = useRef<(() => void) | null>(null);
+  // Última cuenta de Flow que generó bien: la corrida siguiente arranca por
+  // ella y no por la que quedó sin créditos.
+  const lastFlowAccountRef = useRef<string | null>(null);
 
   // El plan se guarda en cada transición: si la app se cierra a mitad de una
   // corrida, al volver aparece el avance y no una pantalla en blanco.
@@ -179,6 +187,26 @@ export function FlowQueueProvider({ children }: { readonly children: ReactNode }
           // se ignora a propósito
         }
 
+        // Cuentas del servidor Flow: con dos o más conectadas la cola rota
+        // ante fallos de créditos, igual que el panel y la fábrica. Si el
+        // servidor no expone `flow_list_accounts` o falla, queda la llamada
+        // simple con la cuenta predeterminada.
+        let flowAccounts: readonly FlowAccount[] = [];
+        try {
+          const listed = await storeRef.current.service.callMcpTool(
+            serverId,
+            'flow_list_accounts',
+            {},
+          );
+          if (!listed.isError) {
+            flowAccounts = parseFlowAccounts(toolPayload(listed.result)).accounts;
+          }
+        } catch {
+          // Servidor sin listado de cuentas: una sola cuenta, sin rotación.
+        }
+        const connectedAccounts = flowAccounts.filter((account) => account.connected);
+        const rotating = connectedAccounts.length > 1;
+
         while (!cancelRef.current) {
           const stop = flowQueueStopReason(stateRef.current);
           if (stop) {
@@ -193,7 +221,11 @@ export function FlowQueueProvider({ children }: { readonly children: ReactNode }
           commit(taken.state);
           const item = taken.item;
 
-          if (stateRef.current.settings.checkCredits) {
+          // Con rotación el chequeo global de `flow_status` no alcanza: reporta
+          // la cuenta de la sesión, no cada perfil. El agotamiento por cuenta
+          // ya lo resuelve `generateWithRotation` y, si todas fallan por
+          // créditos, los errores seguidos cortan la corrida igual.
+          if (stateRef.current.settings.checkCredits && !rotating) {
             const credits = await readCredits(serverId);
             if (credits !== null && credits <= 0) {
               commit(
@@ -208,8 +240,8 @@ export function FlowQueueProvider({ children }: { readonly children: ReactNode }
           }
 
           let outcome: FlowItemOutcome;
-          try {
-            const result = await storeRef.current.service.callMcpTool(
+          const generate = (accountId?: string) =>
+            storeRef.current.service.callMcpTool(
               serverId,
               'flow_generate_image',
               buildFlowArgs({
@@ -219,11 +251,44 @@ export function FlowQueueProvider({ children }: { readonly children: ReactNode }
                 model: stateRef.current.settings.model,
                 ratio: stateRef.current.settings.ratio,
                 credits: true,
+                accountId,
               }),
             );
-            outcome = result.isError
-              ? { ok: false, error: messageOf(result.result) }
-              : { ok: true, artifacts: artifactPaths(result.result) };
+          try {
+            if (rotating) {
+              const callWith = async (accountId: string) => {
+                const response = await generate(accountId || undefined);
+                if (!response.isError) return { ok: true as const, value: response };
+                const failure = flowFailure(response.result);
+                return {
+                  ok: false as const,
+                  message: failure.message,
+                  code: failure.code,
+                };
+              };
+              const rotation = await generateWithRotation(
+                connectedAccounts,
+                lastFlowAccountRef.current,
+                callWith,
+              );
+              if (rotation.value) {
+                lastFlowAccountRef.current = rotation.accountId;
+                outcome = { ok: true, artifacts: artifactPaths(rotation.value.result) };
+              } else {
+                const detail = rotation.failures
+                  .map((failure) => `${failure.credit ? 'sin créditos' : 'error'}: ${failure.message}`)
+                  .join(' · ');
+                outcome = {
+                  ok: false,
+                  error: detail || 'Flow devolvió un error sin detalle.',
+                };
+              }
+            } else {
+              const result = await generate();
+              outcome = result.isError
+                ? { ok: false, error: messageOf(result.result) }
+                : { ok: true, artifacts: artifactPaths(result.result) };
+            }
           } catch (error) {
             outcome = {
               ok: false,

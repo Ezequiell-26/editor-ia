@@ -234,6 +234,19 @@ export function MixerView({ onNavigate }: MixerViewProps) {
                     }
                   />
                   <span className="mixer-pan-value">{panLabel(trackPan(track))}</span>
+                  {trackPan(track) !== 0 ? (
+                    <button
+                      type="button"
+                      className="small ghost mixer-pan-center"
+                      onClick={() =>
+                        store.update((current) =>
+                          updateTrack(current, track.id, { pan: 0 }),
+                        )
+                      }
+                    >
+                      Centro
+                    </button>
+                  ) : null}
                 </div>
                 {(() => {
                   const clipPans = clips.filter(

@@ -35,6 +35,7 @@ export type ThemePresetId =
   | 'violet'
   | 'ocean'
   | 'graphite'
+  | 'contrast'
   | 'light'
   | 'custom';
 
@@ -396,6 +397,17 @@ export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, Th
     text: '#f4f6f9',
   },
   /**
+   * Alto contraste: base del preset accesible de fábrica. La paleta completa
+   * es explícita (`CONTRAST_PALETTE`), igual que Olyvia y Claro neutro.
+   */
+  contrast: {
+    accent: '#5f8dff',
+    info: '#7aa2f7',
+    background: '#0a0c10',
+    surface: '#12151b',
+    text: '#f5f8ff',
+  },
+  /**
    * Claro neutro: el único preset nativo de tema claro. Superficies
    * acromáticas (bg luminancia 0.87 → `color-scheme: light`) y el azul Olyvia
    * como único acento. La paleta completa es explícita (`LIGHT_PALETTE`) porque
@@ -415,8 +427,20 @@ export const THEME_PRESETS: Readonly<Record<Exclude<ThemePresetId, 'custom'>, Th
  * que no son Olyvia y de los datos v4 sin paleta persistida.
  */
 export function paletteFromBase(base: ThemeColors): ThemePalette {
-  const accentLight = mixHex(base.accent, '#ffffff', 0.35);
-  return {
+  /*
+   * Los defaults de estados y medios están medidos sobre superficies oscuras:
+   * en una paleta clara derivada (tema personalizado con fondo claro) nacen
+   * por debajo de AA. Cuando el fondo es claro, el acento se sube a 3:1 sobre
+   * él y los estados a 4.5:1 sobre la superficie (se usan como texto chico),
+   * los medios a 3:1, y los textos derivados pasan por `fixTextContrast`.
+   * Las paletas oscuras ya cumplen y `ensureContrast` las devuelve intactas,
+   * así que no cambia ningún preset existente; el preset claro nativo
+   * (`LIGHT_PALETTE`) tampoco pasa por acá.
+   */
+  const isLight = relativeLuminance(base.background) > 0.55;
+  const accent = isLight ? ensureContrast(base.accent, base.background, 3) : base.accent;
+  const accentLight = mixHex(accent, '#ffffff', 0.35);
+  const derived: ThemePalette = {
     bg: base.background,
     surface: base.surface,
     panel: mixHex(base.surface, base.text, 0.035),
@@ -431,18 +455,36 @@ export function paletteFromBase(base: ThemeColors): ThemePalette {
     textSecondary: mixHex(base.text, base.background, 0.24),
     textFaint: mixHex(base.text, base.background, 0.55),
     empty: mixHex(base.text, base.background, 0.6),
-    accent: base.accent,
+    accent,
     accentLight,
-    accentStrong: mixHex(base.accent, base.background, 0.24),
-    accentInk: contrastInk(base.accent),
+    accentStrong: mixHex(accent, base.background, 0.24),
+    accentInk: contrastInk(accent),
     info: base.info,
     ...STATUS_DEFAULTS,
     ...MEDIA_DEFAULTS,
     brandCyan: accentLight,
-    brandBlue: base.accent,
+    brandBlue: accent,
     brandViolet: base.info,
-    brandMagenta: mixHex(base.info, base.accent, 0.5),
+    brandMagenta: mixHex(base.info, accent, 0.5),
   };
+  if (!isLight) return derived;
+  const onSurface = (color: string, minimum: number): string =>
+    ensureContrast(color, derived.surface, minimum);
+  return fixTextContrast({
+    ...derived,
+    accentInk: ensureContrast(derived.accentInk, accent, 4.5),
+    success: onSurface(derived.success, 4.5),
+    warning: onSurface(derived.warning, 4.5),
+    danger: onSurface(derived.danger, 4.5),
+    dangerStrong: onSurface(derived.dangerStrong, 4.5),
+    cta: onSurface(derived.cta, 4.5),
+    video: onSurface(derived.video, 3),
+    image: onSurface(derived.image, 3),
+    audio: onSurface(derived.audio, 3),
+    narration: onSurface(derived.narration, 3),
+    caption: onSurface(derived.caption, 3),
+    graphic: onSurface(derived.graphic, 3),
+  });
 }
 
 /**
@@ -584,7 +626,55 @@ const LIGHT_PALETTE: ThemePalette = {
   brandMagenta: '#c026d3',
 };
 
-/** Paletas completas de los 8 presets (Olyvia y Claro neutro explícitos). */
+/**
+ * Alto contraste — preset accesible de fábrica (oscuro), medido para WCAG AA.
+ *
+ * Existe porque los presets oscuros derivados nacen con deuda de contraste
+ * (acento ~3,4:1 y estados ajustados a superficies claras). Esta paleta es
+ * explícita a propósito: acento más luminoso con tinta oscura, estados
+ * aclarados y textos que superan 4.5:1 hasta en `textFaint`/`empty`.
+ * Mediciones (fondo/superficie `#0a0c10`/`#12151b`): texto 17-18:1,
+ * atenuado 8.6:1, tenue 4.8:1, acento 6.3:1, tinta/acento 6.3:1,
+ * estados 4.9-11:1, borde fuerte 3.7:1.
+ */
+const CONTRAST_PALETTE: ThemePalette = {
+  bg: '#0a0c10',
+  surface: '#12151b',
+  panel: '#151a21',
+  panel2: '#1b212b',
+  panel3: '#232b38',
+  panelRaised: '#1a2029',
+  surfaceRaised: '#0f1319',
+  border: '#333c4d',
+  borderStrong: '#62708a',
+  text: '#f5f8ff',
+  textMuted: '#a8b2c6',
+  textSecondary: '#8b96ab',
+  textFaint: '#78839f',
+  empty: '#8490a8',
+  accent: '#5f8dff',
+  accentLight: '#9db9ff',
+  accentStrong: '#3f6fe0',
+  accentInk: '#0a0c10',
+  info: '#7aa2f7',
+  success: '#4ade80',
+  warning: '#fbbf24',
+  danger: '#f87171',
+  dangerStrong: '#ef4444',
+  cta: '#fb923c',
+  video: '#5f80ff',
+  image: '#a78bfa',
+  audio: '#2dd4bf',
+  narration: '#4ade80',
+  caption: '#facc15',
+  graphic: '#f472b6',
+  brandCyan: '#35d6ff',
+  brandBlue: '#5f8dff',
+  brandViolet: '#8b5cf6',
+  brandMagenta: '#d35cff',
+};
+
+/** Paletas completas de los 9 presets (Olyvia, Alto contraste y Claro explícitos). */
 export const THEME_PALETTES: Readonly<
   Record<Exclude<ThemePresetId, 'custom'>, ThemePalette>
 > = {
@@ -596,6 +686,7 @@ export const THEME_PALETTES: Readonly<
   violet: paletteFromBase(THEME_PRESETS.violet),
   ocean: paletteFromBase(THEME_PRESETS.ocean),
   graphite: paletteFromBase(THEME_PRESETS.graphite),
+  contrast: CONTRAST_PALETTE,
   light: LIGHT_PALETTE,
 };
 
@@ -611,6 +702,7 @@ export const THEME_PRESET_LABELS: Readonly<
   violet: 'Violeta',
   ocean: 'Océano',
   graphite: 'Grafito',
+  contrast: 'Alto contraste',
   light: 'Claro neutro',
 };
 

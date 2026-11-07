@@ -1,5 +1,6 @@
 import { convertFileSrc, invoke as tauriInvoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { RenderQueueEntry } from '../state/render-queue';
 import {
   AssetSchema,
   parseProject,
@@ -2677,6 +2678,13 @@ export interface DesktopService {
   cancelRender(jobId: string): Promise<void>;
   activeRender(): Promise<string | null>;
   pruneRenderCache(): Promise<number>;
+  /**
+   * Cola de entregas persistida en el backend (JSON en app-data). `null`
+   * cuando el runtime no la soporta; la UI conserva localStorage como respaldo.
+   */
+  renderQueueLoad(): Promise<RenderQueueEntry[] | null>;
+  renderQueueSave(queue: readonly RenderQueueEntry[]): Promise<void>;
+  renderQueueClearFinished(): Promise<RenderQueueEntry[] | null>;
   onRenderProgress(handler: (event: RenderProgressEvent) => void): Promise<UnlistenFn>;
   onRenderFinished(handler: (event: RenderFinishedEvent) => void): Promise<UnlistenFn>;
   mediaUrl(root: string, relativePath: string): string;
@@ -2973,6 +2981,9 @@ export const PROJECT_COMMANDS = {
   cancelRender: 'cancel_render',
   activeRender: 'active_render',
   pruneRenderCache: 'prune_render_cache',
+  renderQueueLoad: 'render_queue_load',
+  renderQueueSave: 'render_queue_save',
+  renderQueueClearFinished: 'render_queue_clear_finished',
 } as const;
 
 export const NATIVE_UNAVAILABLE_REASON =
@@ -4550,6 +4561,17 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
       const raw = await call(PROJECT_COMMANDS.pruneRenderCache);
       return typeof raw === 'number' ? raw : 0;
     },
+    async renderQueueLoad() {
+      const raw = await call(PROJECT_COMMANDS.renderQueueLoad);
+      return Array.isArray(raw) ? (raw as RenderQueueEntry[]) : null;
+    },
+    async renderQueueSave(queue) {
+      await call(PROJECT_COMMANDS.renderQueueSave, { queue });
+    },
+    async renderQueueClearFinished() {
+      const raw = await call(PROJECT_COMMANDS.renderQueueClearFinished);
+      return Array.isArray(raw) ? (raw as RenderQueueEntry[]) : null;
+    },
     async onRenderProgress(handler) {
       return listen<RenderProgressEvent>('render-progress', (event) => handler(event.payload));
     },
@@ -4837,6 +4859,9 @@ function createUnavailableService(): DesktopService {
     cancelRender: async () => unavailable(),
     activeRender: async () => unavailable(),
     pruneRenderCache: async () => unavailable(),
+    renderQueueLoad: async () => null,
+    renderQueueSave: async () => {},
+    renderQueueClearFinished: async () => null,
     onRenderProgress: async () => () => {},
     onRenderFinished: async () => () => {},
     mediaUrl: () => '',

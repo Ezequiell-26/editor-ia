@@ -13,6 +13,7 @@ import {
 import { EffectBrowser } from './EffectBrowser';
 import { EffectCanvas } from './EffectCanvas';
 import { EffectStackPanel } from './EffectStackPanel';
+import { EffectTemplates } from './EffectTemplates';
 
 export interface EffectStudioProps {
   readonly stack: EffectStack;
@@ -128,6 +129,7 @@ export function EffectStudio({
 
         <div className="effect-studio-stack">
           <EffectStackPanel stack={stack} onChange={onChange} />
+          <EffectTemplates kind="video" stack={stack} onApply={(next) => onChange(next)} />
           {full ? (
             <p className="fine-print">
               Llegaste al máximo de {MAX_STACK_EFFECTS} efectos en un clip. Quitá uno para sumar

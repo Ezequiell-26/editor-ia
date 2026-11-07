@@ -169,6 +169,7 @@ describe('presets completos', () => {
       'violet',
       'ocean',
       'graphite',
+      'contrast',
       'light',
     ]);
     for (const palette of Object.values(THEME_PALETTES)) expectCompletePalette(palette);
@@ -185,6 +186,24 @@ describe('presets completos', () => {
     expect(THEME_PALETTES.light.info).toBe(THEME_PRESETS.light.info);
     // El acento oscuro del contrato sobrevive al cambio de tema.
     expect(THEME_PALETTES.light.accent).toBe(THEME_PALETTES.olyvia.accent);
+  });
+
+  it('«Alto contraste» es explícito, oscuro y pasa todo el reporte AA', () => {
+    const palette = THEME_PALETTES.contrast;
+    expectCompletePalette(palette);
+    expect(colorSchemeFor(palette)).toBe('dark');
+    expect(palette.bg).toBe(THEME_PRESETS.contrast.background);
+    expect(palette.surface).toBe(THEME_PRESETS.contrast.surface);
+    expect(palette.text).toBe(THEME_PRESETS.contrast.text);
+    expect(palette.accent).toBe(THEME_PRESETS.contrast.accent);
+    expect(palette.info).toBe(THEME_PRESETS.contrast.info);
+    expect(THEME_PRESET_LABELS.contrast).toBe('Alto contraste');
+    const report = themeContrastReport(palette);
+    expect(report.every((check) => check.pass)).toBe(true);
+    // Ni siquiera los textos tenues caen por debajo de AA sobre la superficie.
+    expect(contrastRatio(palette.textFaint, palette.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(palette.empty, palette.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(palette.accentInk, palette.accent)).toBeGreaterThanOrEqual(4.5);
   });
 
   it('cada preset tiene etiqueta de UI y «Claro neutro» se llama así', () => {
@@ -261,6 +280,39 @@ describe('derivación paletteFromBase', () => {
     expect(palette.narration).toBe('#56b97f');
     expect(palette.caption).toBe('#d9b34a');
     expect(palette.graphic).toBe('#d76fa9');
+  });
+
+  it('una base clara deriva estados y textos legibles (AA) en vez de los defaults oscuros', () => {
+    const light = paletteFromBase({
+      accent: '#1f5eff',
+      info: '#15803d',
+      background: '#eef0f3',
+      surface: '#f7f8fa',
+      text: '#15181e',
+    });
+    // Los defaults oscuros no pueden sobrevivir sobre fondo claro.
+    expect(light.success).not.toBe('#22c55e');
+    for (const id of ['success', 'warning', 'danger', 'dangerStrong', 'cta'] as const) {
+      expect(
+        contrastRatio(light[id], light.surface),
+        `contraste de ${id} sobre surface`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const id of ['video', 'image', 'audio', 'narration', 'caption', 'graphic'] as const) {
+      expect(
+        contrastRatio(light[id], light.surface),
+        `contraste de ${id} sobre surface`,
+      ).toBeGreaterThanOrEqual(3);
+    }
+    expect(contrastRatio(light.accent, light.bg)).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio(light.accentInk, light.accent)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(light.textMuted, light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(light.textFaint, light.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(themeContrastReport(light).every((check) => check.pass)).toBe(true);
+    // La base sigue siendo la fuente de los 5 colores visibles.
+    expect(light.bg).toBe('#eef0f3');
+    expect(light.surface).toBe('#f7f8fa');
+    expect(light.text).toBe('#15181e');
   });
 });
 

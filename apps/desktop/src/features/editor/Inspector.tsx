@@ -110,8 +110,7 @@ import {
 import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
 import { InspectorSection as Section } from './InspectorSection';
-import { ColorMaskSections, HdrWheelsSection } from './ColorMaskSections';
-import { ColorStudio } from '../color/ColorStudio';
+import { ColorPropertiesPanel } from './properties/ColorPropertiesPanel';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
@@ -1590,20 +1589,18 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         aria-labelledby={`inspector-tab-${tab}`}
         className={`inspector-tabpanel${tab === 'color' ? ' has-color-studio' : ''}`}
       >
-      {/* Página Color: estudio profesional de corrección y gradación, montado
-          en el panel derecho bajo la pestaña «Color». Las secciones clásicas
-          siguen debajo y siguen funcionando sobre los mismos ClipEffects. */}
-      {tab === 'color' && (visual || isAdjustment) ? (
-        <ColorStudio clipId={clip.id} />
-      ) : null}
-      {/* Capturas 119–125: la pestaña «Máscara de color» sustituye el cuerpo
-          estándar por sus propias secciones (Capas / Básico / HSL / Curvas /
-          Ruedas cromáticas / HDR). El resto de pestañas conserva intacta toda
-          la lógica original del inspector. */}
-      {tab === 'mask' ? (
-        <div className="fm-mask-root" data-group="mask">
-          <ColorMaskSections activeLayer={clip.label ?? 'Clip'} />
-        </div>
+      {/* Panel de propiedades reconstruido (capturas 118 / 127). Una sola
+          fuente de verdad: useClipGrade escribe en ClipEffects.colorGrade y el
+          compilador existente proyecta al visor, a los scopes y al export.
+          «Estudio avanzado» abre ColorStudio desde el propio panel, así no hay
+          dos interfaces de color montadas a la vez. Las demás pestañas
+          conservan intacta toda la lógica original del inspector. */}
+      {tab === 'color' || tab === 'mask' ? (
+        <ColorPropertiesPanel
+          clipId={clip.id}
+          mode={tab === 'mask' ? 'mask' : 'color'}
+          subTab={subTab}
+        />
       ) : (
         <>
       <Section title="Clip">
@@ -4262,6 +4259,15 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 patchAudio({ pan: Math.abs(value) > 0.001 ? value : undefined })
               }
             />
+            {Math.abs(audio.pan ?? 0) > 0.001 ? (
+              <button
+                type="button"
+                className="small ghost"
+                onClick={() => patchAudio({ pan: undefined })}
+              >
+                Paneo: centro
+              </button>
+            ) : null}
             <p className="fine-print inspector-full">
               Si un clip de la pista define paneo, el paneo de pista se omite en esa pista; los clips sin paneo
               propio quedan centrados.
@@ -4675,9 +4681,6 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
           {beatInfo ? <p className="fine-print">{beatInfo}</p> : null}
         </Section>
       ) : null}
-      {/* Captura 124/125 compartida: la subpestaña HDR de «Color» también
-          muestra la rueda cromática HDR 2×2, ya no queda deshabilitada. */}
-      {tab === 'color' ? <HdrWheelsSection group="color" subtab="hdr" /> : null}
         </>
       )}
       </div>

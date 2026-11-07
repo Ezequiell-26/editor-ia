@@ -176,6 +176,7 @@ function preset(value: unknown): ThemePresetId {
     value === 'violet' ||
     value === 'ocean' ||
     value === 'graphite' ||
+    value === 'contrast' ||
     value === 'light' ||
     value === 'custom'
     ? value

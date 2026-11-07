@@ -4,6 +4,23 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Suite: espera real para el chunk lazy de Descargar (2026-11-07)** —
+  regresión de test detectada en una pasada del protocolo del loop (Devin CLI).
+  - **Causa**: con proyecto abierto, `nav('Descargar')` monta
+    `DownloadsHubView` dentro de `EditorWorkspace` (unificación F2/T1) y
+    `DownloadView` es un chunk lazy grande; el `waitFor` por defecto (1 s)
+    vencía antes del primer render del módulo. No era un fallo de producto:
+    la vista embebida montaba y el flujo analizar→importar→auto-editar era
+    el correcto.
+  - **Fix**: `App.test.tsx` sube las dos esperas de «Motor de descargas» y
+    «Copiar conexión» a `{ timeout: 5000 }`, mismo criterio que
+    `createProject` usa para `.timeline-surface`.
+  - **Archivos**: `apps/desktop/src/App.test.tsx` (2 líneas).
+  - **Verificación**: `npx vitest run src/App.test.tsx` **76/76** ·
+    `npm run typecheck` 0 errores. No se corrió `npm run verify` completo.
+  - **Nota**: los warnings de `HTMLCanvasElement.getContext` en jsdom
+    (ThumbnailView) son ruido conocido, no la causa del fallo.
+
 - `[done]` **Cerebro: reorden de escenas según la timeline (2026-11-07)** —
   cierra el `[pending]` «el cerebro todavía no reordena escenas», en una
   pasada del protocolo del loop (Devin CLI).
@@ -53,6 +70,49 @@ reconstruye el instalador salvo que el ítem lo pida.
   - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest
     `src/state/brain` **33/33**. No se corrió la suite serial completa.
 
+- `[done]` **Export WebM VP9/AV1 + Opus (2026-11-07)** — el schema ya
+  permitía `webm/vp9/av1/opus` (`CONTAINER_MATRIX`) pero el worker los
+  rechazaba y la UI no los ofrecía. Ahora el pipeline completo los emite:
+  - **Rust** (`render/ffmpeg.rs`): `parse_profile` valida la matriz del
+    schema (WebM sólo VP9/AV1 + Opus; MP4/MOV sólo H.264/H.265 + AAC).
+    `choose_encoder` elige por códec: `libvpx-vp9` para VP9;
+    `libsvtav1`→`av1_nvenc`→`av1_qsv`→`av1_amf`→`libaom-av1` para AV1.
+    `software_video_args` habla el dialecto de cada familia: x264/x265
+    `-preset`+`-crf`; libvpx-vp9/libaom-av1 `-cpu-used`+`-row-mt` y CRF
+    exige `-b:v 0`; libsvtav1 con su escala de presets 0-13; el resto sólo
+    bitrate. `audio_encoder_for` mapea Opus→`libopus` a 48 kHz forzado.
+    `-movflags +faststart` sólo para MP4/MOV. Hardware: `av1_*` y `vp9_qsv`
+    validados por códec (la sonda `hardware_encoders` sigue midiendo sólo
+    H.264/H.265 — VP9/AV1 van por software).
+  - **Capabilities** (`commands/export_tools.rs`): la matriz interseca el
+    renderer con los encoders reales del binario — WebM aparece sólo si hay
+    VP9/AV1 **y** `libopus`; AV1 sólo si hay `libsvtav1`/`libaom-av1` o
+    hardware AV1.
+  - **Frontend**: `applyCompression` acepta `vp9`/`av1` y reacomoda
+    `container`/`audioCodec` coherentes; el selector de códec del
+    ExportDialog ofrece los 4 códecs; el check de compatibilidad usa el
+    códec real (antes mapeaba h265→'hevc' que la matriz no usa); los nombres
+    de archivo de lote y de cola usan la extensión del contenedor
+    (`containerExtension`) — `.webm` ya no sale como `.mp4`; `availableHardware`
+    devuelve `null` para VP9/AV1 (sin sonda propia, honesto); fine-print y
+    preset explican Opus/WebM.
+  - **Verificación real**: FFmpeg dev renderizó WebM VP9+Opus y AV1+Opus de
+    1 s (testsrc+sine) con el dialecto exacto de `software_video_args`;
+    ffprobe confirma `matroska,webm` + `vp9`/`av1` + `opus`.
+  - **Límites honestos**: `pixelFormat` sigue fijo `yuv420p` (sin alpha ni
+    10-bit en export); la sonda de hardware no mide AV1/VP9 (caen a
+    software); CRF de VP9/AV1 usa la escala 0-63 del perfil (el schema la
+    admite); AV1 por `libaom-av1` es el último fallback (muy lento).
+  - **Archivos**: `src-tauri/src/render/ffmpeg.rs`,
+    `src-tauri/src/commands/export_tools.rs`,
+    `src/state/project-actions.ts` (+test),
+    `src/features/editor/ExportDialog.tsx`,
+    `docs/FOLLOW-UPS.md` §6.2.
+  - **Tests**: Rust lib **635/635** (+4 nuevos: matriz webm, dialectos por
+    encoder, choose_encoder, opus 48 kHz; export_tools +2: webm sólo con
+    opus, av1 con encoder) · frontend project-actions+ExportDialog
+    **108/108** (+1: ida y vuelta webm↔mp4) · `tsc` desktop 0.
+
 - `[done]` **Cola de render persistente en el backend · v1 espejo durable
   (2026-11-07)** — primer incremento real de la feature grande de
   `FOLLOW-UPS.md` §6.3, ejecutado fuera del loop (Devin CLI, continuación
@@ -89,6 +149,17 @@ reconstruye el instalador salvo que el ítem lo pida.
     **5/5** · `cargo fmt --check` limpio en el archivo nuevo ·
     `tsc --noEmit` 0 · vitest dirigido render-queue+ExportDialog+
     queue-capabilities+project-service **43/43**.
+
+- `[done]` **Duraciones de assets con el fps real del proyecto (2026-11-07)** —
+  `AssetThumbnailGrid` dividía `media.durationFrames` por **30 fijo** (dos
+  TODOs). El campo se persiste en frames DEL PROYECTO (`media/mod.rs`:
+  `seconds × project_fps`), así que con proyecto a 24 fps un video de 60 s se
+  mostraba como 0:48. Ahora `projectFps(store)` lee
+  `project.video.frameRate` (respaldo 30 sin proyecto) y lo usan el badge de
+  video y la meta de audio en lista. Test nuevo con proyecto a 24 fps:
+  1440 frames → «1:00», 2400 frames → «100s» (antes «0:48»/«80s»).
+  - **Archivos**: `features/assets/AssetThumbnailGrid.tsx` (+test nuevo).
+  - **Verificación**: assets **9/9** · `tsc --noEmit` 0.
 
 - `[done]` **Cerebro: política de silencios medida (2026-11-07)** — cierra el
   `[pending]` «el cerebro mide huecos, no silencios» del lote cerebro de
@@ -1504,8 +1575,11 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
   Laboratorio.
 - `[verified]` **Memoria** — build de release actual con **37,6–39,8 MB** de
   working set tras abrir, frente a 43,1 MB de la build anterior.
-- `[pending]` Compresión por GPU AMF/NVENC/QSV, AV1 con SVT-AV1 (el FFmpeg
-  actual no trae libsvtav1), carga diferida del catálogo de emojis (771 kB +
+- `[pending]` Compresión por GPU AMF/NVENC/QSV (el export ya acepta
+  `hardwareEncoder` por perfil para H.264/H.265 y validado AV1/VP9 en el
+  parser; falta la sonda de hardware para AV1/VP9 y exponerlo en la UI de
+  WebM), AV1 en export ya emitido por software (libsvtav1/libaom-av1,
+  2026-11-07), carga diferida del catálogo de emojis (771 kB +
   7,25 MB de fuente), y separación del playhead para reducir re-render del
   editor.
 - **Verificación**: Rust 450 + 47, frontend 1361/166. La build de release se

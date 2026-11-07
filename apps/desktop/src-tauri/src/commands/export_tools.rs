@@ -97,11 +97,9 @@ fn codec_availability(
 // La matriz se interseca con lo que el pipeline de render puede emitir.
 
 fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
-    // El renderer actual (render/ffmpeg.rs) sólo produce MP4/MOV H.264/H.265 +
-    // AAC. La matriz se interseca con lo que el FFmpeg tiene para no ofrecer en
-    // la UI algo que el pipeline rechazaría. VP9/AV1/Opus existen en el schema y
-    // en FFmpeg, pero el worker de render todavía no los emite (documentado en
-    // docs/FOLLOW-UPS.md).
+    // El renderer (render/ffmpeg.rs) emite MP4/MOV H.264/H.265 + AAC y
+    // WebM VP9/AV1 + Opus. La matriz se reporta sólo con lo que el binario
+    // declara: si falta libvpx-vp9 o libopus, la UI no los ofrece.
     let h264 = codec_availability(
         encoders,
         &["libx264", "h264_mf", "libopenh264"],
@@ -112,42 +110,70 @@ fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
         &["libx265", "hevc_mf"],
         &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"],
     );
+    let vp9 = codec_availability(encoders, &["libvpx-vp9"], &["vp9_qsv"]);
+    let av1 = codec_availability(
+        encoders,
+        &["libsvtav1", "libaom-av1"],
+        &["av1_nvenc", "av1_qsv", "av1_amf"],
+    );
     let aac_available = ["aac", "aac_mf"]
         .iter()
         .any(|encoder| has(encoders, encoder));
+    let opus_available = has(encoders, "libopus");
     let mut video = HashMap::new();
-    let mut container_video = Vec::new();
+    let mut mp4_video = Vec::new();
     if !h264.software.is_empty() || !h264.hardware.is_empty() {
         video.insert("h264".to_owned(), h264);
-        container_video.push("h264".to_owned());
+        mp4_video.push("h264".to_owned());
     }
     if !h265.software.is_empty() || !h265.hardware.is_empty() {
         video.insert("h265".to_owned(), h265);
-        container_video.push("h265".to_owned());
+        mp4_video.push("h265".to_owned());
+    }
+    let mut webm_video = Vec::new();
+    if !vp9.software.is_empty() || !vp9.hardware.is_empty() {
+        video.insert("vp9".to_owned(), vp9);
+        webm_video.push("vp9".to_owned());
+    }
+    if !av1.software.is_empty() || !av1.hardware.is_empty() {
+        video.insert("av1".to_owned(), av1);
+        webm_video.push("av1".to_owned());
     }
     let audio = if aac_available {
         vec!["aac".to_owned()]
     } else {
         Vec::new()
     };
+    let webm_audio = if opus_available {
+        vec!["opus".to_owned()]
+    } else {
+        Vec::new()
+    };
     let mut containers = Vec::new();
-    if !container_video.is_empty() && !audio.is_empty() {
+    if !mp4_video.is_empty() && !audio.is_empty() {
         containers.push(ContainerCapability {
             container: "mp4".to_owned(),
-            video_codecs: container_video.clone(),
+            video_codecs: mp4_video.clone(),
             audio_codecs: audio.clone(),
         });
         containers.push(ContainerCapability {
             container: "mov".to_owned(),
-            video_codecs: container_video,
+            video_codecs: mp4_video,
             audio_codecs: audio.clone(),
+        });
+    }
+    if !webm_video.is_empty() && !webm_audio.is_empty() {
+        containers.push(ContainerCapability {
+            container: "webm".to_owned(),
+            video_codecs: webm_video,
+            audio_codecs: webm_audio.clone(),
         });
     }
     ExportCapabilities {
         containers,
         pixel_formats: vec!["yuv420p".to_owned()],
         video_codecs: video,
-        audio_codecs: audio,
+        audio_codecs: audio.into_iter().chain(webm_audio).collect(),
         hdr: false,
         max_width: 16_384,
         max_height: 16_384,
@@ -362,24 +388,59 @@ mod tests {
     fn la_matriz_solo_reporta_lo_que_el_pipeline_soporta() {
         let matrix = matrix_from_encoders(&encoders());
         assert!(!matrix.hdr);
-        // El worker emite MP4/MOV H.264/H.265 + AAC; el build tiene h264 y aac.
+        // El worker emite MP4/MOV H.264/H.265 + AAC y WebM VP9/AV1 + Opus.
         assert_eq!(matrix.video_codecs["h264"].software, vec!["libopenh264"]);
         assert_eq!(matrix.video_codecs["h264"].hardware, vec!["h264_nvenc"]);
         assert!(matrix.video_codecs.get("h265").is_none());
-        // VP9/AV1/Opus existen en FFmpeg pero todavía no los emite el renderer.
-        assert!(matrix.video_codecs.get("vp9").is_none());
+        // Sin libsvtav1/libaom-av1 ni hardware AV1, AV1 no se ofrece.
         assert!(matrix.video_codecs.get("av1").is_none());
-        assert_eq!(matrix.audio_codecs, vec!["aac"]);
+        assert_eq!(matrix.video_codecs["vp9"].software, vec!["libvpx-vp9"]);
+        assert_eq!(matrix.audio_codecs, vec!["aac", "opus"]);
         let containers: Vec<&str> = matrix
             .containers
             .iter()
             .map(|container| container.container.as_str())
             .collect();
-        assert_eq!(containers, vec!["mp4", "mov"]);
+        assert_eq!(containers, vec!["mp4", "mov", "webm"]);
         assert!(matrix
             .containers
             .iter()
-            .all(|container| container.video_codecs == vec!["h264"]));
+            .all(|container| container.audio_codecs.len() == 1));
+        let webm = matrix
+            .containers
+            .iter()
+            .find(|container| container.container == "webm")
+            .unwrap();
+        assert_eq!(webm.video_codecs, vec!["vp9"]);
+        assert_eq!(webm.audio_codecs, vec!["opus"]);
+    }
+
+    #[test]
+    fn av1_entra_en_webm_cuando_hay_encoder() {
+        let mut list = encoders();
+        list.push("libsvtav1".to_owned());
+        list.push("av1_nvenc".to_owned());
+        let matrix = matrix_from_encoders(&list);
+        assert_eq!(matrix.video_codecs["av1"].software, vec!["libsvtav1"]);
+        assert_eq!(matrix.video_codecs["av1"].hardware, vec!["av1_nvenc"]);
+        let webm = matrix
+            .containers
+            .iter()
+            .find(|container| container.container == "webm")
+            .unwrap();
+        assert_eq!(webm.video_codecs, vec!["vp9", "av1"]);
+    }
+
+    #[test]
+    fn sin_opus_no_hay_webm_aunque_haya_vp9() {
+        let mut list = encoders();
+        list.retain(|encoder| encoder != "libopus");
+        let matrix = matrix_from_encoders(&list);
+        assert!(matrix
+            .containers
+            .iter()
+            .all(|container| container.container != "webm"));
+        assert!(!matrix.audio_codecs.iter().any(|codec| codec == "opus"));
     }
 
     #[test]

@@ -1,4 +1,5 @@
 import {
+  createNeutralHdrWheels,
   sampleCurvePoints,
   type ClipEffects,
   type ColorGrade,
@@ -10,6 +11,7 @@ import {
   type PrimaryGrade,
   type RgbMixer,
 } from '@editor-ia/project-schema';
+import { wheelValueFromXY } from './wheel-math';
 
 /**
  * Single source of truth for grade processing.
@@ -481,12 +483,61 @@ export function effectiveLayer(stages: readonly GradeStage[]): ColorGradeLayer {
   return layer;
 }
 
+/**
+ * Fold the four Filmora HDR wheels into the existing primaries/HDR model.
+ * The properties panel stores the wheel geometry shown in the UI (X/Y/luma);
+ * this is the ONE place that turns it into RGB channel offsets and zone
+ * exposure. Called before both the CSS/SVG preview and the FFmpeg projection,
+ * so the viewer, the scopes and the exported file always agree.
+ */
+export function applyHdrWheels(layer: ColorGradeLayer): ColorGradeLayer {
+  const wheels = layer.hdrWheels;
+  if (!wheels) return layer;
+  const neutral = createNeutralHdrWheels();
+  const primaries = {
+    ...layer.primaries,
+    lift: { ...layer.primaries.lift },
+    gamma: { ...layer.primaries.gamma },
+    gain: { ...layer.primaries.gain },
+    offset: { ...layer.primaries.offset },
+  };
+  const hdr = { ...layer.hdr };
+  const CHROMA_WEIGHT = 0.5;
+  const LUMA_WEIGHT = 0.35;
+  const targets = {
+    black: 'lift',
+    dark: 'gamma',
+    shadow: 'gain',
+    light: 'offset',
+  } as const;
+  const lumaTargets = {
+    black: 'shadows',
+    dark: 'dark',
+    shadow: 'global',
+    light: 'highlights',
+  } as const;
+
+  for (const key of ['black', 'dark', 'shadow', 'light'] as const) {
+    const xy = wheels[key] ?? neutral[key];
+    if (xy.x === 0 && xy.y === 0 && xy.luma === 0) continue;
+    const rgb = wheelValueFromXY(xy.x, xy.y);
+    const wheel = primaries[targets[key]];
+    wheel.r = clamp(wheel.r + rgb.r * CHROMA_WEIGHT, -1, 1);
+    wheel.g = clamp(wheel.g + rgb.g * CHROMA_WEIGHT, -1, 1);
+    wheel.b = clamp(wheel.b + rgb.b * CHROMA_WEIGHT, -1, 1);
+    const zone = lumaTargets[key];
+    hdr[zone] = clamp(hdr[zone] + xy.luma * LUMA_WEIGHT, -1, 1);
+  }
+  return { ...layer, primaries, hdr };
+}
+
 export function compileGrade(grade: ColorGrade | undefined, filterId: string): GradeCompilation {
   const stages = resolveGradeStages(grade);
   if (stages.length === 0) {
     return { css: '', svg: null, effects: {}, stages, active: false };
   }
-  const layer = effectiveLayer(stages);
+  const resolved = stages.map((stage) => ({ ...stage, layer: applyHdrWheels(stage.layer) }));
+  const layer = effectiveLayer(resolved);
   const p = layer.primaries;
 
   // --- CSS functions: real, immediate, and readable by ScopesPanel ---------
@@ -518,10 +569,10 @@ export function compileGrade(grade: ColorGrade | undefined, filterId: string): G
 
   // --- SVG primitives: curves, mixer, per-channel wheels, HDR zones --------
   const primitives: SvgPrimitive[] = [];
-  stages.forEach((stage, index) => {
+  resolved.forEach((stage, index) => {
     // Honour the stage's wet/dry weight in the SVG chain too, so the viewer and
     // the CSS/FFmpeg projection always describe the same grade.
-    primitives.push(...stagePrimitives(scaleLayer(stage.layer, stage.weight), index, index === stages.length - 1));
+    primitives.push(...stagePrimitives(scaleLayer(stage.layer, stage.weight), index, index === resolved.length - 1));
   });
 
   // --- FFmpeg projection (existing Rust grade_filters reads these) ---------

@@ -83,6 +83,19 @@ describe('workflow de verificacion', () => {
   });
 });
 
+describe('descargas de recursos para CI', () => {
+  it('reintenta fallos transitorios y centraliza todos los recursos externos', () => {
+    const text = read('scripts/ci-bundle-resources.sh');
+    expect(text).toMatch(/download\(\)\s*\{/);
+    expect(text).toContain('--retry 5');
+    expect(text).toContain('--retry-delay 2');
+    expect(text).toContain('--retry-max-time 120');
+    expect(text).toContain('--retry-connrefused');
+    expect(text.match(/^\s*curl\b/gm) ?? []).toHaveLength(1);
+    expect(text.match(/^\s*download\s+"/gm) ?? []).toHaveLength(7);
+  });
+});
+
 describe('script de verificacion deterministica', () => {
   it('falla al primer error y propaga el codigo de salida', () => {
     const text = read('scripts/verify.ps1');

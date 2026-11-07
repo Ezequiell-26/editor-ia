@@ -100,7 +100,32 @@ describe('cola de render', () => {
   it('resume la cola con el detalle correcto', () => {
     const queue = enqueueProfiles([], PROFILES, true);
     const summary = summarizeQueue(queue);
-    expect(summary).toEqual({ pending: 2, running: 0, done: 0, error: 0, total: 2 });
+    expect(summary).toEqual({ pending: 2, running: 0, done: 0, error: 0, cancelled: 0, total: 2 });
+  });
+
+  it('una entrada cancelada se reintenta y cuenta como saldada', () => {
+    const memory = store();
+    memory.setItem(
+      'editor-ia.render-queue.v1',
+      JSON.stringify([
+        {
+          id: 'c1',
+          profileId: 'p-1',
+          profileName: 'Uno',
+          includeCaptions: false,
+          status: 'cancelled',
+          outputPath: null,
+          message: null,
+          queuedAt: '2026-10-22T10:00:00Z',
+        },
+      ]),
+    );
+    const loaded = loadRenderQueue(memory);
+    expect(loaded[0]?.status).toBe('cancelled');
+    const retried = retryEntry(loaded, 'c1');
+    expect(retried[0]?.status).toBe('pending');
+    expect(clearSettled(loaded)).toHaveLength(0);
+    expect(summarizeQueue(loaded).cancelled).toBe(1);
   });
 
   it('persiste y recupera la cola', () => {

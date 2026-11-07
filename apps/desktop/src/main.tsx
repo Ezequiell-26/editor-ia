@@ -6,7 +6,6 @@ import './styles/tokens.css';
 import './styles/app.css';
 import './styles/premium-animations.css';
 import './styles/dopamine-ux.css';
-import './styles/linear-inspired.css';
 import './styles/chrome.css';
 import './styles/flat.css';
 import './styles/panda.css';
