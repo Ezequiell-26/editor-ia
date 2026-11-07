@@ -1598,6 +1598,21 @@ void main() {
 
 // ──────────────────────────────────────────────────────── Distorsión ──
 
+// Tomás del distort.ripple en export: el shader calcula
+// `uv = v_texCoord + normalize(p) * sin(length(p) * frequency - time * speed) * amplitude`;
+// geq evalúa la misma cuenta por píxel y `r/g/b(x,y)` remuestrean la entrada.
+// `format=gbrp` evita la resolución dual de los planos de croma y `T` es el
+// timestamp en segundos del frame, igual que `u_time` del shader.
+const RIPPLE_NX = '((X+0.5)/W-{center.x})';
+const RIPPLE_NY = '((Y+0.5)/H-{center.y})';
+const RIPPLE_D = `sqrt(${RIPPLE_NX}*${RIPPLE_NX}+${RIPPLE_NY}*${RIPPLE_NY})`;
+const RIPPLE_WAVE = `sin(${RIPPLE_D}*{frequency}-T*{speed})*{amplitude}`;
+const RIPPLE_SX = `clip(X+(${RIPPLE_NX}/(${RIPPLE_D}+0.000001))*${RIPPLE_WAVE}*W,0,W-1)`;
+const RIPPLE_SY = `clip(Y+(${RIPPLE_NY}/(${RIPPLE_D}+0.000001))*${RIPPLE_WAVE}*H,0,H-1)`;
+const rippleGraph =
+  'format=gbrp,geq=' +
+  `r='r(${RIPPLE_SX},${RIPPLE_SY})':g='g(${RIPPLE_SX},${RIPPLE_SY})':b='b(${RIPPLE_SX},${RIPPLE_SY})'`;
+
 const ripple = v({
   id: 'distort.ripple',
   name: 'Ondulación',
@@ -1624,6 +1639,11 @@ void main() {
   fragColor = vec4(texture(u_currentTexture, clamp(uv, 0.0, 1.0)).rgb, 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: rippleGraph,
+    fidelity: 'approximate',
+    note: 'geq evalúa la misma ondulación radial por píxel y remuestrea con bilineal; el mapeo a v_texCoord puede diferir medio píxel y el coste es alto en cuadros grandes.',
+  },
 });
 
 const twirl = v({

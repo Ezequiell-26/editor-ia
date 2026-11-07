@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T22:46:37.903Z"
+    "lastPassAt": "2026-11-07T23:05:27.846Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -409,6 +409,14 @@
   ],
   "passes": [
     {
+      "at": "2026-11-07T23:05:27.846Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "receta FFmpeg/geq para distort.ripple (45/48 exportan; quedan light.leak, light.flare, distort.twirl); vitest effect-kit 45/45, vfx 26/26, tsc desktop 0; cargo test bloqueado por os error 32",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
       "at": "2026-11-07T22:46:37.903Z",
       "taskId": null,
       "status": "noop",
@@ -708,12 +716,6 @@
       "note": "arranque del loop",
       "remedy": null,
       "verifyRan": false
-    },
-    {
-      "at": "2026-10-18T22:29:29.615Z",
-      "taskId": "doc",
-      "status": "rejected",
-      "reason": "Se declaró done con archivos que no existen: inexistente.md"
     }
   ]
 }

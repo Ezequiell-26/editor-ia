@@ -154,6 +154,27 @@ describe('compilación a FFmpeg', () => {
     }
   });
 
+  it('distort.ripple exporta con geq radial y parámetros resueltos', () => {
+    const manifest = effectRegistry.get('distort.ripple');
+    expect(manifest).toBeTruthy();
+    if (!manifest) return;
+    const compiled = compileInstance(
+      effectRegistry,
+      createInstance(manifest, {
+        params: { amplitude: 0.05, frequency: 40, speed: 0, center: [0.5, 0.5] },
+      }),
+    );
+    const graph = compiled.steps.find((step) => step.kind === 'graph');
+    expect(graph?.kind).toBe('graph');
+    if (graph?.kind !== 'graph') return;
+    expect(compiled.fidelity).toBe('approximate');
+    expect(graph.template).toContain('format=gbrp,geq=');
+    expect(graph.template).toContain("r='r(clip(X+");
+    expect(graph.template).toContain('*40');
+    expect(graph.template).toContain('*0.05');
+    expect(graph.template).not.toMatch(/\{[a-zA-Z0-9_]/);
+  });
+
   it('el stack compila en orden y reporta la peor fidelidad', () => {
     const grade = effectRegistry.get('color.grade');
     const vignette = effectRegistry.get('light.vignette');

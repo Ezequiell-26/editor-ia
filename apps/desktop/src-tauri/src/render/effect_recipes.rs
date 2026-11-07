@@ -331,6 +331,13 @@ pub static RECIPES: &[Recipe] = &[
         params: &[RecipeParam { id: "key", kind: ParamKind::Color }, RecipeParam { id: "similarity", kind: ParamKind::Float }, RecipeParam { id: "smoothness", kind: ParamKind::Float }, RecipeParam { id: "spill", kind: ParamKind::Float }],
     },
     Recipe {
+        id: "distort.ripple",
+        chain: &[],
+        graph: Some("format=gbrp,geq=r='r(clip(X+(((X+0.5)/W-{center.x})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*W,0,W-1),clip(Y+(((Y+0.5)/H-{center.y})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*H,0,H-1))':g='g(clip(X+(((X+0.5)/W-{center.x})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*W,0,W-1),clip(Y+(((Y+0.5)/H-{center.y})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*H,0,H-1))':b='b(clip(X+(((X+0.5)/W-{center.x})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*W,0,W-1),clip(Y+(((Y+0.5)/H-{center.y})/(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))+0.000001))*sin(sqrt(((X+0.5)/W-{center.x})*((X+0.5)/W-{center.x})+((Y+0.5)/H-{center.y})*((Y+0.5)/H-{center.y}))*{frequency}-T*{speed})*{amplitude}*H,0,H-1))'"),
+        audio_chain: &[],
+        params: &[RecipeParam { id: "amplitude", kind: ParamKind::Float }, RecipeParam { id: "frequency", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
+    },
+    Recipe {
         id: "distort.fisheye",
         chain: &["lenscorrection=k1={strength}:k2=0:i=bilinear"],
         graph: None,
