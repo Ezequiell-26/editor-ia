@@ -378,6 +378,11 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   const clearTool = useCallback(() => {
     setToolView(null);
     setToolTab(null);
+    // Sin esto activeId quedaba en el host de la herramienta ('creator',
+    // 'lab'…) y renderView montaba su pantalla standalone, sacando al usuario
+    // del editor. El mapa es un modo del editor: activeId vuelve a 'editor',
+    // igual que en openToolMap.
+    setActiveId('editor');
     setEditorMode('tools');
     setEditorRequest((request) => request + 1);
   }, []);

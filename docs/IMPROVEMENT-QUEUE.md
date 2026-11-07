@@ -4,6 +4,34 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Unificación F4 (3ª parte) · hubs medidos + fix de «Volver al
+  mapa» (2026-11-07)** — slice acotado de la fase F4 de
+  `docs/UNIFICATION-PLAN.md`, ejecutado en una pasada del protocolo del loop
+  (Devin CLI). Era la «verificación medida de los 3 hubs» que F4 dejaba
+  pendiente.
+  - **Bug real encontrado y corregido**: `clearTool` («Volver al mapa» del
+    breadcrumb de una herramienta embebida) limpiaba `toolView`/`toolTab`
+    pero dejaba `activeId` en el host (`creator`, `lab`, `download`…).
+    `renderView` caía entonces en el `case` standalone del hub y **sacaba al
+    usuario del editor**, contradiciendo la unificación. Fix de una línea:
+    `setActiveId('editor')`, igual que ya hacía `openToolMap`. Detectado
+    por el test nuevo (0 `.editor-tool-chip` tras volver al mapa).
+  - **Verificación medida agregada** (`App.test.tsx`, describe T2, +2 tests,
+    20 s por chunks lazy): Creador y Laboratorio se montan como panel del
+    modo `tools` con `.timeline-panel` presente, pestaña inicial correcta
+    (`Crear`/`Convertir`), rail marcando el host (`aria-current=page`),
+    breadcrumb «Volver al mapa» + «Volver a Edición»; «Volver al mapa»
+    regresa al mapa de 35 chips sin salir del editor y «Volver a Edición»
+    devuelve el modo `timeline`. Aliases `factory`→Creador y
+    `upscale`→Laboratorio abren la pestaña pedida (`initialTab` +
+    `requestId`) dentro del mismo panel.
+  - **Archivos**: `App.tsx` (+5 líneas), `App.test.tsx` (+69).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · `vitest run
+    src/App.test.tsx` **76/76** (antes 74). No se corrió la suite serial
+    completa (cambio acotado a `clearTool` + tests del módulo).
+  - **Siguiente paso F4**: sólo queda el cierre del onboarding de primera
+    ejecución con el recorrido único (`WORKSPACE_STEPS`).
+
 - `[done]` **Unificación F4 (2ª parte) · atajos del cheat sheet agrupados por
   el mapa (2026-11-07)** — slice acotado de la fase F4 de
   `docs/UNIFICATION-PLAN.md`, ejecutado en una pasada del protocolo del loop

@@ -1573,6 +1573,75 @@ describe('T2 · todas las herramientas dentro del editor', () => {
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
     expect(document.querySelector('.editor-workspace')).toBeNull();
   });
+
+  it('Creador y Laboratorio se montan como panel del editor con retorno persistente', async () => {
+    renderApp();
+    await createProject('Obra hubs F4');
+    const rail = screen.getByRole('navigation', { name: /vistas/i });
+
+    // Creador: el hub real vive dentro del editor, con la timeline montada.
+    await nav('Creador');
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Todo' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    const creator = await screen.findByRole('region', { name: 'Creador' });
+    expect(within(creator).getByRole('tab', { name: 'Crear' }).getAttribute('aria-selected')).toBe('true');
+    expect(document.querySelector('.editor-workspace')).toBeTruthy();
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Volver al mapa/i })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Volver a Edición/i })).toBeTruthy();
+    expect(within(rail).getByRole('button', { name: 'Creador' }).getAttribute('aria-current')).toBe('page');
+
+    // «Volver al mapa» regresa al mapa de herramientas sin salir del editor.
+    fireEvent.click(screen.getByRole('button', { name: /Volver al mapa/i }));
+    await waitFor(() =>
+      expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length),
+    );
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+
+    // Laboratorio: mismo contrato, host propio y pestaña inicial por defecto.
+    await nav('Laboratorio');
+    const lab = await screen.findByRole('region', { name: 'Laboratorio de medios' });
+    expect(within(lab).getByRole('tab', { name: 'Convertir' }).getAttribute('aria-selected')).toBe('true');
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Volver a Edición/i })).toBeTruthy();
+    expect(within(rail).getByRole('button', { name: 'Laboratorio' }).getAttribute('aria-current')).toBe('page');
+
+    // «Volver a Edición» deja el modo tools y muestra la timeline como modo activo.
+    fireEvent.click(screen.getByRole('button', { name: /Volver a Edición/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Edición' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    expect(document.querySelector('.editor-tool-map')).toBeNull();
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    // Dos hubs lazy + creación de proyecto superan los 5 s por defecto.
+  }, 20_000);
+
+  it('los alias de hub abren la pestaña inicial correcta dentro del editor', async () => {
+    renderApp();
+    await createProject('Obra aliases F4');
+    fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
+
+    // Fábrica es alias de Creador: monta el hub con su pestaña pedida.
+    fireEvent.click(screen.getByRole('button', { name: /^Fábrica:/ }));
+    const creator = await screen.findByRole('region', { name: 'Creador' });
+    await waitFor(() =>
+      expect(within(creator).getByRole('tab', { name: 'Fábrica' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+
+    // Upscale es alias de Laboratorio: mismo host, otra pestaña inicial.
+    fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
+    fireEvent.click(screen.getByRole('button', { name: /^Upscale:/ }));
+    const lab = await screen.findByRole('region', { name: 'Laboratorio de medios' });
+    await waitFor(() =>
+      expect(within(lab).getByRole('tab', { name: 'Upscale' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Volver al mapa/i })).toBeTruthy();
+  }, 20_000);
 });
 
 describe('cobertura de vistas', () => {
