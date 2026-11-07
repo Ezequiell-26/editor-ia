@@ -513,7 +513,12 @@ pub async fn screen_record_start(
                     buf
                 })
                 .unwrap_or_default();
-            let tail: String = stderr.chars().rev().take(400).collect::<String>().chars().rev().collect();
+            let mut tail: String = stderr.chars().rev().take(400).collect::<String>().chars().rev().collect();
+            // ffmpeg eco-a la URL de salida en sus errores; la URL RTMP
+            // lleva la clave del stream y no debe salir en errores/logs.
+            if let Some(url) = stream_url.as_deref() {
+                tail = tail.replace(url, "[stream-url-oculta]");
+            }
             return Err(ProjectError::message(
                 ProjectErrorCode::ProviderRejected,
                 format!("ffmpeg no pudo iniciar la grabación ({status}): {tail}").as_str(),
