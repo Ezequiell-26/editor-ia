@@ -1064,21 +1064,7 @@ pub async fn mcp_server_autoconnect(
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_else(|| json!({}));
-    if !root.is_object() {
-        root = json!({});
-    }
-    let servers = root
-        .as_object_mut()
-        .expect("root es un objeto JSON")
-        .entry("mcpServers")
-        .or_insert_with(|| json!({}));
-    if !servers.is_object() {
-        *servers = json!({});
-    }
-    servers
-        .as_object_mut()
-        .expect("mcpServers es un objeto JSON")
-        .insert("olyvia".to_owned(), build_entry(&info));
+    merge_olyvia_entry(&mut root, build_entry(&info));
 
     let pretty = serde_json::to_string_pretty(&root).map_err(|_| {
         ProjectError::message(ProjectErrorCode::Io, "no se pudo generar la configuración")
@@ -1097,6 +1083,28 @@ pub async fn mcp_server_autoconnect(
     })
 }
 
+/// Inserta o reemplaza la entrada `mcpServers.olyvia` en la raíz de la
+/// configuración del cliente sin tocar nada más: otros servidores MCP,
+/// ajustes del cliente y campos extra se conservan. Si el archivo no era
+/// un objeto JSON válido, se reinicia como `{}`.
+fn merge_olyvia_entry(root: &mut Value, entry: Value) {
+    if !root.is_object() {
+        *root = json!({});
+    }
+    let servers = root
+        .as_object_mut()
+        .expect("root es un objeto JSON")
+        .entry("mcpServers")
+        .or_insert_with(|| json!({}));
+    if !servers.is_object() {
+        *servers = json!({});
+    }
+    servers
+        .as_object_mut()
+        .expect("mcpServers es un objeto JSON")
+        .insert("olyvia".to_owned(), entry);
+}
+
 /// Respuesta del frontend a un `run_command` pendiente.
 #[tauri::command]
 pub fn mcp_respond(state: State<'_, AppState>, id: String, ok: bool, text: String) -> bool {
@@ -1111,6 +1119,54 @@ pub fn mcp_respond(state: State<'_, AppState>, id: String, ok: bool, text: Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_olyvia_entry_preserves_other_servers_and_settings() {
+        let mut root = json!({
+            "mcpServers": {
+                "otro-servidor": { "command": "npx", "args": ["-y", "algo"] }
+            },
+            "theme": "dark"
+        });
+        merge_olyvia_entry(&mut root, json!({ "type": "http", "url": "http://127.0.0.1:1" }));
+        assert_eq!(root["theme"], "dark");
+        assert_eq!(root["mcpServers"]["otro-servidor"]["command"], "npx");
+        assert_eq!(root["mcpServers"]["olyvia"]["type"], "http");
+    }
+
+    #[test]
+    fn merge_olyvia_entry_replaces_only_olyvia_and_repairs_bad_shapes() {
+        let mut root = json!({
+            "mcpServers": {
+                "olyvia": { "type": "sse", "url": "http://viejo" },
+                "otro": { "command": "x" }
+            }
+        });
+        merge_olyvia_entry(&mut root, json!({ "type": "http", "url": "http://nuevo" }));
+        assert_eq!(root["mcpServers"]["olyvia"]["url"], "http://nuevo");
+        assert_eq!(root["mcpServers"]["otro"]["command"], "x");
+
+        let mut bad = json!({ "mcpServers": "no-es-objeto", "ajuste": 1 });
+        merge_olyvia_entry(&mut bad, json!({ "ok": true }));
+        assert_eq!(bad["ajuste"], 1);
+        assert_eq!(bad["mcpServers"]["olyvia"]["ok"], true);
+
+        let mut scalar = json!("basura");
+        merge_olyvia_entry(&mut scalar, json!({ "ok": true }));
+        assert_eq!(scalar["mcpServers"]["olyvia"]["ok"], true);
+    }
+
+    #[test]
+    fn detect_clients_returns_known_clients() {
+        let clients = mcp_detect_clients();
+        let ids: Vec<&str> = clients.iter().map(|c| c.id.as_str()).collect();
+        assert!(ids.contains(&"claude-desktop"));
+        assert!(ids.contains(&"antigravity"));
+        for client in &clients {
+            assert!(!client.label.is_empty());
+            assert!(client.download_url.starts_with("https://"));
+        }
+    }
 
     #[cfg(windows)]
     #[test]

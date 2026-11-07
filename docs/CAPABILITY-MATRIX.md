@@ -73,6 +73,8 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | Navegador embebido multi-web (WebView2 + CDP por sesión) | browser-use, Playwright | ✅ | `flow_embed.rs` slots, verificado en vivo CDP 19223, login Google real |
 | Generación Flow imagen (CDP sin dependencias) | — | ✅ | `flow_generate.rs` + `scripts/flow-generate.mjs`, probado en vivo |
 | Preset Playwright MCP (`@playwright/mcp`, Apache-2.0) | Playwright | ✅ | `McpView.tsx` preset con `--cdp-endpoint` |
+| Autoconexión de clientes IA (Claude Desktop, Antigravity) | MCP spec | ✅ | `mcp_detect_clients`/`mcp_server_autoconnect` en `mcp_server.rs`: detecta instalación, arranca el server MCP y mezcla `mcpServers.olyvia` sin tocar otros servidores. UI en `McpView` + servicio + fake. 3 tests nuevos del merge |
+| Instancias Chromium aisladas con proxy + stealth CDP | Playwright/puppeteer | ✅ | `browser_instances.rs`: perfil por `profile_id`, `--proxy-server`, flags anti-automatización y overrides JS vía `Page.addScriptToEvaluateOnNewDocument`. Tool MCP `browser_instances` |
 | Pipeline guion→video (`factory_run` async) | — | ✅ | `batch-factory.ts`, `mcp-orchestrator-jobs`, test e2e con Flow |
 | Grabación tipo OBS (pantalla/ventana/región/webcam/audio/RTMP) | OBS | ✅ | `screen_record.rs`, dispositivos dshow, stats ffprobe, `streamUrl` RTMP |
 | Archivos: ls/read/write/mkdir/move/delete protegidos | — | ✅ | `files.rs` con protección de rutas de sistema y perfil |
@@ -96,7 +98,10 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 3. ~~EQ/compresor por clip~~ — resuelto: el catálogo de audio del effect-kit ya se compila a filtros `-af` por clip y llega al render.
 4. **Escenas OBS**: **HECHO** — `commands/obs_scenes.rs`: presets persistentes (capture target, webcam, mic, RTMP, encoder) en `obs-scenes.json`, `obs_scene_start` delega en el motor real. Tool MCP `obs_scenes`. Transiciones entre escenas y preview en vivo quedan pendientes.
 5. **Scopes en preview nativo**: existen scopes de color (`filmcraft_scopes`); verificar paridad waveform/vectorscope en la UI de color.
-6. **Subtítulos traducidos automáticos**: depende de proveedor externo; no hay pipeline mt completo.
+6. ~~**Subtítulos traducidos automáticos**~~ **HECHO (v1)** — `subtitles_pipeline.rs`: video → faster-whisper → traducción por proveedor (mock honesto `simulated:true`) → `.ass` con PlayRes real → burn-in FFmpeg con verificación. Tool MCP + servicio + 3 tests.
+7. **Transiciones OBS en vivo** y **preview de escena**: pendiente (filtergraph multi-inputo con timeline).
+8. **Editor visual del rig stickman** y **física 2D**: pendiente (hoy código/keyframes/MCP + partículas).
+9. **Grafos de nodos dentro del `.olyp`**: hoy persisten como `graphs/*.json` del proyecto con auto-carga del último.
 
 ## 8. Dependencias externas clave (licencias verificadas en uso)
 
@@ -121,3 +126,6 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 - **Escenas OBS**: `obs_scenes` (list/save/delete/start) persistidas + tool MCP.
 - **Traducción de subtítulos**: ya existía en Rust+servicio; ahora expuesta al agente vía tool MCP `subtitles_translate`.
 - **SSE/Ollama**: parser y cancelación cubiertos por tests (20/20 assistant); inferencia real bloqueada porque la instalación local de Ollama no tiene `llama-server` (problema del entorno, no de la app).
+- **MCP autoconnect**: `mcp_detect_clients` + `mcp_server_autoconnect` escriben `mcpServers.olyvia` en la config de Claude Desktop / Antigravity con merge no destructivo (`merge_olyvia_entry`, 3 tests nuevos).
+- **Chromium aislado**: `browser_instances.rs` con proxy por instancia, perfil único y stealth JS vía CDP (4 tests).
+- **Cumplimiento eSpeak NG GPL-3.0**: `LICENSE.txt` + `SOURCE.txt` versionados en git (`resources/piper/espeak-ng/`, excepción al ignore de binarios).
