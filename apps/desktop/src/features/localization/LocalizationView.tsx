@@ -35,6 +35,7 @@ import {
   type LocalizationLanguageCode,
 } from './localization';
 import { DubResultCard } from './DubResultCard';
+import { SubtitlePipelineCard } from './SubtitlePipelineCard';
 
 interface SubtitleSource {
   readonly name: string;
@@ -738,6 +739,8 @@ export function LocalizationView({
           Cambiar
         </button>
       </div>
+
+      <SubtitlePipelineCard />
 
       <div className="localization-layout">
         <div className="localization-controls">
