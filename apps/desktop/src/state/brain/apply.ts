@@ -6,6 +6,7 @@ import {
   rollClip,
   splitClipAtFrames,
   updateAudioMix,
+  updateCaptionCue,
 } from '../project-actions.ts';
 import { applyCutSpans } from '../silence-cuts.ts';
 import type { ApplyOutcome, EditPlan, EditProposal, ProposalKind } from './types.ts';
@@ -31,6 +32,7 @@ const EXECUTION_ORDER: Readonly<Record<ProposalKind, number>> = {
   'trim-start': 1,
   'cut-silences': 1,
   transition: 2,
+  'caption-text': 3,
   loudness: 3,
   'close-gaps': 4,
   captions: 9,
@@ -130,6 +132,37 @@ export function applyProposal(project: ProjectDocument, proposal: EditProposal):
           project: result.project,
           applied: true,
           message: `${result.applied} corte(s) con disolvencia de ${payload.frames} frames.`,
+        };
+      }
+      case 'caption-fixes': {
+        let next = project;
+        let fixed = 0;
+        let skipped = 0;
+        for (const fix of payload.fixes) {
+          const cue = next.captions.cues.find((item) => item.id === fix.cueId);
+          if (!cue || cue.text === fix.text) {
+            skipped += 1;
+            continue;
+          }
+          try {
+            next = updateCaptionCue(next, fix.cueId, { text: fix.text });
+            fixed += 1;
+          } catch {
+            // Pista bloqueada o cue que ya no existe: se omite, no frena el lote.
+            skipped += 1;
+          }
+        }
+        if (fixed === 0) {
+          return {
+            project,
+            applied: false,
+            message: 'Los subtítulos ya estaban limpios o sus pistas bloqueadas.',
+          };
+        }
+        return {
+          project: next,
+          applied: true,
+          message: `${fixed} subtítulo(s) normalizados${skipped > 0 ? `, ${skipped} omitidos` : ''}.`,
         };
       }
       case 'loudness': {

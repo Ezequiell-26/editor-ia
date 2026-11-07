@@ -208,6 +208,7 @@ export type ProposalKind =
   | 'cut-silences'
   | 'loudness'
   | 'captions'
+  | 'caption-text'
   | 'variety'
   | 'ending'
   | 'script';
@@ -228,6 +229,10 @@ export type ProposalPayload =
       readonly removedSeconds: number;
     }
   | { readonly kind: 'transition'; readonly type: ClipTransition['type']; readonly frames: number }
+  | {
+      readonly kind: 'caption-fixes';
+      readonly fixes: readonly { readonly cueId: string; readonly text: string }[];
+    }
   | { readonly kind: 'loudness'; readonly platform: string; readonly integratedLufs: number; readonly truePeakDb: number };
 
 export interface EditProposal {

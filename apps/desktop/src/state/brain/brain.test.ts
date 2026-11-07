@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
-import { addAsset, addClipFromAsset, ensureDelivery } from '../project-actions.ts';
+import { addAsset, addCaptionCue, addClipFromAsset, ensureDelivery, updateTrack } from '../project-actions.ts';
 import { readyAsset } from '../../test/fake-service.ts';
 import { analyzeTimeline } from './analyze.ts';
 import { applyProposal, applyProposals, applySafeProposals } from './apply.ts';
 import { planEdits } from './plan.ts';
 import { brainBrief } from './report.ts';
+import { cleanCaptionText } from './script-policies.ts';
 
 const NOW = '2026-11-01T00:00:00.000Z';
 
@@ -452,5 +453,89 @@ describe('silencios dentro del clip', () => {
     });
     const outcome = applySafeProposals(project, plan);
     expect(outcome.applied.some((id) => id.startsWith('cut-silences:'))).toBe(false);
+  });
+});
+
+describe('texto de subtítulos', () => {
+  /**
+   * `addCaptionCue` recorta el texto al escribirlo, así que el texto sucio se
+   * inyecta directo en el documento (igual que haría una importación SRT).
+   */
+  function projectWithCue(text: string, options: { timed?: boolean } = {}) {
+    const added = addCaptionCue(baseProject(), {
+      text: 'ok',
+      startFrame: 0,
+      durationFrames: 30,
+    });
+    const project = {
+      ...added.project,
+      captions: {
+        ...added.project.captions,
+        cues: added.project.captions.cues.map((cue) =>
+          cue.id === added.cueId
+            ? {
+                ...cue,
+                text,
+                ...(options.timed
+                  ? { words: [{ text: 'hola', startFrame: 0, endFrame: 10 }] }
+                  : {}),
+              }
+            : cue,
+        ),
+      },
+    } as ProjectDocument;
+    return { project, cueId: added.cueId, trackId: added.trackId };
+  }
+
+  it('normaliza espacios y puntuación sin tocar palabras ni números', () => {
+    expect(cleanCaptionText('  hola  ,mundo .Mundo  ')).toBe('hola, mundo. Mundo');
+    expect(cleanCaptionText('esto es  una\tprueba')).toBe('esto es una prueba');
+    expect(cleanCaptionText('cuesta 3,5 euros')).toBe('cuesta 3,5 euros');
+    expect(cleanCaptionText('mirá www.ejemplo.com hoy')).toBe('mirá www.ejemplo.com hoy');
+    expect(cleanCaptionText('genial!Genial')).toBe('genial! Genial');
+    expect(cleanCaptionText('hola ( mundo )')).toBe('hola (mundo)');
+    expect(cleanCaptionText('línea1\nlínea2')).toBe('línea1\nlínea2');
+    expect(cleanCaptionText('ya está bien.')).toBe('ya está bien.');
+  });
+
+  it('propone la limpieza y la aplica con updateCaptionCue', () => {
+    const { project, cueId } = projectWithCue('hola  ,mundo .Mundo');
+    const plan = planEdits(project, { intent: 'tighten', limit: 20 });
+    const proposal = plan.proposals.find((entry) => entry.kind === 'caption-text');
+    expect(proposal).toBeTruthy();
+    expect(proposal?.risk).toBe('safe');
+    expect(proposal?.payload?.kind).toBe('caption-fixes');
+    if (!proposal) return;
+
+    const result = applyProposal(project, proposal);
+    expect(result.applied).toBe(true);
+    const cue = result.project.captions.cues.find((item) => item.id === cueId);
+    expect(cue?.text).toBe('hola, mundo. Mundo');
+  });
+
+  it('no propone nada cuando los textos ya están limpios', () => {
+    const { project } = projectWithCue('hola, mundo. Todo bien.');
+    const plan = planEdits(project, { intent: 'tighten', limit: 20 });
+    expect(plan.proposals.some((entry) => entry.kind === 'caption-text')).toBe(false);
+  });
+
+  it('salta cues con tiempos por palabra y pistas bloqueadas', () => {
+    const timed = projectWithCue('hola  ,mundo', { timed: true });
+    const planTimed = planEdits(timed.project, { intent: 'tighten', limit: 20 });
+    expect(planTimed.proposals.some((entry) => entry.kind === 'caption-text')).toBe(false);
+
+    const { project, trackId } = projectWithCue('hola  ,mundo');
+    const locked = updateTrack(project, trackId, { locked: true });
+    const planLocked = planEdits(locked, { intent: 'tighten', limit: 20 });
+    expect(planLocked.proposals.some((entry) => entry.kind === 'caption-text')).toBe(false);
+  });
+
+  it('la limpieza entra en «Aplicar lo seguro»', () => {
+    const { project } = projectWithCue('hola  ,mundo');
+    const plan = planEdits(project, { intent: 'tighten', limit: 20 });
+    const outcome = applySafeProposals(project, plan);
+    const proposal = plan.proposals.find((entry) => entry.kind === 'caption-text');
+    expect(proposal).toBeTruthy();
+    expect(outcome.applied).toContain(proposal?.id);
   });
 });

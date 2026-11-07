@@ -5,9 +5,10 @@ import type { PolicyContext } from './policies.ts';
  * Políticas sobre el guion.
  *
  * La timeline puede estar impecable y el guion no: escenas sin material, sin
- * narración, o narración que no entra en la duración estimada. Estas reglas
- * devuelven recomendaciones (sin payload) porque reescribir texto no es una
- * operación de timeline.
+ * narración, o narración que no entra en la duración estimada. Casi todas estas
+ * reglas devuelven recomendaciones (sin payload); la excepción es la
+ * normalización mecánica de subtítulos, que sí se aplica con
+ * `updateCaptionCue`.
  */
 
 export interface ScriptContext extends PolicyContext {
@@ -146,6 +147,71 @@ export function captionSpeedPolicy({ project }: ScriptContext): EditProposal[] {
   ];
 }
 
+/**
+ * Normalización mecánica del texto de un cue: espacios y puntuación.
+ *
+ * No toca palabras: sólo colapsa espacios horizontales repetidos, pone el
+ * espacio que falta después de `,` `;` `:` (antes de letra, así «3,5» queda
+ * igual) y después de `.` `!` `?` cuando sigue una mayúscula o signo de
+ * apertura (así «www.ejemplo.com» queda igual), y quita el espacio antes de
+ * la puntuación de cierre. Los saltos de línea se conservan.
+ */
+export function cleanCaptionText(text: string): string {
+  return text
+    .replace(/[^\S\n]+/g, ' ')
+    .replace(/([,;:])(?=[A-Za-zÁÉÍÓÚáéíóúÑñÜü])/g, '$1 ')
+    .replace(/([.!?])(?=[A-ZÁÉÍÓÚÑÜ¿¡])/g, '$1 ')
+    .replace(/[^\S\n]+([,.;:!?%)\]}])/g, '$1')
+    .replace(/\([^\S\n]+/g, '(')
+    .replace(/[^\S\n]+\)/g, ')')
+    .trim();
+}
+
+/** Tope de cues por propuesta: un plan de 300 correcciones no se audita. */
+const CAPTION_FIX_LIMIT = 60;
+
+export function captionTextPolicy({ project }: ScriptContext): EditProposal[] {
+  const lockedTracks = new Set(
+    project.timeline.tracks.filter((track) => track.locked).map((track) => track.id),
+  );
+  const fixes: { cueId: string; text: string }[] = [];
+  let skippedTimed = 0;
+  for (const cue of project.captions.cues) {
+    if (lockedTracks.has(cue.trackId)) continue;
+    // Los cues con tiempos por palabra no se tocan: reescribir el texto
+    // desincronizaría el reveal palabra por palabra.
+    if (cue.words?.length || cue.wordReveal) {
+      skippedTimed += 1;
+      continue;
+    }
+    const cleaned = cleanCaptionText(cue.text);
+    if (cleaned && cleaned !== cue.text) {
+      fixes.push({ cueId: cue.id, text: cleaned.slice(0, 500) });
+    }
+  }
+  if (fixes.length === 0) return [];
+  const shown = fixes.slice(0, CAPTION_FIX_LIMIT);
+  return [
+    {
+      id: 'script:caption-text',
+      kind: 'caption-text',
+      title: `Limpiar ${fixes.length} subtítulo(s)`,
+      reason:
+        'Hay espacios dobles, espacios antes de puntuación o falta de espacio después de , ; : . ! ? en los textos. Es una normalización mecánica: no cambia palabras ni tiempos.',
+      confidence: 0.9,
+      impact: 0.25,
+      risk: 'safe',
+      clipIds: [],
+      payload: { kind: 'caption-fixes', fixes: shown },
+      preview:
+        `Se reescriben ${shown.length} cue(s)` +
+        (fixes.length > shown.length ? ` de ${fixes.length} detectados` : '') +
+        (skippedTimed > 0 ? `; ${skippedTimed} con tiempos por palabra quedan afuera` : '') +
+        '.',
+    },
+  ];
+}
+
 export function draftScenesPolicy({ script }: ScriptContext): EditProposal[] {
   const drafts = script.filter((scene) => scene.status === 'draft');
   if (drafts.length === 0) return [];
@@ -169,5 +235,6 @@ export const SCRIPT_POLICIES = [
   scenesWithoutNarrationPolicy,
   narrationPacePolicy,
   captionSpeedPolicy,
+  captionTextPolicy,
   draftScenesPolicy,
 ] as const;
