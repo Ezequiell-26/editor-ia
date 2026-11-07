@@ -4,6 +4,374 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Receta FFmpeg para `impact.zoom_pulse` (2026-11-08)** — uno de
+  los 8 efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5), en
+  una pasada del protocolo del loop (Devin CLI).
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`, así que el efecto se
+    veía en el preview GPU pero el MP4 salía sin él (el panel lo marcaba
+    «Sólo preview»).
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `split` + `scale eval=frame` + `overlay`. La rama ampliada escala por
+    `1+{amount}*exp(-6*(t*{rate}-floor(t*{rate})))` — la misma curva
+    `exp(-phase*6)*amount` del shader GLSL (`fract` → `t*rate-floor(t*rate)`)
+    — y el `overlay` la centra sobre el frame original con
+    `x='{center.x}*(W-w)'`, `y='{center.y}*(H-h)'`, que reproduce el ancla
+    en `p_center` del shader (deducido: el offset es `c·(W−w)`).
+    `eval=frame` en ambos filtros (el `t` es el timestamp local del clip,
+    igual que `u_time` del shader) y `format=auto` para no perder alfa.
+  - **Verificación con FFmpeg real** (binario empaquetado n9.0): el grafo
+    corre y `showinfo` mide la escala exacta — frame 0 → 416×312 (zoom 1,3
+    en el pico del punch) y frame 1 → 384×288 (decaimiento `exp(-6·phase)`),
+    coincidiendo con la fórmula. PNGs de control en el scratch de la sesión.
+  - **Fidelidad honesta**: `approximate` con nota — el remuestreo es el del
+    `scale` (lanczos por defecto), no el bilineal del shader; con keyframes
+    el `t` vuelve a cero por tramo (el render segmenta, comportamiento ya
+    documentado del pipeline).
+  - **Verificación repo**: `npm run effects:codegen` regeneró
+    `effect_recipes.rs` (71 recetas); vitest effect-kit **36/36**
+    (3 live skipped) · `tsc` effect-kit reporta los **4 errores
+    preexistentes** del WIP del usuario en `engine.test.ts` (sin relación)
+    · Rust `cargo test --lib effect_stack` **5/5** con test nuevo
+    `effect_stack_expands_zoom_pulse_graph_with_filled_params`.
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test), `docs/DRIFT-PARITY.md`.
+  - **Pendiente honesto**: quedan 7 efectos preview-only
+    (`light.leak`, `light.flare`, `blur.zoom`, `stylize.halftone`,
+    `glitch.wave`, `distort.ripple`, `distort.twirl`); la misma técnica
+    `scale eval=frame`+`overlay` aplica a futuros zoom/pulse.
+  - **Nota**: el test Rust quedó **sin commitear** — `ffmpeg.rs` mezcla
+    ~1200 líneas de trabajo concurrente del usuario en el mismo archivo;
+    commitear el archivo arrastraría ese WIP. El resto de la pasada sí se
+    commiteó (catálogo, recetas generadas, docs, memoria).
+
+- `[done]` **Scopes de audio en vivo del bus master en el monitor
+  (2026-11-08)** — cierra el «siguiente: scopes del audio ya mezclado en
+  preview del monitor (bus master Web Audio)» del port Kdenlive
+  (`docs/KDENLIVE-REFERENCE.md` §1), en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Backend TS** (`features/mixer/usePreviewAudio.ts`): el `MasterChain`
+    gana `freqBuffer`/`timeBuffer` (Float32) y la función nueva
+    `readPreviewAudioMasterScope()` lee el `AnalyserNode` master con
+    `getFloatFrequencyData`/`getFloatTimeDomainData`. Devuelve `null` si no
+    hay grafo o el analizador no expone lectura float; los buffers son
+    internos y se reescriben por llamada (documentado).
+  - **UI** (`features/editor/PreviewAudioScopes.tsx`, nuevo): panel overlay
+    `.scopes-panel--audio` (izquierda del monitor, no pisa el de color)
+    con oscilograma min/max arriba y espectro dBFS abajo, muestreado por
+    rAF mientras está abierto; el analizador retiene el último bloque en
+    pausa. Pie honesto: mide el bus Web Audio (pistas, EQ, fader, paneo,
+    master) y **no** incluye los efectos por clip ni la cadena de export.
+    Botón «Audio» en la toolbar del monitor (`Preview.tsx`).
+  - **Degradación**: sin `AudioContext` el panel muestra el aviso del
+    entorno (misma redacción que `LiveMeters`) y el canvas queda con el
+    fondo; el cierre funciona siempre.
+  - **Verificación**: vitest `PreviewAudioScopes.test.tsx` **3/3** (panel
+    honesto sin Web Audio + cierre; con AudioContext falso: lectura del
+    scope 512 bins/1024 muestras a 48 kHz, dibujo y «Señal en vivo»;
+    `null` sin grafo) + `LiveMeters.test.tsx` **14/14** (sin regresión en
+    el grafo) + `ScopesPanel.test.tsx` **1/1** · `tsc --noEmit` desktop
+    **0 errores**. No se corrió la suite serial completa.
+  - **Archivos**: `features/mixer/usePreviewAudio.ts`,
+    `features/editor/PreviewAudioScopes.tsx` (+test),
+    `features/editor/Preview.tsx`, `styles/scopes.css`,
+    `docs/KDENLIVE-REFERENCE.md`, `docs/CAPABILITY-MATRIX.md` §3.
+  - **Límite honesto**: espectro de 512 bins lineal en frecuencia (no
+    logarítmico) y oscilograma de una sola línea de mezcla (no por
+    canal); la mezcla por canal no existe en el bus master.
+
+- `[done]` **Thumbnails del catálogo de efectos y visuales (2026-11-08)** —
+  la mitad «miniaturas de efectos/transiciones» del `[next]` del cotejo
+  36/36, en una pasada del protocolo del loop (Devin CLI).
+  - **Brecha medida**: `EffectBrowser` pide
+    `/thumbnails/effects/<manifest.id>.svg` para los ~100 manifiestos del
+    registro (48 video + 22 transiciones + 30 audio) pero sólo existían 15
+    SVG del catálogo viejo de presets — ~85 tarjetas renderizaban `<img>`
+    roto. `VisualsView` pedía 8 presets y 7 transiciones con ids que no
+    tenían archivo (`soft`, `fade-black`, `slide-up`… vs los nombres viejos
+    `cinematic`, `fade`, `wipe-up`).
+  - **Generador nuevo** `packages/effect-kit/scripts/generate-thumbnails.ts`
+    (`npm run thumbnails:effects`): un SVG determinista por manifiesto —
+    tinte por categoría + hash del id, motivo por naturaleza (ondas para
+    audio, motivo por categoría para video, dos mitades para transiciones).
+    100 archivos emitidos. Son previews **representativos**, no renders del
+    shader: la fidelidad real sigue siendo el preview GPU del estudio.
+  - **`apps/desktop/scripts/generate-thumbnails.js`**: listas PRESETS y
+    TRANSITIONS actualizadas a los ids reales del catálogo visual
+    (`commands/visuals.rs` + fallback `visuals.ts`); regenerados los SVG
+    que faltaban.
+  - **Robustez**: `ThumbnailCard` gana `onError` → cae al placeholder con
+    icono en vez de imagen rota si un SVG falta a futuro.
+  - **Puerta de cobertura**: `effect-thumbnails.test.ts` (3 tests) exige
+    que todo manifiesto/preset/transición del catálogo tenga su archivo —
+    si el catálogo crece sin regenerar, el test falla. `import.meta.url`
+    no es fiable en vitest (vite lo reescribe), así que el test ubica
+    `public/` subiendo desde `process.cwd()`.
+  - **Verificación**: vitest `effect-thumbnails` **3/3** · vfx+visuals+
+    components **98/99** (el fallo de `EffectTemplates` «importa JSON
+    corrupto» es flaky de FileReader en jsdom: pasó 4/4 aislado y no toca
+    archivos de esta pasada) · `tsc --noEmit` desktop **0** ·
+    `tsc` effect-kit reporta 4 errores **preexistentes del WIP del usuario**
+    en `engine.test.ts` (keyframes Bézier, sin relación).
+  - **Límite honesto**: los SVG son ilustrativos por categoría, no el
+    resultado real del efecto; thumbnails renderizados por shader quedan
+    como mejora futura. Los 15 SVG viejos de presets quedaron en disco
+    (sin referencias actuales, no se borraron).
+  - **Archivos**: `packages/effect-kit/scripts/generate-thumbnails.ts`,
+    `apps/desktop/scripts/generate-thumbnails.js`, `package.json`,
+    `components/ThumbnailBrowser.tsx`, `features/vfx/effect-thumbnails.test.ts`,
+    `public/thumbnails/{effects,presets,transitions}/`.
+
+- `[done]` **Auditoría de pendientes stale (2026-11-08)** — pasada del
+  protocolo del loop (Devin CLI): la cola se usa como fuente de verdad del
+  trabajo pendiente, así que los `[pending]` que lotes posteriores ya
+  habían cerrado sin actualizar la marca se verificaron uno por uno contra
+  el código y se corrigieron. Sin cambios de código.
+  - **«Disparador por carpeta» → `[done]`**: el hueco declarado («falta un
+    escritor/render sin sesión») está cubierto por `write_project_file` +
+    `render_project_variant` (`commands/variants.rs`, sin `require_session`)
+    y `state/folder-queue.ts` + `FolderQueuePanel`. Evidencia ejecutada:
+    `npx vitest run src/state/folder-queue.test.ts` → **4/4**.
+  - **«Keyframes de efecto en export» → resuelto**: video
+    (`apply_effect_stack_animated`) y audio (`audio_stack_segment_plan`,
+    `atrim`+`concat`) ya segmentan por keyframes con Bézier; la UI de
+    keyframes existe en ambos stacks.
+  - **«Efectos de audio (30 en Drift)»**: ya estaban (§4.5 de
+    DRIFT-PARITY); el `[pending]` quedó acotado al importador de paquetes
+    de terceros, que sigue siendo trabajo real.
+  - **«Compresión por GPU…» → `[verified]`**: todos sus sub-ítems estaban
+    tachados o verificados; la sonda AV1/VP9 y la UI WebM ya existen.
+  - **`CAPABILITY-MATRIX.md` §2**: filas de stickman y partículas figuraban
+    ❌ aunque la sección 7 los declara HECHO — corregidas a ✅ con
+    evidencia (`commands/stickman.rs`, `StickmanPanel`, partículas con
+    física). `KDENLIVE-REFERENCE.md`: la cola de ports de scopes de audio
+    ya no lista el playhead como pendiente (sólo queda el scope en preview
+    del monitor).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0**; vitest `folder-queue.test.ts` **4/4**. No se tocó código.
+  - **Nota**: no se commiteó — el árbol mezcla trabajo concurrente de otra
+    sesión en los mismos archivos (`IMPROVEMENT-QUEUE.md` creció durante
+    la pasada).
+  - **Pendientes reales que quedan** (todos grandes o bloqueados):
+    importador de paquetes de efectos, Preview Web Audio de la cadena de
+    audio, editor visual del rig stickman, transiciones OBS en vivo,
+    titler con formas, scopes de color/audio en vivo sobre el monitor,
+    diarización con modelo local, firma OV/EV y ola CapCut P1 (gateada a
+    pedido del usuario).
+
+- `[done]` **Scopes de color en vivo — verificado ya implementado
+  (2026-11-08)**: `ScopesPanel` en `Preview.tsx` samplea el medio real del
+  monitor (`video`/`img` del stage) por canvas cada ~180 ms con
+  `computeScopes` (onda/vectores/histograma/parade) **durante playback y
+  scrubbing**, y sube a FilmCraft (`analyze_scopes_frame`) cuando hay
+  `realFrame.path`. Ítem de cola stale, como emojis y sonda AV1/VP9.
+
+- `[done]` **Formas pentágono/hexágono/flecha del titler (2026-11-08)** —
+  completa el set a **8 formas**: `shape` suma `'pentagon'|'hexagon'|
+  'arrow'`; pentágono/hexágono = polígono regular inscripto (5/6 lados,
+  primer vértice arriba); flecha = polígono custom de 7 puntos
+  normalizados (punta arriba). `MotionPreview` gana
+  `regularPolygonClipPath(sides)` y `arrowClipPath()` con los mismos
+  vértices que Rust. Opciones en el selector Forma de la insignia.
+  **Verificación**: vitest motion **10/10** · Rust `render::motion`
+  **7/7** (+asserts 5/6/7 ` l ` y punta de flecha) · `tsc` 0 errores.
+  El test de rechazo usa ahora `"circle"` (los shapes válidos van
+  creciendo — mantenerlo siempre inválido).
+
+- `[done]` **Forma estrella del titler (2026-11-08)** — quinta forma del
+  set, misma mecánica: `shape:'star'` en `MotionRectLayer`, opción
+  «Estrella» en el selector Forma de la insignia, `starClipPath()` en
+  `MotionPreview` (10 puntos alternando radio externo/interno sobre la
+  elipse inscripta, mismos vértices que Rust) y rama `"star"` en
+  `polygon_drawing`/`validate_plan`. **Verificación**: vitest motion
+  **10/10** (+estrella en el test de formas) · Rust `render::motion`
+  **7/7** (+asserts: 10 ` l ` + primer vértice `m 480.0 0.0`; el test de
+  rechazo migró a `"pentagon"`) · `tsc` 0 errores.
+
+- `[done]` **Formas extra del titler: triángulo y rombo (2026-11-08)** —
+  continuación del ítem anterior, misma pasada de Devin CLI.
+  - `MotionRectLayer.shape` suma `'triangle'|'diamond'`; `badgeSchema`
+    gana campo `shape` (select Elipse/Triángulo/Rombo, default elipse) y
+    `buildLayers` lo pasa a `rect()`.
+  - `MotionPreview`: triángulo/rombo vía `clip-path: polygon(...)` con los
+    **mismos vértices** que el ASS — preview y export coinciden.
+  - `render/motion.rs`: `polygon_drawing(shape,w,h)` generaliza el
+    polígono (elipse=32 lados paramétricos, triángulo=3, rombo=4);
+    `validate_plan` acepta las 4 formas y rechaza el resto.
+  - **Verificación**: vitest motion **22/22** en los 3 archivos tocados
+    (+test: shape por props, default elipse) · Rust `render::motion`
+    **7/7** (+test: triángulo `m 480 0 l 960 162 l 0 162` y rombo
+    `m 480 0 l 960 81 l 480 162 l 0 81`, `shape:"star"` → error) ·
+    `tsc` 0 errores.
+
+- `[done]` **Formas en el titler: elipse + plantilla Insignia (2026-11-08)** —
+  avanza el «Titler: formas y plantillas» del port Kdenlive
+  (`docs/KDENLIVE-REFERENCE.md` §5), en una pasada de Devin CLI.
+  - **Capa** (`features/motion/templates.ts`): `MotionRectLayer.shape`
+    opcional `'rect'|'ellipse'` (default rect → documentos y planes
+    existentes intactos); helper `rect()` con parámetro de forma.
+  - **Plantilla nueva** `badgeTemplate` («Insignia elíptica», categoría
+    dato): elipse centrada + texto centrado, campos texto/fondo/color de
+    texto/animación, registrada al final de `MOTION_TEMPLATES` (las
+    originales primero, invariante del test pro).
+  - **Preview** (`MotionPreview.tsx`): `shape==='ellipse'` →
+    `border-radius:50%` y `data-shape` para tests/estilos.
+  - **Export** (`render/motion.rs`): `validate_plan` acepta `shape`
+    `rect|ellipse` y rechaza otras; el ASS dibuja la elipse como polígono
+    de **32 lados** inscripto (`\p1`, mismo espacio de coordenadas que el
+    rect) — ASS no tiene curvas, la aproximación es la vía estándar.
+  - **Verificación**: vitest `features/motion/` **44/44** (+2 tests:
+    plan de la insignia con `shape:'ellipse'` y bounds; props inválidas
+    rechazadas) · Rust `render::motion` **6/6** (+2: polígono con 32 ` l `
+    + moveto, `shape` desconocida → error «forma inválida») · `tsc`
+    **0 errores**.
+  - **Pendiente honesto**: la elipse se aproxima con polígono (en 1080p la
+    faceta es sub-píxel a tamaños típicos, pero no es curva real); faltan
+    triángulo/estrella/custom y un editor visual de titler.
+
+- `[done]` **Transición `dip-color` con color elegible (2026-11-08)** —
+  primer tipo de transición con geometría/color del port Kdenlive
+  (`docs/KDENLIVE-REFERENCE.md` §4), en una pasada de Devin CLI.
+  - **Schema** (`project-schema/timeline.ts`): `ClipTransitionSchema`
+    suma `'dip-color'` al enum y `color` hex opcional (`#rgb`/`#rrggbb`),
+    **obligatorio para dip-color** vía `superRefine` — documentos viejos
+    intactos, JSON Schema regenerado (372/372 tests).
+  - **Export** (`render/ffmpeg.rs`): el clip entrante aplica
+    `fade=t=in:color=0xRRGGBB` (helper `hex_color`, default negro si falta);
+    el clip saliente congelado gana el modo `"color"` — curvas afines por
+    canal `out = in·α + (1−α)·c` con `hex_rgb01`, misma ley que el blanco
+    pero con intercepto por canal, preservando el alfa de máscaras.
+  - **Preview** (`commands/preview_frame.rs`): `freezable_transition`
+    acepta `dip-color` y emite `transitionFrozen {mode:"color", color,
+    alpha}` para que el frame congelado del saliente coincida con el
+    render.
+  - **UI/acciones**: opción «Fundido a color» en Inspector con `<input
+    type="color">` (default `#1b2a4a`, preservado al cambiar tipo/duración
+    vía spread — antes se perdía); preset en `EditorAssets`;
+    `applyTransitionToCuts({color})` normaliza a minúsculas y **salta el
+    corte si dip-color no trae color válido** (el schema lo exige).
+  - **Verificación**: Rust `extra_transitions_change_the_filter_chain` +
+    asserts dip-color/fallback (8/8 transition tests; el test de preview
+    `window_freezes_fades_and_transition_leads` cubre mode/color/alpha) ·
+    vitest `project-actions` **108/108** (+test color válido→`#2244aa`,
+    inválido→`applied:0` proyecto intacto) y `EditorAssets` **9/9** ·
+    `tsc --noEmit` desktop **0 errores** (los 4 errores
+    `exactOptionalPropertyTypes` que la nota anterior reportaba eran de
+    este trabajo en curso y quedaron resueltos: `color?: string | undefined`
+    en las opciones y `ClipTransition` directo en Inspector).
+  - **Indicador en timeline** (misma pasada): `ClipBlockView` dibuja una
+    marca `.clip-transition` al inicio del clip con el ancho de la
+    transición; para `dip-color` usa el `color` real del documento y el
+    resto un tinte del accent. `TRANSITION_LABELS` da el `aria-label`/
+    `title` legible. Test en `Timeline.test.tsx` (20/20): verifica la
+    clase, `backgroundColor` `#2244aa`→`rgb(34,68,170)` y la etiqueta.
+  - **Pendiente honesto**: slide 3D y luma wipe con clip mate siguen en cola.
+
+- `[done]` **Transiciones wipe direccionales (2026-11-08)** — port del wipe
+  de Kdenlive: el clip entrante se revela por un borde que barre el cuadro
+  y el saliente queda intacto debajo (a diferencia del slide, que mueve
+  la capa entera).
+  - **Schema**: `wipe-left|right|up|down` en `ClipTransitionSchema`
+    (enum, sin campos extra); JSON Schema regenerado.
+  - **Export** (`render/ffmpeg.rs`): `wipe_transition_filter` emite
+    `geq=r=…:g=…:b=…:a='if(<cond>,alpha(X,Y),0)'` con progreso
+    `p = if(lt(N,lead_frames),N/lead_frames,1)` — `N` es el frame del
+    stream local (0 = inicio del solape). Dirección = hacia dónde viaja
+    el borde (wipe-left revela desde la derecha, igual que slide-left
+    entra desde la derecha). Helpers compartidos `wipe_alpha_expr` /
+    `wipe_geq` / `wipe_frozen_filter`.
+  - **Preview** (`commands/preview_frame.rs`): `freezable_transition`
+    acepta los 4 tipos y emite `transitionFrozen {mode:"wipe",kind,
+    progress}`; el bloque `transitionFrozen` de `ffmpeg.rs` aplica
+    `wipe_frozen_filter` con `p` constante antes del chequeo de alfa.
+  - **UI**: 4 opciones en Inspector («Barrido hacia …»), pestaña
+    «Barrido» nueva en la biblioteca de transiciones y 4 presets;
+    `transitionMatchesPreset` filtra por `wipe-`. `applyTransitionToCuts`
+    funciona sin cambios (wipe no exige color).
+  - **Verificación con FFmpeg real**: `geq` sobre clip sintético —
+    alpha_avg por frame 0 → 99.6 → 227 (barrio del 0% al 90% visible),
+    confirma que `N`/`W`/`H`/`alpha(X,Y)` se comportan como se asumió.
+  - **Tests**: Rust `extra_transitions_change_the_filter_chain` con
+    asserts por dirección (`gt(X,W*(1-(`, `lt(X,W*(`, `gt(Y,H*(1-(`,
+    `lt(Y,H*(`); `cargo test transition` **8/8** ok · vitest
+    `EditorAssets` conteo 8→**12** tarjetas.
+  - **Límite honesto**: `geq` evalúa por píxel en CPU — una transición
+    wipe sobre clips largos encarece el render de ese clip completo
+    (el filtro queda en la cadena, no sólo durante el lead). Kdenlive
+    lo hace en GPU/MLT. Además `N` asume fps constante del stream;
+    con `setpts`/`fps` previos el progreso puede derivar levemente.
+
+- `[done]` **UI de keyframes en el audioStack (2026-11-08)** — cierra el
+  «Resta: UI para keyframes/curva en el audioStack» del port Kdenlive
+  (`docs/KDENLIVE-REFERENCE.md` §2), en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Diagnóstico**: toda la infraestructura ya existía — `EffectStackPanel`
+    muestra el botón ◆ y el auto-key del slider cuando recibe
+    `keyframeFrame`, y el export ya segmenta `audioStack` por keyframes
+    (`atrim`/`concat`, verificado con FFmpeg real). Lo único que faltaba era
+    pasar el frame: `AudioEffectStack` no exponía la prop y `Inspector` no
+    la enviaba, así que la cadena de audio sólo se podía animar por datos
+    (proyecto/MCP/plantillas).
+  - **Cambio**: `AudioEffectStack` acepta `keyframeFrame?: number` y lo
+    reenvía a `EffectStackPanel`; `Inspector` le pasa el `localFrame` que ya
+    calculaba para máscaras/transform/gain (playhead − `startFrame`, acotado
+    a `durationFrames − 1`, misma convención que `EffectStudio` de video).
+    Copy honesto: «Las claves ◆ animan los parámetros sólo en el export» —
+    la preview de audio sigue reproduciendo el original.
+  - **Sin curva Bézier en UI**: el ◆ crea claves con interpolación lineal,
+    igual que en el stack de video (el editor de curva no existe en ninguna
+    de las dos superficies; `bezier` sigue disponible por datos/MCP).
+  - **Archivos**: `features/editor/AudioEffectStack.tsx` (+test),
+    `features/editor/Inspector.tsx` (1 prop), `docs/KDENLIVE-REFERENCE.md`.
+  - **Verificación**: vitest `AudioEffectStack.test.tsx` **6/6** (2 tests
+    nuevos: sin `keyframeFrame` no hay ◆; con frame 30 el ◆ crea la pista
+    `[0,30]`, el slider escribe la clave del frame y el × limpia la pista).
+    `tsc --noEmit` desktop reporta **4 errores preexistentes ajenos** en
+    `EditorAssets.tsx:960,987` e `Inspector.tsx:2172,2218` — el trabajo no
+    confirmado de otra sesión sobre transiciones `dip-color`/`color`
+    (`exactOptionalPropertyTypes`); ninguno en los archivos tocados.
+  - **Nota**: no se commiteó — el árbol mezcla trabajo concurrente de otra
+    sesión (transiciones con color, `audio_scopes`, `vpn`, effect-kit, etc.)
+    en los mismos archivos.
+
+- `[done]` **Scopes de audio bajo el playhead (2026-11-08)** — mitad del
+  «Pendiente: scopes del clip bajo playhead y en preview del monitor» del
+  port Kdenlive, en una pasada del protocolo del loop (Devin CLI).
+  - **Backend** (`commands/audio_scopes.rs`): `audio_scope_analyze` y
+    `audio_scope_analyze_asset` aceptan `startSeconds`/`durationSeconds`
+    opcionales; `decode_pcm` agrega `-ss` antes de `-i` y `-t` de salida.
+    `normalize_scope_range` (puro, 3 tests): van juntos, start finito ≥ 0,
+    duración finita > 0 acotada a `MAX_ANALYZE_SECONDS` (90 s).
+  - **Mapeo timeline→fuente** (`state/playhead-audio-scope.ts`, nuevo):
+    `audioScopeCandidatesAtPlayhead` devuelve los clips video/audio con
+    fuente asset bajo el playhead ordenados de arriba hacia abajo (mayor
+    `order` de pista). El segundo del asset es
+    `inFrame + local·speed / fps` — el mismo de `Preview.tsx` — y con
+    `speedCurve` usa `curveSourceFraction` (el mapeo de `buildSpeedKnots`
+    del renderer); `reverse` recorre la ventana al revés. La ventana es
+    ±2,5 s alrededor del playhead, acotada a la duración medida del asset.
+  - **UI** (`AudioScopesPanel`): selector «Material completo» /
+    «Ventana del playhead»; en modo playhead, si hay clips solapados, un
+    segundo selector elige cuál. Aviso honesto: mide el audio FUENTE, no
+    aplica mutes/fades/ganancia/efectos del clip. Sin clip bajo el playhead
+    el botón queda deshabilitado con la explicación.
+  - **Servicio**: `AudioScopeRange` + parámetros opcionales en
+    `audioScopeAnalyze`/`audioScopeAnalyzeAsset` (los stubs `unavailable`
+    y el fake-service no necesitaron cambios: firma compatible).
+  - **Límite honesto**: sigue pendiente el scope «en preview del monitor»
+    (audio ya mezclado por Web Audio, no el material fuente).
+  - **Verificación**: cargo lib `audio_scopes` **8/8** (3 tests nuevos de
+    rango) · vitest `playhead-audio-scope.test.ts` **7/7** +
+    `AudioScopesPanel.test.tsx` **5/5** · mixer completo **37/37** ·
+    `tsc --noEmit` desktop **0**. `cargo fmt` aplicado sólo a
+    `audio_scopes.rs` (quedan diffs de formato preexistentes en `audio.rs`,
+    trabajo ajeno sin commitear).
+  - **Archivos**: `src-tauri/src/commands/audio_scopes.rs`,
+    `services/project-service.ts`, `state/playhead-audio-scope.ts` (+test),
+    `features/mixer/AudioScopesPanel.tsx` (+test).
+  - **Nota**: no se commiteó — el árbol mezcla trabajo concurrente de otra
+    sesión en los mismos archivos (`project-service.ts`, `audio.rs`, etc.).
+
 - `[done]` **Suite: timeouts reales para chunks lazy de hubs y modos
   (2026-11-07)** — misma clase de flake que la entrada anterior, en una
   pasada del protocolo del loop (Devin CLI).
@@ -129,6 +497,89 @@ reconstruye el instalador salvo que el ítem lo pida.
     encoder, choose_encoder, opus 48 kHz; export_tools +2: webm sólo con
     opus, av1 con encoder) · frontend project-actions+ExportDialog
     **108/108** (+1: ida y vuelta webm↔mp4) · `tsc` desktop 0.
+
+- `[done]` **VPN del sistema en Ajustes (2026-11-07)** — pedido del usuario:
+  "quiero que tenga vpn mi app". Diseño honesto: la app **no implementa un
+  cliente VPN** (crypto/drivers TUN son un proyecto aparte y Windows ya tiene
+  RAS nativo); gestiona las conexiones del sistema.
+  - **Rust** (`commands/vpn.rs`): `vpn_list` (PowerShell
+    `Get-VpnConnection` → nombre, servidor, tipo de túnel, estado),
+    `vpn_connect`/`vpn_disconnect` vía `rasdial` con timeout (90 s/30 s) y
+    `CREATE_NO_WINDOW`; el nombre se valida contra la lista real antes de
+    ejecutar (anti-inyección y sin objetivos arbitrarios). Credenciales: las
+    guardadas por Windows — la app nunca las ve ni las pide. `vpn_wireguard`
+    detecta la instalación oficial y `vpn_wireguard_open` la abre (el túnel
+    lo activa el usuario con sus privilegios). Parsing puro testeable
+    (objeto único vs array de PowerShell, null/basura, nombre vacío).
+    No-Windows devuelve error honesto.
+  - **Servicio**: `vpnList`/`vpnConnect`/`vpnDisconnect`/`vpnWireguard`/
+    `vpnWireguardOpen` en `DesktopService` + fake-service con dos conexiones
+    de ejemplo (una conectada, una no).
+  - **UI**: `VpnCard` en Ajustes → Herramientas — lista con estado
+    (Conectada/Desconectando/Desconectada), botones Conectar/Desconectar por
+    conexión, errores inline, estado vacío que explica que las conexiones se
+    crean en Configuración de Windows, y sección WireGuard (abre la app
+    oficial sólo si está instalada).
+  - **Límites honestos**: no crea conexiones (eso requiere admin +
+    credenciales en Windows), no es un túnel propio, no aplica proxy a las
+    funciones de red de la app (eso ya existe por feature: `test_proxy` en
+    descargas, `--proxy-server` en instancias de navegador), sin tool MCP
+    propia todavía.
+  - **Verificación**: cargo `vpn` **4/4** · VpnCard **5/5** + SettingsHome
+    **4/4** · `tsc` desktop 0 · script PowerShell probado en vivo (lista
+    vacía real en este equipo, parsea a `[]`).
+  - **Nota**: un `cargo fmt` accidental reformateó ~18 archivos Rust con
+    drift preexistente; el usuario decidió conservarlos (formato canónico,
+    sin cambio semántico).
+  - **Archivos**: `src-tauri/src/commands/vpn.rs` (nuevo), `commands/mod.rs`,
+    `lib.rs`, `services/project-service.ts`, `test/fake-service.ts`,
+    `features/settings/VpnCard.tsx` (+test), `SettingsHome.tsx`,
+    `styles/settings.css`, `docs/CAPABILITY-MATRIX.md`.
+
+- `[done]` **Sonda de hardware AV1/VP9 + GPU en export WebM (2026-11-08)** —
+  cierra la parte «sonda de hardware para AV1/VP9 y exponerlo en la UI de
+  WebM» del `[pending]` de velocidad, en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Rust** (`commands/audio.rs`): `HardwareEncoders` suma `av1` y `vp9`;
+    `detect_hardware` los sondea con `first_working` sobre `HW_AV1`
+    (`av1_nvenc`/`av1_qsv`/`av1_amf`) y `HW_VP9` (`vp9_qsv`/`vp9_amf`) — el
+    mismo init real de 0,1 s por encoder que ya medía H.264/H.265, cacheado
+    por binario. `render/ffmpeg.rs` amplía `HARDWARE_VP9` con `vp9_amf` y
+    `export_tools.rs` lo refleja en la matriz de capabilities.
+  - **Pipeline ya existía**: `validate_hardware_encoder` aceptaba
+    `av1_*`/`vp9_*` y `hardware_encoder_args` emite los flags por familia
+    (`_amf`/`_nvenc`/`_qsv`); sólo faltaba detectar y ofrecer. El diálogo
+    de exportación ahora los usa igual que H.264/H.265.
+  - **Frontend**: `HardwareEncoders` (servicio + fake) suma los campos;
+    `ExportDialog.availableHardware` mapea códec→encoder para los 4 códecs
+    (códec desconocido → `null`, no cae a H.264). El checkbox «Acelerar con
+    GPU» y `gpuRecommendation` aplican igual a perfiles WebM; el encoder
+    viaja por `hardwareEncoder` en `startRender`/`startRenderTo` (single y
+    lote) y el backend lo valida contra el códec del perfil.
+  - **Verificación**: cargo lib test `commands::audio` **11/11** (test nuevo
+    `detecta_encoders_av1_y_vp9_en_la_lista`) — la crate completa compiló con
+    todos los cambios en esa corrida. `tsc --noEmit` desktop **0** · vitest
+    `ExportDialog.test.tsx` **7/7** (test nuevo: perfil AV1/WebM +
+    `av1_nvenc` detectado → checkbox habilitado → `startRenderTo` recibe
+    `'av1_nvenc'`).
+  - **Límite honesto**: `vp9_amf`/`av1_*` sólo se ofrecen si el encoder
+    inicializa de verdad en la sonda; la matriz de capabilities sigue
+    declarando VP9/AV1 como «(GPU)» sólo con encoder compilado. El tope de
+    resolución hardware queda en 4096 px de lado (8192 sólo H.265), igual
+    que la validación del backend. Tests filtrados de `convert`/
+    `export_tools`/`ffmpeg` no se corrieron en esta pasada: otra sesión
+    dejó `commands/audio_scopes.rs` (WIP no confirmado) con un error de
+    sintaxis que bloquea el target lib-test completo; la compilación de la
+    crate con mis cambios ya quedó verificada en la corrida de audio.
+  - **Archivos**: `src-tauri/src/commands/audio.rs`,
+    `src-tauri/src/commands/system.rs`, `src-tauri/src/commands/convert.rs`
+    (literales de test), `src-tauri/src/render/ffmpeg.rs` (1 línea),
+    `src-tauri/src/commands/export_tools.rs`, `services/project-service.ts`,
+    `test/fake-service.ts`, `features/editor/ExportDialog.tsx` (+test).
+  - **Nota**: no se commiteó: el árbol tiene trabajo concurrente de otra
+    sesión (VPN ya registrada arriba, `audio_scopes.rs`, stickman,
+    screen_record, etc.) mezclado en los mismos archivos; un commit ahora
+    capturaría trabajo ajeno a medio hacer.
 
 - `[done]` **Cola de render persistente en el backend · v1 espejo durable
   (2026-11-07)** — primer incremento real de la feature grande de
@@ -1105,9 +1556,28 @@ Referencia: auditoría de `CutWire-Studios/Drift` en `docs/DRIFT-PARITY.md`.
 - `[done]` **UI** — `EffectStudio` en la vista VFX: catálogo con búsqueda y
   categorías, pila con reordenar/duplicar/apagar/resetear, parámetros por grupo
   y preview GPU con aviso de fidelidad de export. **5 tests**.
-- `[pending]` Efectos de audio (30 en Drift), plantillas guardables, keyframes
-  en export y el importador de paquetes de terceros. Detalle en
-  `docs/DRIFT-PARITY.md` §5.
+- `[done]` **Keyframes en la cadena de audio del export** — el `audioStack`
+  ahora se renderiza segmentado igual que el video: `audio_stack_segment_plan`
+  corta en los frames de keyframes (+extremos, tope 32 → fallback estático),
+  `build_audio_stack_graphs` emite `asplit` + `atrim start_sample/end_sample`
+  + `asetpts` + filtros con parámetros muestreados en el punto medio del
+  tramo (`audio_params_at` reusa `sample_effect_track`, incluido Bézier) +
+  `concat`. La cadena pre-stack cierra en `akp{input}`, el concat entrega
+  `astk{input}` y todo lo demás (ganancia, EQ de pista, fades, paneo animado
+  con su `channelsplit`/`join`) sigue detrás sin cambios — el `t` local del
+  clip se conserva porque `concat` recompone la línea de tiempo.
+  `effect_keyframe_tracks` se refactorizó en `instance_keyframe_tracks`
+  compartida (video acepta cualquier receta; audio exige `audio_chain`).
+  Verificado con FFmpeg real: `atrim` por samples + `concat` producen RMS
+  −38 dB vs −24 dB en los dos tramos (vol 0,2 vs 1,0). UI de keyframes en el
+  audioStack pendiente (la cadena es export-only; hoy se autora por datos).
+  Tests: `audio_stack_*` 4/4 (+2 nuevos: grafo segmentado y cadena lineal
+  sin keyframes).
+- `[pending]` **Importador de paquetes de terceros** (`.driftfx` / carpeta de
+  efectos externos + validación de seguridad de shaders). Los efectos de audio
+  de Drift ya están (30 en `catalog/audio.ts`, ver arriba) y las plantillas
+  guardables y los keyframes de efecto en export (video y audio) también.
+  Detalle en `docs/DRIFT-PARITY.md` §5.
 - **Verificación**: `npm run typecheck` verde en los 4 proyectos; `vite build`
   OK (chunk `VfxView` 100,55 kB); suite de escritorio 1070/1074 (las 3 fallas
   de `LottiePanel` vienen del WIP previo en `motion/`, comprobado con `git
@@ -1431,10 +1901,16 @@ entrega sin verificación.
   corrige `masterGainDb`, reescribe y reexporta **una vez**. El reporte dice la corrección.
 - `[done]` **Base para la carpeta** — `audio_peaks_path` (picos de un archivo sin proyecto) y
   `measure_file_loudness` ya existen y están registrados.
-- `[pending]` **Disparador por carpeta**: `write_project_variant` exige `state.require_session()` y
-  copia assets desde `session.root`, así que no puede escribir un proyecto armado fuera de la
-  sesión. Falta un escritor/render sin sesión; sin eso, la cola de carpeta no se puede hacer
-  honestamente.
+- `[done]` **Disparador por carpeta** (verificado 2026-11-08): el hueco se
+  cerró con comandos sin sesión — `write_project_file` escribe el proyecto
+  validado sin `require_session` (el material ya está copiado al lado, ver
+  `commands/variants.rs`) y `render_project_variant` abre el `.editoria.json`
+  desde disco y renderiza con FFmpeg. `state/folder-queue.ts` encadena
+  probe → copia → proyecto → perfil adaptativo → limpieza → escritura →
+  render → verificación de duración por archivo, y `FolderQueuePanel`
+  (Producción) lo expone sin tocar el proyecto abierto. Tests:
+  `folder-queue.test.ts` **4/4** (dos videos, sin pista de video, render
+  fallido que no frena la cola, carpeta vacía).
 
 ## Lote limpieza automática (2026-11-02)
 
@@ -1598,9 +2074,12 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
   instancia, normaliza params contra el manifiesto actual y descarta efectos
   que ya no existen (la UI informa cuántos se omitieron). No son las 23 de
   Drift: son plantillas del usuario, sin catálogo de fábrica.
-- `[pending]` **Keyframes de efecto en export** sigue abierto (el preview anima
-  parámetros; el export usa el valor estático — FFmpeg no acepta expresiones
-  genéricas por filtro), igual que el importador de paquetes de terceros.
+- ~~`[pending]` **Keyframes de efecto en export**~~ **resuelto** (verificado
+  2026-11-08): el export ya no usa el valor estático — `apply_effect_stack_animated`
+  segmenta el stream en los frames de keyframe (video) y `audio_stack_segment_plan`
+  hace lo propio con `atrim` por samples + `concat` (audio), con muestreo por la
+  misma curva que la preview (incluido Bézier). Queda abierto sólo el importador
+  de paquetes de terceros (línea de arriba).
 - **Verificación plantillas**: `effect-templates.test` **7** (CRUD, dedupe
   por nombre+tipo, roundtrip JSON, rechazos, ids nuevos y skip de efectos
   desconocidos) + `EffectTemplates.test` **4** (guardar/aplicar, exportar,
@@ -1620,13 +2099,21 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
   Laboratorio.
 - `[verified]` **Memoria** — build de release actual con **37,6–39,8 MB** de
   working set tras abrir, frente a 43,1 MB de la build anterior.
-- `[pending]` Compresión por GPU AMF/NVENC/QSV (el export ya acepta
-  `hardwareEncoder` por perfil para H.264/H.265 y validado AV1/VP9 en el
-  parser; falta la sonda de hardware para AV1/VP9 y exponerlo en la UI de
-  WebM), AV1 en export ya emitido por software (libsvtav1/libaom-av1,
-  2026-11-07), carga diferida del catálogo de emojis (771 kB +
-  7,25 MB de fuente), y separación del playhead para reducir re-render del
-  editor.
+- `[verified]` **Compresión por GPU sólo donde `gpuRecommendation` la justifica**
+  (codec-agnóstico: ya cubre AV1/VP9 vía `hardwareForProfile`; la sonda
+  `detect_hardware` mide `av1_*`/`vp9_*` con init real y `availableHardware`
+  es codec-agnóstico en ExportDialog), AV1 en export
+  ya emitido por software (libsvtav1/libaom-av1, 2026-11-07), ~~carga
+  diferida del catálogo de emojis~~ (**verificado 2026-11**: `EmojiPickerPopover`
+  ya vive en chunk `React.lazy` con preload en hover/focus; las fuentes
+  NotoColorEmoji/Twemoji son `@font-face` lazy-por-glifo y Twemoji sólo se
+  referencia con `emojiStyle='open'`), ~~separación del playhead~~ (hecha:
+  `usePlayheadFrame`/`useProjectPlaying` fuera del store, regresión en
+  `project-store.test`), ~~sonda de hardware AV1/VP9 + UI WebM~~
+  (**verificado 2026-11**: `detect_hardware` prueba `av1_*`/`vp9_*` con init
+  real del encoder y `hardware_encoders` los devuelve; `availableHardware` y
+  `hardwareForProfile` son codec-agnósticos en ExportDialog;
+  `validate_hardware_encoder`+`choose_encoder` los emiten en el render).
 - **Verificación**: Rust 450 + 47, frontend 1361/166. La build de release se
   recompiló con `custom-protocol`; el instalador no se regeneró en este lote.
 
@@ -2926,3 +3413,147 @@ independiente: `.tmp-theme-shots/after/report.json` + `METHOD.md`.
   - `[next]` Siguen pendientes por backend real: sub-pestañas HSL/Curvas/
     Ruedas/HDR, generación IA de video/audio, stock, login y exportación a
     redes. Están visibles pero deshabilitadas, no simuladas.
+
+- `[done]` **Scopes de audio nativos (port Kdenlive `scopes/audioscopes`)** —
+  `commands/audio_scopes.rs`: `analyze_pcm` puro (oscilograma min/max,
+  espectro promedio y espectrograma con el FFT radix-2 de
+  `filmcraft-audio-dsp`, ventana Hann, dBFS [-120,0], topes: 90 s, 512
+  buckets, 512 bins, 384×256 espectrograma) + comandos
+  `audio_scope_analyze` (path) y `audio_scope_analyze_asset` (asset del
+  proyecto, misma resolución que `audio_peaks`). Frontend:
+  `AudioScopeData`/`audioScopeAnalyze[Asset]` en `DesktopService` +
+  `AudioScopesPanel` en Mixer (select de material, canvas con
+  oscilograma/espectro/espectrograma, estados honestos). Tests: Rust 5/5,
+  vitest 2/2, `tsc` 0. Referencia y cola de ports en
+  `docs/KDENLIVE-REFERENCE.md`. Pendiente: scopes del audio ya mezclado
+en preview del monitor (el scope bajo playhead quedó hecho el 2026-11-08).
+
+- `[done]` **Timecode drop-frame (port Kdenlive `utils/timecode.cpp`)** —
+  dos direcciones del algoritmo SMPTE DF (Heidelberger/Duncan):
+  - `commands/edl.rs`: `is_drop_frame` (29.97 y 59.94), `drop_timecode`
+    frames→`HH:MM:SS;FF` y `timecode` DF-aware. El EDL ahora escribe
+    `FCM: DROP FRAME` y etiquetas `;` correctas en proyectos 29.97/59.94
+    (antes exportaba NDF a 30 fps → timecodes corridos ~3.6 s/hora).
+  - `multicam-timecode.ts`: `timecodeToFrames` acepta `;` cuando el fps es
+    tasa DF real y aplica la inversa `getFrameCount` de Kdenlive — las
+    cámaras con timecode DF ya sincronizan en multicam. Con fps entero el
+    `;` se sigue rechazando con su motivo.
+  Tests: Rust `commands::edl` 7/7 (nuevos: etiquetas conocidas 1798→
+  `00:01:00;00`, minuto 10 sin pérdida, EDL DF completo) · vitest
+  multicam-timecode 10/10.
+
+- `[done]` **Display de timecode drop-frame en UI** — `formatTimecode` en
+  `state/project-actions.ts` ahora detecta fps 29.97/59.94
+  (`isDropFrameFps`) y formatea `H:MM:SS;FF` con el mismo algoritmo DF del
+  EDL y de Kdenlive; fps enteros quedan NDF idéntico. Cierra el círculo:
+  conversión DF en export EDL, parse en sync multicam y display comparten la
+  misma matemática. Tests: `project-actions.test.ts` 106/106 (+4 DF).
+
+- `[done]` **Puntos in/out de la secuencia (port Kdenlive timeline)** —
+  rango de trabajo de la secuencia, como los I/O points de Kdenlive:
+  - `shortcuts.ts`: `timeline.setInPoint` (`I`), `timeline.setOutPoint` (`O`),
+    `timeline.clearInOut` (`Alt+X`) — reasignables desde Ajustes.
+  - `project-store`: `state.ioRange` + `setIoPoint`/`clearIoRange`
+    (un solo borde se puede mover sin borrar el otro; `clearIoRange` es
+    no-op si ya está limpio).
+  - `Timeline.tsx`: teclas en el handler global (mismos filtros de
+    input/textarea que el resto), overlay `.timeline-io-range` sombreado
+    + marcas `.timeline-io-mark` con `title` accesible en timecode, y los
+    bordes entran como snap targets (`ioIn`/`ioOut` en
+    `collectTimelineSnapTargets`, kind `marker`).
+  - `ExportDialog`: al abrir, el rango de exportación se inicializa desde
+    ioRange si es válido (in<out, dentro de la duración); si no, 0→total.
+    La edición manual del rango se conserva.
+  - Persistencia (2026-11): el rango se guarda en el documento como
+    `x-ioRange` — el schema exime el namespace `x-` de `KNOWN_ROOT_KEYS` y el
+    `catchall` lo conserva, así que no hace falta bump de `schemaVersion` y
+    builds viejos lo preservan al re-guardar. `setIoPoint`/`clearIoRange`
+    escriben el documento con `history:false` (marca de UI, no edición) →
+    dirty + autosave + snapshot de recuperación gratis; `adopt`/`initial`
+    restauran con `ioRangeFromDocument` (validación laxa: frames
+    enteros ≥0 o null; shapes inválidas → null). `saveNow`/`saveAs`
+    reescriben la clave desde el estado por si un undo restauró un doc con
+    otro valor.
+  Tests: `project-store.test` 5/5 (+test io +test persistencia/restauración
+  `x-ioRange`) · `timeline-pro.test` 16/16 (+test snap a io) ·
+  `shortcuts-pro` 5/5 · `tsc` 0 · `Timeline.test` 19/19 · `snapping.test` 8/8.
+
+- `[done]` **Keyframes de efecto en export + autoria (port Kdenlive
+  effectstack)** — la pieza que faltaba para que `effects.stack[].keyframes`
+  fuera real de punta a punta:
+  - **Export (Rust, `render/ffmpeg.rs`)**: `apply_effect_stack_animated`
+    parte el stream del clip en los frames donde cambian los keyframes
+    (`split` + `trim start_frame/end_frame` + `setpts` + parámetros estáticos
+    muestreados por tramo + `concat`), porque los filtros de receta evalúan
+    opciones una sola vez al init (verificado con ffmpeg real; `sendcmd` no
+    comanda `eq`). El muestreo porta `sampleKeyframes`/`ease` de
+    `effect-kit/params.ts` — la misma curva que la preview, no el cúbico de
+    transform. Cortes corridos por el lead de transición; tope de 32 tramos
+    con fallback al estático. Verificado con render real: `trim` corta por
+    frame exacto y el concat recompone sin costura (frames 0-19 con
+    brightness=0.5, 20-29 con -0.3 medidos por luminancia media).
+  - **Autoria (`effect-kit/stack.ts`)**: `toggleParamKeyframe` (diálogo ◆ en
+    el frame del playhead; la primera clave crea una compañera plana porque
+    el schema exige mínimo 2), `setParamKeyframeAt` (el slider auto-keya en
+    el frame cuando la pista existe), `clearParamKeyframes`, tope 64.
+  - **UI (`EffectStackPanel`/`EffectStudio`)**: diamante por parámetro
+    numérico cuando hay `keyframeFrame`; el slider muestra el valor
+    muestreado (lo que la preview renderiza) y escribe en la clave del
+    frame. Con pista, el control pasa a `<div>` + `aria-label` porque los
+    botones dentro de `<label>` dejaban el nombre accesible del slider
+    vacío. Audio stack sin keyframes todavía (su cadena de export es otra).
+  Tests: Rust `effect_*` 10/10 (+5 nuevos: muestreo, hold, grafo
+  segmentado, lead, fallback/tope) · effect-kit 18/18 (+6) ·
+  EffectStudio 6/6 (+1 flujo ◆) · `tsc` 0.
+
+- `[done]` **Easing Bézier por parámetro de efecto (port Kdenlive
+  effectstack)** — los keyframes de efecto aceptaban sólo presets
+  (linear/hold/ease-*); ahora `EffectKeyframeSchema` admite `bezier`
+  (`CubicBezierSchema`, la misma forma que los keyframes de transform):
+  - `effect-kit/types.ts`: `EffectKeyframe.bezier` opcional; `params.ts`
+    gana `cubicBezierProgress` (solver y(x)=t, port del de
+    project-schema/keyframes.ts — effect-kit no depende de project-schema)
+    y `sampleKeyframes` lo aplica cuando la clave que inicia el tramo lo
+    trae (prioridad sobre `easing`, misma regla que `samplePoints`).
+  - `stack.ts`: `setParamKeyframeAt` preserva `bezier` al auto-keyear
+    (antes reconstruía la clave y lo hubiera aplanado).
+  - Rust `ffmpeg.rs`: `EffectParamTrack.keys` pasa de easing `String` a
+    `SegmentEasing` (parse_easing ya leía `bezier`); `sample_effect_track`
+    usa `cubic_bezier_progress` para Bezier y `effect_ease` para presets.
+  - Honesto: no hay UI para editar la curva por parámetro todavía — las
+    claves con `bezier` se crean por datos (proyecto, MCP, futuras tools).
+  - Fix al margen: el WIP de la otra sesión no compilaba (`pixel_format`
+    faltante en dos `Profile {}` de preview_frame.rs y moves de `vp9`/`av1`
+    en export_tools.rs tras el cálculo de `has_444`); se completaron los
+    inicializadores y se movió `has_444` antes de los `insert` — el crate
+    vuelve a compilar.
+  Tests: Rust `effect_keyframes_*` 7/7 (+2 bezier) · effect-kit 36/36
+  (+1 muestreo bezier con 4 asserts) · `cargo check` limpio · `tsc` 0.
+
+- `[done]` **Tokens de tema reales bajo la capa Filmora + specs e2e de
+  color actualizados** — dos problemas encadenados:
+  - *Specs desfasados*: `theme.spec.ts`/`settings.spec.ts` buscaban
+    `input[type=color]` y `.hue-slider`, controles reemplazados por
+    `ColorSwatch`/`ColorWheel`. `setTokenColor` ahora abre el popover del
+    swatch y escribe el hex; el test de Apariencia mueve el dial
+    `Color de acento` por teclado y pollea `--color-accent`. Además el
+    test de panel tomaba la línea base con Ajustes abierto (el diálogo
+    reemplaza al shell en el DOM) — ahora cierra Ajustes, mide el shell,
+    reabre y compara.
+  - *Bug real de producto*: la capa `filmora.css` (importada última)
+    redefinía `--fm-*`/`--chrome-*` con literales, así que editar
+    `--color-panel` en el estudio de color no repintaba ninguna
+    superficie. Las variables neutras `--fm-*` ahora derivan de los
+    tokens canónicos (`var(--color-*)`) y los shades intermedios usan
+    `color-mix()` calibrado para reproducir el literal original bajo la
+    paleta filmora (preset pixel-equivalente, ±1 por canal). Literales
+    que quedan: colores de contenido/hue (playhead, snap, danger, audio,
+    scrim, preview) y el bloque light-theme (acento `#0f9d7f` sin token
+    equivalente).
+  - Fix menor en WIP del usuario: `effect-kit/stack.ts`
+    `setParamKeyframeAt` — el spread condicional de `easing` hacía que
+    `frame` quedara opcional y rompía `tsc` con
+    `exactOptionalPropertyTypes`; reescrito como ternario explícito.
+  Tests: playwright `theme.spec`/`settings.spec` (4/4: acento en vivo,
+  panel repinta shell+preview, paleta persiste, apariencia en vivo) ·
+  `tsc --noEmit` 0 errores · vitest `effect-kit/engine.test.ts` 18/18.

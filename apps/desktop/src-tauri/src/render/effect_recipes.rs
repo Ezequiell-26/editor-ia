@@ -289,6 +289,13 @@ pub static RECIPES: &[Recipe] = &[
         params: &[RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "depth", kind: ParamKind::Float }, RecipeParam { id: "duty", kind: ParamKind::Float }],
     },
     Recipe {
+        id: "impact.zoom_pulse",
+        chain: &[],
+        graph: Some("split=2[%A%o][%A%z];[%A%z]scale=w='trunc(iw*(1+{amount}*exp(-6*(t*{rate}-floor(t*{rate}))))/2)*2':h='trunc(ih*(1+{amount}*exp(-6*(t*{rate}-floor(t*{rate}))))/2)*2':eval=frame[%A%zs];[%A%o][%A%zs]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':eval=frame:format=auto"),
+        audio_chain: &[],
+        params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "rate", kind: ParamKind::Float }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
+    },
+    Recipe {
         id: "impact.trail",
         chain: &["tmix=frames={frames}:weights=1"],
         graph: None,
@@ -524,3 +531,4 @@ pub static RECIPES: &[Recipe] = &[
 pub fn find(id: &str) -> Option<&'static Recipe> {
     RECIPES.iter().find(|recipe| recipe.id == id)
 }
+

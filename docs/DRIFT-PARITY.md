@@ -62,11 +62,14 @@ ordenar, apagar, animar y exportar sin tocar el código del editor.
 - **48 efectos de video** en 9 categorías: color, luz, desenfoque, estilo, glitch, retro,
   impacto, croma y distorsión. 137 parámetros en total.
 - **22 transiciones**, 20 de ellas con nombre `xfade` equivalente (paridad exacta en export).
-- De los 48 efectos, **40 exportan** (8 exactos, 32 aproximados) y **8 quedan en preview**
+- De los 48 efectos, **41 exportan** (8 exactos, 33 aproximados) y **7 quedan en preview**
   (`light.leak`, `light.flare`, `blur.zoom`, `stylize.halftone`, `glitch.wave`,
-  `impact.zoom_pulse`, `distort.ripple`, `distort.twirl`).
-- 7 efectos usan receta de **grafo** (`split` + `blend`), no una lista de filtros sueltos:
-  duotono, bloom, glow, halación, contorno, caleidoscopio y espejo.
+  `distort.ripple`, `distort.twirl`). `impact.zoom_pulse` exporta desde el
+  2026-11-08 con receta de grafo (`split` + `scale eval=frame` + `overlay`):
+  la misma curva `exp(-6·fract(rate·t))·amount` del shader, muestreo por
+  remuestreo del frame completo (aproximado, no bilineal).
+- 8 efectos usan receta de **grafo** (`split` + `blend`/`overlay`), no una lista de filtros sueltos:
+  duotono, bloom, glow, halación, contorno, caleidoscopio, espejo y zoom punch.
 - Cada manifiesto declara `fidelity` (`exact` / `approximate` / `preview-only`) y, cuando es
   aproximado, el motivo.
 
@@ -144,11 +147,11 @@ Verificación real (no declarativa):
   `EffectTemplates` permiten guardar/aplicar/exportar/importar stacks de video
   y audio como JSON portable. Drift trae 23 de fábrica; acá las plantillas son
   del usuario (no hay catálogo curado).
-- **Keyframes en export.** El preview anima parámetros; el export usa el valor estático.
-  FFmpeg no acepta expresiones genéricas por filtro, así que esto pide un camino de render
-  por frame o una tabla de expresiones por filtro.
+- ~~**Keyframes en export.**~~ Resuelto: el export segmenta el clip en los frames de
+  keyframe y aplica los parámetros estáticos por tramo (`atrim`/`concat` en audio,
+  `split`/`trim`/`concat` en video), con muestreo por la misma curva que la preview.
 - **Efectos sin receta** (`light.leak`, `light.flare`, `blur.zoom`, `stylize.halftone`,
-  `glitch.wave`, `impact.zoom_pulse`, `distort.ripple`, `distort.twirl`): se ven en el preview
+  `glitch.wave`, `distort.ripple`, `distort.twirl`): se ven en el preview
   y no se escriben en el MP4. El panel lo avisa antes de aplicarlos, con la etiqueta
   "Sólo preview".
 - **Efectos que dependen de malla facial o profundidad** (`face_*`, `depth_*` en Drift):

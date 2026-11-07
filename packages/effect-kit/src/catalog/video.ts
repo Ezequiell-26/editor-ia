@@ -1442,6 +1442,15 @@ void main() {
   fragColor = vec4(texture(u_currentTexture, clamp(uv, 0.0, 1.0)).rgb, 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph:
+      'split=2[%A%o][%A%z];' +
+      "[%A%z]scale=w='trunc(iw*(1+{amount}*exp(-6*(t*{rate}-floor(t*{rate}))))/2)*2':" +
+      "h='trunc(ih*(1+{amount}*exp(-6*(t*{rate}-floor(t*{rate}))))/2)*2':eval=frame[%A%zs];" +
+      "[%A%o][%A%zs]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':eval=frame:format=auto",
+    fidelity: 'approximate',
+    note: 'El punch se aproxima escalando una copia del frame y centrándola sobre el original; el muestreo no es bilineal como el shader.',
+  },
 });
 
 const trail = v({
