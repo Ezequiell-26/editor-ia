@@ -6,6 +6,7 @@ import { addMotionGraphic } from '../../state/project-actions';
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LottiePanel } from './LottiePanel';
+import { StickmanPanel } from './StickmanPanel';
 import { MotionForm } from './MotionForm';
 import { MotionPreview } from './MotionPreview';
 import { buildMotionPlan, MOTION_TEMPLATES } from './plan';
@@ -201,6 +202,8 @@ export function MotionView({ onNavigate }: { readonly onNavigate: (id: ViewId) =
       </div>
 
       <LottiePanel onNavigate={onNavigate} />
+
+      <StickmanPanel onNavigate={onNavigate} />
 
       <div className="motion-layout">
         <aside className="motion-gallery" aria-label="Plantillas de motion">
