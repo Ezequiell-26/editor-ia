@@ -16,6 +16,7 @@ export type ViewId =
   | 'script'
   | 'assets'
   | 'download'
+  | 'record'
   | 'compliance'
   | 'convert'
   | 'compare'
@@ -61,6 +62,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'vfx', label: 'VFX', hint: 'VFX · Nodos, rotoscopía poligonal y seguimiento facial', group: 'herramientas' },
   { id: 'nodes', label: 'Nodos', hint: 'Editor de nodos · Grafo de procesamiento que ejecuta clips, efectos y render reales', group: 'herramientas' },
   { id: 'download', label: 'Descargar', hint: 'Descargador web · Bajar videos, fotos y audio hasta 8K', group: 'herramientas' },
+  { id: 'record', label: 'Grabar', hint: 'Grabación y escenas OBS · Pantalla, ventana, región, webcam, audio y streaming RTMP', group: 'herramientas' },
   { id: 'director', label: 'Director', hint: 'Director local · Análisis medido, cortes y shorts con heurísticas y rostros (sin LLM)', group: 'herramientas' },
   { id: 'auto-edit', label: 'Automático', hint: 'Editor automático · Analiza el video y crea variantes editables sin LLM', group: 'herramientas' },
   { id: 'youtube', label: 'YouTube', hint: 'Analizador de canales · Mejor video, miniaturas, títulos y comentarios', group: 'herramientas' },
@@ -134,6 +136,7 @@ const HUB_COVERED = new Set<ViewId>([
   'upscale',
   'compare',
   'background',
+  'record',
 ]);
 
 /**
@@ -167,6 +170,7 @@ export const PIPELINE_HIDDEN_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'background',
   'upscale',
   'lab',
+  'record',
   'factory',
   'creator',
   'director',

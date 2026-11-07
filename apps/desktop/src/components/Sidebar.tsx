@@ -18,6 +18,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   vfx: 'effects',
   nodes: 'motion',
   download: 'download',
+  record: 'film',
   director: 'director',
   'auto-edit': 'sparkles',
   youtube: 'globe',

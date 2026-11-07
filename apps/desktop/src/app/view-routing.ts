@@ -42,6 +42,7 @@ const HUB_ALIASES: Readonly<
   upscale: { view: 'lab', tab: 'upscale' },
   compare: { view: 'lab', tab: 'compare' },
   background: { view: 'lab', tab: 'background' },
+  record: { view: 'lab', tab: 'record' },
 };
 
 const EDITOR_MODE_ALIASES: Readonly<Partial<Record<ViewId, EditorModeId>>> = {

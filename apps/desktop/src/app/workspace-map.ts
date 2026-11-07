@@ -105,6 +105,7 @@ export const WORKSPACE_GROUPS: readonly WorkspaceGroup[] = [
     views: [
       'director', 'auto-edit', 'ai-hub', 'mcp', 'lab', 'convert',
       'compare', 'compress', 'denoise', 'sharpen', 'background', 'upscale',
+      'record',
     ],
   },
   {

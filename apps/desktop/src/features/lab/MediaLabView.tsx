@@ -25,6 +25,9 @@ const RemoveBackgroundView = lazy(() =>
     default: module.RemoveBackgroundView,
   })),
 );
+const RecordView = lazy(() =>
+  import('../record/RecordView').then((module) => ({ default: module.RecordView })),
+);
 
 type LabTab =
   | 'convert'
@@ -33,7 +36,8 @@ type LabTab =
   | 'sharpen'
   | 'upscale'
   | 'compare'
-  | 'background';
+  | 'background'
+  | 'record';
 
 const TABS: readonly (HubTab & { id: LabTab })[] = [
   { id: 'convert', label: 'Convertir', hint: 'Transcodificar video, imagen y audio', icon: 'convert' },
@@ -43,6 +47,7 @@ const TABS: readonly (HubTab & { id: LabTab })[] = [
   { id: 'upscale', label: 'Upscale', hint: 'Super-resolución local a 4K', icon: 'upscale' },
   { id: 'compare', label: 'Comparar', hint: 'Antes y después con línea divisoria', icon: 'split' },
   { id: 'background', label: 'Fondo', hint: 'Recorte de silueta con IA local', icon: 'background' },
+  { id: 'record', label: 'Grabar', hint: 'Pantalla, webcam, escenas OBS y streaming RTMP', icon: 'film' },
 ];
 
 /**
@@ -91,7 +96,8 @@ export function MediaLabView({
       id === 'sharpen' ||
       id === 'upscale' ||
       id === 'compare' ||
-      id === 'background'
+      id === 'background' ||
+      id === 'record'
     ) {
       select(id);
       return;
@@ -153,6 +159,13 @@ export function MediaLabView({
         <div className="hub-panel" role="tabpanel" hidden={active !== 'background'}>
           <Suspense fallback={null}>
             <RemoveBackgroundView onNavigate={route} />
+          </Suspense>
+        </div>
+      ) : null}
+      {visited.has('record') ? (
+        <div className="hub-panel" role="tabpanel" hidden={active !== 'record'}>
+          <Suspense fallback={null}>
+            <RecordView onNavigate={route} />
           </Suspense>
         </div>
       ) : null}

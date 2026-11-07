@@ -2634,3 +2634,73 @@
 .app-shell .localization-tab span {
   font-size: var(--type-10);
 }
+
+/* Grabación y escenas OBS (RecordView). */
+.app-shell .view .record-view {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-16);
+  padding: var(--gap-16);
+  overflow: auto;
+}
+
+.app-shell .view .record-view h2 {
+  font-size: var(--type-14);
+  margin: 0 0 var(--gap-8);
+}
+
+.app-shell .view .record-inline {
+  display: flex;
+  gap: var(--gap-8);
+}
+
+.app-shell .view .record-inline input {
+  flex: 1;
+  min-width: 0;
+}
+
+.app-shell .view .record-scenes {
+  list-style: none;
+  margin: var(--gap-8) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-8);
+}
+
+.app-shell .view .record-scene {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-12);
+  padding: var(--gap-8) var(--gap-12);
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+}
+
+.app-shell .view .record-scene > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-shell .view .record-scene-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-8);
+  flex-shrink: 0;
+}
+
+.app-shell .view .record-preview {
+  margin: var(--gap-8) 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-4);
+}
+
+.app-shell .view .record-preview img {
+  max-width: 100%;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: var(--radius-md, 8px);
+}
