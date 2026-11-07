@@ -459,7 +459,10 @@ fn assistant_system_prompt(context: &str) -> String {
         "El borrado siempre espera confirmación explícita. ",
         "El catálogo de herramientas con nombres, descripciones y JSON Schema está en la sección ",
         "CATALOGO_MCP_JSON del contexto; si dice CATALOGO PARCIAL, sólo esas herramientas están ",
-        "disponibles. Llamá una herramienta con ",
+        "disponibles. ",
+        "Las marcas h del catalogo: r=solo lectura, d=destructiva, o=efecto externo; ",
+        "se pueden combinar. Si falta una letra, no atribuyas esa condicion. ",
+        "Llamá una herramienta con ",
         "{\"kind\":\"mcp_call\",\"tool\":\"nombre_exacto\",\"arguments\":{...}}. ",
         "Elegí sólo herramientas presentes en ese catálogo y respetá inputSchema; ",
         "la app rechazará herramientas desconocidas o argumentos inválidos. ",
@@ -1688,6 +1691,15 @@ mod tests {
         assert_eq!(actions[3], json!({ "kind": "undo" }));
         assert_eq!(actions[4], json!({ "kind": "redo" }));
         assert!(!actions.contains(&json!({ "kind": "pause" })));
+    }
+
+    #[test]
+    fn assistant_prompt_explains_compact_mcp_risk_hints() {
+        let prompt = assistant_system_prompt("{}");
+        assert!(prompt.contains("marcas h del catalogo"));
+        assert!(prompt.contains("r=solo lectura"));
+        assert!(prompt.contains("d=destructiva"));
+        assert!(prompt.contains("o=efecto externo"));
     }
 
     #[test]

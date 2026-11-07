@@ -426,10 +426,13 @@ describe('contexto del cerebro de edición', () => {
     expect(request?.context?.brain).toEqual(expect.stringContaining('salud'));
 
     const tools = request?.context?.mcpTools as
-      | readonly { name: string; inputSchema: Record<string, unknown> }[]
+      | readonly { name: string; h?: string; inputSchema: Record<string, unknown> }[]
       | undefined;
     expect(tools).toHaveLength(MCP_TOOLS.length);
     expect(new TextEncoder().encode(JSON.stringify(tools)).byteLength).toBeLessThan(48 * 1024);
+    expect(tools?.find((tool) => tool.name === 'app_status')?.h).toBe('r');
+    expect(tools?.find((tool) => tool.name === 'project_open')?.h).toBe('do');
+    expect(tools?.find((tool) => tool.name === 'clip_add')?.h).toBeUndefined();
     expect(tools?.find((tool) => tool.name === 'clip_add')?.inputSchema).toEqual(
       expect.objectContaining({
         type: 'object',
