@@ -257,4 +257,59 @@ describe('panel del servidor MCP propio', () => {
       await screen.findByText(/corre sólo en la app de escritorio/i),
     ).toBeTruthy();
   });
+
+  it('detecta los clientes instalados y los conecta con un clic', async () => {
+    const service = renderView();
+    const autoconnect = vi.spyOn(service, 'mcpAutoconnect');
+
+    const connectClaude = await screen.findByRole('button', {
+      name: /Conectar Claude Desktop/i,
+    });
+    expect(screen.getByRole('button', { name: /Conectar Antigravity/i })).toBeTruthy();
+
+    fireEvent.click(connectClaude);
+
+    await waitFor(() => expect(autoconnect).toHaveBeenCalledWith('claude-desktop'));
+    expect(
+      await screen.findByText(/Cerrá y volvé a abrir Claude Desktop/i),
+    ).toBeTruthy();
+  });
+
+  it('ofrece descargar el cliente cuando no está instalado', async () => {
+    const service = createFakeService();
+    service.mcpDetectClients = async () => [
+      {
+        id: 'antigravity',
+        label: 'Antigravity',
+        installed: false,
+        downloadUrl: 'https://antigravity.google/',
+      },
+    ];
+    const openExternal = vi.spyOn(service, 'openExternalUrl');
+    renderViewWith(service);
+
+    const download = await screen.findByRole('button', { name: /Descargar Antigravity/i });
+    expect(screen.queryByRole('button', { name: /Conectar Antigravity/i })).toBeNull();
+
+    fireEvent.click(download);
+    await waitFor(() =>
+      expect(openExternal).toHaveBeenCalledWith('https://antigravity.google/'),
+    );
+  });
+
+  it('muestra el motivo cuando la autoconexión falla', async () => {
+    const service = createFakeService();
+    service.mcpAutoconnect = async () => {
+      throw new Error('no encontramos esa app instalada en este equipo');
+    };
+    renderViewWith(service);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: /Conectar Claude Desktop/i }),
+    );
+
+    expect(
+      await screen.findByText(/no encontramos esa app instalada/i),
+    ).toBeTruthy();
+  });
 });
