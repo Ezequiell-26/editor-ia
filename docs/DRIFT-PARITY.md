@@ -62,8 +62,8 @@ ordenar, apagar, animar y exportar sin tocar el código del editor.
 - **48 efectos de video** en 9 categorías: color, luz, desenfoque, estilo, glitch, retro,
   impacto, croma y distorsión. 137 parámetros en total.
 - **22 transiciones**, 20 de ellas con nombre `xfade` equivalente (paridad exacta en export).
-- De los 48 efectos, **42 exportan** (8 exactos, 34 aproximados) y **6 quedan en preview**
-  (`light.leak`, `light.flare`, `stylize.halftone`, `glitch.wave`,
+- De los 48 efectos, **43 exportan** (8 exactos, 35 aproximados) y **5 quedan en preview**
+  (`light.leak`, `light.flare`, `stylize.halftone`,
   `distort.ripple`, `distort.twirl`). `impact.zoom_pulse` exporta desde el
   2026-11-08 con receta de grafo (`split` + `scale eval=frame` + `overlay`):
   la misma curva `exp(-6·fract(rate·t))·amount` del shader, muestreo por
@@ -72,9 +72,15 @@ ordenar, apagar, animar y exportar sin tocar el código del editor.
   por factor `1/(1-amount·t)` + `overlay` con el ancla del centro +
   `blend=all_mode=average` par a par): promedio radial hacia `center`,
   verificado con FFmpeg real (diff medio YAVG 4,4 en el centro vs 54–79 en
-  las esquinas de `testsrc2`).
-- 9 efectos usan receta de **grafo** (`split` + `blend`/`overlay`), no una lista de filtros sueltos:
-  duotono, bloom, glow, halación, contorno, caleidoscopio, espejo, zoom punch y blur radial.
+  las esquinas de `testsrc2`). `glitch.wave` exporta desde el 2026-11-08
+  con `geq` (`format=gbrp` + `r/g/b(x,y)` remuestreando en
+  `X+sin(Y/H·freq·TAU+T·speed)·amp·W`): el mismo desplazamiento por fila
+  del shader, verificado midiendo la posición de una barra vertical en un
+  frame crudo (4 ciclos sobre la altura, ceros en las filas esperadas).
+- 10 efectos usan receta de **grafo** (`split` + `blend`/`overlay`, o `geq`
+  para remuestreo por píxel), no una lista de filtros sueltos:
+  duotono, bloom, glow, halación, contorno, caleidoscopio, espejo, zoom punch,
+  blur radial y onda de glitch.
 - Cada manifiesto declara `fidelity` (`exact` / `approximate` / `preview-only`) y, cuando es
   aproximado, el motivo.
 
@@ -156,14 +162,21 @@ Verificación real (no declarativa):
   keyframe y aplica los parámetros estáticos por tramo (`atrim`/`concat` en audio,
   `split`/`trim`/`concat` en video), con muestreo por la misma curva que la preview.
 - **Efectos sin receta** (`light.leak`, `light.flare`, `stylize.halftone`,
-  `glitch.wave`, `distort.ripple`, `distort.twirl`): se ven en el preview
+  `distort.ripple`, `distort.twirl`): se ven en el preview
   y no se escriben en el MP4. El panel lo avisa antes de aplicarlos, con la etiqueta
   "Sólo preview". (`blur.zoom` salió de la lista el 2026-11-08: grafo
-  split+scale+overlay+`blend=all_mode=average` de 6 tomas hacia el centro.)
+  split+scale+overlay+`blend=all_mode=average` de 6 tomas hacia el centro;
+  `glitch.wave` salió el mismo día: `geq` con `r/g/b(x,y)` desplazados por
+  fila según `sin(Y/H·freq·TAU+T·speed)·amp·W`.)
 - **Efectos que dependen de malla facial o profundidad** (`face_*`, `depth_*` en Drift):
   requieren geometría por frame; fuera del alcance de FFmpeg.
-- **Carga de paquetes de terceros.** El motor está listo para leer manifiestos externos, pero
-  falta el importador (`.driftfx` / carpeta) y la validación de seguridad de shaders.
+- **Carga de paquetes de terceros** (implementado 2026-11-11): `parseEffectPackage`
+  valida el manifiesto y los shaders (filtro estático: `void main()` obligatorio,
+  sin `#version`/`#extension`/`#include`/bucles infinitos, tamaños acotados),
+  `registerCustomEffects` los suma al registry bajo ids `custom.*` y
+  `custom-effects.ts` los persiste en localStorage. La UI los muestra con badge
+  «Terceros». Límite: validación estática, no sandbox — ver §5 y
+  `docs/IMPROVEMENT-QUEUE.md`.
 
 ## 6. Cómo agregar un efecto
 

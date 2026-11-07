@@ -240,6 +240,13 @@ pub static RECIPES: &[Recipe] = &[
         params: &[RecipeParam { id: "mode", kind: ParamKind::Enum }],
     },
     Recipe {
+        id: "glitch.wave",
+        chain: &[],
+        graph: Some("format=gbrp,geq=r='r(clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1),Y)':g='g(clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1),Y)':b='b(clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1),Y)'"),
+        audio_chain: &[],
+        params: &[RecipeParam { id: "amplitude", kind: ParamKind::Float }, RecipeParam { id: "frequency", kind: ParamKind::Float }, RecipeParam { id: "speed", kind: ParamKind::Float }],
+    },
+    Recipe {
         id: "retro.vhs",
         chain: &["rgbashift=rh=4:bh=-4", "noise=alls=16:allf=t+u", "drawgrid=w=iw:h=3:t=1:c=black@0.2", "eq=saturation=0.85:contrast=1.05"],
         graph: None,

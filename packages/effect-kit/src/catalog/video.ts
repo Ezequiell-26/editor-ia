@@ -1146,6 +1146,18 @@ void main() {
   },
 });
 
+// Tomás del glitch.wave en export: el shader desplaza uv.x por fila con
+// `sin(uv.y*freq*TAU + t*speed)*amp`; geq evalúa una expresión por píxel y
+// `r/g/b(x,y)` remuestrean la entrada en el píxel desplazado. `format=gbrp`
+// pasa a RGB planar full-res (el desplazamiento es idéntico por canal y no
+// hay que pelear con la resolución de los planos de croma). `T` es el
+// timestamp en segundos del frame, igual que `u_time` del shader.
+const WAVE_GEQ_X =
+  'clip(X+sin(Y/H*{frequency}*6.28318530718+T*{speed})*{amplitude}*W,0,W-1)';
+const waveGraph =
+  'format=gbrp,geq=' +
+  `r='r(${WAVE_GEQ_X},Y)':g='g(${WAVE_GEQ_X},Y)':b='b(${WAVE_GEQ_X},Y)'`;
+
 const wave = v({
   id: 'glitch.wave',
   name: 'Onda',
@@ -1168,6 +1180,11 @@ void main() {
   fragColor = vec4(texture(u_currentTexture, clamp(uv, 0.0, 1.0)).rgb, 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: waveGraph,
+    fidelity: 'approximate',
+    note: 'geq remuestrea por píxel con interpolación bilineal (como texture() del shader); el eje Y puede venir espejado y el coste es alto en cuadros grandes.',
+  },
 });
 
 // ──────────────────────────────────────────────────────────── Retro ──
