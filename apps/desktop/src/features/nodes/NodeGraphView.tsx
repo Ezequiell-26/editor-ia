@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type JSX } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import {
   Background,
   Controls,
@@ -138,6 +138,41 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
     }),
     [nodes, edges],
   );
+
+  // Auto-carga el grafo más reciente guardado en <proyecto>/graphs/ al abrir
+  // la vista con un proyecto (persistencia real vía fs del servicio).
+  const autoLoadedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!opened || nodes.length > 0 || autoLoadedFor.current === opened.root) return;
+    autoLoadedFor.current = opened.root;
+    const dir = `${opened.root}\graphs`;
+    void (async () => {
+      try {
+        const listing = await store.service.listDirectory(dir);
+        const files = listing.entries
+          .filter((e) => e.kind === 'text' || e.name.endsWith('.json'))
+          .filter((e) => e.name.endsWith('.json'))
+          .sort((a, b) => b.name.localeCompare(a.name));
+        const latest = files[0];
+        if (!latest) return;
+        const content = await store.service.readTextFile(latest.path);
+        const parsed = graphFromJson(content.content);
+        setNodes(toFlowNodes(parsed));
+        setEdges(
+          parsed.edges.map((edge) => ({
+            id: edge.id,
+            source: edge.source,
+            target: edge.target,
+            animated: true,
+          })),
+        );
+        setNotice(`Grafo «${parsed.name}» restaurado desde graphs/`);
+      } catch {
+        // Sin carpeta graphs/ o archivo ilegible: se empieza con grafo vacío.
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened, store.service]);
 
   const problems = useMemo(() => validateGraph(graph), [graph]);
   const selected = nodes.find((node) => node.id === selectedId) ?? null;
