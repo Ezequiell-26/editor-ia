@@ -131,6 +131,8 @@ interface MasterChain {
   readonly bus: GainNode;
   readonly analyser: AnalyserNode;
   readonly buffer: Uint8Array;
+  readonly freqBuffer: Float32Array;
+  readonly timeBuffer: Float32Array;
 }
 
 export interface TrackLevelReading {
@@ -229,7 +231,13 @@ function ensureContext(): AudioContext | null {
   analyser.fftSize = FFT_SIZE;
   bus.connect(analyser);
   analyser.connect(context.destination);
-  master = { bus, analyser, buffer: new Uint8Array(FFT_SIZE) };
+  master = {
+    bus,
+    analyser,
+    buffer: new Uint8Array(FFT_SIZE),
+    freqBuffer: new Float32Array(analyser.frequencyBinCount || FFT_SIZE / 2),
+    timeBuffer: new Float32Array(analyser.fftSize || FFT_SIZE),
+  };
   return context;
 }
 
@@ -530,6 +538,43 @@ export function readPreviewAudioLevels(trackIds: readonly string[]): PreviewAudi
     tracks[trackId] = chain ? readAnalyser(chain.analyser, chain.buffer) : SILENCE;
   }
   return { tracks, master: master ? readAnalyser(master.analyser, master.buffer) : SILENCE };
+}
+
+export interface MasterAudioScope {
+  /** dBFS por bin de frecuencia (el último bin es Nyquist). */
+  readonly spectrumDb: Float32Array;
+  /** Muestras de tiempo en [-1, 1]. */
+  readonly waveform: Float32Array;
+  readonly sampleRate: number;
+  readonly fftSize: number;
+}
+
+/**
+ * Lee el bus master ya mezclado (pistas → EQ → fader/paneo → ganancia master)
+ * para los scopes en vivo del monitor. Devuelve `null` si el grafo todavía
+ * no existe o el analizador no expone lectura float. Los buffers son internos
+ * y se reescriben en cada llamada: copiar antes de guardarlos.
+ */
+export function readPreviewAudioMasterScope(): MasterAudioScope | null {
+  if (!context || !master) return null;
+  if (
+    typeof master.analyser.getFloatFrequencyData !== 'function' ||
+    typeof master.analyser.getFloatTimeDomainData !== 'function'
+  ) {
+    return null;
+  }
+  try {
+    master.analyser.getFloatFrequencyData(master.freqBuffer);
+    master.analyser.getFloatTimeDomainData(master.timeBuffer);
+  } catch {
+    return null;
+  }
+  return {
+    spectrumDb: master.freqBuffer,
+    waveform: master.timeBuffer,
+    sampleRate: context.sampleRate || 48_000,
+    fftSize: master.analyser.fftSize || FFT_SIZE,
+  };
 }
 
 /** ¿El entorno expone Web Audio? (en jsdom es `false`). */

@@ -116,6 +116,22 @@
   color: #6f8296;
 }
 
+/* El panel de audio comparte el overlay del monitor pero del lado
+   izquierdo: los dos scopes pueden estar abiertos a la vez sin pisarse. */
+.scopes-panel--audio {
+  left: 9px;
+  right: auto;
+}
+
+.scopes-note {
+  margin: 0;
+  padding: 4px 8px 6px;
+  border-top: 1px solid #1a2530;
+  color: #6f8296;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
 @media (max-width: 1120px) {
   .scopes-panel {
     width: 210px;

@@ -24,6 +24,7 @@ import { buildMotionPlan } from '../motion/plan';
 import { MotionPreview } from '../motion/MotionPreview';
 import { templateById } from '../motion/templates';
 import { ScopesPanel } from './ScopesPanel';
+import { PreviewAudioScopes } from './PreviewAudioScopes';
 import { perspectiveMatrix3d, type PerspectiveViewport } from './perspective';
 import type { PreviewFrameResult } from '../../services/project-service';
 import { applyGradeProjection, compileGrade, gradeFilterId, type GradeFilterSpec } from '../color/color-engine';
@@ -965,6 +966,7 @@ export const Preview = memo(function Preview() {
   // sigue mandando durante la sesión.
   const [showGuides, setShowGuides] = useState(() => loadEditorPreferences().safeMargins);
   const [showScopes, setShowScopes] = useState(false);
+  const [showAudioScopes, setShowAudioScopes] = useState(false);
   const [compare, setCompare] = useState(false);
   const [realFrame, setRealFrame] = useState<PreviewFrameResult | null>(null);
   const [realFrameBusy, setRealFrameBusy] = useState(false);
@@ -1346,6 +1348,17 @@ export const Preview = memo(function Preview() {
           </button>
           <button
             type="button"
+            className={showAudioScopes ? 'preview-tool active' : 'preview-tool'}
+            aria-pressed={showAudioScopes}
+            aria-label="Scopes de audio del monitor"
+            title="Oscilograma y espectro del audio ya mezclado por la preview"
+            onClick={() => setShowAudioScopes((value) => !value)}
+          >
+            <Icon name="volume" size={13} />
+            <span>Audio</span>
+          </button>
+          <button
+            type="button"
             className={monitorFill ? 'preview-tool active' : 'preview-tool'}
             aria-pressed={monitorFill}
             aria-label={monitorFill ? 'Ajustar el video completo' : 'Llenar el monitor con el video'}
@@ -1426,6 +1439,9 @@ export const Preview = memo(function Preview() {
           analyzeScopes={(path) => store.service.analyzeScopesFrame({ path })}
           onClose={() => setShowScopes(false)}
         />
+      ) : null}
+      {showAudioScopes ? (
+        <PreviewAudioScopes onClose={() => setShowAudioScopes(false)} />
       ) : null}
       <div
         className={`preview-canvas${monitorZoom !== 1 ? ' zoomed' : ''}${panning ? ' panning' : ''}`}
