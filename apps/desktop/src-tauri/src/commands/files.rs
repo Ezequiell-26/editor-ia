@@ -192,6 +192,24 @@ fn path_key(path: &Path) -> String {
     path.to_string_lossy().replace('/', "\\").to_lowercase()
 }
 
+/// Resuelve `.` y `..` léxicamente para que las rutas de chequeo no se
+/// puedan evadir con traversal (`C:\Users\x\..\Windows\...`). No toca
+/// symlinks/junctions: eso lo resuelve el SO al abrir el archivo.
+fn normalized_components(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 /// `true` si `text` es igual a `root` o está dentro de él.
 fn path_within(text: &str, root: &str) -> bool {
     text == root || text.starts_with(&format!("{root}\\"))
@@ -222,7 +240,8 @@ fn system_roots() -> Vec<String> {
 /// Carpetas del sistema donde ni escritura, ni borrado, ni movimiento deben
 /// llegar: incluyen todo lo que esté DENTRO de ellas (no sólo la raíz).
 fn inside_system_dir(path: &Path) -> bool {
-    let text = path_key(path);
+    let normalized = normalized_components(path);
+    let text = path_key(&normalized);
     system_roots().iter().any(|root| path_within(&text, root))
 }
 
@@ -231,6 +250,8 @@ fn inside_system_dir(path: &Path) -> bool {
 /// (`fs_write`/`fs_mkdir`) sí puede crear dentro del perfil — es el trabajo
 /// normal de la IA — pero nunca dentro de las carpetas de sistema.
 fn protected_delete_target(path: &Path) -> bool {
+    let normalized = normalized_components(path);
+    let path = normalized.as_path();
     if path.parent().is_none() {
         return true;
     }
@@ -340,8 +361,8 @@ pub fn fs_delete(path: String, recursive: Option<bool>) -> Result<FsDeleteResult
 pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> {
     let source = normalize_target(&from)?;
     let target = normalize_target(&to)?;
-    if inside_system_dir(&source) {
-        return Err(invalid("el origen está dentro de una carpeta de sistema"));
+    if protected_delete_target(&source) {
+        return Err(invalid("el origen es una ruta protegida y no se puede mover"));
     }
     if !source.exists() {
         return Err(invalid("el origen no existe"));
@@ -561,5 +582,35 @@ mod tests {
         )
         .is_err());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn normalized_components_resolves_dotdot() {
+        let p = normalized_components(Path::new("C:\\foo\\bar\\..\\..\\Windows\\System32"));
+        assert_eq!(path_key(&p), "c:\\windows\\system32");
+        // `..` en la raíz no escapa de la unidad.
+        let p = normalized_components(Path::new("C:\\..\\Windows"));
+        assert_eq!(path_key(&p), "c:\\windows");
+    }
+
+    #[test]
+    fn system_dir_check_blocks_dotdot_traversal() {
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+        let leaf = Path::new(&system)
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Windows".to_owned());
+        // `C:\cualquiera\..\Windows\x` normaliza a `C:\Windows\x`: sin la
+        // normalización el prefijo `c:\windows\` no matcheaba y se podía
+        // escribir/borrar dentro de carpetas de sistema.
+        let traversal = format!("C:\\no-existe\\..\\{}\\editoria-traversal-test.txt", leaf);
+        assert!(inside_system_dir(Path::new(&traversal)));
+        assert!(fs_write(traversal.clone(), "x".to_owned()).is_err());
+        assert!(fs_delete(traversal, None).is_err());
+        assert!(fs_mkdir(
+            format!("C:\\no-existe\\..\\{}\\editoria-traversal-dir", leaf),
+            None,
+        )
+        .is_err());
     }
 }
