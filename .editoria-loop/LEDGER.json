@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T22:31:40.735Z"
+    "lastPassAt": "2026-11-07T22:46:37.903Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -409,6 +409,14 @@
   ],
   "passes": [
     {
+      "at": "2026-11-07T22:46:37.903Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): receta FFmpeg approximate para stylize.halftone via geq (format=gbrp + trama por pixel: celda fract(px rotado)-0.5, luma de 3 planos, radius=(1-luma)*0.62, smoothstep cubico) + codegen 74 recetas + test Rust + docs; verificado con FFmpeg real sobre gris uniforme (lunares periodicos ~11.3px a trama 8 angulo 45); vitest effect-kit 44/44 + vfx 26/26, tsc desktop 0, cargo effect_stack 8/8",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
       "at": "2026-11-07T22:31:40.735Z",
       "taskId": null,
       "status": "noop",
@@ -706,13 +714,6 @@
       "taskId": "doc",
       "status": "rejected",
       "reason": "Se declaró done con archivos que no existen: inexistente.md"
-    },
-    {
-      "at": "2026-10-25T16:22:55.913Z",
-      "taskId": "ciclo-2026-10-25",
-      "status": "done",
-      "note": "Iteracion con 8 agentes en paralelo (workflow) + integracion manual. Audio pro en preview (grafo Web Audio por pista + medidores en vivo), 5 plantillas motion pro, presets de speed ramp, atajos pro (docs/ATAJOS-PRO.md), pase visual app.css AA, 3 docs de diseno en docs/research/. Integracion: curvas Bezier completas (schema+muestreo+editor+persistencia+render), clonacion de voz local reparada (parse_easing, tokio multi_thread), audio-mix reconciliado sin copias, vitest excluye .worktrees. Verificacion: typecheck limpio, Vitest 1027/1027 (119 archivos), cargo test 337/0 (46 ignorados). Bloqueo resuelto: zombis cargo.exe con lock en target/ -> CARGO_TARGET_DIR=target-loop.",
-      "verifyRan": true
     }
   ]
 }

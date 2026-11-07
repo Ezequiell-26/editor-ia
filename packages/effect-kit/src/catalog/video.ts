@@ -815,6 +815,29 @@ void main() {
   ffmpeg: { chain: ['pixelize=w={size}:h={size}'], fidelity: 'exact' },
 });
 
+// Tomás del stylize.halftone en export: el shader evalúa la trama por píxel —
+// celda = fract(px rotado) − 0.5, radio = (1−luma)·0.62 y punto = smoothstep
+// (borde0 > borde1) del largo de la celda. geq repite la misma cuenta por
+// píxel leyendo la luminancia de los tres planos de entrada; el cos/sin del
+// ángulo quedan horneados al sustituir {angle}.
+function halftoneGraph(): string {
+  const px = '(X+0.5)/max({scale},1)';
+  const py = '(Y+0.5)/max({scale},1)';
+  const cos = 'cos({angle}*0.017453292519943295)';
+  const sin = 'sin({angle}*0.017453292519943295)';
+  const rx = `(${cos}*${px}-${sin}*${py})`;
+  const ry = `(${sin}*${px}+${cos}*${py})`;
+  const fx = `(${rx}-floor(${rx})-0.5)`;
+  const fy = `(${ry}-floor(${ry})-0.5)`;
+  const len = `sqrt(${fx}*${fx}+${fy}*${fy})`;
+  const luma =
+    'clip(((0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y))/255-0.5)*{contrast}+0.5,0,1)';
+  const radius = `(1-${luma})*0.62`;
+  const t = `clip((${radius}-${len})/0.08,0,1)`;
+  const dot = `(${t}*${t}*(3-2*${t}))*255`;
+  return `format=gbrp,geq=r='${dot}':g='${dot}':b='${dot}'`;
+}
+
 const halftone = v({
   id: 'stylize.halftone',
   name: 'Semitono',
@@ -842,6 +865,11 @@ void main() {
   fragColor = vec4(vec3(dot), 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: halftoneGraph(),
+    fidelity: 'approximate',
+    note: 'geq evalúa la misma trama por píxel (luma de los 3 planos, smoothstep cúbico); el muestreo es por centro de píxel y el coste es alto en cuadros grandes.',
+  },
 });
 
 const posterize = v({
