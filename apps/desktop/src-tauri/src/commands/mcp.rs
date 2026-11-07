@@ -481,7 +481,13 @@ pub async fn call_mcp_tool(
     })?
 }
 
-fn build_command(server: &McpServerConfig) -> Command {
+/// Metacaracteres de `cmd.exe` que permitirían encadenar comandos o
+/// expandir variables cuando el servidor se lanza vía `cmd /C`
+/// (npx, npm, .cmd, .bat). Se rechazan en comando y argumentos.
+#[cfg(windows)]
+const CMD_METACHARS: &[char] = &['&', '|', '<', '>', '^', '%', '!', '"', '(', ')'];
+
+fn build_command(server: &McpServerConfig) -> Result<Command, ProjectError> {
     #[cfg(windows)]
     {
         let lower = server.command.to_ascii_lowercase();
@@ -493,14 +499,21 @@ fn build_command(server: &McpServerConfig) -> Command {
             || lower == "yarn"
             || lower == "bunx";
         if needs_shell {
+            let unsafe_arg = |text: &str| text.chars().any(|c| CMD_METACHARS.contains(&c));
+            if unsafe_arg(&server.command) || server.args.iter().any(|a| unsafe_arg(a)) {
+                return Err(error(
+                    ProjectErrorCode::InvalidProject,
+                    "el servidor MCP usa caracteres no permitidos para lanzadores de shell",
+                ));
+            }
             let mut command = Command::new("cmd");
             command.arg("/C").arg(&server.command).args(&server.args);
-            return command;
+            return Ok(command);
         }
     }
     let mut command = Command::new(&server.command);
     command.args(&server.args);
-    command
+    Ok(command)
 }
 
 /// Termina el proceso y todo lo que haya lanzado.
@@ -543,7 +556,7 @@ impl McpProcess {
                 "el servidor MCP está desactivado",
             ));
         }
-        let mut command = build_command(server);
+        let mut command = build_command(server)?;
         if let Some(dir) = server.working_dir.as_deref() {
             command.current_dir(dir);
         }
@@ -1105,6 +1118,26 @@ mod tests {
         .is_err());
         assert!(valid_env_key("GITHUB_TOKEN"));
         assert!(!valid_env_key("1TOKEN"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn build_command_rejects_cmd_metachars_for_shell_launchers() {
+        let server = |command: &str, args: &[&str]| McpServerConfig {
+            id: "t".to_owned(),
+            name: "t".to_owned(),
+            command: command.to_owned(),
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env_keys: Vec::new(),
+            working_dir: None,
+            enabled: true,
+        };
+        // npx/npm van por cmd /C: un `&` en args ejecutaría otro comando.
+        assert!(build_command(&server("npx", &["pkg", "&", "calc"])).is_err());
+        assert!(build_command(&server("npm", &["run", "x|whoami"])).is_err());
+        assert!(build_command(&server("npx", &["-y", "@playwright/mcp"])).is_ok());
+        // Lanzadores directos (node, .exe) no pasan por cmd: sin restricción.
+        assert!(build_command(&server("node", &["server.js", "a&b"])).is_ok());
     }
 
     #[test]
