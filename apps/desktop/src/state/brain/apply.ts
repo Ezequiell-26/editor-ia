@@ -3,6 +3,7 @@ import {
   applyTransitionToCuts,
   closeGaps,
   deleteClip,
+  reorderScenes,
   rollClip,
   splitClipAtFrames,
   updateAudioMix,
@@ -163,6 +164,14 @@ export function applyProposal(project: ProjectDocument, proposal: EditProposal):
           project: next,
           applied: true,
           message: `${fixed} subtítulo(s) normalizados${skipped > 0 ? `, ${skipped} omitidos` : ''}.`,
+        };
+      }
+      case 'scene-order': {
+        const next = reorderScenes(project, payload.sceneIds);
+        return {
+          project: next,
+          applied: true,
+          message: `Guion reordenado: ${payload.sceneIds.length} escenas según la timeline.`,
         };
       }
       case 'loudness': {

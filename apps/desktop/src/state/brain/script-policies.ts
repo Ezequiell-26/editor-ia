@@ -212,6 +212,82 @@ export function captionTextPolicy({ project }: ScriptContext): EditProposal[] {
   ];
 }
 
+/**
+ * El guion quedó viejo respecto al corte.
+ *
+ * Cuando el usuario mueve clips en la timeline, el `order` de las escenas no
+ * se entera: el video muestra una escena antes que otra y el guion sigue
+ * diciendo lo contrario. La política mide la posición del primer clip de cada
+ * escena (el `clipIds` de la escena contra `timeline.clips`) y, si el orden
+ * por timeline difiere del orden del guion, propone reordenar las escenas —
+ * no los clips: el corte es lo que el espectador ya vio.
+ *
+ * Las escenas sin clips no se mueven: no aparecen en el video, así que su
+ * lugar en el guion es una decisión de guion, no de edición. Conservan sus
+ * posiciones relativas y las escenas montadas se permutan en los huecos que
+ * dejaban.
+ */
+export function sceneOrderPolicy({ project, script }: ScriptContext): EditProposal[] {
+  if (script.length < 2) return [];
+  const clipStart = new Map(
+    project.timeline.clips.map((clip) => [clip.id, clip.startFrame] as const),
+  );
+  const orderedScenes = [...project.scenes].sort((a, b) => a.order - b.order);
+
+  const placed = orderedScenes
+    .map((scene) => {
+      const starts = scene.clipIds
+        .map((clipId) => clipStart.get(clipId))
+        .filter((frame): frame is number => frame !== undefined);
+      return { scene, firstFrame: starts.length > 0 ? Math.min(...starts) : null };
+    })
+    .filter((entry): entry is { scene: (typeof orderedScenes)[number]; firstFrame: number } =>
+      entry.firstFrame !== null,
+    );
+  if (placed.length < 2) return [];
+
+  const byTimeline = [...placed].sort(
+    (a, b) => a.firstFrame - b.firstFrame || a.scene.order - b.scene.order,
+  );
+  const aligned = placed.every((entry, index) => entry.scene.id === byTimeline[index]?.scene.id);
+  if (aligned) return [];
+
+  // Las escenas sin material conservan su posición en la lista; las montadas
+  // ocupan sólo los lugares que ya tenían, en el orden que muestra el corte.
+  const placedIdsByTimeline = byTimeline.map((entry) => entry.scene.id);
+  const placedIdSet = new Set(placedIdsByTimeline);
+  let cursor = 0;
+  const sceneIds = orderedScenes.map((scene) =>
+    placedIdSet.has(scene.id) ? (placedIdsByTimeline[cursor++] ?? scene.id) : scene.id,
+  );
+  if (sceneIds.every((id, index) => id === orderedScenes[index]?.id)) return [];
+
+  const movedTitles = byTimeline
+    .filter((entry, index) => entry.scene.id !== placed[index]?.scene.id)
+    .slice(0, 3)
+    .map((entry) => `«${entry.scene.title}»`);
+  const clipIds = byTimeline.flatMap((entry) => entry.scene.clipIds).slice(0, 24);
+
+  return [
+    {
+      id: 'script:scene-order',
+      kind: 'script',
+      title: 'El guion no sigue el orden del corte',
+      reason:
+        `En la timeline, ${movedTitles.join(', ')} aparece antes de lo que dice el guion. ` +
+        'El orden de las escenas quedó viejo respecto a los clips montados.',
+      confidence: 0.78,
+      impact: 0.45,
+      risk: 'moderate',
+      clipIds,
+      payload: { kind: 'scene-order', sceneIds },
+      preview:
+        'Se reordenan las escenas con material para que el guion coincida con la timeline; ' +
+        'las escenas sin clips quedan donde están.',
+    },
+  ];
+}
+
 export function draftScenesPolicy({ script }: ScriptContext): EditProposal[] {
   const drafts = script.filter((scene) => scene.status === 'draft');
   if (drafts.length === 0) return [];
@@ -236,5 +312,6 @@ export const SCRIPT_POLICIES = [
   narrationPacePolicy,
   captionSpeedPolicy,
   captionTextPolicy,
+  sceneOrderPolicy,
   draftScenesPolicy,
 ] as const;

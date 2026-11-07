@@ -45,6 +45,7 @@ import {
   newId,
   removeAsset,
   relinkAsset,
+  reorderScenes,
   replaceClipWithDerivedAsset,
   setClipSpeed,
   setClipStabilization,
@@ -1298,6 +1299,29 @@ describe('guion y ajustes', () => {
     });
     const next = validated(second.project);
     expect(next.scenes.map((scene) => scene.order)).toEqual([0, 1]);
+  });
+
+  it('reorderScenes aplica una permutación completa y renumera el orden', () => {
+    const project = base();
+    const first = addScene(project, { title: 'Uno', intent: 'hook', narration: 'a' });
+    const second = addScene(first.project, { title: 'Dos', intent: 'demo', narration: 'b' });
+    const third = addScene(second.project, { title: 'Tres', intent: 'outro', narration: 'c' });
+    const ids = third.project.scenes.map((scene) => scene.id);
+    const next = validated(reorderScenes(third.project, [ids[2]!, ids[0]!, ids[1]!]));
+    expect(next.scenes.map((scene) => scene.title)).toEqual(['Tres', 'Uno', 'Dos']);
+    expect(next.scenes.map((scene) => scene.order)).toEqual([0, 1, 2]);
+  });
+
+  it('reorderScenes rechaza una lista que no cubre exactamente las escenas', () => {
+    const project = base();
+    const first = addScene(project, { title: 'Uno', intent: 'hook', narration: 'a' });
+    const second = addScene(first.project, { title: 'Dos', intent: 'demo', narration: 'b' });
+    const ids = second.project.scenes.map((scene) => scene.id);
+    expect(() => reorderScenes(second.project, [ids[0]!, 'escena-fantasma'])).toThrow(
+      ProjectActionError,
+    );
+    expect(() => reorderScenes(second.project, [ids[0]!])).toThrow(ProjectActionError);
+    expect(() => reorderScenes(second.project, [...ids, ids[0]!])).toThrow(ProjectActionError);
   });
 
   it('cambia el nombre y las dimensiones del proyecto', () => {

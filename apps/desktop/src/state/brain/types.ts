@@ -233,6 +233,11 @@ export type ProposalPayload =
       readonly kind: 'caption-fixes';
       readonly fixes: readonly { readonly cueId: string; readonly text: string }[];
     }
+  | {
+      readonly kind: 'scene-order';
+      /** Permutación completa de ids de escena; `reorderScenes` la verifica. */
+      readonly sceneIds: readonly string[];
+    }
   | { readonly kind: 'loudness'; readonly platform: string; readonly integratedLufs: number; readonly truePeakDb: number };
 
 export interface EditProposal {

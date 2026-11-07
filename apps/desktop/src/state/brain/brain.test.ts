@@ -365,6 +365,9 @@ describe('propuestas sobre el guion', () => {
     const scriptProposals = plan.proposals.filter((proposal) => proposal.kind === 'script');
     expect(scriptProposals.length).toBeGreaterThan(0);
     for (const proposal of scriptProposals) {
+      // La única excepción con payload es la reordenación de escenas, que se
+      // prueba en su propio describe.
+      if (proposal.payload?.kind === 'scene-order') continue;
       expect(proposal.payload).toBeUndefined();
       expect(applyProposal(project, proposal).applied).toBe(false);
     }
@@ -537,5 +540,120 @@ describe('texto de subtítulos', () => {
     const proposal = plan.proposals.find((entry) => entry.kind === 'caption-text');
     expect(proposal).toBeTruthy();
     expect(outcome.applied).toContain(proposal?.id);
+  });
+});
+
+describe('orden de escenas del guion', () => {
+  /**
+   * Dos clips reales: el primero en el frame 0 y el segundo en el 300. Las
+   * escenas se arman al revés de la timeline más una escena sin material en
+   * el medio, para verificar que ésa conserva su lugar.
+   */
+  function projectWithInvertedScenes(): {
+    project: ProjectDocument;
+    earlyId: string;
+    lateId: string;
+    emptyId: string;
+  } {
+    const { project, firstClipId, secondClipId } = timelineWithGap();
+    const withScenes = {
+      ...project,
+      scenes: [
+        {
+          id: 's-late',
+          order: 0,
+          title: 'Toma tardía',
+          intent: 'demo',
+          status: 'approved',
+          narration: {},
+          clipIds: [secondClipId],
+        },
+        {
+          id: 's-empty',
+          order: 1,
+          title: 'Sin material',
+          intent: 'note',
+          status: 'draft',
+          narration: {},
+          clipIds: [],
+        },
+        {
+          id: 's-early',
+          order: 2,
+          title: 'Toma inicial',
+          intent: 'hook',
+          status: 'approved',
+          narration: {},
+          clipIds: [firstClipId],
+        },
+      ],
+    } as ProjectDocument;
+    return { project: withScenes, earlyId: 's-early', lateId: 's-late', emptyId: 's-empty' };
+  }
+
+  it('propone reordenar las escenas y lo aplica con reorderScenes', () => {
+    const { project } = projectWithInvertedScenes();
+    const plan = planEdits(project, { intent: 'tighten', limit: 20 });
+    const proposal = plan.proposals.find((entry) => entry.id === 'script:scene-order');
+    expect(proposal).toBeTruthy();
+    expect(proposal?.risk).toBe('moderate');
+    expect(proposal?.payload?.kind).toBe('scene-order');
+    if (!proposal) return;
+
+    const result = applyProposal(project, proposal);
+    expect(result.applied).toBe(true);
+    expect(result.project.scenes.map((scene) => scene.id)).toEqual([
+      's-early',
+      's-empty',
+      's-late',
+    ]);
+    expect(result.project.scenes.map((scene) => scene.order)).toEqual([0, 1, 2]);
+    // Los clips no se tocaron: sólo cambió el guion.
+    expect(result.project.timeline.clips).toHaveLength(project.timeline.clips.length);
+  });
+
+  it('no propone nada cuando el guion ya sigue el orden del corte', () => {
+    const { project } = projectWithInvertedScenes();
+    // Mismo contenido pero con el orden del guion ya alineado al corte:
+    // s-early (clip en frame 0) primero, s-empty en el medio, s-late después.
+    const fixed = {
+      ...project,
+      scenes: [
+        { ...project.scenes[2]!, order: 0 },
+        { ...project.scenes[1]!, order: 1 },
+        { ...project.scenes[0]!, order: 2 },
+      ],
+    } as ProjectDocument;
+    const plan = planEdits(fixed, { intent: 'tighten', limit: 20 });
+    expect(plan.proposals.some((entry) => entry.id === 'script:scene-order')).toBe(false);
+  });
+
+  it('ignora escenas cuyos clips ya no existen en la timeline', () => {
+    const { project } = timelineWithGap();
+    const ghost = {
+      ...project,
+      scenes: [
+        {
+          id: 's-ghost-a',
+          order: 0,
+          title: 'A',
+          intent: 'hook',
+          status: 'approved',
+          narration: {},
+          clipIds: ['clip-que-no-existe-1'],
+        },
+        {
+          id: 's-ghost-b',
+          order: 1,
+          title: 'B',
+          intent: 'demo',
+          status: 'approved',
+          narration: {},
+          clipIds: ['clip-que-no-existe-2'],
+        },
+      ],
+    } as ProjectDocument;
+    const plan = planEdits(ghost, { intent: 'tighten', limit: 20 });
+    expect(plan.proposals.some((entry) => entry.id === 'script:scene-order')).toBe(false);
   });
 });

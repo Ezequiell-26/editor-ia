@@ -4,6 +4,92 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Cerebro: reorden de escenas según la timeline (2026-11-07)** —
+  cierra el `[pending]` «el cerebro todavía no reordena escenas», en una
+  pasada del protocolo del loop (Devin CLI).
+  - **Señal medida, no invención**: `sceneOrderPolicy`
+    (`state/brain/script-policies.ts`) compara el `order` de cada escena con
+    la posición de su primer clip existente en `timeline.clips`. Si el orden
+    por timeline difiere del orden del guion, propone `script:scene-order`
+    con payload `scene-order` (permuto completo de ids). Las escenas sin
+    clips conservan sus lugares: no aparecen en el video, así que su
+    posición en el guion es decisión de guion, no de edición.
+  - **Primitiva nueva**: `reorderScenes(project, orderedSceneIds)` en
+    `project-actions.ts` — recibe la permutación completa, verifica que los
+    ids cubran exactamente las escenas del proyecto (si no, lanza
+    `ProjectActionError`) y renumera `order` 0..n-1. `applyProposal` la
+    ejecuta; si la lista ya no coincide, se omite con motivo.
+  - **Riesgo `moderate`**: cambia el orden narrativo del guion (no toca
+    clips ni timeline), así que no entra en «Aplicar lo seguro».
+  - **Límite honesto**: la posición de una escena es el `startFrame` mínimo
+    de sus clips; si las escenas están entrelazadas en la timeline el orden
+    propuesto es el de su primer clip, no una comparación fotograma a
+    fotograma.
+  - **Archivos**: `state/project-actions.ts` (+test), `state/brain/types.ts`,
+    `script-policies.ts`, `apply.ts`, `brain.test.ts` (+3 tests, 36 total;
+    el invariante «las propuestas script no tienen payload» quedó con la
+    excepción declarada de `scene-order`).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest
+    `state/brain/brain.test.ts` **36/36** · `state/project-actions.test.ts`
+    **101/101**. No se corrió la suite serial completa.
+
+- `[done]` **Cerebro: reescritura mecánica de subtítulos (2026-11-07)** — mitad
+  del `[pending]` «el cerebro no reescribe texto ni reordena escenas», en una
+  pasada del protocolo del loop (Devin CLI). Queda pendiente reordenar escenas.
+  - **Política nueva** `captionTextPolicy` (`state/brain/script-policies.ts`):
+    `cleanCaptionText` normaliza espacios horizontales repetidos, el espacio
+    que falta tras `,` `;` `:` (sólo antes de letra: «3,5» queda igual) y tras
+    `.` `!` `?` cuando sigue mayúscula o `¿`/`¡` (así «www.ejemplo.com» queda
+    igual), y quita el espacio antes de puntuación de cierre. Conserva saltos
+    de línea. Sin cambios no propone nada.
+  - **Payload aplicable** `caption-fixes` (types + `apply.ts`): una propuesta
+    `caption-text` con hasta 60 cues, riesgo `safe` (entra en «Aplicar lo
+    seguro»). Se aplica con `updateCaptionCue` existente, omitiendo por cue el
+    que falle (pista bloqueada, cue borrado). Los cues con `words`/
+    `wordReveal` se saltan: reescribir el texto desincronizaría el reveal por
+    palabra — límite honesto declarado en el preview.
+  - **Archivos**: `state/brain/types.ts`, `script-policies.ts`, `apply.ts`,
+    `brain.test.ts` (+5 tests, 33 total).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest
+    `src/state/brain` **33/33**. No se corrió la suite serial completa.
+
+- `[done]` **Cola de render persistente en el backend · v1 espejo durable
+  (2026-11-07)** — primer incremento real de la feature grande de
+  `FOLLOW-UPS.md` §6.3, ejecutado fuera del loop (Devin CLI, continuación
+  de sesión).
+  - **Rust**: `commands/render_queue.rs` nuevo — núcleo puro
+  (`load_queue`/`save_queue` sobre `PathBuf`, testeable sin Tauri) +
+  comandos `render_queue_load` / `render_queue_save` /
+  `render_queue_clear_finished` registrados en `lib.rs`. Persiste en
+  `%LOCALAPPDATA%\com.editoria.desktop\render-queue.json` con los mismos
+  estados del frontend (`pending`/`running`/`done`/`error`/`cancelled`),
+  tope de 50, recuperación `running`→`pending` al cargar y tolerancia a
+  JSON corrupto/entradas basura.
+  - **Servicio**: `DesktopService` suma `renderQueueLoad` /
+  `renderQueueSave` / `renderQueueClearFinished` (nativo invoca los
+  comandos; el servicio no disponible devuelve `null`/`{}` para que la UI
+  sepa que no hay backend durable). `fake-service` implementa la copia en
+  memoria con la misma recuperación.
+  - **UI**: `ExportDialog` hidrata la cola desde el backend al abrir
+  (manda sobre localStorage) y le espejo cada cambio — localStorage queda
+  como respaldo en navegador y caché. «Limpiar terminadas» usa
+  `renderQueueClearFinished` cuando el backend respondió. Estado
+  `cancelled` agregado a `RenderQueueStatus`/`QueueSummary` (paridad con
+  el enum Rust): se muestra «Cancelado», se reintenta y cuenta como
+  saldada.
+  - **Honesto**: pausa/reanudar/reorden del lado del worker **siguen sin
+  existir** — los controles quedan deshabilitados con motivo; el reorden
+  real sigue siendo `movePending` en la UI. La cola durable es un espejo,
+  no un scheduler del backend.
+  - **Archivos**: `src-tauri/src/commands/render_queue.rs` (nuevo),
+    `commands/mod.rs`, `lib.rs`, `services/project-service.ts`,
+    `test/fake-service.ts`, `state/render-queue.ts` (+test),
+    `features/editor/ExportDialog.tsx`, `docs/FOLLOW-UPS.md` §6.3.
+  - **Verificación**: `cargo test -p editor-ia-desktop render_queue`
+    **5/5** · `cargo fmt --check` limpio en el archivo nuevo ·
+    `tsc --noEmit` 0 · vitest dirigido render-queue+ExportDialog+
+    queue-capabilities+project-service **43/43**.
+
 - `[done]` **Cerebro: política de silencios medida (2026-11-07)** — cierra el
   `[pending]` «el cerebro mide huecos, no silencios» del lote cerebro de
   edición, ejecutado en una pasada del protocolo del loop (Devin CLI).
@@ -888,7 +974,10 @@ Detalle en `docs/EDIT-BRAIN.md`.
 - `[done]` **Guion y narración** — `analyzeScript` + cinco reglas: escenas sin material,
   sin narración, narración demasiado rápida o lenta y subtítulos ilegibles. Son
   recomendaciones sin payload y penalizan el score. **3 tests**.
-- `[pending]` El cerebro todavía no reescribe texto ni reordena escenas.
+- `[done]` El cerebro ya reordena escenas: `sceneOrderPolicy` propone
+  `script:scene-order` cuando el orden del guion difiere del orden de los
+  clips en la timeline (ver entrada 2026-11-07 arriba). La reescritura de
+  texto existe como normalización mecánica de subtítulos, `caption-text`.
 - `[done]` **Cortes existentes al pulso (2026-11-07)** — el cerebro ya no sólo crea
   cortes sobre beats (`beatPolicy`): la política nueva `beatAlignPolicy` propone un
   **roll** (`rollClip`, primitivas existentes) que mueve cada corte contiguo al beat
@@ -964,10 +1053,18 @@ Aprendido de LosslessCut (MIT): para sacar un rango no hace falta renderizar.
 - `[done]` **UI** — Ajustes → Plugins: instalar desde carpeta, lista con insignia «oficial»,
   activar/desactivar y quitar.
 - `[done]` **Plugin oficial de ejemplo** — `limpieza-rapida` con dos comandos.
-- `[pending]` **Ejecutar comandos y aplicar presets** desde la UI (requiere extraer el ejecutor del
-  asistente a un módulo compartido).
+- `[partial]` **Ejecutar comandos** — los comandos de plugin ya se disparaban por
+  `olyvia:run-command` hacia el `AssistantDock`, pero sin respuesta visible en Ajustes.
+  Se agregó `detail.onResult` al evento: el dock devuelve la respuesta del operador
+  (éxito o error) y `PluginsCard` muestra «Ejecutando…» y el resultado inline por
+  comando. Se conserva el puente por compatibilidad en vez de extraer el ejecutor a
+  un módulo compartido (su closure depende de ~30 referencias del store).
+- `[pending]` **Aplicar presets de plugin** — `presets.effects`/`exportProfiles`/
+  `captionStyles` son `unknown[]` sin esquema ni plugin oficial que los use;
+  aplicarlos exige definir el contrato primero.
 - **Verificación**: Rust `commands::plugins` **3** (ids seguros, manifiesto válido, id inválido);
-  `PluginsCard.test` **3** (listado, activar, instalar). Suite **1736** verde.
+  `PluginsCard.test` **5** (listado, activar, instalar, puente, respuesta inline).
+  Suite **1736** verde.
 
 ## Timeline: alto y plegado por pista (2026-11-02)
 
@@ -1016,7 +1113,22 @@ Aprendido de LosslessCut (MIT): para sacar un rango no hace falta renderizar.
   cuenta usó y qué falló en cada una.
 - `[done]` **Fábrica** — la generación por escena usa la misma rotación y recuerda la última cuenta
   que funcionó, para no volver a la agotada en la escena siguiente.
-- `[pending]` **Cola continua** (`FlowQueueProvider`) sigue usando la cuenta predeterminada.
+- `[done]` **Cola continua con rotación de cuentas Flow (2026-11-07)** —
+  `FlowQueueProvider` ya no usa siempre la cuenta predeterminada. Al arrancar
+  la corrida consulta `flow_list_accounts`; con dos o más cuentas conectadas
+  cada imagen pasa por `generateWithRotation` (misma política que el panel y
+  la fábrica: sólo rota ante fallos de créditos, una pasada por cuenta, sin
+  ciclos) y recuerda la última cuenta que funcionó para el ítem siguiente.
+  Sin listado o con una sola cuenta, la llamada queda idéntica a antes. El
+  chequeo global de `flow_status` se saltea sólo cuando hay rotación (reporta
+  la cuenta de la sesión, no cada perfil; el agotamiento total lo cortan los
+  errores seguidos).
+  - **Archivos**: `state/FlowQueueProvider.tsx`,
+    `features/mcp/FlowQueueCard.test.tsx` (+1 test).
+  - **Verificación**: FlowQueueCard **4/4** (el test nuevo prueba
+    `acc-a` sin créditos → `acc-b` genera y la cola completa) ·
+    flow-queue **12/12** · flow-accounts **12/12** · McpView/Compress/Sharpen
+    **21/21** · `tsc --noEmit` 0.
 - **Verificación**: `flow-accounts.test` **12** (parseo, detección de créditos, orden, rotación,
   corte ante errores ajenos); `flow.test` **6**. Typecheck verde.
 
@@ -1361,8 +1473,23 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
     duplica la tabla.
 - `[pending]` **Preview Web Audio** — la cadena es export-only; el panel lo declara. Simular 30
   efectos con nodos nativos (biquad, delay, waveshaper, worklet) es un bloque propio.
-- `[pending]` **Plantillas de efecto** (23 en Drift) y **keyframes de efecto en export** siguen
-  abiertos, igual que el importador de paquetes de terceros.
+- `[done]` **Plantillas de efecto** — `state/effect-templates.ts` guarda stacks
+  nombrados en `localStorage` (`editor-ia.effect-templates.v1`) separados por
+  tipo (`video`/`audio`), con reemplazo por nombre, exportación JSON portable
+  (`olyvia-effect-template` v1, descarga Blob como el tema) e importación
+  validada. `EffectTemplates` está en `EffectStudio` (video) y
+  `AudioEffectStack` (audio): aplicar **reemplaza** el stack, regenera ids de
+  instancia, normaliza params contra el manifiesto actual y descarta efectos
+  que ya no existen (la UI informa cuántos se omitieron). No son las 23 de
+  Drift: son plantillas del usuario, sin catálogo de fábrica.
+- `[pending]` **Keyframes de efecto en export** sigue abierto (el preview anima
+  parámetros; el export usa el valor estático — FFmpeg no acepta expresiones
+  genéricas por filtro), igual que el importador de paquetes de terceros.
+- **Verificación plantillas**: `effect-templates.test` **7** (CRUD, dedupe
+  por nombre+tipo, roundtrip JSON, rechazos, ids nuevos y skip de efectos
+  desconocidos) + `EffectTemplates.test` **4** (guardar/aplicar, exportar,
+  importar válido/corrupto, plantilla del otro tipo). vfx+audio **26/26**;
+  `tsc --noEmit` 0.
 
 ## Lote velocidad (2026-10-28)
 
@@ -2531,9 +2658,13 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
     fps)` usa tiempos relativos; test 5/5.
 14. **Factory permisos y warnings** `[done]` — consentimiento explícito de
     créditos y avisos reales del log; test 2/2.
-15. **Paneo: precedencia visible** `[partial]` — la mesa avisa cuántos
-    clips omiten el paneo de pista (test 6/6); falta el reset “Centro”
-    unificado en Inspector.
+15. **Paneo: precedencia visible y reset unificado** `[done]` — la mesa avisa
+    cuántos clips omiten el paneo de pista (test 6/6) y ahora ambos lados
+    tienen reset «Centro» visible: en Mixer un botón junto al valor que
+    aparece sólo con paneo ≠ 0 (el doble clic se conserva), y en el Inspector
+    un «Paneo: centro» que borra `audio.pan` del clip. Antes había que saber
+    que el doble clic o tipear 0 centraba. MixerView.test **7/7** (test nuevo
+    del botón), `tsc --noEmit` 0.
 16. **VFX preview honesta** `[done]` — la vista marca chroma, sharpen y
     viñeta como solo export; no se muestran inertes.
 17. **Emoji diferido** `[done]` — el catálogo (~240 kB fuente) y el popover se
@@ -2604,15 +2735,50 @@ independiente: `.tmp-theme-shots/after/report.json` + `METHOD.md`.
   **1829 passed / 3 skipped** (205/206 archivos). Verificador independiente:
   cobertura de tema **66,7 %** (806/1209 propiedades), **0 tokens sin efecto
   visible** y **0 literales de rol** ganando la cascada.
-- `[pending]` **Tema claro completo** — con bg claro las superficies, el texto y
-  `color-scheme` siguen la paleta, pero quedan 13 (Ajustes) + 8 (Inicio) pares
-  de texto de estado/tenue por debajo de WCAG AA (mín. 2,36:1) y botones de
-  acento oscuros. Falta derivar estados legibles para fondos claros.
-- `[pending]` **Contraste del tema por defecto** — 50 pares < AA (acento
-  `#1f5eff` sobre `#181b20` = 3,37:1) es deuda de diseño previa; el estudio
-  permite corregirla a mano. Falta un preset accesible de fábrica.
-- `[pending]` **Color por clip/pista** — `clip.colorTag` sigue siendo dato del
-  proyecto; evaluar exponerlo en el estudio o mantenerlo fuera del tema.
+- `[done]` **Tema claro: derivación AA en `paletteFromBase` (2026-11-07)** —
+  el motor ya no deja nacer ilegible un tema claro personalizado. Antes los
+  presets derivados (`custom` y los 6 oscuros) copiaban `STATUS_DEFAULTS` /
+  `MEDIA_DEFAULTS` medidos sobre superficies oscuras: con fondo claro los
+  estados caían a ~2,4:1. Ahora, sólo cuando `relativeLuminance(bg) > 0.55`,
+  el acento sube a 3:1 sobre bg, los estados a 4,5:1 y los medios a 3:1 sobre
+  `surface`, `accentInk` se reasegura contra el acento ajustado y los textos
+  derivados pasan por `fixTextContrast`. Las paletas oscuras son bit a bit
+  idénticas (`ensureContrast` no-op) y `LIGHT_PALETTE` no pasa por esta vía.
+  Además `.start-thumb-hint` (Inicio) dejó el `color-mix(text 42%)` por
+  `var(--color-text-faint)`, token medido AA en ambos esquemas.
+  - **Archivos**: `state/theme-palette.ts`, `state/theme-palette.test.ts`
+    (+1 test), `styles/start-screen.css`.
+  - **Verificación**: `theme-palette.test` **44/44** + `appearance.test`
+    **15/15** · `tsc --noEmit` 0.
+  - **Residual honesto**: una paleta clara *guardada* por el usuario conserva
+    sus tokens (el motor no pisa datos persistidos; el estudio los reporta y
+    «Corregir texto» los sube). Los 13+8 pares medidos en Ajustes/Inicio se
+    corrigen en origen para temas derivados; si quedan literales sueltos en
+    otras vistas, se miden en la próxima pasada e2e de tema claro.
+- `[done]` **Preset accesible de fábrica** — nuevo preset `contrast` («Alto
+  contraste», oscuro) con paleta explícita de 34 tokens: texto 17-18:1,
+  atenuado 8,6:1, tenue 4,8:1, acento 6,3:1, tinta/acento 6,3:1, estados
+  4,9-11:1 y borde fuerte 3,7:1 sobre `#0a0c10`/`#12151b`. El reporte
+  `themeContrastReport` pasa entero y `fixTextContrast` no toca ningún
+  token. Los presets derivados siguen teniendo su deuda de diseño (el
+  estudio permite corregirla a mano); esto da una opción AA sin tocar la
+  identidad visual por defecto.
+  - **Archivos**: `state/theme-palette.ts` (id, `THEME_PRESETS.contrast`,
+    `CONTRAST_PALETTE`, `THEME_PALETTES`, `THEME_PRESET_LABELS`),
+    `state/appearance.ts` (validador), `state/theme-palette.test.ts`.
+  - **Verificación**: `theme-palette.test` **45/45** (+1: reporte AA
+    completo y espejo de base) · `appearance.test` **15/15** ·
+    AppearanceCard+ColorStudioCard **14/14** · `tsc --noEmit` 0.
+- `[done]` **Color por clip/pista: decisión evaluada (2026-11-07)** —
+  `clip.colorTag` es dato del proyecto (enum `ClipColorTagSchema`, 8 etiquetas)
+  y **no** entra al tema: el estudio de color gobierna la paleta de la app.
+  Ya está expuesto donde corresponde y verificado en código: chips de color en
+  el Inspector (`Inspector.tsx:1622-1641`, con «Quitar color»), muestras en el
+  menú contextual de la timeline (`Timeline.tsx:3023-3047`), tinte del clip en
+  la pista (`clipColorHex`, `Timeline.tsx:304`), filtro por color
+  (`clipMatchesColorFilter`, `Timeline.tsx:2821`) y agrupación por color en
+  `clip-attributes.ts`. No hace falta exponerlo en el ColorStudio: sería
+  confundir dato de proyecto con tema.
 
 ## Reglas del ciclo
 

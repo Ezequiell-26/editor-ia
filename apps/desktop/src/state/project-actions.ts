@@ -4288,6 +4288,34 @@ export function moveScene(
   return next;
 }
 
+/**
+ * Reordena las escenas según una lista explícita de ids.
+ *
+ * A diferencia de `moveScene` (un paso a la vez), recibe la permutación
+ * completa y la verifica: si la lista no cubre exactamente las escenas del
+ * proyecto, rechaza en vez de adivinar. La usa el cerebro cuando el orden
+ * del guion quedó viejo respecto al corte.
+ */
+export function reorderScenes(
+  project: ProjectDocument,
+  orderedSceneIds: readonly string[],
+): ProjectDocument {
+  const next = cloneProject(project);
+  const byId = new Map(next.scenes.map((scene) => [scene.id, scene]));
+  if (
+    orderedSceneIds.length !== next.scenes.length ||
+    !orderedSceneIds.every((id) => byId.has(id))
+  ) {
+    throw new ProjectActionError('el orden de escenas no coincide con el proyecto');
+  }
+  next.scenes = orderedSceneIds.map((id, index) => ({
+    ...(byId.get(id) as Scene),
+    order: index,
+  }));
+  touch(next);
+  return next;
+}
+
 export function updateScene(
   project: ProjectDocument,
   sceneId: string,
