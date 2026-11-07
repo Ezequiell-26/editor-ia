@@ -1,0 +1,28 @@
+ESPEAK-NG — AVISO DE LICENCIA Y OFERTA DE FUENTE (GPL-3.0)
+=========================================================
+
+Los archivos `espeak-ng.dll` y el directorio `espeak-ng-data/` son parte de
+eSpeak NG (https://github.com/espeak-ng/espeak-ng), distribuido bajo la
+GNU General Public License versión 3 (GPL-3.0). El texto completo de la
+licencia está en `LICENSE.txt` dentro de esta misma carpeta.
+
+Cumplimiento GPLv3 para distribución binaria:
+
+1. El código fuente completo de la versión de eSpeak NG usada puede
+   obtenerse en:  https://github.com/espeak-ng/espeak-ng
+   (tag/release público upstream; el DLL se distribuye sin modificaciones).
+
+2. OFERTA ESCRITA: si el enlace anterior no estuviera disponible, Olyvia
+   proporcionará el código fuente correspondiente de eSpeak NG a cualquier
+   tercero que lo solicite, durante al menos tres (3) años desde la
+   distribución de esta versión, a costa razonable de distribución.
+   Contacto: soporte del producto Olyvia.
+
+3. eSpeak NG se ejecuta como biblioteca dentro de `piper.exe`, un proceso
+   separado invocado por Olyvia. Olyvia no enlaza ni deriva código de
+   eSpeak NG: la aplicación principal se distribuye bajo su propia licencia
+   (MIT) como obra agregada, conforme a la sección de obras agregadas de
+   GPLv3. Los datos de `espeak-ng-data/` se distribuyen bajo los mismos
+   términos que el motor.
+
+4. No se modificó el binario ni los datos de eSpeak NG.

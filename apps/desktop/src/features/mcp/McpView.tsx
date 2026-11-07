@@ -4,6 +4,8 @@ import { ViewToolbar } from '../../components/ViewToolbar';
 import type {
   FlowBrowserStatus,
   FlowEmbedStatus,
+  McpAutoconnectResult,
+  McpDetectedClient,
   McpProbeResult,
   McpServerConfig,
   McpServerInfo,
@@ -232,6 +234,13 @@ export function McpView() {
   const [ownError, setOwnError] = useState<string | null>(null);
   const [ownTokenVisible, setOwnTokenVisible] = useState(false);
   const [ownCopied, setOwnCopied] = useState<string | null>(null);
+  // Conectar un asistente de IA con un clic (sin tocar JSON a mano).
+  const [clients, setClients] = useState<readonly McpDetectedClient[]>([]);
+  const [clientsChecked, setClientsChecked] = useState(false);
+  const [connectBusy, setConnectBusy] = useState<string | null>(null);
+  const [connectResult, setConnectResult] = useState<
+    Record<string, { readonly ok: boolean; readonly text: string }>
+  >({});
 
   const refreshOwnServer = useCallback(async () => {
     if (!store.service.available) {
@@ -256,6 +265,61 @@ export function McpView() {
   useEffect(() => {
     void refreshOwnServer();
   }, [refreshOwnServer]);
+
+  const refreshClients = useCallback(async () => {
+    if (!store.service.available) {
+      setClients([]);
+      setClientsChecked(true);
+      return;
+    }
+    try {
+      setClients(await store.service.mcpDetectClients());
+    } catch {
+      setClients([]);
+    } finally {
+      setClientsChecked(true);
+    }
+  }, [store.service]);
+
+  useEffect(() => {
+    void refreshClients();
+  }, [refreshClients]);
+
+  /**
+   * Un clic: arranca el servidor MCP de Olyvia si hace falta y escribe la
+   * configuración de ese cliente. Pensado para gente a la que le cuesta lo
+   * técnico: nada de copiar JSON ni tocar archivos a mano.
+   */
+  async function connectClient(client: McpDetectedClient): Promise<void> {
+    setConnectBusy(client.id);
+    setConnectResult((current) => {
+      const next = { ...current };
+      delete next[client.id];
+      return next;
+    });
+    try {
+      const result: McpAutoconnectResult = await store.service.mcpAutoconnect(client.id);
+      setConnectResult((current) => ({
+        ...current,
+        [client.id]: {
+          ok: true,
+          text: `Listo. Cerrá y volvé a abrir ${client.label} — ya va a ver a Olyvia como herramienta.`,
+        },
+      }));
+      void result;
+      await refreshOwnServer();
+    } catch (failure) {
+      setConnectResult((current) => ({
+        ...current,
+        [client.id]: {
+          ok: false,
+          text: failure instanceof Error ? failure.message : `no se pudo conectar ${client.label}`,
+        },
+      }));
+    } finally {
+      setConnectBusy(null);
+    }
+  }
 
   const refreshFlowBrowser = useCallback(async () => {
     try {
@@ -1061,6 +1125,66 @@ export function McpView() {
               todavía no está activo.
             </p>
           </>
+        )}
+      </section>
+
+      <section className="card" aria-labelledby="mcp-connect-title">
+        <div className="production-card-head">
+          <div>
+            <p className="eyebrow">Un clic, sin tocar nada técnico</p>
+            <h3 id="mcp-connect-title">Conectar un asistente de IA</h3>
+          </div>
+        </div>
+        <p className="muted">
+          Tocá el botón de la app que querés usar. Olyvia arranca el servidor solo y completa la
+          configuración por vos — no hace falta copiar ningún código.
+        </p>
+        {!store.service.available ? (
+          <p className="fine-print">
+            Esto sólo funciona en la app de escritorio, no en el navegador.
+          </p>
+        ) : !clientsChecked ? (
+          <p className="fine-print">Buscando asistentes instalados…</p>
+        ) : (
+          <div className="mcp-connect-grid">
+            {clients.map((client) => {
+              const busy = connectBusy === client.id;
+              const result = connectResult[client.id];
+              return (
+                <div key={client.id} className="mcp-connect-row">
+                  <div className="mcp-connect-row-head">
+                    <strong>{client.label}</strong>
+                    <span className={`status-pill ${client.installed ? 'saved' : ''}`}>
+                      {client.installed ? 'Instalado' : 'No instalado'}
+                    </span>
+                  </div>
+                  {client.installed ? (
+                    <button
+                      type="button"
+                      className="primary small"
+                      onClick={() => void connectClient(client)}
+                      disabled={busy}
+                    >
+                      {busy ? 'Conectando…' : `Conectar ${client.label}`}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={() => void store.service.openExternalUrl(client.downloadUrl)}
+                    >
+                      Descargar {client.label}
+                    </button>
+                  )}
+                  {result ? (
+                    <p className={result.ok ? 'fine-print' : 'notice notice-warning'} role="status">
+                      {result.text}
+                    </p>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         )}
       </section>
 

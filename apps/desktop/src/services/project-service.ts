@@ -1558,6 +1558,20 @@ export interface McpServerInfo {
   readonly token: string;
 }
 
+/** Un cliente de IA (Claude Desktop, Antigravity…) que Olyvia sabe conectar con un clic. */
+export interface McpDetectedClient {
+  readonly id: string;
+  readonly label: string;
+  readonly installed: boolean;
+  readonly downloadUrl: string;
+}
+
+export interface McpAutoconnectResult {
+  readonly client: string;
+  readonly configPath: string;
+  readonly message: string;
+}
+
 export interface DiarizeProviderInfo {
   readonly kind: string;
   readonly baseUrl: string;
@@ -2392,6 +2406,10 @@ export interface DesktopService {
   startMcpServer(): Promise<McpServerInfo>;
   mcpServerStatus(): Promise<McpServerInfo | null>;
   mcpRespond(id: string, ok: boolean, text: string): Promise<boolean>;
+  /** Clientes de IA que Olyvia sabe conectar con un botón (detecta si están instalados). */
+  mcpDetectClients(): Promise<readonly McpDetectedClient[]>;
+  /** Arranca el servidor MCP si hace falta y conecta ese cliente con un clic. */
+  mcpAutoconnect(client: string): Promise<McpAutoconnectResult>;
   onMcpCall(
     handler: (payload: { readonly id: string; readonly tool: string; readonly args: unknown }) => void,
   ): Promise<UnlistenFn>;
@@ -2790,6 +2808,8 @@ export const PROJECT_COMMANDS = {
   startMcpServer: 'start_mcp_server',
   mcpServerStatus: 'mcp_server_status',
   mcpRespond: 'mcp_respond',
+  mcpDetectClients: 'mcp_detect_clients',
+  mcpAutoconnect: 'mcp_server_autoconnect',
   analyzeMixLoudness: 'analyze_mix_loudness',
   hardwareEncoders: 'hardware_encoders',
   exportCapabilities: 'export_capabilities',
@@ -3857,6 +3877,12 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async mcpRespond(id, ok, text) {
       return (await call(PROJECT_COMMANDS.mcpRespond, { id, ok, text })) as boolean;
     },
+    async mcpDetectClients() {
+      return (await call(PROJECT_COMMANDS.mcpDetectClients, {})) as readonly McpDetectedClient[];
+    },
+    async mcpAutoconnect(client) {
+      return (await call(PROJECT_COMMANDS.mcpAutoconnect, { client })) as McpAutoconnectResult;
+    },
     async onMcpCall(handler) {
       return listen<{ id: string; tool: string; args: unknown }>('mcp-call', (event) =>
         handler(event.payload),
@@ -4621,6 +4647,8 @@ function createUnavailableService(): DesktopService {
     startMcpServer: async () => unavailable(),
     mcpServerStatus: async () => null,
     mcpRespond: async () => false,
+    mcpDetectClients: async () => [],
+    mcpAutoconnect: async () => unavailable(),
     onMcpCall: async () => () => {},
     analyzeMixLoudness: async () => unavailable(),
     onLoudnessAnalysisProgress: async () => () => {},

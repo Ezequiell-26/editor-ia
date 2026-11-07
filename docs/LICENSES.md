@@ -13,7 +13,7 @@ debe revisar los puntos marcados como **acción**.
 | ONNX Runtime | `resources/onnxruntime/onnxruntime.dll` | MIT | Incluir aviso MIT |
 | Piper TTS | `resources/piper/THIRD-PARTY-NOTICES.txt` | MIT | Conservar aviso y licencia de la voz |
 | Voz es_ES-davefx-medium | model card de piper-voices | CC0 según model card | Conservar atribución |
-| eSpeak NG | `resources/piper/espeak-ng.dll` | **GPL-3.0** | **Acción:** cumplir GPLv3 (aviso + oferta de fuente) o reemplazar el runtime antes de vender |
+| eSpeak NG | `resources/piper/espeak-ng.dll` | **GPL-3.0** | **Estado:** cumplido — `resources/piper/espeak-ng/LICENSE.txt` (GPL-3.0 completo) + `SOURCE.txt` (oferta de fuente escrita) viajan en el bundle; piper.exe corre eSpeak como proceso separado (obra agregada, app sigue MIT) |
 | Wav2Lip | sólo `scripts/lipsync-engine`; no está en recursos | **No comercial** | **Acción:** no incluir en build comercial; el motor queda externo |
 | Real-ESRGAN, u2netp, Seeta | se descargan en datos del usuario | revisar por modelo | **Acción:** auditar antes de redistribuir |
 | WebView2 | componente del sistema | términos Microsoft | No redistribuir |
@@ -31,7 +31,7 @@ se incluye en el instalador mediante `bundle.resources`.
 
 - Wav2Lip/checkpoints: **fuera** del bundle base (verificado).
 - FFmpeg LGPL: aviso presente y DLLs enlazadas dinámicamente.
-- eSpeak NG GPL-3.0: aviso agregado; **la obligación de fuente sigue abierta**
+- eSpeak NG GPL-3.0: **cumplido** — licencia completa + oferta de fuente en `resources/piper/espeak-ng/`
   para la venta. Es un blocker legal de Fase 4, no técnico de Beta.
 - Modelos descargados aparte: no están en el instalador; revisar antes de
   empaquetarlos.

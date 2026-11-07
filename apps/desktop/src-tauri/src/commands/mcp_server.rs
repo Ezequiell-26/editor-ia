@@ -905,6 +905,198 @@ pub fn mcp_server_status() -> Option<McpServerInfo> {
     info_slot().lock().ok().and_then(|guard| guard.clone())
 }
 
+/// Cliente de IA externo (Claude Desktop, Antigravity…) que Olyvia sabe
+/// conectar con un botón, y si lo encontró instalado en este equipo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectedClient {
+    pub id: String,
+    pub label: String,
+    pub installed: bool,
+    pub download_url: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoconnectResult {
+    pub client: String,
+    pub config_path: String,
+    pub message: String,
+}
+
+fn claude_desktop_config_path() -> Option<std::path::PathBuf> {
+    let appdata = std::env::var_os("APPDATA")?;
+    Some(
+        std::path::PathBuf::from(appdata)
+            .join("Claude")
+            .join("claude_desktop_config.json"),
+    )
+}
+
+/// Heurística de instalación: Claude Desktop crea una de estas carpetas al
+/// instalarse, sin depender de que ya se haya abierto una vez.
+fn claude_desktop_installed() -> bool {
+    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+        return false;
+    };
+    let local = std::path::PathBuf::from(local);
+    local.join("AnthropicClaude").exists() || local.join("Programs").join("Claude").exists()
+}
+
+/// Config compartida de Antigravity 2.0 / IDE / CLI (todas leen el mismo
+/// archivo). Ver docs de Google Antigravity: `~/.gemini/config/mcp_config.json`.
+fn antigravity_config_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("USERPROFILE")?;
+    Some(
+        std::path::PathBuf::from(home)
+            .join(".gemini")
+            .join("config")
+            .join("mcp_config.json"),
+    )
+}
+
+fn antigravity_installed() -> bool {
+    let Some(local) = std::env::var_os("LOCALAPPDATA") else {
+        return false;
+    };
+    std::path::PathBuf::from(local)
+        .join("Programs")
+        .join("Antigravity IDE")
+        .exists()
+}
+
+/// Clientes que Olyvia sabe conectar con un clic, con si los encontró
+/// instalados en este equipo. La vista usa esto para mostrar un botón
+/// activo o un enlace de descarga, sin que la persona tenga que saber nada
+/// de JSON ni de rutas de archivo.
+#[tauri::command]
+pub fn mcp_detect_clients() -> Vec<DetectedClient> {
+    vec![
+        DetectedClient {
+            id: "claude-desktop".into(),
+            label: "Claude Desktop".into(),
+            installed: claude_desktop_installed(),
+            download_url: "https://claude.ai/download".into(),
+        },
+        DetectedClient {
+            id: "antigravity".into(),
+            label: "Antigravity".into(),
+            installed: antigravity_installed(),
+            download_url: "https://antigravity.google/".into(),
+        },
+    ]
+}
+
+/// Conecta Olyvia a un cliente de IA externo con un solo clic: arranca el
+/// servidor MCP propio si hace falta y mezcla la entrada "olyvia" en el
+/// archivo de configuración de ese cliente, preservando cualquier otro
+/// servidor que ya tenga configurado.
+#[tauri::command]
+pub async fn mcp_server_autoconnect(
+    app: AppHandle,
+    client: String,
+) -> Result<AutoconnectResult, ProjectError> {
+    type EntryBuilder = fn(&McpServerInfo) -> Value;
+    let (path, installed, download_url, build_entry): (std::path::PathBuf, bool, &str, EntryBuilder) =
+        match client.as_str() {
+            "claude-desktop" => (
+                claude_desktop_config_path().ok_or_else(|| {
+                    ProjectError::message(ProjectErrorCode::Io, "no se encontró %APPDATA% en este equipo")
+                })?,
+                claude_desktop_installed(),
+                "https://claude.ai/download",
+                |info| {
+                    json!({
+                        "type": "http",
+                        "url": info.url,
+                        "headers": { "Authorization": format!("Bearer {}", info.token) }
+                    })
+                },
+            ),
+            "antigravity" => (
+                antigravity_config_path().ok_or_else(|| {
+                    ProjectError::message(
+                        ProjectErrorCode::Io,
+                        "no se encontró %USERPROFILE% en este equipo",
+                    )
+                })?,
+                antigravity_installed(),
+                "https://antigravity.google/",
+                |info| {
+                    json!({
+                        "serverUrl": info.url,
+                        "headers": { "Authorization": format!("Bearer {}", info.token) }
+                    })
+                },
+            ),
+            other => {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    &format!("cliente MCP desconocido: {other}"),
+                ));
+            }
+        };
+
+    if !installed {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            &format!(
+                "no encontramos esa app instalada en este equipo; descargala de {download_url} y volvé a tocar el botón"
+            ),
+        ));
+    }
+
+    let info = start_mcp_server(app).await?;
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "no se pudo crear la carpeta de configuración de ese cliente",
+            )
+        })?;
+    }
+
+    // Mezcla no destructiva: se preserva cualquier otro contenido del
+    // archivo (otros servidores MCP, ajustes propios del cliente) y sólo se
+    // agrega o reemplaza la entrada "olyvia".
+    let mut root: Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| json!({}));
+    if !root.is_object() {
+        root = json!({});
+    }
+    let servers = root
+        .as_object_mut()
+        .expect("root es un objeto JSON")
+        .entry("mcpServers")
+        .or_insert_with(|| json!({}));
+    if !servers.is_object() {
+        *servers = json!({});
+    }
+    servers
+        .as_object_mut()
+        .expect("mcpServers es un objeto JSON")
+        .insert("olyvia".to_owned(), build_entry(&info));
+
+    let pretty = serde_json::to_string_pretty(&root).map_err(|_| {
+        ProjectError::message(ProjectErrorCode::Io, "no se pudo generar la configuración")
+    })?;
+    std::fs::write(&path, pretty).map_err(|_| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            "no se pudo escribir el archivo de configuración de ese cliente",
+        )
+    })?;
+
+    Ok(AutoconnectResult {
+        client,
+        config_path: path.to_string_lossy().into_owned(),
+        message: "listo".into(),
+    })
+}
+
 /// Respuesta del frontend a un `run_command` pendiente.
 #[tauri::command]
 pub fn mcp_respond(state: State<'_, AppState>, id: String, ok: bool, text: String) -> bool {

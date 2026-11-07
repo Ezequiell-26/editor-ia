@@ -45,7 +45,9 @@ target-build/
 *.pem
 
 # Piper: binario y voces pesadas; se instalan con el setup/CI, no en Git
-apps/desktop/src-tauri/resources/piper/
+apps/desktop/src-tauri/resources/piper/*
+# …excepto los avisos legales GPL-3.0 de eSpeak NG (obligatorios para redistribución)
+!apps/desktop/src-tauri/resources/piper/espeak-ng/
 
 # Capturas temporales de diagnóstico
 .tmp-*.png

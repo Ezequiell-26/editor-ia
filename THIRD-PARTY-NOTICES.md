@@ -144,6 +144,15 @@ cargo tree --depth 1
   con la feature `ndarray` para obtener RGB24 y el timestamp del frame.
 - **ffmpeg-next** 9.0.0 y **ffmpeg-sys-next** 9.0.1 (WTFPL): capa Rust sobre
   libavcodec/libavformat/libavutil/libswscale/libswresample.
+- **Piper TTS 2023.11.14-2** (MIT): `resources/piper/piper.exe` + ONNX Runtime
+  (MIT) + voz `es_ES-davefx-medium` (dataset CC0 según model card). Notas en
+  `resources/piper/THIRD-PARTY-NOTICES.txt`.
+- **eSpeak NG** (GPL-3.0): `resources/piper/espeak-ng.dll` +
+  `espeak-ng-data/`. Corre dentro de `piper.exe` como proceso separado
+  (obra agregada; la app no enlaza su código). Cumplimiento: licencia
+  completa en `resources/piper/espeak-ng/LICENSE.txt` y oferta de fuente
+  escrita en `resources/piper/espeak-ng/SOURCE.txt`, ambos en el bundle.
+
 - **FFmpeg 9.0 shared LGPL** (LGPL-2.1-or-later): DLLs `avcodec-63`,
   `avdevice-63`, `avfilter-12`, `avformat-63`, `avutil-61`, `swscale-10` y
   `swresample-7` del build `win64-lgpl-shared-9.0` de BtbN. Se distribuyen sin

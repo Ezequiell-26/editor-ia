@@ -406,6 +406,8 @@ pub fn run() {
             commands::mcp_server::start_mcp_server,
             commands::mcp_server::mcp_server_status,
             commands::mcp_server::mcp_respond,
+            commands::mcp_server::mcp_detect_clients,
+            commands::mcp_server::mcp_server_autoconnect,
             commands::system::set_tool_paths,
             commands::flow_profiles::get_flow_proxies,
             commands::flow_profiles::set_flow_proxy,

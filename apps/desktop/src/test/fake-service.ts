@@ -1173,6 +1173,15 @@ export function createFakeService(): FakeService {
     async mcpRespond() {
       return true;
     },
+    async mcpDetectClients() {
+      return [
+        { id: 'claude-desktop', label: 'Claude Desktop', installed: true, downloadUrl: 'https://claude.ai/download' },
+        { id: 'antigravity', label: 'Antigravity', installed: true, downloadUrl: 'https://antigravity.google/' },
+      ];
+    },
+    async mcpAutoconnect(client: string) {
+      return { client, configPath: 'C:\\fake\\config.json', message: 'listo' };
+    },
     async onMcpCall() {
       return () => {};
     },
