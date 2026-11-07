@@ -222,28 +222,45 @@ export function resolveGradeStages(grade: ColorGrade | undefined): GradeStage[] 
     if (!order.includes(node.id)) order.push(node.id);
   }
 
+  // A stage is a corrector node. Nodes that feed the SAME downstream node are
+  // a parallel branch and are blended by their mix weight; the remaining nodes
+  // chain serially in topological order. A node with no outgoing link is
+  // disconnected (bypassed) — this is what makes "disconnect" real.
+  const position = new Map(order.map((id, index) => [id, index]));
+  const groups = new Map<string, ColorNode[]>();
+  for (const node of grade.nodes) {
+    if (!node.enabled || node.kind === 'source' || node.kind === 'output') continue;
+    const targets = (outgoing.get(node.id) ?? []).filter((id) => nodes.has(id));
+    if (targets.length === 0) continue;
+    const key = [...targets].sort().join('|');
+    groups.set(key, [...(groups.get(key) ?? []), node]);
+  }
+
   const stages: GradeStage[] = [];
-  const consumed = new Set<string>();
-  for (const targetId of order) {
-    const sources = (incoming.get(targetId) ?? []).filter((id) => {
-      const node = nodes.get(id);
-      return node && node.enabled && node.kind !== 'source' && node.kind !== 'output' && !consumed.has(id);
-    });
-    if (sources.length === 0) continue;
-    sources.forEach((id) => consumed.add(id));
-    const weights = sources.map((id) => clamp(nodes.get(id)!.layer.mix, 0, 1));
-    const total = weights.reduce((sum, value) => sum + value, 0) || 1;
-    let layer = createIdentityLayer();
-    for (let index = 0; index < sources.length; index += 1) {
-      const node = nodes.get(sources[index]!)!;
-      const share = weights[index]! / total;
-      layer = blendLayers(layer, node.layer, share);
+  const sortedGroups = [...groups.entries()].sort((a, b) => {
+    const rank = (key: string) => Math.min(
+      ...key.split('|').map((id) => position.get(id) ?? Number.MAX_SAFE_INTEGER),
+    );
+    return rank(a[0]) - rank(b[0]);
+  });
+  for (const [, members] of sortedGroups) {
+    const weights = members.map((node) => clamp(node.layer.mix, 0, 1));
+    const total = weights.reduce((sum, value) => sum + value, 0);
+    // Proper weighted average: blending sequentially into an accumulator with
+    // w_i / (sum of weights so far) converges to (Σ w_i·L_i) / Σ w_i.
+    let layer = members[0]!.layer;
+    let cumulative = weights[0] ?? 0;
+    for (let index = 1; index < members.length; index += 1) {
+      const weight = weights[index] ?? 0;
+      const nextCumulative = cumulative + weight;
+      layer = blendLayers(layer, members[index]!.layer, nextCumulative > 0 ? weight / nextCumulative : 0);
+      cumulative = nextCumulative;
     }
     stages.push({
-      nodeId: sources.join('+'),
-      label: sources.map((id) => nodes.get(id)!.label).join(' + '),
-      layer,
-      weight: Math.min(1, total / sources.length),
+      nodeId: members.map((node) => node.id).join('+'),
+      label: members.map((node) => node.label).join(' + '),
+      layer: total > 0 ? layer : createIdentityLayer(),
+      weight: total > 0 ? clamp(total / members.length, 0, 1) : 0,
     });
   }
   return stages;
@@ -502,7 +519,9 @@ export function compileGrade(grade: ColorGrade | undefined, filterId: string): G
   // --- SVG primitives: curves, mixer, per-channel wheels, HDR zones --------
   const primitives: SvgPrimitive[] = [];
   stages.forEach((stage, index) => {
-    primitives.push(...stagePrimitives(stage.layer, index, index === stages.length - 1));
+    // Honour the stage's wet/dry weight in the SVG chain too, so the viewer and
+    // the CSS/FFmpeg projection always describe the same grade.
+    primitives.push(...stagePrimitives(scaleLayer(stage.layer, stage.weight), index, index === stages.length - 1));
   });
 
   // --- FFmpeg projection (existing Rust grade_filters reads these) ---------

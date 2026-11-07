@@ -8,6 +8,7 @@ import { createFakeService, readyAsset } from './test/fake-service';
 import { addAsset, addClipFromAsset, addTrack, ensureDelivery, updateClip } from './state/project-actions';
 import { addMarker } from './state/markers';
 import { writeRecoverySnapshot } from './state/recovery';
+import { NAV_VIEWS } from './app/navigation';
 
 function renderApp() {
   const service = createFakeService();
@@ -1530,23 +1531,23 @@ describe('F2 · un solo editor', () => {
 });
 
 describe('T2 · todas las herramientas dentro del editor', () => {
-  it('el botón de la barra abre el mapa de las 33 herramientas con la timeline visible', async () => {
+  it('el botón de la barra abre el mapa de herramientas con la timeline visible', async () => {
     renderApp();
     await createProject('Obra mapa total');
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Todo' }).getAttribute('aria-selected')).toBe('true'),
     );
-    expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(33);
+    expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length);
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
-    expect(screen.getByText('33 / 33')).toBeTruthy();
+    expect(screen.getByText(`${NAV_VIEWS.length} / ${NAV_VIEWS.length}`)).toBeTruthy();
   });
 
   it('un hub y un alias de hub se montan como panel, sin pantalla separada', async () => {
     renderApp();
     await createProject('Obra hubs embebidos');
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
-    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(33));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
     fireEvent.click(screen.getByRole('button', { name: /^Descargar:/ }));
     await waitFor(() => expect(screen.getByText(/Volver al mapa/i)).toBeTruthy());
     expect(document.querySelector('.editor-workspace')).toBeTruthy();
@@ -1554,7 +1555,7 @@ describe('T2 · todas las herramientas dentro del editor', () => {
 
     // Volver al mapa y abrir un ALIAS: debe reutilizar el mismo host con su tab.
     fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
-    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(33));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length));
     fireEvent.click(screen.getByRole('button', { name: /^YouTube:/ }));
     await waitFor(() => expect(screen.getByText(/Volver al mapa/i)).toBeTruthy());
     expect(document.querySelector('.editor-workspace')).toBeTruthy();

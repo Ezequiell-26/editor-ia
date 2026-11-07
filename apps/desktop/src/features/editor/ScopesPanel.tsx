@@ -324,7 +324,16 @@ export function ScopesPanel({
             const sourceFilter = getComputedStyle(source).filter;
             const look = stage?.querySelector('.preview-look');
             const lookFilter = look ? getComputedStyle(look).filter : 'none';
-            const filter = [sourceFilter, lookFilter]
+            // The Color-page grade may append `url(#grade-filter-...)` (SVG
+            // per-channel curves). A 2D canvas does not reliably resolve SVG
+            // filter references and an unsupported token invalidates the WHOLE
+            // filter declaration, which would silently drop every CSS function
+            // too. Strip only those references: the grade's CSS functions
+            // (brightness/contrast/saturate/hue-rotate/blur) still drive the
+            // scopes, which is the same signal the viewer shows at a glance.
+            const canvasSafe = (value: string): string =>
+              value.replace(/url\([^)]*\)/g, '').replace(/\s+/g, ' ').trim();
+            const filter = [canvasSafe(sourceFilter), canvasSafe(lookFilter)]
               .filter((value) => value && value !== 'none')
               .join(' ');
             try {

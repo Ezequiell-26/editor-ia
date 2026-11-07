@@ -26,6 +26,8 @@ import { templateById } from '../motion/templates';
 import { ScopesPanel } from './ScopesPanel';
 import { perspectiveMatrix3d, type PerspectiveViewport } from './perspective';
 import type { PreviewFrameResult } from '../../services/project-service';
+import { applyGradeProjection, compileGrade, gradeFilterId, type GradeFilterSpec } from '../color/color-engine';
+import { GradeFilterDefs } from '../color/GradeFilterDefs';
 
 function previewViewport(
   asset: Asset | undefined,
@@ -352,8 +354,16 @@ function transformStyle(
   };
 }
 
-function effectsToCss(effects: ClipEffects | undefined): CSSProperties {
-  if (!effects) return {};
+/**
+ * The single filter builder of the editor. When a clip carries a Color-page
+ * grade, `colorGrade` is authoritative: the flat fields it projects onto are
+ * stripped so nothing is applied twice, and the compiled CSS + SVG chain is
+ * appended. Without a grade the legacy behaviour is byte-for-byte unchanged.
+ */
+function effectsToCss(source: ClipEffects | undefined, filterId?: string): CSSProperties {
+  if (!source) return {};
+  const compiled = source.colorGrade && filterId ? compileGrade(source.colorGrade, filterId) : null;
+  const effects: ClipEffects = compiled ? applyGradeProjection(source, {}) : source;
   const filters: string[] = [];
   if (effects.brightness !== undefined) filters.push(`brightness(${Math.max(0, 1 + effects.brightness)})`);
   if (effects.contrast !== undefined) filters.push(`contrast(${effects.contrast})`);
@@ -424,12 +434,16 @@ function effectsToCss(effects: ClipEffects | undefined): CSSProperties {
       filters.push(`hue-rotate(${matchWarmth > 0 ? -15 : 160}deg)`);
     }
   }
+  if (compiled) {
+    if (compiled.css) filters.push(compiled.css);
+    if (compiled.svg) filters.push(`url(#${compiled.svg.id})`);
+  }
   return filters.length > 0 ? { filter: filters.join(' ') } : {};
 }
 
 function effectsStyle(clip: Clip): CSSProperties {
   if (!('effects' in clip) || !clip.effects) return {};
-  return effectsToCss(clip.effects);
+  return effectsToCss(clip.effects, gradeFilterId(clip.id));
 }
 
 function assetById(project: ProjectDocument, id: string): Asset | undefined {
@@ -1053,10 +1067,32 @@ export const Preview = memo(function Preview() {
           (trackById(project, a.trackId)?.order ?? 0) -
           (trackById(project, b.trackId)?.order ?? 0),
       )
-      .map((clip) => effectsToCss(clip.effects).filter)
+      .map((clip) => effectsToCss(clip.effects, gradeFilterId(clip.id)).filter)
       .filter((filter): filter is string => typeof filter === 'string' && filter.length > 0)
       .join(' ');
   }, [compare, playhead, project]);
+
+  // Defs for every grade that can be on screen. Building them here (instead of
+  // inside each clip layer) keeps one <svg> per preview and lets CSS url(#id)
+  // resolve for clips, adjustment layers and the project-wide look alike.
+  const gradeSpecs = useMemo<GradeFilterSpec[]>(() => {
+    if (!project || compare) return [];
+    const specs: GradeFilterSpec[] = [];
+    for (const clip of project.timeline.clips) {
+      const clipEffects: unknown = 'effects' in clip ? clip.effects : undefined;
+      if (!clipEffects || typeof clipEffects !== 'object' || !('colorGrade' in clipEffects)) continue;
+      const grade = (clipEffects as ClipEffects).colorGrade;
+      if (!grade) continue;
+      const compiled = compileGrade(grade, gradeFilterId(clip.id));
+      if (compiled.svg) specs.push(compiled.svg);
+    }
+    const look = project.look as ClipEffects | undefined;
+    if (look?.colorGrade) {
+      const compiled = compileGrade(look.colorGrade, gradeFilterId('project-look'));
+      if (compiled.svg) specs.push(compiled.svg);
+    }
+    return specs;
+  }, [compare, project]);
 
   const selection = store.state.selection;
   const selectedClip =
@@ -1095,7 +1131,7 @@ export const Preview = memo(function Preview() {
   // tamaño ajustado a la etapa: la homografía debe usar ese mismo cuadro.
   const canvasWidth = pixelPerfect ? (realFrame?.width ?? project.video.width) : frameWidth;
   const canvasHeight = pixelPerfect ? (realFrame?.height ?? project.video.height) : frameHeight;
-  const lookStyle = compare ? {} : effectsToCss(project.look);
+  const lookStyle = compare ? {} : effectsToCss(project.look, gradeFilterId('project-look'));
   const lookFilter = typeof lookStyle.filter === 'string' ? lookStyle.filter : '';
   const previewStyle: CSSProperties =
     compare || !adjustmentFilter
@@ -1434,6 +1470,7 @@ export const Preview = memo(function Preview() {
         }}
         onPointerCancel={() => setPanning(false)}
       >
+        <GradeFilterDefs specs={gradeSpecs} />
         <div
           className="preview-look"
           style={previewStyle}

@@ -8,7 +8,7 @@ import { EditorToolMap } from './EditorToolMap';
 afterEach(() => cleanup());
 
 describe('EditorToolMap · una sola puerta para toda la app', () => {
-  it('muestra los 4 grupos y las 33 herramientas con etiquetas reales', () => {
+  it('muestra los grupos y todas las herramientas con etiquetas reales', () => {
     const { container } = render(<EditorToolMap onNavigate={() => {}} />);
     expect(container.querySelectorAll('.editor-tool-map-group')).toHaveLength(
       WORKSPACE_GROUPS.length,
@@ -17,7 +17,7 @@ describe('EditorToolMap · una sola puerta para toda la app', () => {
     for (const group of WORKSPACE_GROUPS) {
       expect(screen.getByText(group.label)).toBeTruthy();
     }
-    expect(screen.getByText('33 / 33')).toBeTruthy();
+    expect(screen.getByText(`${NAV_VIEWS.length} / ${NAV_VIEWS.length}`)).toBeTruthy();
   });
 
   it('filtra por etiqueta/hint y navega a la vista real', () => {

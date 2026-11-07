@@ -111,6 +111,7 @@ import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
 import { InspectorSection as Section } from './InspectorSection';
 import { ColorMaskSections, HdrWheelsSection } from './ColorMaskSections';
+import { ColorStudio } from '../color/ColorStudio';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
 import {
   FPS_PRESETS,
@@ -1587,8 +1588,14 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
         role="tabpanel"
         id="inspector-tabpanel"
         aria-labelledby={`inspector-tab-${tab}`}
-        className="inspector-tabpanel"
+        className={`inspector-tabpanel${tab === 'color' ? ' has-color-studio' : ''}`}
       >
+      {/* Página Color: estudio profesional de corrección y gradación, montado
+          en el panel derecho bajo la pestaña «Color». Las secciones clásicas
+          siguen debajo y siguen funcionando sobre los mismos ClipEffects. */}
+      {tab === 'color' && (visual || isAdjustment) ? (
+        <ColorStudio clipId={clip.id} />
+      ) : null}
       {/* Capturas 119–125: la pestaña «Máscara de color» sustituye el cuerpo
           estándar por sus propias secciones (Capas / Básico / HSL / Curvas /
           Ruedas cromáticas / HDR). El resto de pestañas conserva intacta toda
