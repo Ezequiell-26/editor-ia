@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ViewId } from '../app/navigation';
-import { WORKSPACE_STEP_COUNT } from '../app/workspace-map';
+import { WORKSPACE_STEP_COUNT, WORKSPACE_STEPS } from '../app/workspace-map';
 import { detectNativeRuntime } from '../services/project-service';
 import { loadProfile } from '../state/profile';
 import { useProjectStore } from '../state/project-store';
@@ -10,23 +10,20 @@ import { PandaGuide } from './PandaGuide';
 
 const WELCOME_KEY = 'editor-ia.welcome.v1';
 
-const PANDA_TIPS = [
+/**
+ * Los consejos de Pando NO definen pasos propios: el primero es el saludo y
+ * los siguientes narran las mismas seis etapas de `WORKSPACE_STEPS`. Así la
+ * primera ejecución muestra el recorrido único y no una quinta variante.
+ */
+const PANDA_SLIDES = [
   {
     title: 'Hola, soy Pando.',
     detail: 'Te acompaño por la app. Elegí una opción y seguimos juntos.',
   },
-  {
-    title: 'Primero el proyecto.',
-    detail: 'Formato, fps y carpeta; después todo encaja en la timeline.',
-  },
-  {
-    title: 'Los medios importan.',
-    detail: 'La app copia, mide y guarda los derechos antes de montar.',
-  },
-  {
-    title: 'El tutorial se acuerda.',
-    detail: 'Aprender registra las herramientas que ya usaste y te sugiere la próxima.',
-  },
+  ...WORKSPACE_STEPS.map((step, index) => ({
+    title: `Paso ${index + 1}: ${step.label}`,
+    detail: step.tip,
+  })),
 ] as const;
 
 function seen(): boolean {
@@ -37,7 +34,14 @@ function seen(): boolean {
   }
 }
 
-export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
+export function WelcomeDialog({
+  onNavigate,
+  onOpenTour,
+}: {
+  readonly onNavigate: (id: ViewId) => void;
+  /** Abre el tour guiado: recorre las mismas seis etapas con spotlight. */
+  readonly onOpenTour?: () => void;
+}) {
   const store = useProjectStore();
   const [open, setOpen] = useState(() => detectNativeRuntime() && !seen());
   const [tip, setTip] = useState(0);
@@ -57,7 +61,7 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
   useEffect(() => {
     if (!open) return;
     const handle = window.setInterval(() => {
-      setTip((current) => (current + 1) % PANDA_TIPS.length);
+      setTip((current) => (current + 1) % PANDA_SLIDES.length);
     }, 6500);
     return () => window.clearInterval(handle);
   }, [open]);
@@ -78,7 +82,12 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
     onNavigate(view);
   }
 
-  const tipCopy = PANDA_TIPS[tip] ?? PANDA_TIPS[0];
+  const tipCopy = PANDA_SLIDES[tip] ?? PANDA_SLIDES[0];
+
+  function startTour(): void {
+    close();
+    onOpenTour?.();
+  }
 
   return (
     <div className="app-modal-backdrop welcome-backdrop">
@@ -96,7 +105,7 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
             className="icon-button"
             aria-label="Siguiente consejo de Pando"
             title="Siguiente consejo"
-            onClick={() => setTip((current) => (current + 1) % PANDA_TIPS.length)}
+            onClick={() => setTip((current) => (current + 1) % PANDA_SLIDES.length)}
           >
             <Icon name="chevron" size={15} />
           </button>
@@ -107,6 +116,16 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
           Olyvia hace el trabajo pesado: analiza, corta, limpia la voz, subtitula y arma el
           montaje. Vos elegís el formato, los recursos y el destino. Todo queda en tu equipo.
         </p>
+        <ol className="welcome-journey" aria-label="El recorrido de producción">
+          {WORKSPACE_STEPS.map((step, index) => (
+            <li key={step.id}>
+              <span className="welcome-journey-num" aria-hidden="true">
+                {index + 1}
+              </span>
+              <strong>{step.label}</strong>
+            </li>
+          ))}
+        </ol>
         <div className="welcome-options">
           <button type="button" className="welcome-option primary-option" onClick={() => go('projects')}>
             <Icon name="plus" size={20} />
@@ -141,6 +160,12 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
             </span>
           </button>
         </div>
+        {onOpenTour ? (
+          <button type="button" className="link-button welcome-tour-link" onClick={startTour}>
+            <Icon name="learn" size={13} />
+            Ver el recorrido guiado, paso a paso
+          </button>
+        ) : null}
         <div className="welcome-foot">
           <span>Podés volver a esta guía desde Ayuda → Tutorial completo.</span>
           <button type="button" className="ghost" onClick={close}>

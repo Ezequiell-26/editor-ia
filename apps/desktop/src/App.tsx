@@ -940,7 +940,7 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           activeId === 'mcp'
         }
       />
-      <WelcomeDialog onNavigate={navigate} />
+      <WelcomeDialog onNavigate={navigate} onOpenTour={openTour} />
       {tourOpen ? (
         <Suspense fallback={null}>
           <OnboardingTour

@@ -4,6 +4,27 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Primera ejecución alineada al recorrido único (2026-11-07)** —
+  slice posterior al cierre de F4, ejecutado en una pasada del protocolo del
+  loop (Devin CLI). El diálogo de bienvenida era la última superficie que
+  mostraba un contenido propio distinto del recorrido canónico.
+  - **Pando narra `WORKSPACE_STEPS`**: `PANDA_TIPS` (4 consejos sueltos:
+    proyecto/medios/tutorial) pasó a `PANDA_SLIDES`, construido con `map`
+    sobre `WORKSPACE_STEPS`: saludo + los 6 pasos del pipeline con su
+    `tip` real. Ya no existe una quinta variante del recorrido.
+  - **Recorrido visible en la primera ejecución**: el diálogo muestra un
+    `<ol class="welcome-journey">` con las 6 etapas numeradas (mismo orden
+    y etiquetas que Inicio, Aprender, la guía del editor y el tour).
+  - **CTA al tour guiado**: nuevo botón «Ver el recorrido guiado, paso a
+    paso» que cierra el diálogo (marca `welcome.v1=seen`) y abre
+    `OnboardingTour` vía prop `onOpenTour`, cableada desde `App.tsx`.
+  - **Archivos**: `components/WelcomeDialog.tsx`, `App.tsx` (1 línea),
+    `styles/chrome.css` (+`.welcome-journey*`, `.welcome-tour-link`),
+    `components/WelcomeDialog.test.tsx` (+2 tests, 5 total).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · `vitest run
+    src/components/WelcomeDialog.test.tsx` **5/5**. No se corrió la suite
+    serial completa (cambio acotado a un diálogo lazy de UI).
+
 - `[done]` **Unificación F4 (cierre) · OnboardingTour sobre el recorrido
   único (2026-11-07)** — última pieza de la fase F4 de
   `docs/UNIFICATION-PLAN.md`, ejecutada en una pasada del protocolo del loop
@@ -28,6 +49,31 @@ reconstruye el instalador salvo que el ítem lo pida.
     panel con retorno y onboarding con el recorrido único. Criterio del plan
     cumplido: LearnView, WorkspaceGuide (Inicio/Guía/editor) y OnboardingTour
     muestran los mismos 6 pasos de `app/pipeline.ts`.
+
+- `[done]` **Unificación F4 (cierre) · onboarding de primera ejecución con el
+  recorrido único (2026-11-07)** — último pendiente de la fase F4 de
+  `docs/UNIFICATION-PLAN.md`. F4 queda **completada**.
+  - **`WelcomeDialog` alineado al mapa**: el diálogo de primera ejecución ya
+    no tiene copy propio divergente. `PANDA_TIPS` (4 consejos hardcodeados)
+    se reemplazó por `PANDA_SLIDES`: saludo + los 6 pasos de
+    `WORKSPACE_STEPS` («Paso N: <etapa>» con su `tip` real). El diálogo
+    muestra además la lista numerada de las seis etapas
+    (`.welcome-journey`), así el primer arranque presenta el mismo recorrido
+    que Inicio, Aprender, la guía del editor y el tour.
+  - **Puerta al tour desde la bienvenida**: nuevo prop `onOpenTour` (wired a
+    `openTour` en `App.tsx`) y link «Ver el recorrido guiado, paso a paso»
+    que cierra el diálogo y abre el `OnboardingTour` — que ya deriva sus
+    pasos de `WORKSPACE_STEPS` desde F1.
+  - **Archivos**: `components/WelcomeDialog.tsx` (+test, 3 tests nuevos),
+    `App.tsx` (1 línea), `styles/chrome.css` (`.welcome-journey`,
+    `.welcome-tour-link`), `components/WelcomeDialog.test.tsx`.
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    `WelcomeDialog.test.tsx` **5/5**. No se corrió la suite serial completa
+    (cambio acotado a un diálogo que sólo monta con runtime nativo).
+  - **Siguiente paso**: la unificación F1–F4 quedó cerrada; los pendientes
+    vuelven a ser los de `docs/FOLLOW-UPS.md` (firma de release, verificación
+    nativa del streaming, cola de render persistente, grafos de nodos en el
+    `.olyp`, atajos locales del timeline reasignables).
 
 - `[done]` **Unificación F4 (3ª parte) · hubs medidos + fix de «Volver al
   mapa» (2026-11-07)** — slice acotado de la fase F4 de

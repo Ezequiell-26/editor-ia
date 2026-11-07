@@ -1225,6 +1225,57 @@
   background: color-mix(in srgb, var(--color-accent) 8%, var(--color-panel-2));
 }
 
+/* Las seis etapas del recorrido único (workspace-map), visibles desde la
+   primera ejecución: mismo orden y mismas etiquetas que Inicio y Aprender. */
+.welcome-journey {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-journey li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-2);
+  background: var(--color-panel-2);
+}
+
+.welcome-journey-num {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.welcome-journey strong {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.welcome-tour-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  margin-top: 2px;
+}
+
 .welcome-foot {
   display: flex;
   align-items: center;
