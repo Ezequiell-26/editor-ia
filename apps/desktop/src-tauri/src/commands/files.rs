@@ -116,6 +116,9 @@ fn invalid(message: &str) -> ProjectError {
 #[tauri::command]
 pub fn fs_list(path: String) -> Result<FsListing, ProjectError> {
     let directory = PathBuf::from(path.trim());
+    if sensitive_component(&directory) {
+        return Err(invalid("esa ruta contiene credenciales y no se puede listar"));
+    }
     if !directory.is_dir() {
         return Err(invalid("la ruta no es una carpeta existente"));
     }
@@ -164,6 +167,9 @@ pub fn fs_list(path: String) -> Result<FsListing, ProjectError> {
 #[tauri::command]
 pub fn fs_read(path: String) -> Result<FsFileContent, ProjectError> {
     let file = PathBuf::from(path.trim());
+    if sensitive_component(&file) {
+        return Err(invalid("esa ruta contiene credenciales y no se puede leer"));
+    }
     if !file.is_file() {
         return Err(invalid("la ruta no es un archivo existente"));
     }
@@ -296,6 +302,41 @@ fn protected_delete_target(path: &Path) -> bool {
     inside_system_dir(path)
 }
 
+/// Componentes de ruta que jamás deben tocar los comandos fs_*: claves
+/// privadas, stores de nube/k8s/docker, credenciales git/npm y bases de
+/// credenciales del navegador. Un agente prompt-inyectado podría leer
+/// `id_rsa` y exfiltrarlo, o escribir `authorized_keys` en `.ssh`.
+const SENSITIVE_COMPONENTS: &[&str] = &[
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".gnupg",
+    ".kube",
+    ".docker",
+    ".git-credentials",
+    ".netrc",
+    ".pypirc",
+    ".npmrc",
+    "login data",
+    "cookies",
+    "web data",
+    "key4.db",
+    "key3.db",
+    "cert9.db",
+    "logins.json",
+    "signons.sqlite",
+];
+
+/// `true` si la ruta (resuelta) contiene algún componente sensible.
+fn sensitive_component(path: &Path) -> bool {
+    resolved_for_check(path).components().any(|comp| {
+        matches!(comp, std::path::Component::Normal(name) if {
+            let lowered = name.to_string_lossy().to_lowercase();
+            SENSITIVE_COMPONENTS.contains(&lowered.as_str())
+        })
+    })
+}
+
 fn normalize_target(raw: &str) -> Result<PathBuf, ProjectError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -314,8 +355,8 @@ fn normalize_target(raw: &str) -> Result<PathBuf, ProjectError> {
 #[tauri::command]
 pub fn fs_write(path: String, content: String) -> Result<FsWriteResult, ProjectError> {
     let target = normalize_target(&path)?;
-    if inside_system_dir(&target) {
-        return Err(invalid("esa ruta está dentro de una carpeta de sistema"));
+    if inside_system_dir(&target) || sensitive_component(&target) {
+        return Err(invalid("esa ruta está protegida y no se puede escribir"));
     }
     if content.len() > FS_WRITE_MAX_BYTES {
         return Err(invalid("el contenido supera el tope de escritura (10 MiB)"));
@@ -342,8 +383,8 @@ pub fn fs_write(path: String, content: String) -> Result<FsWriteResult, ProjectE
 #[tauri::command]
 pub fn fs_mkdir(path: String, recursive: Option<bool>) -> Result<FsWriteResult, ProjectError> {
     let target = normalize_target(&path)?;
-    if inside_system_dir(&target) {
-        return Err(invalid("esa ruta está dentro de una carpeta de sistema"));
+    if inside_system_dir(&target) || sensitive_component(&target) {
+        return Err(invalid("esa ruta está protegida y no se puede crear"));
     }
     let recursive = recursive.unwrap_or(true);
     if recursive {
@@ -363,7 +404,7 @@ pub fn fs_mkdir(path: String, recursive: Option<bool>) -> Result<FsWriteResult, 
 #[tauri::command]
 pub fn fs_delete(path: String, recursive: Option<bool>) -> Result<FsDeleteResult, ProjectError> {
     let target = normalize_target(&path)?;
-    if protected_delete_target(&target) {
+    if protected_delete_target(&target) || sensitive_component(&target) {
         return Err(invalid("esa ruta está protegida y no se puede borrar"));
     }
     let recursive = recursive.unwrap_or(false);
@@ -392,7 +433,7 @@ pub fn fs_delete(path: String, recursive: Option<bool>) -> Result<FsDeleteResult
 pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> {
     let source = normalize_target(&from)?;
     let target = normalize_target(&to)?;
-    if protected_delete_target(&source) {
+    if protected_delete_target(&source) || sensitive_component(&source) {
         return Err(invalid("el origen es una ruta protegida y no se puede mover"));
     }
     if !source.exists() {
@@ -401,8 +442,8 @@ pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> 
     if target.exists() {
         return Err(invalid("el destino ya existe"));
     }
-    if inside_system_dir(&target) {
-        return Err(invalid("el destino está dentro de una carpeta de sistema"));
+    if inside_system_dir(&target) || sensitive_component(&target) {
+        return Err(invalid("el destino es una ruta protegida"));
     }
     if let Some(parent) = target.parent() {
         if !parent.as_os_str().is_empty() {
@@ -637,6 +678,42 @@ mod tests {
         // Sin prefijo \\?\ verbatim: las comparaciones de texto asumen rutas
         // normales de Windows.
         assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn fs_commands_rejectan_rutas_sensibles() {
+        let root = std::env::temp_dir().join(format!("olyvia-fs-sens-{}", uuid::Uuid::new_v4()));
+        let ssh = root.join(".ssh");
+        std::fs::create_dir_all(&ssh).unwrap();
+        let key = ssh.join("id_rsa");
+        std::fs::write(&key, "CLAVE-FALSA").unwrap();
+        let key_str = key.to_string_lossy().into_owned();
+        // Lectura, listado, escritura, borrado y movimiento: todos
+        // bloqueados aunque el archivo exista y sea del propio usuario.
+        assert!(fs_read(key_str.clone()).is_err());
+        assert!(fs_list(ssh.to_string_lossy().into_owned()).is_err());
+        assert!(fs_write(
+            ssh.join("authorized_keys").to_string_lossy().into_owned(),
+            "ssh-rsa AAAA".to_owned(),
+        )
+        .is_err());
+        assert!(fs_delete(key_str.clone(), None).is_err());
+        assert!(fs_move(
+            key_str.clone(),
+            root.join("movida.txt").to_string_lossy().into_owned(),
+        )
+        .is_err());
+        // Y no se puede bypassear moviendo primero a una ruta inocente:
+        // el destino también se chequea.
+        assert!(fs_move(
+            root.join("normal.txt").to_string_lossy().into_owned(),
+            ssh.join("normal.txt").to_string_lossy().into_owned(),
+        )
+        .is_err());
+        // Una ruta normal del mismo árbol sigue funcionando.
+        std::fs::write(root.join("normal.txt"), "ok").unwrap();
+        assert!(fs_read(root.join("normal.txt").to_string_lossy().into_owned()).is_ok());
         let _ = std::fs::remove_dir_all(&root);
     }
 
