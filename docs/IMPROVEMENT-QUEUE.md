@@ -1130,9 +1130,37 @@ Aprendido de LosslessCut (MIT): para sacar un rango no hace falta renderizar.
   (éxito o error) y `PluginsCard` muestra «Ejecutando…» y el resultado inline por
   comando. Se conserva el puente por compatibilidad en vez de extraer el ejecutor a
   un módulo compartido (su closure depende de ~30 referencias del store).
-- `[pending]` **Aplicar presets de plugin** — `presets.effects`/`exportProfiles`/
-  `captionStyles` son `unknown[]` sin esquema ni plugin oficial que los use;
-  aplicarlos exige definir el contrato primero.
+- `[done]` **Aplicar presets de plugin** (2026-11-07) — contrato definido y
+  aplicación real, en una pasada del protocolo del loop (Devin CLI).
+  - **Contrato** (`state/plugin-presets.ts`, documentado en la cabecera):
+    `presets.effects[]` = documentos `olyvia-effect-template` v1 (el formato
+    que ya exporta el panel de plantillas); `presets.exportProfiles[]` =
+    `RenderProfile` del schema del proyecto **sin `id`**; `presets.captionStyles[]`
+    = `CaptionStyle` **sin `id`** (los ids uuid v4 sólo los genera la app).
+    Cada entrada inválida se informa con su motivo y no impide aplicar las
+    demás; la UI cuenta válidos e inválidos.
+  - **Aplicación**: las plantillas de efectos se importan a la biblioteca del
+    usuario (`saveEffectTemplate`, misma persistencia que el panel); los
+    perfiles se agregan a `project.renderProfiles` y los estilos a
+    `project.captions.styles`, ambos con id nuevo y deduplicación por nombre
+    (dentro del lote y contra el proyecto; un nombre repetido se salta, no
+    se duplica). `effect-templates.ts` expone `parseEffectTemplateValue`
+    para validar el documento ya parseado (el archivo delega en él).
+  - **UI**: `PluginsCard` muestra el bloque «Presets» por extensión con un
+    botón por grupo. Los presets de proyecto se deshabilitan sin proyecto
+    abierto (con `title` explicativo); el resultado se informa inline o como
+    notice con agregados/ya-existentes/inválidos.
+  - **Límite honesto**: ningún plugin oficial declara presets todavía, así
+    que el camino está probado por tests pero no ejercitado por una
+    extensión real; el preset de efectos importa a la biblioteca, no aplica
+    directo al clip (la normalización de `effectId` desconocidos ocurre al
+    usar la plantilla, como siempre).
+  - **Archivos**: `state/plugin-presets.ts` (nuevo), `state/plugin-presets.test.ts`
+    (nuevo, 10 tests), `state/effect-templates.ts` (+función exportada),
+    `features/settings/PluginsCard.tsx` (+bloque Presets).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest
+    `plugin-presets` **10/10** + `effect-templates` **7/7** + `PluginsCard`
+    **5/5** = **22/22**. No se corrió la suite serial completa.
 - **Verificación**: Rust `commands::plugins` **3** (ids seguros, manifiesto válido, id inválido);
   `PluginsCard.test` **5** (listado, activar, instalar, puente, respuesta inline).
   Suite **1736** verde.

@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useProjectStore } from '../../state/project-store';
 import type { PluginCommandInfo, PluginInfo } from '../../services/project-service';
+import {
+  applyPluginCaptionStyles,
+  applyPluginExportProfiles,
+  countPluginPresets,
+  importPluginEffectTemplate,
+  parsePluginPresets,
+} from '../../state/plugin-presets';
 
 /**
  * Extensiones: plugins, skills y conectores.
@@ -29,6 +36,8 @@ export function PluginsCard() {
   const [busy, setBusy] = useState(false);
   // Respuesta del operador por comando (`pluginId:commandId` → texto).
   const [commandFeedback, setCommandFeedback] = useState<Record<string, string>>({});
+  // Resultado de aplicar presets (`pluginId` → texto).
+  const [presetFeedback, setPresetFeedback] = useState<Record<string, string>>({});
 
   async function refresh(): Promise<void> {
     try {
@@ -119,6 +128,85 @@ export function PluginsCard() {
     });
   }
 
+  /**
+   * Aplica los presets válidos de un plugin. Las plantillas de efectos se
+   * importan a la biblioteca del usuario; los perfiles y estilos se agregan al
+   * proyecto abierto (sin proyecto, se explica por qué no se puede).
+   */
+  function applyPresets(
+    item: PluginInfo,
+    kind: 'effects' | 'exportProfiles' | 'captionStyles',
+  ): void {
+    const parsed = parsePluginPresets(item);
+    const feedback = (text: string) =>
+      setPresetFeedback((current) => ({ ...current, [item.id]: text }));
+    if (kind === 'effects') {
+      const templates = parsed.effects.flatMap((entry) =>
+        'error' in entry ? [] : [entry.template],
+      );
+      if (templates.length === 0) {
+        feedback('El plugin no tiene plantillas de efectos válidas.');
+        return;
+      }
+      for (const template of templates) importPluginEffectTemplate(template);
+      const invalid = parsed.effects.length - templates.length;
+      feedback(
+        `${templates.length} plantilla(s) de efectos importadas` +
+          (invalid > 0 ? ` · ${invalid} inválida(s) omitida(s)` : '') +
+          '.',
+      );
+      return;
+    }
+    const project = store.state.project;
+    if (!project) {
+      feedback('Abrí un proyecto para aplicar presets de exportación o subtítulos.');
+      return;
+    }
+    if (kind === 'exportProfiles') {
+      const presets = parsed.exportProfiles.flatMap((entry) =>
+        'error' in entry ? [] : [entry.preset],
+      );
+      const invalid = parsed.exportProfiles.length - presets.length;
+      if (presets.length === 0) {
+        feedback('El plugin no tiene perfiles de exportación válidos.');
+        return;
+      }
+      const result = applyPluginExportProfiles(project, presets);
+      if (result.added === 0) {
+        feedback(`${result.skipped} perfil(es) ya existían en el proyecto; no se agregó nada.`);
+        return;
+      }
+      store.update(() => result.project, {
+        notice:
+          `${result.added} perfil(es) de exportación agregados al proyecto` +
+          (result.skipped > 0 ? ` · ${result.skipped} ya existían` : '') +
+          (invalid > 0 ? ` · ${invalid} inválido(s)` : '') +
+          '.',
+      });
+      return;
+    }
+    const presets = parsed.captionStyles.flatMap((entry) =>
+      'error' in entry ? [] : [entry.preset],
+    );
+    const invalid = parsed.captionStyles.length - presets.length;
+    if (presets.length === 0) {
+      feedback('El plugin no tiene estilos de subtítulos válidos.');
+      return;
+    }
+    const result = applyPluginCaptionStyles(project, presets);
+    if (result.added === 0) {
+      feedback(`${result.skipped} estilo(s) ya existían en el proyecto; no se agregó nada.`);
+      return;
+    }
+    store.update(() => result.project, {
+      notice:
+        `${result.added} estilo(s) de subtítulos agregados al proyecto` +
+        (result.skipped > 0 ? ` · ${result.skipped} ya existían` : '') +
+        (invalid > 0 ? ` · ${invalid} inválido(s)` : '') +
+        '.',
+    });
+  }
+
   const groups: PluginInfo['kind'][] = ['connector', 'skill', 'plugin'];
 
   return (
@@ -197,6 +285,12 @@ export function PluginsCard() {
                           })}
                         </div>
                       ) : null}
+                      <PluginPresetsBlock
+                        item={item}
+                        hasProject={Boolean(store.state.project)}
+                        onApply={applyPresets}
+                        feedback={presetFeedback[item.id] ?? null}
+                      />
                     </div>
                     <div className="plugin-actions">
                       {item.kind === 'connector' && item.mcp ? (
@@ -227,5 +321,67 @@ export function PluginsCard() {
         })
       )}
     </section>
+  );
+}
+
+type PresetKind = 'effects' | 'exportProfiles' | 'captionStyles';
+
+/**
+ * Presets declarados por el manifiesto. Muestra cuántos son válidos según el
+ * contrato de `state/plugin-presets` y un botón por grupo; los inválidos se
+ * cuentan, no se ocultan.
+ */
+function PluginPresetsBlock({
+  item,
+  hasProject,
+  onApply,
+  feedback,
+}: {
+  item: PluginInfo;
+  hasProject: boolean;
+  onApply: (item: PluginInfo, kind: PresetKind) => void;
+  feedback: string | null;
+}) {
+  const parsed = parsePluginPresets(item);
+  const { valid, invalid } = countPluginPresets(parsed);
+  if (valid + invalid === 0) return null;
+  const effects = parsed.effects.filter((entry) => !('error' in entry)).length;
+  const profiles = parsed.exportProfiles.filter((entry) => !('error' in entry)).length;
+  const styles = parsed.captionStyles.filter((entry) => !('error' in entry)).length;
+  return (
+    <div className="plugin-commands">
+      <p className="fine-print">
+        Presets: {valid} válido(s)
+        {invalid > 0 ? ` · ${invalid} inválido(s)` : ''}
+      </p>
+      {effects > 0 ? (
+        <button type="button" className="small ghost" onClick={() => onApply(item, 'effects')}>
+          Importar {effects} plantilla(s) de efectos
+        </button>
+      ) : null}
+      {profiles > 0 ? (
+        <button
+          type="button"
+          className="small ghost"
+          disabled={!hasProject}
+          title={hasProject ? undefined : 'Abrí un proyecto primero'}
+          onClick={() => onApply(item, 'exportProfiles')}
+        >
+          Agregar {profiles} perfil(es) de exportación
+        </button>
+      ) : null}
+      {styles > 0 ? (
+        <button
+          type="button"
+          className="small ghost"
+          disabled={!hasProject}
+          title={hasProject ? undefined : 'Abrí un proyecto primero'}
+          onClick={() => onApply(item, 'captionStyles')}
+        >
+          Agregar {styles} estilo(s) de subtítulos
+        </button>
+      ) : null}
+      {feedback ? <p className="fine-print plugin-command-reply">{feedback}</p> : null}
+    </div>
   );
 }

@@ -145,6 +145,15 @@ export function parseEffectTemplateFile(text: string): EffectTemplateParseResult
   } catch {
     return { ok: false, error: 'El archivo no es JSON válido.' };
   }
+  return parseEffectTemplateValue(raw);
+}
+
+/**
+ * Valida un documento `olyvia-effect-template` ya parseado (objeto, no texto).
+ * Lo usan el importador de archivos y los presets de plugins, que llegan como
+ * `unknown` desde el manifiesto.
+ */
+export function parseEffectTemplateValue(raw: unknown): EffectTemplateParseResult {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, error: 'El archivo no tiene el formato de plantilla.' };
   }
