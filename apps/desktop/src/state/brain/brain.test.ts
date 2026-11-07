@@ -214,6 +214,101 @@ describe('cortes en el pulso', () => {
   });
 });
 
+describe('alinear cortes existentes al pulso', () => {
+  const grid = {
+    bpm: 120,
+    confidence: 0.82,
+    beatsFrames: Array.from({ length: 30 }, (_, index) => index * 15),
+  };
+
+  interface Pair {
+    readonly project: ProjectDocument;
+    readonly leftClipId: string;
+    readonly rightClipId: string;
+  }
+
+  /** Dos planos contiguos de 100 frames con margen de fuente para el roll. */
+  function contiguousPair(rightInFrame = 150): Pair {
+    const first = readyAsset({ label: 'Izquierda' });
+    const second = readyAsset({ label: 'Derecha' });
+    let project = addAsset(baseProject(), first);
+    project = addAsset(project, second);
+    const left = addClipFromAsset(project, first, {
+      atFrame: 0,
+      inFrame: 20,
+      outFrame: 120,
+    });
+    project = left.project;
+    const right = addClipFromAsset(project, second, {
+      atFrame: 100,
+      inFrame: rightInFrame,
+      outFrame: rightInFrame + 100,
+    });
+    return {
+      project: right.project,
+      leftClipId: left.clipId,
+      rightClipId: right.clipId,
+    };
+  }
+
+  it('propone un roll que lleva el corte existente al beat más cercano', () => {
+    const { project, leftClipId, rightClipId } = contiguousPair();
+    // Corte en el frame 100; el beat más cercano es 105 (delta +5).
+    const plan = planEdits(project, { intent: 'tighten', beats: grid, limit: 20 });
+    const align = plan.proposals.find((proposal) => proposal.kind === 'beat-align');
+    expect(align).toBeTruthy();
+    expect(align?.payload?.kind).toBe('roll');
+    if (align?.payload?.kind === 'roll') {
+      expect(align.payload.clipId).toBe(leftClipId);
+      expect(align.payload.edge).toBe('out');
+      expect(align.payload.deltaFrames).toBe(5);
+    }
+    expect(align?.clipIds).toContain(leftClipId);
+    expect(align?.clipIds).toContain(rightClipId);
+    if (!align) return;
+
+    const applied = applyProposal(project, align);
+    expect(applied.applied).toBe(true);
+    const left = applied.project.timeline.clips.find((clip) => clip.id === leftClipId);
+    const right = applied.project.timeline.clips.find((clip) => clip.id === rightClipId);
+    expect(left?.durationFrames).toBe(105);
+    expect(right?.startFrame).toBe(105);
+    expect(right?.durationFrames).toBe(95);
+  });
+
+  it('no propone nada cuando el corte ya cae sobre un beat', () => {
+    const { project } = contiguousPair();
+    const aligned = {
+      ...grid,
+      beatsFrames: Array.from({ length: 30 }, (_, index) => 100 + index * 15 - 15),
+    };
+    const plan = planEdits(project, { intent: 'tighten', beats: aligned, limit: 20 });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'beat-align')).toBe(false);
+  });
+
+  it('no propone un roll que se sale de la ventana de fuente', () => {
+    const { project } = contiguousPair(2);
+    // Grilla desplazada: el beat más cercano al corte (100) es 95, lo que pide
+    // delta -5 y el clip derecho sólo tiene 2 frames de margen de entrada.
+    const shifted = {
+      ...grid,
+      beatsFrames: Array.from({ length: 30 }, (_, index) => 5 + index * 15),
+    };
+    const plan = planEdits(project, { intent: 'tighten', beats: shifted, limit: 20 });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'beat-align')).toBe(false);
+  });
+
+  it('ignora la grilla cuando la confianza es baja', () => {
+    const { project } = contiguousPair();
+    const plan = planEdits(project, {
+      intent: 'tighten',
+      beats: { ...grid, confidence: 0.2 },
+      limit: 20,
+    });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'beat-align')).toBe(false);
+  });
+});
+
 describe('propuestas sobre el guion', () => {
   function projectWithScenes(): ProjectDocument {
     const base = timelineWithGap().project;

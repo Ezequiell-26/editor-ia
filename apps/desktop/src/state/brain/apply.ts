@@ -3,6 +3,7 @@ import {
   applyTransitionToCuts,
   closeGaps,
   deleteClip,
+  rollClip,
   splitClipAtFrames,
   updateAudioMix,
 } from '../project-actions.ts';
@@ -24,6 +25,7 @@ const EXECUTION_ORDER: Readonly<Record<ProposalKind, number>> = {
   'hook-cut': 0,
   'split-long': 0,
   'beat-cut': 0,
+  'beat-align': 0,
   'drop-short': 1,
   'trim-start': 1,
   transition: 2,
@@ -88,6 +90,15 @@ export function applyProposal(project: ProjectDocument, proposal: EditProposal):
         // El trim llega por `trimClip`; se importa en línea para no cargar la
         // tabla completa cuando sólo se aplican cortes.
         return { project, applied: false, message: 'El recorte se ajusta a mano.' };
+      }
+      case 'roll': {
+        const result = rollClip(project, payload.clipId, payload.edge, payload.deltaFrames);
+        const shift = payload.deltaFrames;
+        return {
+          project: result,
+          applied: true,
+          message: `Corte movido ${shift > 0 ? '+' : ''}${shift} frames sobre el beat.`,
+        };
       }
       case 'transition': {
         const result = applyTransitionToCuts(project, {

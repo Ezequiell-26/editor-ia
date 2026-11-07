@@ -219,6 +219,178 @@ export function beatPolicy({ project, signals, profile, beats }: PolicyContext):
   return proposals;
 }
 
+type TimelineClip = ProjectDocument['timeline']['clips'][number];
+type WindowedTimelineClip = Extract<TimelineClip, { kind: 'video' | 'audio' }>;
+
+/**
+ * Réplica de los guardas de `trimGuards`/`rollClip`: la política no propone un
+ * roll que la primitiva va a rechazar (velocidad ≠ 1×, keyframes, pista
+ * bloqueada, clip sin ventana de fuente).
+ */
+function rollableClip(
+  project: ProjectDocument,
+  clipId: string,
+): WindowedTimelineClip | null {
+  const clip = project.timeline.clips.find((item) => item.id === clipId);
+  if (!clip || (clip.kind !== 'video' && clip.kind !== 'audio')) return null;
+  const speed = (clip as { readonly speed?: { readonly num: number; readonly den: number } })
+    .speed;
+  if (speed && speed.num !== speed.den) return null;
+  if ('stabilization' in clip && clip.stabilization) return null;
+  if (
+    clip.transform?.keyframes?.length ||
+    clip.audio?.gainKeyframes?.length ||
+    ('mask' in clip && clip.mask?.keyframes?.length)
+  ) {
+    return null;
+  }
+  const track = project.timeline.tracks.find((item) => item.id === clip.trackId);
+  if (!track || track.locked) return null;
+  return clip;
+}
+
+/** Duración medida del material del clip, o null si no se puede saber. */
+function measuredFrames(project: ProjectDocument, clip: TimelineClip): number | null {
+  const source = clip.source;
+  if (source.type !== 'asset') return null;
+  const asset = project.assets.find((item) => item.id === source.assetId);
+  const media = asset && 'media' in asset ? asset.media : undefined;
+  const duration = media && 'durationFrames' in media ? media.durationFrames : undefined;
+  return typeof duration === 'number' && duration > 0 ? duration : null;
+}
+
+/**
+ * Ventana de fuente para un roll de `delta` frames sobre el corte
+ * left|right, replicando las cuentas de `rollClip`.
+ */
+function rollDeltaFits(
+  project: ProjectDocument,
+  left: WindowedTimelineClip,
+  right: WindowedTimelineClip,
+  delta: number,
+): boolean {
+  const leftMax = measuredFrames(project, left);
+  if (leftMax === null) return false;
+  if (left.durationFrames + delta < 1 || right.durationFrames - delta < 1) return false;
+  if (
+    left.source.outFrame + delta > leftMax ||
+    left.source.outFrame + delta <= left.source.inFrame
+  ) {
+    return false;
+  }
+  const rightIn = right.source.inFrame + delta;
+  if (rightIn < 0 || rightIn >= right.source.outFrame) return false;
+  // El vecino real del roll tiene que ser el clip derecho del corte.
+  const trackClips = project.timeline.clips
+    .filter((item) => item.trackId === left.trackId)
+    .sort((a, b) => a.startFrame - b.startFrame);
+  const index = trackClips.findIndex((item) => item.id === left.id);
+  return trackClips[index + 1]?.id === right.id;
+}
+
+/**
+ * Alinear cortes existentes al pulso.
+ *
+ * `beatPolicy` crea cortes nuevos sobre la grilla; esta política mueve los que
+ * ya existen con un roll (el borde corre y el otro absorbe), sin abrir huecos
+ * ni cambiar la duración total. Sólo propone cuando el beat más cercano está
+ * a un corrimiento chico y la ventana de fuente lo permite.
+ */
+export function beatAlignPolicy({ project, signals, beats }: PolicyContext): EditProposal[] {
+  if (!beats || beats.confidence < 0.4) return [];
+  const grid = [...beats.beatsFrames].sort((a, b) => a - b);
+  if (grid.length < 2) return [];
+
+  const intervals: number[] = [];
+  for (let index = 1; index < grid.length; index += 1) {
+    const previous = grid[index - 1];
+    const current = grid[index];
+    if (previous === undefined || current === undefined) continue;
+    const delta = current - previous;
+    if (delta > 1) intervals.push(delta);
+  }
+  if (intervals.length === 0) return [];
+  const beatFrames = [...intervals].sort((a, b) => a - b)[Math.floor(intervals.length / 2)];
+  if (!beatFrames || beatFrames < 4) return [];
+
+  // Umbral: por debajo de ~80 ms el corte ya cuenta como alineado; por encima
+  // del pulso más cercano el roll movería demasiado contenido.
+  const tolerance = Math.max(1, Math.round(0.08 * signals.fps));
+  const maxShift = Math.min(
+    Math.floor(beatFrames / 2),
+    Math.max(3, Math.round(0.25 * signals.fps)),
+  );
+  if (maxShift <= tolerance) return [];
+
+  const byTrack = new Map<string, Shot[]>();
+  for (const shot of signals.visualShots) {
+    const list = byTrack.get(shot.trackId) ?? [];
+    list.push(shot);
+    byTrack.set(shot.trackId, list);
+  }
+
+  interface Candidate {
+    readonly leftClipId: string;
+    readonly rightClipId: string;
+    readonly cutFrame: number;
+    readonly delta: number;
+  }
+  const candidates: Candidate[] = [];
+
+  for (const shots of byTrack.values()) {
+    const ordered = [...shots].sort((a, b) => a.startFrame - b.startFrame);
+    for (let index = 1; index < ordered.length; index += 1) {
+      const left = ordered[index - 1];
+      const right = ordered[index];
+      if (!left || !right) continue;
+      // Sólo cortes reales: los clips tienen que tocarse exacto en la pista.
+      if (right.startFrame !== left.startFrame + left.durationFrames) continue;
+      const cutFrame = right.startFrame;
+      let nearest = grid[0] ?? cutFrame;
+      for (const frame of grid) {
+        if (Math.abs(frame - cutFrame) < Math.abs(nearest - cutFrame)) nearest = frame;
+      }
+      const delta = nearest - cutFrame;
+      if (Math.abs(delta) <= tolerance || Math.abs(delta) > maxShift) continue;
+      const leftClip = rollableClip(project, left.clipId);
+      const rightClip = rollableClip(project, right.clipId);
+      if (!leftClip || !rightClip) continue;
+      if (!rollDeltaFits(project, leftClip, rightClip, delta)) continue;
+      candidates.push({
+        leftClipId: left.clipId,
+        rightClipId: right.clipId,
+        cutFrame,
+        delta,
+      });
+    }
+  }
+
+  return candidates
+    .sort((a, b) => Math.abs(a.delta) - Math.abs(b.delta))
+    .slice(0, 6)
+    .map((candidate) => ({
+      id: `beat-align:${candidate.leftClipId}:${candidate.cutFrame}`,
+      kind: 'beat-align' as const,
+      title: `Alinear el corte del frame ${candidate.cutFrame} al pulso`,
+      reason: `El corte cae a ${Math.abs(candidate.delta)} frames del beat más cercano (${Math.round(
+        beats.bpm,
+      )} BPM, confianza ${Math.round(beats.confidence * 100)} %). El roll mueve el edit sin abrir huecos.`,
+      confidence: Math.min(0.85, beats.confidence * 0.85),
+      impact: 0.4,
+      risk: 'moderate' as const,
+      clipIds: [candidate.leftClipId, candidate.rightClipId],
+      payload: {
+        kind: 'roll' as const,
+        clipId: candidate.leftClipId,
+        edge: 'out' as const,
+        deltaFrames: candidate.delta,
+      },
+      preview: `El corte pasa al frame ${candidate.cutFrame + candidate.delta}; cada plano cede o absorbe ${Math.abs(
+        candidate.delta,
+      )} frames de fuente.`,
+    }));
+}
+
 /** Transiciones: sólo donde el formato las pide y hay cortes suficientes. */
 export function transitionPolicy({ signals, profile }: PolicyContext): EditProposal[] {
   if (profile.transitions === 'none') return [];
@@ -326,6 +498,7 @@ export const POLICIES = [
   shortShotPolicy,
   longShotPolicy,
   beatPolicy,
+  beatAlignPolicy,
   hookPolicy,
   transitionPolicy,
   captionsPolicy,

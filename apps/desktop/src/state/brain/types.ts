@@ -183,6 +183,7 @@ export type ProposalKind =
   | 'transition'
   | 'hook-cut'
   | 'beat-cut'
+  | 'beat-align'
   | 'loudness'
   | 'captions'
   | 'variety'
@@ -196,6 +197,7 @@ export type ProposalPayload =
   | { readonly kind: 'split'; readonly clipId: string; readonly atFrames: readonly number[] }
   | { readonly kind: 'delete'; readonly clipIds: readonly string[] }
   | { readonly kind: 'trim'; readonly clipId: string; readonly edge: 'start' | 'end'; readonly targetFrame: number }
+  | { readonly kind: 'roll'; readonly clipId: string; readonly edge: 'in' | 'out'; readonly deltaFrames: number }
   | { readonly kind: 'transition'; readonly type: ClipTransition['type']; readonly frames: number }
   | { readonly kind: 'loudness'; readonly platform: string; readonly integratedLufs: number; readonly truePeakDb: number };
 
