@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T21:18:49.673Z"
+    "lastPassAt": "2026-11-07T21:28:03.148Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -408,6 +408,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-11-07T21:28:03.148Z",
+      "taskId": null,
+      "status": "done",
+      "note": "Pasada sobre la cola de mejora (ledger cerrado). Item: port Kdenlive pendiente «scopes del audio ya mezclado en preview del monitor (bus master Web Audio)». usePreviewAudio.ts: MasterChain gana freqBuffer/timeBuffer y readPreviewAudioMasterScope() lee el AnalyserNode master (getFloatFrequencyData/getFloatTimeDomainData, null sin grafo). PreviewAudioScopes.tsx nuevo: oscilograma min/max + espectro dBFS por rAF, overlay izquierdo del monitor (.scopes-panel--audio), boton Audio en toolbar, pie honesto (bus Web Audio: pistas/EQ/fader/paneo/master; sin efectos por clip ni export). Degradacion sin AudioContext con aviso. Verificacion: vitest PreviewAudioScopes 3/3 + LiveMeters 14/14 + ScopesPanel 1/1; tsc --noEmit desktop 0. No se corrio npm run verify completo (cambio acotado a preview). Docs: KDENLIVE-REFERENCE, CAPABILITY-MATRIX §3, IMPROVEMENT-QUEUE.",
+      "remedy": null,
+      "verifyRan": false
+    },
     {
       "at": "2026-11-07T21:18:49.673Z",
       "taskId": null,
