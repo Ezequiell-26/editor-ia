@@ -603,6 +603,26 @@ void main() {
   },
 });
 
+// Tomás del blur.zoom en export: el shader promedia `samples` lecturas con
+// factor `1-amount*t` hacia `center`; FFmpeg no itera, así que se fijan 6
+// tomas (t = 0..1) y cada rama se promedia con la anterior vía `blend`.
+const ZOOM_BLUR_TAPS = [0, 0.2, 0.4, 0.6, 0.8, 1] as const;
+const zoomBlurGraph = [
+  `split=${ZOOM_BLUR_TAPS.length * 2}${ZOOM_BLUR_TAPS.map((_, i) => `[%A%b${i}]`).join('')}${ZOOM_BLUR_TAPS.map((_, i) => `[%A%s${i}]`).join('')}`,
+  ...ZOOM_BLUR_TAPS.map(
+    (t, i) =>
+      `[%A%s${i}]scale=w='trunc(iw/max(1-{amount}*${t},0.05)/2)*2':h='trunc(ih/max(1-{amount}*${t},0.05)/2)*2'[%A%z${i}]`,
+  ),
+  ...ZOOM_BLUR_TAPS.map(
+    (_, i) =>
+      `[%A%b${i}][%A%z${i}]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t${i}]`,
+  ),
+  ...ZOOM_BLUR_TAPS.slice(1).map((_, i) => {
+    const out = i === 0 ? `[%A%m1]` : i < ZOOM_BLUR_TAPS.length - 2 ? `[%A%m${i + 1}]` : '';
+    return `[%A%${i === 0 ? 't0' : `m${i}`}][%A%t${i + 1}]blend=all_mode=average${out}`;
+  }),
+].join(';');
+
 const zoomBlur = v({
   id: 'blur.zoom',
   name: 'Desenfoque radial',
@@ -631,6 +651,11 @@ void main() {
   fragColor = vec4(sum / float(n), 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: zoomBlurGraph,
+    fidelity: 'approximate',
+    note: 'Export usa 6 tomas fijas (el parámetro Muestras sólo aplica al preview) y promedia con blend; el remuestreo de scale no es el de ek_sample.',
+  },
 });
 
 const tiltShift = v({

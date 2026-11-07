@@ -62,14 +62,19 @@ ordenar, apagar, animar y exportar sin tocar el código del editor.
 - **48 efectos de video** en 9 categorías: color, luz, desenfoque, estilo, glitch, retro,
   impacto, croma y distorsión. 137 parámetros en total.
 - **22 transiciones**, 20 de ellas con nombre `xfade` equivalente (paridad exacta en export).
-- De los 48 efectos, **41 exportan** (8 exactos, 33 aproximados) y **7 quedan en preview**
-  (`light.leak`, `light.flare`, `blur.zoom`, `stylize.halftone`, `glitch.wave`,
+- De los 48 efectos, **42 exportan** (8 exactos, 34 aproximados) y **6 quedan en preview**
+  (`light.leak`, `light.flare`, `stylize.halftone`, `glitch.wave`,
   `distort.ripple`, `distort.twirl`). `impact.zoom_pulse` exporta desde el
   2026-11-08 con receta de grafo (`split` + `scale eval=frame` + `overlay`):
   la misma curva `exp(-6·fract(rate·t))·amount` del shader, muestreo por
-  remuestreo del frame completo (aproximado, no bilineal).
-- 8 efectos usan receta de **grafo** (`split` + `blend`/`overlay`), no una lista de filtros sueltos:
-  duotono, bloom, glow, halación, contorno, caleidoscopio, espejo y zoom punch.
+  remuestreo del frame completo (aproximado, no bilineal). `blur.zoom`
+  exporta desde el 2026-11-08 con grafo de 6 tomas (`split=12` + `scale`
+  por factor `1/(1-amount·t)` + `overlay` con el ancla del centro +
+  `blend=all_mode=average` par a par): promedio radial hacia `center`,
+  verificado con FFmpeg real (diff medio YAVG 4,4 en el centro vs 54–79 en
+  las esquinas de `testsrc2`).
+- 9 efectos usan receta de **grafo** (`split` + `blend`/`overlay`), no una lista de filtros sueltos:
+  duotono, bloom, glow, halación, contorno, caleidoscopio, espejo, zoom punch y blur radial.
 - Cada manifiesto declara `fidelity` (`exact` / `approximate` / `preview-only`) y, cuando es
   aproximado, el motivo.
 
@@ -150,10 +155,11 @@ Verificación real (no declarativa):
 - ~~**Keyframes en export.**~~ Resuelto: el export segmenta el clip en los frames de
   keyframe y aplica los parámetros estáticos por tramo (`atrim`/`concat` en audio,
   `split`/`trim`/`concat` en video), con muestreo por la misma curva que la preview.
-- **Efectos sin receta** (`light.leak`, `light.flare`, `blur.zoom`, `stylize.halftone`,
+- **Efectos sin receta** (`light.leak`, `light.flare`, `stylize.halftone`,
   `glitch.wave`, `distort.ripple`, `distort.twirl`): se ven en el preview
   y no se escriben en el MP4. El panel lo avisa antes de aplicarlos, con la etiqueta
-  "Sólo preview".
+  "Sólo preview". (`blur.zoom` salió de la lista el 2026-11-08: grafo
+  split+scale+overlay+`blend=all_mode=average` de 6 tomas hacia el centro.)
 - **Efectos que dependen de malla facial o profundidad** (`face_*`, `depth_*` en Drift):
   requieren geometría por frame; fuera del alcance de FFmpeg.
 - **Carga de paquetes de terceros.** El motor está listo para leer manifiestos externos, pero

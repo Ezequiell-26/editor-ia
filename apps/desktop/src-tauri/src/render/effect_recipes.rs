@@ -135,6 +135,13 @@ pub static RECIPES: &[Recipe] = &[
         params: &[RecipeParam { id: "angle", kind: ParamKind::Float }, RecipeParam { id: "length", kind: ParamKind::Float }, RecipeParam { id: "samples", kind: ParamKind::Int }],
     },
     Recipe {
+        id: "blur.zoom",
+        chain: &[],
+        graph: Some("split=12[%A%b0][%A%b1][%A%b2][%A%b3][%A%b4][%A%b5][%A%s0][%A%s1][%A%s2][%A%s3][%A%s4][%A%s5];[%A%s0]scale=w='trunc(iw/max(1-{amount}*0,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0,0.05)/2)*2'[%A%z0];[%A%s1]scale=w='trunc(iw/max(1-{amount}*0.2,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.2,0.05)/2)*2'[%A%z1];[%A%s2]scale=w='trunc(iw/max(1-{amount}*0.4,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.4,0.05)/2)*2'[%A%z2];[%A%s3]scale=w='trunc(iw/max(1-{amount}*0.6,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.6,0.05)/2)*2'[%A%z3];[%A%s4]scale=w='trunc(iw/max(1-{amount}*0.8,0.05)/2)*2':h='trunc(ih/max(1-{amount}*0.8,0.05)/2)*2'[%A%z4];[%A%s5]scale=w='trunc(iw/max(1-{amount}*1,0.05)/2)*2':h='trunc(ih/max(1-{amount}*1,0.05)/2)*2'[%A%z5];[%A%b0][%A%z0]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t0];[%A%b1][%A%z1]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t1];[%A%b2][%A%z2]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t2];[%A%b3][%A%z3]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t3];[%A%b4][%A%z4]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t4];[%A%b5][%A%z5]overlay=x='{center.x}*(W-w)':y='{center.y}*(H-h)':format=auto[%A%t5];[%A%t0][%A%t1]blend=all_mode=average[%A%m1];[%A%m1][%A%t2]blend=all_mode=average[%A%m2];[%A%m2][%A%t3]blend=all_mode=average[%A%m3];[%A%m3][%A%t4]blend=all_mode=average[%A%m4];[%A%m4][%A%t5]blend=all_mode=average"),
+        audio_chain: &[],
+        params: &[RecipeParam { id: "amount", kind: ParamKind::Float }, RecipeParam { id: "samples", kind: ParamKind::Int }, RecipeParam { id: "center", kind: ParamKind::Vec2 }],
+    },
+    Recipe {
         id: "blur.tilt_shift",
         chain: &["gblur=sigma={radius}"],
         graph: None,

@@ -4,6 +4,45 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Receta FFmpeg para `blur.zoom` (2026-11-08)** — segundo de los
+  efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en una
+  pasada del protocolo del loop (Devin CLI), mismo patrón que `zoom_pulse`.
+  - **Brecha**: el manifiesto no declaraba `ffmpeg` (7 efectos sin receta);
+    el desenfoque radial se veía en el preview GPU pero el MP4 salía sin él.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `split=12` — 6 bases + 6 copias. Cada toma `t∈{0,…,1}` escala por
+    `1/(1-{amount}·t)` (`scale` con guarda `max(…,0.05)` para `amount=1`)
+    y se monta sobre la base con `overlay x='{center.x}*(W-w)'` (mismo
+    ancla deducida que `zoom_pulse`); los 6 frames WxH se promedian par a
+    par con `blend=all_mode=average`. Reproduce el promedio del shader
+    `ek_sample(center + dir·(1-amount·t))` con 6 tomas fijas.
+  - **Verificación con FFmpeg real** (n9.0): el grafo corre sobre
+    `testsrc2` 320×180 y produce 50 frames a 25 fps sin error. Diff medio
+    entrada/salida (`blend=difference`+`signalstats`): **YAVG 4,38** en el
+    centro vs **78,65** (esquina sup-izq) y **54,75** (inf-der) — el centro
+    queda nítido y el blur crece hacia los bordes, la semántica del efecto.
+  - **Fidelidad honesta**: `approximate` con nota — el export usa 6 tomas
+    fijas (el parámetro `samples` sólo aplica al preview) y el remuestreo
+    es el de `scale`, no el de `ek_sample`. Coste: 12 vías + 6 scale +
+    6 overlay + 5 blend por frame.
+  - **Verificación repo**: `npm run effects:codegen` → 72 recetas;
+    vitest effect-kit **36/36** · vitest vfx desktop **26/26** ·
+    `tsc --noEmit` desktop **0** · `tsc` effect-kit reporta los **4 errores
+    preexistentes** del WIP del usuario en `engine.test.ts` (sin relación)
+    · Rust `cargo test --lib effect_stack` **6/6** con test nuevo
+    `effect_stack_expands_blur_zoom_graph_with_filled_params`.
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test), `docs/DRIFT-PARITY.md`.
+  - **Pendiente honesto**: quedan 6 efectos preview-only
+    (`light.leak`, `light.flare`, `stylize.halftone`, `glitch.wave`,
+    `distort.ripple`, `distort.twirl`); `glitch.wave` es candidato para
+    `geq` con desplazamiento por fila, los `distort.*` son los más duros.
+  - **Nota**: el test Rust quedó **sin commitear** — `ffmpeg.rs` mezcla
+    ~1200 líneas de trabajo concurrente del usuario en el mismo archivo;
+    commitear el archivo arrastraría ese WIP (misma situación que la pasada
+    de `zoom_pulse`). El resto sí se commiteó.
+
 - `[done]` **Receta FFmpeg para `impact.zoom_pulse` (2026-11-08)** — uno de
   los 8 efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5), en
   una pasada del protocolo del loop (Devin CLI).
