@@ -193,8 +193,7 @@ fn path_key(path: &Path) -> String {
 }
 
 /// Resuelve `.` y `..` léxicamente para que las rutas de chequeo no se
-/// puedan evadir con traversal (`C:\Users\x\..\Windows\...`). No toca
-/// symlinks/junctions: eso lo resuelve el SO al abrir el archivo.
+/// puedan evadir con traversal (`C:\Users\x\..\Windows\...`).
 fn normalized_components(path: &Path) -> PathBuf {
     use std::path::Component;
     let mut out = PathBuf::new();
@@ -208,6 +207,38 @@ fn normalized_components(path: &Path) -> PathBuf {
         }
     }
     out
+}
+
+/// Canonicaliza el ancestro existente más cercano y re-acopla los
+/// segmentos que aún no existen. Resuelve junctions/symlinks intermedios
+/// (un junction dentro del perfil que apunte a `C:\Windows` ya no evade
+/// los chequeos) y devuelve la ruta lista para comparar.
+fn resolved_for_check(path: &Path) -> PathBuf {
+    let normalized = normalized_components(path);
+    let mut cursor = normalized.clone();
+    let mut missing: Vec<std::ffi::OsString> = Vec::new();
+    while !cursor.exists() {
+        match cursor.file_name() {
+            Some(name) => {
+                missing.push(name.to_os_string());
+                if !cursor.pop() {
+                    break;
+                }
+            }
+            None => break,
+        }
+    }
+    let mut base = cursor.canonicalize().unwrap_or_else(|_| cursor.clone());
+    // canonicalize en Windows devuelve prefijos \\?\ que romperían las
+    // comparaciones de texto contra las raíces de sistema.
+    let text = base.to_string_lossy().into_owned();
+    if let Some(stripped) = text.strip_prefix(r"\\?\") {
+        base = PathBuf::from(stripped);
+    }
+    for part in missing.iter().rev() {
+        base.push(part);
+    }
+    normalized_components(&base)
 }
 
 /// `true` si `text` es igual a `root` o está dentro de él.
@@ -240,8 +271,8 @@ fn system_roots() -> Vec<String> {
 /// Carpetas del sistema donde ni escritura, ni borrado, ni movimiento deben
 /// llegar: incluyen todo lo que esté DENTRO de ellas (no sólo la raíz).
 fn inside_system_dir(path: &Path) -> bool {
-    let normalized = normalized_components(path);
-    let text = path_key(&normalized);
+    let resolved = resolved_for_check(path);
+    let text = path_key(&resolved);
     system_roots().iter().any(|root| path_within(&text, root))
 }
 
@@ -250,8 +281,8 @@ fn inside_system_dir(path: &Path) -> bool {
 /// (`fs_write`/`fs_mkdir`) sí puede crear dentro del perfil — es el trabajo
 /// normal de la IA — pero nunca dentro de las carpetas de sistema.
 fn protected_delete_target(path: &Path) -> bool {
-    let normalized = normalized_components(path);
-    let path = normalized.as_path();
+    let resolved = resolved_for_check(path);
+    let path = resolved.as_path();
     if path.parent().is_none() {
         return true;
     }
@@ -591,6 +622,22 @@ mod tests {
         // `..` en la raíz no escapa de la unidad.
         let p = normalized_components(Path::new("C:\\..\\Windows"));
         assert_eq!(path_key(&p), "c:\\windows");
+    }
+
+    #[test]
+    fn resolved_for_check_canonicaliza_y_reacopla_faltantes() {
+        let root = std::env::temp_dir().join(format!("olyvia-fs-resolve-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        // Archivo inexistente dentro de carpeta existente: el ancestro se
+        // canonicaliza y el segmento faltante se re-acopla.
+        let deep = root.join("a").join("b").join("c.txt");
+        let resolved = resolved_for_check(&deep);
+        assert!(resolved.to_string_lossy().ends_with("a\\b\\c.txt")
+            || resolved.to_string_lossy().ends_with("a/b/c.txt"));
+        // Sin prefijo \\?\ verbatim: las comparaciones de texto asumen rutas
+        // normales de Windows.
+        assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
