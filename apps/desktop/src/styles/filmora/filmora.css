@@ -36,37 +36,46 @@
 /* Valores medidos sobre `new-image-to-video-windows-29` y
    `filmora-split-button` (moda de rejilla 7×7): grafito NEUTRO, no azulado;
    barra #0e1315/#11161d, panel #181d1f/#20262d, timeline #202527/#21262b,
-   EXPORT #3df4ba/#5ce2d9, clip #607eff y cabezal #f96976. */
+   EXPORT #3df4ba/#5ce2d9, clip #607eff y cabezal #f96976.
+
+   Las superficies neutras se derivan de los 34 tokens del tema: la paleta
+   «filmora» reproduce estos mismos valores (ver FILMORA_PALETTE en
+   state/theme-palette.ts) y los `color-mix` están medidos para dar el mismo
+   resultado con esa paleta, así que el preset no cambia ni un píxel pero el
+   estudio de color y los demás presets por fin llegan a la capa. Quedan
+   literales sólo los colores de contenido/marca (playhead, snap, danger,
+   clip de audio, scrim, preview siempre oscuro, ink-bright y thumb) y todo
+   el bloque `data-theme='light'`, que usa una escala medida propia. */
 :root {
-  --fm-bg: #0d1116;
-  --fm-bar: #10151b;
-  --fm-bar-2: #151a20;
-  --fm-panel: #1b2026;
-  --fm-panel-2: #222831;
-  --fm-hover: #262d35;
-  --fm-hover-strong: #2d353e;
-  --fm-active: #343d47;
-  --fm-line: #2c333b;
-  --fm-control-line: #353d46;
-  --fm-overlay-line: #3e4751;
-  --fm-line-strong: #454e58;
-  --fm-scroll: #4a535d;
-  --fm-scroll-hover: #5c6671;
-  --fm-input: #12171d;
-  --fm-timeline: #1d232a;
+  --fm-bg: var(--color-bg); /* #0d1116 */
+  --fm-bar: color-mix(in srgb, var(--color-bg) 76.6%, var(--color-surface)); /* #10151b */
+  --fm-bar-2: color-mix(in srgb, var(--color-bg) 40.6%, var(--color-surface)); /* #151a20 */
+  --fm-panel: var(--color-panel); /* #1b2026 */
+  --fm-panel-2: var(--color-panel-2); /* #222831 */
+  --fm-hover: color-mix(in srgb, var(--color-bg) 17.5%, var(--color-panel-3)); /* #262d35 */
+  --fm-hover-strong: color-mix(in srgb, var(--color-panel-3) 91.3%, var(--color-border-strong)); /* #2d353e */
+  --fm-active: color-mix(in srgb, var(--color-panel-2) 44.8%, var(--color-border-strong)); /* #343d47 */
+  --fm-line: var(--color-border); /* #2c333b */
+  --fm-control-line: color-mix(in srgb, var(--color-bg) 28%, var(--color-border-strong)); /* #353d46 */
+  --fm-overlay-line: color-mix(in srgb, var(--color-panel-2) 19.2%, var(--color-border-strong)); /* #3e4751 */
+  --fm-line-strong: var(--color-border-strong); /* #454e58 */
+  --fm-scroll: color-mix(in srgb, var(--color-panel-2) 44.8%, var(--color-empty)); /* #4a535d */
+  --fm-scroll-hover: color-mix(in srgb, var(--color-border-strong) 38.7%, var(--color-empty)); /* #5c6671 */
+  --fm-input: color-mix(in srgb, var(--color-bg) 75.9%, var(--color-panel-2)); /* #12171d */
+  --fm-timeline: color-mix(in srgb, var(--color-bg) 47.2%, var(--color-panel-3)); /* #1d232a */
   --fm-preview: #0b0f13;
-  --fm-ink: #e9edf1;
-  --fm-ink-2: #adb7c1;
-  --fm-ink-3: #8b959f;
+  --fm-ink: var(--color-text); /* #e9edf1 */
+  --fm-ink-2: var(--color-text-muted); /* #adb7c1 */
+  --fm-ink-3: var(--color-text-secondary); /* #8b959f */
   /* 4,8:1 medido sobre --fm-panel-2 (antes 3,7:1, por debajo de AA). */
-  --fm-ink-4: #828d98;
+  --fm-ink-4: color-mix(in srgb, var(--color-text-muted) 37.1%, var(--color-empty)); /* #828d98 */
   --fm-ink-bright: #cbd5de;
   --fm-thumb: #dce6ee;
-  --fm-accent: #3df4ba;
-  --fm-accent-hover: #5ff8c9;
-  --fm-accent-ink: #05231a;
+  --fm-accent: var(--color-accent); /* #3df4ba */
+  --fm-accent-hover: color-mix(in srgb, var(--color-accent) 45%, var(--color-accent-light)); /* #5ff8c9 */
+  --fm-accent-ink: color-mix(in srgb, var(--color-accent) 1%, var(--color-accent-ink)); /* #05231a */
   --fm-playhead: #f96976;
-  --fm-clip-video: #5f80ff;
+  --fm-clip-video: var(--color-video); /* #5f80ff */
   --fm-clip-audio: #1e9aa8;
   --fm-snap: #f0c040;
   --fm-danger: #d94855;

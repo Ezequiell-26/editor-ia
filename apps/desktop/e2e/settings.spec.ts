@@ -29,16 +29,19 @@ test('el panel de apariencia aplica el color en vivo', async ({ page }) => {
     getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
   );
 
-  // La barra de color: arrastrar cambia el acento sin soltar.
-  const slider = page.locator('.hue-slider');
-  await slider.click({ force: true });
+  // La rueda de color: cada flecha mueve tono/saturación y confirma al instante.
+  const dial = page.getByRole('slider', { name: 'Color de acento' });
+  await expect(dial).toBeVisible();
   for (let step = 0; step < 10; step += 1) {
-    await page.keyboard.press('ArrowRight');
+    await dial.press('ArrowRight');
   }
-  const during = await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
-  );
-  expect(during).not.toBe(before);
+  await expect
+    .poll(async () =>
+      page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue('--color-accent').trim(),
+      ),
+    )
+    .not.toBe(before);
 
   // El valor committeado se guarda: al recargar sigue igual.
   await page.keyboard.press('ArrowUp');

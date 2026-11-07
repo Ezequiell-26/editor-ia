@@ -383,10 +383,6 @@ function tokenRow(studio: Locator, token: TokenId): Locator {
   return studio.locator(`.color-row[data-token="${token}"]`);
 }
 
-function tokenColorInput(studio: Locator, token: TokenId): Locator {
-  return tokenRow(studio, token).locator('input[type="color"]').first();
-}
-
 function tokenHexInput(studio: Locator, token: TokenId): Locator {
   return tokenRow(studio, token).locator('input.color-hex').first();
 }
@@ -411,24 +407,21 @@ async function openTokenGroup(page: Page, token: TokenId): Promise<void> {
 }
 
 /**
- * Cambia un `<input type="color">` como lo haría el usuario: foco, value con el
- * setter nativo (React 19 escucha el valor real), eventos `input` y `change`, y
- * blur para que el estudio confirme el borrador (onChange sólo previsualiza).
+ * Cambia el color de un token como lo haría el usuario con la rueda Lumetri:
+ * abre el popover del `ColorSwatch`, escribe el hex y confirma con Enter
+ * (`commitDraft` persiste; `onChange` ya previsualizó al completar el hex).
  */
 async function setTokenColor(page: Page, studio: Locator, token: TokenId, value: string): Promise<void> {
   await openTokenGroup(page, token);
-  const input = tokenColorInput(studio, token);
-  await expect(input).toBeVisible();
-  await input.focus();
-  await input.evaluate((element, next) => {
-    const node = element as HTMLInputElement;
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
-    if (setter) setter.call(node, next);
-    else node.value = next;
-    node.dispatchEvent(new Event('input', { bubbles: true }));
-    node.dispatchEvent(new Event('change', { bubbles: true }));
-    node.blur();
-  }, value);
+  const swatch = tokenRow(studio, token).locator('button.color-swatch').first();
+  await expect(swatch).toBeVisible();
+  await swatch.click();
+  const hexInput = page.locator('.color-popover .color-popover-hex');
+  await expect(hexInput).toBeVisible();
+  await hexInput.click();
+  await hexInput.fill(value);
+  await hexInput.press('Enter');
+  await expect(page.locator('.color-popover')).toBeHidden();
 }
 
 /** Escribe un hex y confirma con Enter + blur (contrato de la fila color-hex). */
@@ -730,13 +723,28 @@ test('cambia el acento en vivo y repinta el preview', async ({ page }) => {
 });
 
 test('cambia el panel y repinta superficies del shell y del preview', async ({ page }) => {
-  const studio = await openColorStudio(page);
+  // El diálogo de Ajustes reemplaza al shell en el DOM (no queda montado
+  // detrás), así que la foto «antes» del shell se toma con el diálogo cerrado
+  // y la edición se hace reabriéndolo.
+  await enterSettingsPage(page);
+  await closeSettings(page);
+  await expect(page.locator('.app-shell')).toBeVisible();
+  // La comparación se hace en Proyectos: la vista «Aprender» casi no pinta
+  // superficies --color-panel y el diff quedaría vacío por falta de muestra.
+  await page.locator('.sidebar button[aria-label="Proyectos"]').click();
+  await expect(page.locator('.projects-view')).toBeVisible();
+  await page.waitForTimeout(300);
 
   const before = await sampleVisibleColors(page);
   const beforeTopbar = await page.evaluate(() => {
     const topbar = document.querySelector('.topbar');
     return topbar ? getComputedStyle(topbar).backgroundColor : '';
   });
+
+  await page.locator('.sidebar button[aria-label="Ajustes"]').click();
+  await expect(page.getByRole('dialog', { name: 'Configuración' })).toBeVisible();
+  const studio = page.locator('.color-studio');
+  await expect(studio).toBeVisible();
   const previewPanelBefore = await page.evaluate(() => {
     const panel = document.querySelector('.theme-preview .theme-preview-panel');
     return panel ? getComputedStyle(panel).backgroundColor : '';
@@ -763,6 +771,8 @@ test('cambia el panel y repinta superficies del shell y del preview', async ({ p
   // El shell está detrás del modal: se cierra para comparar el contenido real.
   await closeSettings(page);
   await expect(page.locator('.app-shell')).toBeVisible();
+  await page.locator('.sidebar button[aria-label="Proyectos"]').click();
+  await expect(page.locator('.projects-view')).toBeVisible();
   await page.waitForTimeout(300);
   await page.screenshot({ path: shot('06-panel-en-vivo.png') });
   const after = await sampleVisibleColors(page);
@@ -828,9 +838,7 @@ test('la paleta personalizada persiste tras recargar', async ({ page }) => {
   await waitForVar(page, '--color-accent', nextAccent);
   const storedAfterReload = await storedPalette(page);
   expect(storedAfterReload?.accent).toBe(nextAccent);
-  await expect(page.locator('.color-row[data-token="accent"] input[type="color"]').first()).toHaveValue(
-    nextAccent,
-  );
+  await expect(tokenHexInput(studio, 'accent')).toHaveValue(nextAccent);
 
   recordEvidence({
     test: 'la paleta personalizada persiste tras recargar',
