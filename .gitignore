@@ -68,3 +68,6 @@ apps/desktop/e2e/lut-harness/*.mp4
 # Backups de hojas de estilo (app.css es la fuente)
 apps/desktop/src/styles/*.new
 target-polish/
+
+# Logs del loop Devin 24/7
+logs/
