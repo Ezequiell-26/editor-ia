@@ -10,6 +10,7 @@ import {
   type EditIntent,
   type EditPlan,
   type EditProposal,
+  type SilenceCutSignal,
   type TimelineSignals,
 } from './types.ts';
 
@@ -199,6 +200,8 @@ export interface PlanOptions {
   readonly limit?: number;
   /** Grilla de beats ya mapeada a frames, si se quiere cortar en el pulso. */
   readonly beats?: BeatGrid;
+  /** Planes de silencio medidos por clip (`planSilenceCuts`), si se pasaron. */
+  readonly silences?: readonly SilenceCutSignal[];
 }
 
 /** Porcentaje de cortes que caen a menos de 80 ms de un beat. */
@@ -232,6 +235,9 @@ export function planEdits(project: ProjectDocument, options: PlanOptions = {}): 
     signals,
     profile,
     ...(beats ? { beats } : {}),
+    ...(options.silences && options.silences.length > 0
+      ? { silences: options.silences }
+      : {}),
   };
   const scriptContext: ScriptContext = { ...context, script };
 

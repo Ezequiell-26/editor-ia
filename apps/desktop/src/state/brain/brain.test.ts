@@ -377,3 +377,80 @@ describe('propuestas sobre el guion', () => {
     expect(plan.script[1]?.hasNarration).toBe(false);
   });
 });
+
+describe('silencios dentro del clip', () => {
+  /**
+   * El cerebro no mide picos: recibe el plan que `planSilenceCuts` ya calculó.
+   * Acá se arma a mano: el primer clip (240 frames a 30 fps = 8 s) tiene un
+   * silencio medido entre los frames 60 y 120 de timeline (2 s).
+   */
+  function silenceFor(clipId: string) {
+    return {
+      clipId,
+      spans: [{ startFrame: 60, endFrame: 120 }],
+      cutFrames: [60, 120],
+      removedSeconds: 2,
+    };
+  }
+
+  it('sin señal de silencios no propone nada', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, { intent: 'tighten', limit: 20 });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'cut-silences')).toBe(false);
+  });
+
+  it('propone el recorte y lo aplica con el motor de silencios', () => {
+    const { project, firstClipId } = timelineWithGap();
+    const plan = planEdits(project, {
+      intent: 'tighten',
+      silences: [silenceFor(firstClipId)],
+      limit: 20,
+    });
+    const proposal = plan.proposals.find((entry) => entry.kind === 'cut-silences');
+    expect(proposal).toBeTruthy();
+    expect(proposal?.payload?.kind).toBe('cut-spans');
+    expect(proposal?.risk).toBe('moderate');
+    if (!proposal) return;
+
+    const result = applyProposal(project, proposal);
+    expect(result.applied).toBe(true);
+    // 12 s − 2 s de silencio = 10 s; el clip queda en dos pedazos y el segundo
+    // clip de la pista corre 60 frames a la izquierda.
+    expect(analyzeTimeline(result.project).durationSeconds).toBe(10);
+    expect(result.project.timeline.clips).toHaveLength(3);
+  });
+
+  it('una señal de clip que ya no existe se ignora', () => {
+    const { project } = timelineWithGap();
+    const plan = planEdits(project, {
+      intent: 'tighten',
+      silences: [silenceFor('clip-que-no-existe')],
+      limit: 20,
+    });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'cut-silences')).toBe(false);
+  });
+
+  it('una señal vacía o diminuta no genera propuesta', () => {
+    const { project, firstClipId } = timelineWithGap();
+    const plan = planEdits(project, {
+      intent: 'tighten',
+      silences: [
+        { clipId: firstClipId, spans: [], cutFrames: [], removedSeconds: 0 },
+        { ...silenceFor(firstClipId), removedSeconds: 0.1, spans: [{ startFrame: 60, endFrame: 63 }], cutFrames: [60, 63] },
+      ],
+      limit: 20,
+    });
+    expect(plan.proposals.some((proposal) => proposal.kind === 'cut-silences')).toBe(false);
+  });
+
+  it('el recorte de silencios no entra en «Aplicar lo seguro»', () => {
+    const { project, firstClipId } = timelineWithGap();
+    const plan = planEdits(project, {
+      intent: 'tighten',
+      silences: [silenceFor(firstClipId)],
+      limit: 20,
+    });
+    const outcome = applySafeProposals(project, plan);
+    expect(outcome.applied.some((id) => id.startsWith('cut-silences:'))).toBe(false);
+  });
+});

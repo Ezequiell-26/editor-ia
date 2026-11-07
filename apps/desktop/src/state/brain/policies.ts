@@ -4,6 +4,7 @@ import type {
   EditProposal,
   IntentProfile,
   Shot,
+  SilenceCutSignal,
   TimelineSignals,
 } from './types.ts';
 
@@ -21,6 +22,8 @@ export interface PolicyContext {
   readonly profile: IntentProfile;
   /** Grilla de beats ya mapeada a frames, si el usuario la calculó. */
   readonly beats?: BeatGrid;
+  /** Planes de silencio medidos por clip, si el usuario los calculó. */
+  readonly silences?: readonly SilenceCutSignal[];
 }
 
 function round(value: number, decimals = 2): number {
@@ -391,6 +394,49 @@ export function beatAlignPolicy({ project, signals, beats }: PolicyContext): Edi
     }));
 }
 
+/**
+ * Silencios dentro de los clips.
+ *
+ * `gapsPolicy` ve los huecos ENTRE clips; el silencio que importa está DENTRO
+ * del clip y sólo se conoce midiendo picos de audio. La UI corre
+ * `planSilenceCuts` (el mismo motor que `runSilenceCuts`) y pasa los planes
+ * acá; esta política los convierte en propuestas que `applyCutSpans` ejecuta.
+ * Sin señal no propone nada: no inventa silencios.
+ */
+export function silencePolicy({ project, signals, silences }: PolicyContext): EditProposal[] {
+  if (!silences || silences.length === 0) return [];
+  const proposals: EditProposal[] = [];
+  for (const signal of silences) {
+    const clip = project.timeline.clips.find((item) => item.id === signal.clipId);
+    if (!clip || signal.spans.length === 0 || signal.cutFrames.length === 0) continue;
+    const clipSeconds = clip.durationFrames / Math.max(1, signals.fps);
+    if (clipSeconds <= 0) continue;
+    const share = signal.removedSeconds / clipSeconds;
+    // Menos del 2 % del clip es ruido de detección, no un silencio que valga
+    // la pena mostrar.
+    if (share < 0.02 || signal.removedSeconds < 0.3) continue;
+    proposals.push({
+      id: `cut-silences:${clip.id}`,
+      kind: 'cut-silences',
+      title: `Quitar ${round(signal.removedSeconds, 1)} s de silencio en «${clipLabel(project, clip.id)}»`,
+      reason: `El análisis de picos encontró ${signal.spans.length} tramo(s) bajo el umbral dentro del clip. El recorte conserva el colchón de seguridad de cada lado.`,
+      confidence: 0.8,
+      impact: Math.min(1, share * 2),
+      risk: 'moderate',
+      clipIds: [clip.id],
+      payload: {
+        kind: 'cut-spans',
+        clipId: clip.id,
+        spans: signal.spans,
+        cutFrames: signal.cutFrames,
+        removedSeconds: signal.removedSeconds,
+      },
+      preview: `${signal.spans.length} tramo(s) medidos; el resto del clip no se toca.`,
+    });
+  }
+  return proposals.sort((a, b) => b.impact - a.impact).slice(0, 3);
+}
+
 /** Transiciones: sólo donde el formato las pide y hay cortes suficientes. */
 export function transitionPolicy({ signals, profile }: PolicyContext): EditProposal[] {
   if (profile.transitions === 'none') return [];
@@ -499,6 +545,7 @@ export const POLICIES = [
   longShotPolicy,
   beatPolicy,
   beatAlignPolicy,
+  silencePolicy,
   hookPolicy,
   transitionPolicy,
   captionsPolicy,

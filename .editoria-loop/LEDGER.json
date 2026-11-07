@@ -5,9 +5,9 @@
     "cadenceMinutes": 20,
     "oneItemPerPass": true,
     "expiresAt": null,
-    "consecutiveFailures": 0,
+    "consecutiveFailures": 1,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-06T21:59:30.261Z"
+    "lastPassAt": "2026-11-07T15:21:34.199Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -370,6 +370,17 @@
       ]
     },
     {
+      "id": "10",
+      "plan": "IMPROVEMENT-QUEUE",
+      "title": "Cerebro: política de silencios medida (silencePolicy + cut-spans + Medir silencios en BrainPanel)",
+      "status": "blocked",
+      "acceptance": "planEdits acepta silences medidas; applyCutSpans ejecuta la propuesta; BrainPanel mide con audioPeaks; tests nuevos verdes",
+      "dependsOn": [],
+      "blockedSince": "2026-11-07T15:21:34.199Z",
+      "blockedReason": "Trabajo implementado y verificado a nivel modulo (tsc apps/desktop 0 al momento del cambio, vitest dirigido 46/46), pero npm run verify quedo en rojo por WIP del usuario EN CURSO: apps/desktop/src/state/shortcuts-pro.test.ts (modificado sin commitear durante la pasada) importa deleteClips/moveClipsBy que project-actions aun no exporta. Ajeno al cambio.",
+      "remedy": "Cuando el typecheck vuelva a verde (el usuario termina multi-seleccion de clips), correr: node scripts/loop-record.mjs --task 10 --status done --files \"<archivos de la pasada>\""
+    },
+    {
       "id": "9g",
       "plan": "Rendimiento",
       "title": "Profiling con carga real: render pesado, descargas paralelas, multi-sesión web",
@@ -386,6 +397,21 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-11-07T15:21:34.199Z",
+      "taskId": "10",
+      "status": "blocked",
+      "note": "Trabajo implementado y verificado a nivel modulo (tsc apps/desktop 0 al momento del cambio, vitest dirigido 46/46), pero npm run verify quedo en rojo por WIP del usuario EN CURSO: apps/desktop/src/state/shortcuts-pro.test.ts (modificado sin commitear durante la pasada) importa deleteClips/moveClipsBy que project-actions aun no exporta. Ajeno al cambio.",
+      "remedy": "Cuando el typecheck vuelva a verde (el usuario termina multi-seleccion de clips), correr: node scripts/loop-record.mjs --task 10 --status done --files \"<archivos de la pasada>\"",
+      "verifyRan": false
+    },
+    {
+      "at": "2026-11-07T15:19:50.552Z",
+      "taskId": "10",
+      "status": "rejected",
+      "reason": "npm run verify no terminó en verde; la tarea sigue pendiente.",
+      "evidenceTail": "\n> editor-ia@0.2.0 verify\n> npm run typecheck && npm run test:serial && npm run test:extension && npm run test:web-tts\n\n\n> editor-ia@0.2.0 typecheck\n> tsc --noEmit -p packages/project-schema/tsconfig.json && tsc --noEmit -p packages/effect-kit/tsconfig.json && tsc --noEmit -p apps/desktop/tsconfig.json && tsc --noEmit -p apps/render-worker/tsconfig.json\n\napps/desktop/src/state/shortcuts-pro.test.ts(18,3): error TS2724: '\"./project-actions\"' has no exported member named 'deleteClips'. Did you mean 'deleteClip'?\r\napps/desktop/src/state/shortcuts-pro.test.ts(22,3): error TS2724: '\"./project-actions\"' has no exported member named 'moveClipsBy'. Did you mean 'moveClip'?\r\n"
+    },
     {
       "at": "2026-11-06T21:59:30.261Z",
       "taskId": "9g",

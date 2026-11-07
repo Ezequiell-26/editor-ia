@@ -4,6 +4,37 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Cerebro: política de silencios medida (2026-11-07)** — cierra el
+  `[pending]` «el cerebro mide huecos, no silencios» del lote cerebro de
+  edición, ejecutado en una pasada del protocolo del loop (Devin CLI).
+  - **Señal, no decodificación**: igual que `BeatGrid`, el cerebro no pide
+    picos ni decodifica audio. `planEdits` acepta `silences?:
+    SilenceCutSignal[]` — planes ya calculados con `planSilenceCuts` (el mismo
+    motor que `runSilenceCuts`) — y la nueva `silencePolicy` los convierte en
+    propuestas `cut-silences` con payload `cut-spans` (clipId + spans +
+    cutFrames + removedSeconds). Sin señal no propone nada.
+  - **Aplicación real**: `applyProposal` ejecuta `cut-spans` con
+    `applyCutSpans` de `state/silence-cuts` (split + ripple + captions), orden
+    de ejecución 1, riesgo `moderate` (borra material medido; no entra en
+    «Aplicar lo seguro»). Filtros: clip existente, spans/cutFrames no vacíos,
+    ≥0,3 s y ≥2 % del clip; tope de 3 propuestas por plan.
+  - **UI**: `BrainPanel` suma «Medir silencios» / «Re-medir silencios» /
+    «Quitar medición» — mide hasta 12 clips candidatos (`silenceCutCandidates`)
+    con `service.audioPeaks` + caché por asset y pasa los planes al
+    `useMemo` del plan. Tras cualquier aplicación exitosa se limpia la
+    medición (un ripple corre los frames y los planes quedan corridos).
+  - **Archivos**: `state/brain/types.ts`, `policies.ts`, `apply.ts`,
+    `plan.ts`, `index.ts`, `features/brain/BrainPanel.tsx`,
+    `state/brain/brain.test.ts` (+5 tests, 28 total).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    `state/brain` + `features/brain` + `state/silence-cuts` **46/46**
+    (brain.test 28/28, BrainPanel 6/6, silence-cuts 12/12). No se corrió la
+    suite serial completa (cambio acotado a estado puro + panel).
+  - **Extra**: el `[pending]` «UI — botón en el inspector de medios con
+    inicio/fin y aviso del keyframe» (lote corte sin recodificar) ya estaba
+    implementado: `LosslessCutCard` existe desde 2026-11-03, montada en
+    `Inspector.tsx` con tests propios. Se marca resuelto sin código nuevo.
+
 - `[done]` **Primera ejecución alineada al recorrido único (2026-11-07)** —
   slice posterior al cierre de F4, ejecutado en una pasada del protocolo del
   loop (Devin CLI). El diálogo de bienvenida era la última superficie que
@@ -49,6 +80,34 @@ reconstruye el instalador salvo que el ítem lo pida.
     panel con retorno y onboarding con el recorrido único. Criterio del plan
     cumplido: LearnView, WorkspaceGuide (Inicio/Guía/editor) y OnboardingTour
     muestran los mismos 6 pasos de `app/pipeline.ts`.
+
+- `[done]` **Grafos de nodos dentro del documento del proyecto (2026-11-07)** —
+  cierre del gap 9 de `docs/CAPABILITY-MATRIX.md`, pedido del usuario
+  («agregá lo que falta»).
+  - **`x-nodeGraphs` en el `.editoria.json`**: los grafos del editor de
+    nodos ya no son archivos sueltos en `<proyecto>/graphs/`. Se guardan en
+    la clave `x-nodeGraphs` del documento — el namespace `x-` es la vía del
+    formato para campos aditivos, así el archivo sigue válido para Zod, para
+    el validador Rust y para versiones anteriores de la app.
+  - **`graph-store.ts`** (helpers puros): `readStoredGraphs` /
+    `upsertStoredGraph` con sanitizado JSON (los `undefined` de los campos
+    opcionales del grafo romperían `JsonValueSchema`) y reemplazo por
+    nombre sin duplicar.
+  - **`NodeGraphView`**: «Guardar» ahora hace upsert en el proyecto +
+    `saveNow` (con un tick para que `stateRef` vea el `update`); la vista
+    restaura el último grafo del documento al abrir y mantiene el fallback
+    legado `graphs/*.json`. Barra nueva con nombre del grafo editable y
+    selector cuando hay más de uno guardado. Cargar/Guardar-externo por
+    archivo se conserva para compartir grafos entre proyectos.
+  - **Hallazgo relacionado**: `runGraph` llama `store.update` + `saveNow` en
+    el mismo tick; `saveNow` lee `stateRef` que aún no refleja el update
+    (posible guardado de documento viejo antes del render). No se tocó:
+    queda asentado como follow-up.
+  - **Archivos**: `features/nodes/graph-store.ts` (nuevo + test, 7 tests),
+    `NodeGraphView.tsx`, `nodes.css`, `docs/CAPABILITY-MATRIX.md`.
+  - **Verificación**: vitest `features/nodes/` **13/13** (graph-store 7 +
+    graph-model 6) · `tsc --noEmit -p apps/desktop` 0. No se corrió la
+    suite serial completa.
 
 - `[done]` **Unificación F4 (cierre) · onboarding de primera ejecución con el
   recorrido único (2026-11-07)** — último pendiente de la fase F4 de
@@ -821,7 +880,10 @@ Aprendido de LosslessCut (MIT): para sacar un rango no hace falta renderizar.
   al milisegundo.
 - `[done]` **Herramienta MCP** — `export_lossless` en el catálogo, disponible desde el asistente y
   desde una IA externa.
-- `[pending]` **UI** — botón en el inspector de medios con inicio/fin y aviso del keyframe.
+- `[done]` **UI** — botón en el inspector de medios con inicio/fin y aviso del keyframe.
+  Ya implementado en `LosslessCutCard` (montada en `Inspector.tsx`, inicio/fin,
+  aviso de corrimiento por keyframe, modo exacto, capítulos y audio); verificado
+  2026-11-07.
 - **Verificación**: Rust `commands::lossless` **2** (rango válido/invertido); `mcp-tools` **20**.
   Suite **1738** verde.
 
@@ -1196,8 +1258,10 @@ pudiera pedirlo.
     material sin picos).
   - Rust `commands::assistant`: **7/7**, con los rangos y defaults de `cut_silences`.
   - Typecheck verde en los 4 proyectos.
-- `[pending]` **Brain** — el cerebro mide huecos, no silencios (no tiene picos). Una política que
+- `[done]` **Brain** — el cerebro mide huecos, no silencios (no tiene picos). Una política que
   delegue en este runner cuando el hueco esté dentro de un clip con audio es el paso siguiente.
+  **Resuelto 2026-11-07**: `silencePolicy` + payload `cut-spans` + botón
+  «Medir silencios» en BrainPanel (entrada `[done]` de arriba).
 
 ## Lote efectos de audio (2026-11-02)
 

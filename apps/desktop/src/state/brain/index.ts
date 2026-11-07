@@ -27,6 +27,8 @@ export {
   type ProposalRisk,
   type ScriptSignal,
   type Shot,
+  type SilenceCutSignal,
+  type SilenceCutSpan,
   type TimelineGap,
   type TimelineSignals,
 } from './types.ts';

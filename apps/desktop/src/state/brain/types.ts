@@ -146,6 +146,27 @@ export interface TimelineGap {
   readonly beforeClipId: string;
 }
 
+/** Tramo de silencio medido, en frames absolutos de timeline. */
+export interface SilenceCutSpan {
+  readonly startFrame: number;
+  readonly endFrame: number;
+}
+
+/**
+ * Plan de recorte de silencios ya medido para un clip.
+ *
+ * El cerebro no decodifica audio ni pide picos: recibe el plan que arma la UI
+ * con `planSilenceCuts` (el mismo que usa `runSilenceCuts`), igual que recibe
+ * la grilla de beats. Así el plan sigue siendo una función pura y testeable
+ * con señales sintéticas.
+ */
+export interface SilenceCutSignal {
+  readonly clipId: string;
+  readonly spans: readonly SilenceCutSpan[];
+  readonly cutFrames: readonly number[];
+  readonly removedSeconds: number;
+}
+
 export interface TimelineSignals {
   readonly fps: number;
   readonly durationFrames: number;
@@ -184,6 +205,7 @@ export type ProposalKind =
   | 'hook-cut'
   | 'beat-cut'
   | 'beat-align'
+  | 'cut-silences'
   | 'loudness'
   | 'captions'
   | 'variety'
@@ -198,6 +220,13 @@ export type ProposalPayload =
   | { readonly kind: 'delete'; readonly clipIds: readonly string[] }
   | { readonly kind: 'trim'; readonly clipId: string; readonly edge: 'start' | 'end'; readonly targetFrame: number }
   | { readonly kind: 'roll'; readonly clipId: string; readonly edge: 'in' | 'out'; readonly deltaFrames: number }
+  | {
+      readonly kind: 'cut-spans';
+      readonly clipId: string;
+      readonly spans: readonly SilenceCutSpan[];
+      readonly cutFrames: readonly number[];
+      readonly removedSeconds: number;
+    }
   | { readonly kind: 'transition'; readonly type: ClipTransition['type']; readonly frames: number }
   | { readonly kind: 'loudness'; readonly platform: string; readonly integratedLufs: number; readonly truePeakDb: number };
 

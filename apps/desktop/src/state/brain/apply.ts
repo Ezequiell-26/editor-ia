@@ -7,6 +7,7 @@ import {
   splitClipAtFrames,
   updateAudioMix,
 } from '../project-actions.ts';
+import { applyCutSpans } from '../silence-cuts.ts';
 import type { ApplyOutcome, EditPlan, EditProposal, ProposalKind } from './types.ts';
 
 /**
@@ -28,6 +29,7 @@ const EXECUTION_ORDER: Readonly<Record<ProposalKind, number>> = {
   'beat-align': 0,
   'drop-short': 1,
   'trim-start': 1,
+  'cut-silences': 1,
   transition: 2,
   loudness: 3,
   'close-gaps': 4,
@@ -98,6 +100,22 @@ export function applyProposal(project: ProjectDocument, proposal: EditProposal):
           project: result,
           applied: true,
           message: `Corte movido ${shift > 0 ? '+' : ''}${shift} frames sobre el beat.`,
+        };
+      }
+      case 'cut-spans': {
+        const next = applyCutSpans(project, payload.clipId, {
+          cutFrames: payload.cutFrames,
+          spans: payload.spans,
+          removedSeconds: payload.removedSeconds,
+          excessive: false,
+        });
+        if (next === project) {
+          return { project, applied: false, message: 'El clip ya no admite ese recorte.' };
+        }
+        return {
+          project: next,
+          applied: true,
+          message: `${payload.removedSeconds.toFixed(1)} s de silencio recortados.`,
         };
       }
       case 'transition': {

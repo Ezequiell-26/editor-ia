@@ -7,8 +7,14 @@ import {
   type BeatGrid,
   type EditIntent,
   type EditProposal,
+  type SilenceCutSignal,
 } from '../../state/brain';
 import { detectBeats, decodeAudioSamples, planBeatCuts } from '../../state/beat-sync';
+import {
+  planSilenceCutsForProject,
+  silenceCutCandidates,
+} from '../../state/silence-cuts';
+import type { AudioPeaks } from '../../services/project-service';
 import { totalFrames } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 
@@ -50,13 +56,19 @@ export function BrainPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [beats, setBeats] = useState<BeatGrid | null>(null);
   const [beatBusy, setBeatBusy] = useState(false);
+  const [silences, setSilences] = useState<readonly SilenceCutSignal[]>([]);
+  const [silenceBusy, setSilenceBusy] = useState(false);
 
   const plan = useMemo(
     () =>
       project
-        ? planEdits(project, { intent, ...(beats ? { beats } : {}) })
+        ? planEdits(project, {
+            intent,
+            ...(beats ? { beats } : {}),
+            ...(silences.length > 0 ? { silences } : {}),
+          })
         : null,
-    [project, intent, beats],
+    [project, intent, beats, silences],
   );
 
   if (!project || !plan) {
@@ -84,6 +96,9 @@ export function BrainPanel() {
     const result = applyProposal(current, proposal);
     if (result.applied) {
       store.update(() => result.project);
+      // Un ripple corre los frames de los clips siguientes: los planes de
+      // silencio medidos quedan corridos y hay que volver a medirlos.
+      setSilences([]);
       setNotice(result.message);
     } else {
       setNotice(result.message);
@@ -94,7 +109,10 @@ export function BrainPanel() {
     const current = store.state.project;
     if (!current) return;
     const outcome = applySafeProposals(current, plan!);
-    if (outcome.applied.length > 0) store.update(() => outcome.project);
+    if (outcome.applied.length > 0) {
+      store.update(() => outcome.project);
+      setSilences([]);
+    }
     setNotice(
       outcome.applied.length > 0
         ? `${outcome.summary} ${outcome.skipped.map((entry) => entry.reason).join(' ')}`.trim()
@@ -173,6 +191,58 @@ export function BrainPanel() {
     }
   }
 
+  /**
+   * Mide los silencios dentro de los clips con el mismo motor que «Cortar
+   * silencios» (`planSilenceCuts` sobre los picos de FFmpeg) y se los pasa al
+   * plan. Es una medición bajo demanda, como la de beats: el cerebro sigue
+   * siendo puro y no decodifica audio.
+   */
+  async function measureSilences(): Promise<void> {
+    const current = store.state.project;
+    if (!current) return;
+    setSilenceBusy(true);
+    setNotice(null);
+    try {
+      const candidates = silenceCutCandidates(current).slice(0, 12);
+      const cache = new Map<string, AudioPeaks | null>();
+      const found: SilenceCutSignal[] = [];
+      for (const clip of candidates) {
+        if (clip.source.type !== 'asset') continue;
+        const assetId = clip.source.assetId;
+        let peaks = cache.get(assetId);
+        if (peaks === undefined) {
+          try {
+            peaks = await store.service.audioPeaks(assetId);
+          } catch {
+            peaks = null;
+          }
+          cache.set(assetId, peaks);
+        }
+        if (!peaks) continue;
+        const measured = planSilenceCutsForProject(current, clip.id, peaks);
+        if (measured && !measured.excessive && measured.removedSeconds >= 0.3) {
+          found.push({
+            clipId: clip.id,
+            spans: measured.spans,
+            cutFrames: measured.cutFrames,
+            removedSeconds: measured.removedSeconds,
+          });
+        }
+      }
+      setSilences(found);
+      const total = found.reduce((sum, entry) => sum + entry.removedSeconds, 0);
+      setNotice(
+        found.length === 0
+          ? candidates.length === 0
+            ? 'No hay clips con audio a 1× para medir.'
+            : 'No encontré silencios con los valores por defecto.'
+          : `${found.length} clip(s) con silencio medido: ${total.toFixed(1)} s en total.`,
+      );
+    } finally {
+      setSilenceBusy(false);
+    }
+  }
+
   return (
     <section className="view brain-view">
       <header className="view-toolbar">
@@ -206,6 +276,20 @@ export function BrainPanel() {
           {beats ? (
             <button type="button" className="small ghost" onClick={() => setBeats(null)}>
               Quitar grilla
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="small"
+            disabled={silenceBusy}
+            aria-pressed={silences.length > 0}
+            onClick={() => void measureSilences()}
+          >
+            {silenceBusy ? 'Midiendo…' : silences.length > 0 ? 'Re-medir silencios' : 'Medir silencios'}
+          </button>
+          {silences.length > 0 ? (
+            <button type="button" className="small ghost" onClick={() => setSilences([])}>
+              Quitar medición
             </button>
           ) : null}
           <button
