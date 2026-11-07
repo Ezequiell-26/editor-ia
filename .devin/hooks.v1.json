@@ -1,0 +1,14 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "exec",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "node scripts/devin-hooks-guard.mjs",
+          "timeout": 10
+        }
+      ]
+    }
+  ]
+}

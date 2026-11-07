@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(**)",
+      "Exec(git status)",
+      "Exec(git diff)",
+      "Exec(git log)",
+      "Exec(git show)",
+      "Exec(git branch)",
+      "Exec(npm run typecheck)",
+      "Exec(npm run test)",
+      "Exec(npm test)",
+      "Exec(npm run test:serial)",
+      "Exec(npm run verify)",
+      "Exec(npm run test:extension)",
+      "Exec(npm run test:web-tts)",
+      "Exec(npm run loop:preflight)",
+      "Exec(npm run loop:record)",
+      "Exec(npm run schema:generate)",
+      "Exec(npm run fixtures:write)",
+      "Exec(npm run effects:codegen)",
+      "Exec(npx vitest)",
+      "Exec(npx tsc)",
+      "Exec(node scripts/rust-env.mjs -- cargo check)",
+      "Exec(node scripts/rust-env.mjs -- cargo test)",
+      "Exec(node scripts/rust-env.mjs -- cargo clippy)",
+      "Exec(node scripts/loop-preflight.mjs)",
+      "Exec(node scripts/loop-record.mjs)"
+    ],
+    "deny": [
+      "Write(.env*)",
+      "Write(**/*.pem)",
+      "Write(**/*.key)",
+      "Write(Cargo.lock)"
+    ]
+  }
+}
