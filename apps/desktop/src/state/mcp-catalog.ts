@@ -801,9 +801,11 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       particles: {
         type: 'object',
         properties: {
-          kind: { type: 'string', enum: ['confetti', 'snow', 'sparks'] },
+          kind: { type: 'string', enum: ['confetti', 'snow', 'sparks', 'bounce'] },
           count: boundedInt(1, 2000),
           colorHex: { type: 'string', maxLength: 7 },
+          gravity: { type: 'number', minimum: 0, maximum: 5000, description: 'px/s², solo bounce.' },
+          bounce: { type: 'number', minimum: 0, maximum: 1, description: 'Restitución 0..1, solo bounce.' },
         },
       },
       keyframes: {

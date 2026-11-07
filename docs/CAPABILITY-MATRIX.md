@@ -95,7 +95,7 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 ## 7. Gaps honestos priorizados (siguientes fases)
 
 1. ~~**Editor de nodos visual**~~ **HECHO**: `@xyflow/react` integrado con ejecución real sobre la timeline (ver fila de la matriz). Persistencia de grafos en proyecto queda como mejora.
-2. **Motor stickman/rigging 2D**: **HECHO (v1+UI)** — `commands/stickman.rs`: rig FK con 14 huesos, 5 acciones procedurales (idle/walk/run/wave/jump) + keyframes con interpolación, partículas (confetti/snow/sparks), raster propio + ffmpeg. 7 tests. **UI real**: `StickmanPanel` en la vista Motion (acción, duración, fps, tamaño, colores, partículas → MP4 verificado). Editor visual de huesos y física quedan pendientes.
+2. **Motor stickman/rigging 2D**: **HECHO (v1+UI+física)** — `commands/stickman.rs`: rig FK con 14 huesos, 5 acciones procedurales + keyframes, partículas (confetti/snow/sparks/**bounce** con gravedad+restitución+paredes, integración determinista a dt fijo con early-exit al asentarse), raster + ffmpeg. 9 tests. **UI real**: `StickmanPanel` en Motion. Editor visual de huesos y física de cuerpos rígidos quedan pendientes.
 3. ~~EQ/compresor por clip~~ — resuelto: el catálogo de audio del effect-kit ya se compila a filtros `-af` por clip y llega al render.
 4. **Escenas OBS**: **HECHO** — `commands/obs_scenes.rs`: presets persistentes (capture target, webcam, mic, RTMP, encoder) en `obs-scenes.json`, `obs_scene_start` delega en el motor real, `obs_scene_preview` captura un frame PNG real de la escena (ver fila de la matriz). Tool MCP `obs_scenes`. Transiciones entre escenas quedan pendientes.
 5. **Scopes en preview nativo**: existen scopes de color (`filmcraft_scopes`); verificar paridad waveform/vectorscope en la UI de color.

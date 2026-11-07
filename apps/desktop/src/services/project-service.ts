@@ -2602,7 +2602,13 @@ export interface DesktopService {
     keyframes?: { frame: number }[];
     boneHex?: string;
     bgHex?: string;
-    particles?: { kind?: 'confetti' | 'snow' | 'sparks'; count?: number; colorHex?: string };
+    particles?: {
+      kind?: 'confetti' | 'snow' | 'sparks' | 'bounce';
+      count?: number;
+      colorHex?: string;
+      gravity?: number;
+      bounce?: number;
+    };
   }): Promise<StickmanRenderResult>;
   systemInfo(): Promise<SystemInfo>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;

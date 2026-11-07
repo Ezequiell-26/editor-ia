@@ -454,6 +454,10 @@ fn draw_particles(
         let fx = (seed % 100) as f64 / 100.0;
         let phase = ((seed / 100) % 100) as f64 / 100.0;
         let (x, y, size) = match spec.kind.as_str() {
+            "bounce" => {
+                let (x, y, s) = bounce_pos(i, t, w as f64, h as f64, spec);
+                (x, y, s)
+            }
             "snow" => {
                 let x = fx * w as f64 + (t * 12.0 * (phase + 0.3)).sin() * 14.0;
                 let y = ((phase + t * 0.12) % 1.0) * h as f64;
@@ -484,6 +488,56 @@ fn draw_particles(
     }
 }
 
+/// Paso fijo de la simulación de partículas con física: independiente del
+/// fps de salida, así la trayectoria es idéntica a 24, 30 o 60 fps.
+const PHYS_DT: f64 = 1.0 / 60.0;
+/// Tope de pasos por partícula por frame (~2 min simulados).
+const PHYS_MAX_STEPS: u64 = 7200;
+
+/// Simula una partícula `bounce` desde t=0 hasta `t` segundos: gravedad,
+/// restitución en el suelo y rebote en paredes. Determinista por semilla.
+/// Sale temprano cuando la partícula se asienta (gravedad < 1 px/s² y
+/// velocidad casi nula), así clips largos no pagan el costo de simular
+/// partículas quietas en el piso.
+fn bounce_pos(i: u64, t: f64, w: f64, h: f64, spec: &ParticleSpec) -> (f64, f64, f64) {
+    let seed = (i as u64).wrapping_mul(2654435761) % 1000;
+    let fx = (seed % 100) as f64 / 100.0;
+    let phase = ((seed / 100) % 100) as f64 / 100.0;
+    let gravity = spec.gravity.unwrap_or(900.0).clamp(0.0, 5000.0);
+    let restitution = spec.bounce.unwrap_or(0.72).clamp(0.0, 1.0);
+    let radius = 2.0 + phase * 3.5;
+    let floor = (h - radius - 1.0).max(radius);
+    let mut x = fx * w;
+    let mut y = phase * h * 0.35;
+    let mut vx = (phase - 0.5) * 160.0;
+    let mut vy = 80.0 + phase * 320.0;
+    let mut tt = 0.0;
+    let mut steps = 0u64;
+    while tt + PHYS_DT <= t && steps < PHYS_MAX_STEPS {
+        vy += gravity * PHYS_DT;
+        x += vx * PHYS_DT;
+        y += vy * PHYS_DT;
+        if x < radius {
+            x = radius;
+            vx = -vx * 0.9;
+        } else if x > w - radius {
+            x = w - radius;
+            vx = -vx * 0.9;
+        }
+        if y >= floor && vy > 0.0 {
+            y = floor;
+            vy = -vy * restitution;
+            vx *= 0.985;
+        }
+        tt += PHYS_DT;
+        steps += 1;
+        if y >= floor - 0.01 && vy.abs() < 1.0 && vx.abs() < 1.0 {
+            break;
+        }
+    }
+    (x, y.min(floor), radius)
+}
+
 // ---------------------------------------------------------------- Comando IPC
 
 #[derive(Debug, Deserialize)]
@@ -511,7 +565,8 @@ pub struct StickmanRenderRequest {
     pub particles: Option<ParticleSpec>,
 }
 
-/// Emisor de partículas procedural: `kind` = confetti | snow | sparks.
+/// Emisor de partículas procedural: `kind` = confetti | snow | sparks | bounce.
+/// `gravity` (px/s²) y `bounce` (restitución 0..1) aplican a `bounce`.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParticleSpec {
@@ -521,6 +576,10 @@ pub struct ParticleSpec {
     pub count: u32,
     #[serde(default)]
     pub color_hex: Option<String>,
+    #[serde(default)]
+    pub gravity: Option<f64>,
+    #[serde(default)]
+    pub bounce: Option<f64>,
 }
 
 fn default_particle_kind() -> String {
@@ -639,11 +698,27 @@ pub async fn stickman_render(
         return Err(ProjectError::message(ProjectErrorCode::InvalidProject, "duración demasiado corta"));
     }
     if let Some(spec) = &request.particles {
-        if !matches!(spec.kind.as_str(), "confetti" | "snow" | "sparks") {
+        if !matches!(spec.kind.as_str(), "confetti" | "snow" | "sparks" | "bounce") {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
-                "particles.kind debe ser confetti, snow o sparks",
+                "particles.kind debe ser confetti, snow, sparks o bounce",
             ));
+        }
+        if let Some(g) = spec.gravity {
+            if !(g.is_finite() && (0.0..=5000.0).contains(&g)) {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "particles.gravity debe estar entre 0 y 5000 px/s²",
+                ));
+            }
+        }
+        if let Some(b) = spec.bounce {
+            if !(b.is_finite() && (0.0..=1.0).contains(&b)) {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::InvalidProject,
+                    "particles.bounce debe estar entre 0 y 1",
+                ));
+            }
         }
     }
     if !request.keyframes.is_empty() {
@@ -832,7 +907,35 @@ mod particle_tests {
             kind: kind.into(),
             count: 200,
             color_hex: Some("#ffcc00".into()),
+            gravity: None,
+            bounce: None,
         }
+    }
+
+    #[test]
+    fn bounce_particles_are_deterministic_and_settle() {
+        let spec = spec("bounce");
+        // Mismo instante → misma posición, sin importar el frame de partida.
+        let (x1, y1, _) = bounce_pos(7, 1.5, 640.0, 360.0, &spec);
+        let (x2, y2, _) = bounce_pos(7, 1.5, 640.0, 360.0, &spec);
+        assert_eq!((x1, y1), (x2, y2));
+        // A t=0.1 la partícula está en caída; a t=30 ya se asentó en el piso.
+        let (_, early, _) = bounce_pos(7, 0.1, 640.0, 360.0, &spec);
+        let (_, late, radius) = bounce_pos(7, 30.0, 640.0, 360.0, &spec);
+        assert!(early < 300.0, "a 0.1s debería seguir cayendo, y={early}");
+        let floor = 360.0 - radius - 1.0;
+        assert!((late - floor).abs() < 0.01, "a los 30s debe estar en el piso, y={late} floor={floor}");
+        // fps no influye: la simulación usa dt fijo.
+        let (_, y24, _) = bounce_pos(3, 2.0, 640.0, 360.0, &spec);
+        let (_, y60, _) = bounce_pos(3, 2.0, 640.0, 360.0, &spec);
+        assert_eq!(y24, y60);
+    }
+
+    #[test]
+    fn bounce_kind_renders_pixels() {
+        let rgb = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec("bounce")), 5, 24);
+        let gold = rgb.chunks_exact(3).filter(|p| p[0] > 200 && p[1] > 150).count();
+        assert!(gold > 30, "bounce debe dibujar partículas, hay {gold}");
     }
 
     #[test]
@@ -846,7 +949,7 @@ mod particle_tests {
 
     #[test]
     fn each_particle_kind_renders_pixels() {
-        for kind in ["confetti", "snow", "sparks"] {
+        for kind in ["confetti", "snow", "sparks", "bounce"] {
             let rgb = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec(kind)), 5, 24);
             let gold = rgb.chunks_exact(3).filter(|p| p[0] > 200 && p[1] > 150).count();
             assert!(gold > 50, "{kind} debe dibujar partículas doradas, hay {gold}");

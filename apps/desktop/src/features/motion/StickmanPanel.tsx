@@ -5,7 +5,7 @@ import { useProjectStore } from '../../state/project-store';
 import type { StickmanRenderResult } from '../../services/project-service';
 
 const ACTIONS = ['idle', 'walk', 'run', 'wave', 'jump'] as const;
-const PARTICLES = ['none', 'confetti', 'snow', 'sparks'] as const;
+const PARTICLES = ['none', 'confetti', 'snow', 'sparks', 'bounce'] as const;
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : 'no se pudo renderizar el stickman';
@@ -33,6 +33,8 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [particles, setParticles] = useState<(typeof PARTICLES)[number]>('none');
   const [particleColor, setParticleColor] = useState('#facc15');
   const [particleCount, setParticleCount] = useState(300);
+  const [particleGravity, setParticleGravity] = useState(900);
+  const [particleBounce, setParticleBounce] = useState(0.72);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<StickmanRenderResult | null>(null);
@@ -58,7 +60,16 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
         boneHex,
         bgHex,
         ...(particles !== 'none'
-          ? { particles: { kind: particles, count: particleCount, colorHex: particleColor } }
+          ? {
+              particles: {
+                kind: particles,
+                count: particleCount,
+                colorHex: particleColor,
+                ...(particles === 'bounce'
+                  ? { gravity: particleGravity, bounce: particleBounce }
+                  : {}),
+              },
+            }
           : {}),
       });
       setResult(rendered);
@@ -179,6 +190,35 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
                 onChange={(e) => setParticleColor(e.target.value)}
               />
             </label>
+            {particles === 'bounce' ? (
+              <>
+                <label className="field">
+                  <span>Gravedad (px/s²)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={5000}
+                    value={particleGravity}
+                    onChange={(e) =>
+                      setParticleGravity(Math.min(5000, Math.max(0, Number(e.target.value) || 0)))
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Rebote (0–1)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={particleBounce}
+                    onChange={(e) =>
+                      setParticleBounce(Math.min(1, Math.max(0, Number(e.target.value) || 0)))
+                    }
+                  />
+                </label>
+              </>
+            ) : null}
           </>
         ) : null}
       </div>

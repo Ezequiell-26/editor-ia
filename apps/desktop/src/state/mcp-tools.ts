@@ -818,9 +818,13 @@ export async function executeMcpTool(
               const p = rawParticles as Record<string, unknown>;
               const kind = p.kind;
               return {
-                ...(kind === 'confetti' || kind === 'snow' || kind === 'sparks' ? { kind } : {}),
+                ...(kind === 'confetti' || kind === 'snow' || kind === 'sparks' || kind === 'bounce'
+                  ? { kind }
+                  : {}),
                 ...(typeof p.count === 'number' ? { count: p.count } : {}),
                 ...(typeof p.colorHex === 'string' ? { colorHex: p.colorHex } : {}),
+                ...(typeof p.gravity === 'number' ? { gravity: p.gravity } : {}),
+                ...(typeof p.bounce === 'number' ? { bounce: p.bounce } : {}),
               };
             })()
           : undefined;
