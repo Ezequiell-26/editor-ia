@@ -1,5 +1,8 @@
 import { z } from 'zod';
-import { EntityIdSchema, UnitIntervalSchema } from './primitives.ts';
+import { UnitIntervalSchema } from './primitives.ts';
+
+/** Node/window ids are graph-local readable slugs, not project entity UUIDs. */
+const GradeIdSchema = z.string().min(1).max(80);
 
 /**
  * Color page grade, stored per clip inside `ClipEffects.colorGrade`.
@@ -130,7 +133,7 @@ export type PowerWindowKind = z.infer<typeof PowerWindowKindSchema>;
  */
 export const PowerWindowSchema = z
   .object({
-    id: EntityIdSchema,
+    id: GradeIdSchema,
     kind: PowerWindowKindSchema,
     enabled: z.boolean(),
     x: UnitIntervalSchema,
@@ -189,7 +192,7 @@ export type ColorNodeKind = z.infer<typeof ColorNodeKindSchema>;
 
 export const ColorNodeSchema = z
   .object({
-    id: EntityIdSchema,
+    id: GradeIdSchema,
     label: z.string().min(1).max(60),
     kind: ColorNodeKindSchema,
     enabled: z.boolean(),
@@ -202,7 +205,7 @@ export const ColorNodeSchema = z
 export type ColorNode = z.infer<typeof ColorNodeSchema>;
 
 export const ColorLinkSchema = z
-  .object({ id: EntityIdSchema, from: EntityIdSchema, to: EntityIdSchema })
+  .object({ id: GradeIdSchema, from: GradeIdSchema, to: GradeIdSchema })
   .strict();
 export type ColorLink = z.infer<typeof ColorLinkSchema>;
 
@@ -212,7 +215,7 @@ export const ColorGradeSchema = z
     nodes: z.array(ColorNodeSchema).min(2).max(MAX_COLOR_NODES),
     links: z.array(ColorLinkSchema).max(MAX_COLOR_LINKS),
     /** Which node the panel is editing; informational, never affects rendering. */
-    activeNodeId: EntityIdSchema.optional(),
+    activeNodeId: GradeIdSchema.optional(),
   })
   .strict();
 export type ColorGrade = z.infer<typeof ColorGradeSchema>;

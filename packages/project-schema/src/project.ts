@@ -112,6 +112,35 @@ function collectForbiddenKeys(value: unknown, trail: string[], out: string[]): v
   }
 }
 
+// El tipo inferido del objeto completo supera el límite de serialización de
+// tsc (TS7056) desde que el timeline incluye el grafo de color-grade; se
+// declara la salida campo a campo con los `z.infer` ya nombrados de cada
+// sub-schema. La asignación sigue comprobando que el schema real produce
+// exactamente esta forma.
+type ProjectBaseOutput = {
+  id: z.infer<typeof EntityIdSchema>;
+  name: string;
+  schemaVersion: typeof PROJECT_SCHEMA_VERSION;
+  createdAt: string;
+  updatedAt: string;
+  revision: number;
+  language: z.infer<typeof LanguageTagSchema>;
+  video: z.infer<typeof VideoSettingsSchema>;
+  look?: z.infer<typeof ClipEffectsSchema> | undefined;
+  assets: z.infer<typeof AssetSchema>[];
+  timeline: z.infer<typeof TimelineSchema>;
+  compounds?: z.infer<typeof CompoundSchema>[] | undefined;
+  captions: z.infer<typeof CaptionsSchema>;
+  scenes: z.infer<typeof SceneListSchema>;
+  motion: z.infer<typeof MotionListSchema>;
+  markers: z.infer<typeof MarkerListSchema>;
+  audio: z.infer<typeof AudioMixSchema>;
+  renderProfiles: z.infer<typeof RenderProfileListSchema>;
+  exportVariants: z.infer<typeof ExportVariantListSchema>;
+  provenance: z.infer<typeof ProvenanceRecordSchema>;
+  migrationHistory: z.infer<typeof MigrationEntrySchema>[];
+};
+
 const ProjectSchemaBase = z.object({
   id: EntityIdSchema,
   name: z.string().trim().min(1).max(120),
@@ -142,7 +171,7 @@ function addIssue(ctx: z.RefinementCtx, issue: Issue): void {
   ctx.addIssue({ code: z.ZodIssueCode.custom, path: issue.path, message: issue.message });
 }
 
-function integrityIssues(project: z.infer<typeof ProjectSchemaBase>): Issue[] {
+function integrityIssues(project: ProjectBaseOutput): Issue[] {
   const issues: Issue[] = [];
 
   const assetIds = new Set<string>();
@@ -347,7 +376,19 @@ function integrityIssues(project: z.infer<typeof ProjectSchemaBase>): Issue[] {
   return issues;
 }
 
-export const ProjectDocumentSchema = ProjectSchemaBase.catchall(JsonValueSchema)
+export type ProjectDocument = ProjectBaseOutput & {
+  // catchall(JsonValueSchema): las claves x-* adicionales se conservan, pero
+  // se tipan como `unknown` para no exigir que todo el documento cumpla
+  // JsonValue (los campos opcionales del schema llevan `undefined`).
+  [key: string]: unknown;
+};
+
+// La inferencia completa del documento supera el límite de serialización de
+// tipos de tsc (TS7056) por el grafo de color-grade; se anota el contrato de
+// salida explícitamente. El tipo de entrada queda `unknown` porque safeParse
+// ya acepta cualquier valor.
+export const ProjectDocumentSchema: z.ZodType<ProjectDocument, z.ZodTypeDef, unknown> =
+  ProjectSchemaBase.catchall(JsonValueSchema)
   .superRefine((project, ctx) => {
     for (const key of Object.keys(project)) {
       if (!KNOWN_ROOT_KEYS.includes(key) && !key.startsWith('x-')) {
@@ -385,9 +426,7 @@ export const ProjectDocumentSchema = ProjectSchemaBase.catchall(JsonValueSchema)
     for (const issue of integrityIssues(project)) {
       addIssue(ctx, issue);
     }
-  });
-
-export type ProjectDocument = z.infer<typeof ProjectDocumentSchema>;
+  }) as unknown as z.ZodType<ProjectDocument, z.ZodTypeDef, unknown>;
 
 export type ProjectParseFailure = {
   ok: false;

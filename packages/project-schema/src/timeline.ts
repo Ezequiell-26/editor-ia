@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ColorGradeSchema } from './color-grade.ts';
 import { DecibelSchema, EntityIdSchema, UnitIntervalSchema } from './primitives.ts';
 import { curveDurationFrames, meanSpeedCurve } from './speed-curve.ts';
 import { DurationSchema, FrameRateSchema, FrameSchema } from './time.ts';
@@ -611,6 +612,13 @@ export const ClipEffectsSchema = z
      * y una cadena de voz sin que uno consuma el tope del otro.
      */
     audioStack: z.array(EffectInstanceSchema).max(32).optional(),
+    /**
+     * Grafo de gradación de la página Color. Es la fuente de verdad del módulo:
+     * el compilador (`features/color`) lo proyecta a los campos planos de
+     * `ClipEffects` para el export FFmpeg y genera el filtro en vivo. Al ser
+     * opcional, los proyectos anteriores se abren sin migración.
+     */
+    colorGrade: ColorGradeSchema.optional(),
   })
   .strict();
 

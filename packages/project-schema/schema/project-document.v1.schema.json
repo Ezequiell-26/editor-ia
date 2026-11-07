@@ -639,6 +639,492 @@
             "$ref": "#/properties/look/properties/stack/items"
           },
           "maxItems": 32
+        },
+        "colorGrade": {
+          "type": "object",
+          "properties": {
+            "version": {
+              "type": "number",
+              "const": 1
+            },
+            "nodes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "source",
+                      "serial",
+                      "parallel",
+                      "output"
+                    ]
+                  },
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "layer": {
+                    "type": "object",
+                    "properties": {
+                      "primaries": {
+                        "type": "object",
+                        "properties": {
+                          "lift": {
+                            "type": "object",
+                            "properties": {
+                              "r": {
+                                "type": "number",
+                                "minimum": -1,
+                                "maximum": 1
+                              },
+                              "g": {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              "b": {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              }
+                            },
+                            "required": [
+                              "r",
+                              "g",
+                              "b"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "gamma": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift"
+                          },
+                          "gain": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift"
+                          },
+                          "offset": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift"
+                          },
+                          "contrast": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "pivot": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "saturation": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 3
+                          },
+                          "temperature": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "tint": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          }
+                        },
+                        "required": [
+                          "lift",
+                          "gamma",
+                          "gain",
+                          "offset",
+                          "contrast",
+                          "pivot",
+                          "saturation",
+                          "temperature",
+                          "tint"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "hdr": {
+                        "type": "object",
+                        "properties": {
+                          "global": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "shadows": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "dark": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "light": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "highlights": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "specular": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          }
+                        },
+                        "required": [
+                          "global",
+                          "shadows",
+                          "dark",
+                          "light",
+                          "highlights",
+                          "specular"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "curves": {
+                        "type": "object",
+                        "properties": {
+                          "master": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "x": {
+                                  "$ref": "#/properties/look/properties/fade"
+                                },
+                                "y": {
+                                  "$ref": "#/properties/look/properties/fade"
+                                }
+                              },
+                              "required": [
+                                "x",
+                                "y"
+                              ],
+                              "additionalProperties": false
+                            },
+                            "minItems": 2,
+                            "maxItems": 16
+                          },
+                          "red": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          },
+                          "green": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          },
+                          "blue": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          },
+                          "hueVsHue": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          },
+                          "hueVsSat": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          },
+                          "hueVsLum": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          },
+                          "lumVsSat": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/curves/properties/master"
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      "qualifier": {
+                        "type": "object",
+                        "properties": {
+                          "enabled": {
+                            "type": "boolean"
+                          },
+                          "hue": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "hueWidth": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "satMin": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "satMax": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "lumMin": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "lumMax": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "feather": {
+                            "$ref": "#/properties/look/properties/fade"
+                          },
+                          "invert": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "enabled",
+                          "hue",
+                          "hueWidth",
+                          "satMin",
+                          "satMax",
+                          "lumMin",
+                          "lumMax",
+                          "feather",
+                          "invert"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "windows": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/id"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "circle",
+                                "rect",
+                                "polygon",
+                                "gradient"
+                              ]
+                            },
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "x": {
+                              "$ref": "#/properties/look/properties/fade"
+                            },
+                            "y": {
+                              "$ref": "#/properties/look/properties/fade"
+                            },
+                            "width": {
+                              "$ref": "#/properties/look/properties/fade"
+                            },
+                            "height": {
+                              "$ref": "#/properties/look/properties/fade"
+                            },
+                            "rotation": {
+                              "type": "number",
+                              "minimum": -180,
+                              "maximum": 180
+                            },
+                            "feather": {
+                              "$ref": "#/properties/look/properties/fade"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "$ref": "#/properties/look/properties/fade"
+                                  },
+                                  "y": {
+                                    "$ref": "#/properties/look/properties/fade"
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y"
+                                ],
+                                "additionalProperties": false
+                              },
+                              "maxItems": 16
+                            },
+                            "tracking": {
+                              "type": "boolean"
+                            },
+                            "dx": {
+                              "type": "number",
+                              "minimum": -1,
+                              "maximum": 1
+                            },
+                            "dy": {
+                              "type": "number",
+                              "minimum": -1,
+                              "maximum": 1
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "kind",
+                            "enabled",
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "rotation",
+                            "feather",
+                            "tracking",
+                            "dx",
+                            "dy"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "maxItems": 8
+                      },
+                      "mixer": {
+                        "type": "object",
+                        "properties": {
+                          "red": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                            "items": [
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              }
+                            ]
+                          },
+                          "green": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                            "items": [
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              }
+                            ]
+                          },
+                          "blue": {
+                            "type": "array",
+                            "minItems": 3,
+                            "maxItems": 3,
+                            "items": [
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              },
+                              {
+                                "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                              }
+                            ]
+                          }
+                        },
+                        "required": [
+                          "red",
+                          "green",
+                          "blue"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "warper": {
+                        "type": "object",
+                        "properties": {
+                          "hue": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          },
+                          "saturation": {
+                            "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/layer/properties/primaries/properties/lift/properties/r"
+                          }
+                        },
+                        "required": [
+                          "hue",
+                          "saturation"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "blur": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 50
+                      },
+                      "sharpen": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 5
+                      },
+                      "lutFile": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 500
+                      },
+                      "lutIntensity": {
+                        "$ref": "#/properties/look/properties/fade"
+                      },
+                      "mix": {
+                        "$ref": "#/properties/look/properties/fade"
+                      }
+                    },
+                    "required": [
+                      "primaries",
+                      "hdr",
+                      "curves",
+                      "qualifier",
+                      "windows",
+                      "mixer",
+                      "warper",
+                      "blur",
+                      "sharpen",
+                      "lutIntensity",
+                      "mix"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "x": {
+                    "$ref": "#/properties/look/properties/fade"
+                  },
+                  "y": {
+                    "$ref": "#/properties/look/properties/fade"
+                  }
+                },
+                "required": [
+                  "id",
+                  "label",
+                  "kind",
+                  "enabled",
+                  "layer",
+                  "x",
+                  "y"
+                ],
+                "additionalProperties": false
+              },
+              "minItems": 2,
+              "maxItems": 24
+            },
+            "links": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/id"
+                  },
+                  "from": {
+                    "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/id"
+                  },
+                  "to": {
+                    "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/id"
+                  }
+                },
+                "required": [
+                  "id",
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false
+              },
+              "maxItems": 64
+            },
+            "activeNodeId": {
+              "$ref": "#/properties/look/properties/colorGrade/properties/nodes/items/properties/id"
+            }
+          },
+          "required": [
+            "version",
+            "nodes",
+            "links"
+          ],
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
