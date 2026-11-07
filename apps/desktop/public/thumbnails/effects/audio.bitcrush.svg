@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:hsl(22 45% 16%);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:hsl(72 50% 26%);stop-opacity:1" />
+    </linearGradient>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7" />
+    </filter>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="10" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)" />
+  
+    <line x1="12" y1="90" x2="308" y2="90" stroke="hsl(22 60% 80%)" stroke-width="1.5" opacity="0.6" />
+    <rect x="12" y="78.5" width="7" height="23" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.45" />
+    <rect x="24.5" y="49.5" width="7" height="81" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.55" />
+    <rect x="37" y="55.5" width="7" height="69" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.65" />
+    <rect x="49.5" y="61.5" width="7" height="57" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.75" />
+    <rect x="62" y="77.5" width="7" height="25" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.8500000000000001" />
+    <rect x="74.5" y="38.5" width="7" height="103" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.45" />
+    <rect x="87" y="44.5" width="7" height="91" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.55" />
+    <rect x="99.5" y="50.5" width="7" height="79" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.65" />
+    <rect x="112" y="66.5" width="7" height="47" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.75" />
+    <rect x="124.5" y="72.5" width="7" height="35" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.8500000000000001" />
+    <rect x="137" y="80" width="7" height="20" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.45" />
+    <rect x="149.5" y="67" width="7" height="46" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.55" />
+    <rect x="162" y="57" width="7" height="66" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.65" />
+    <rect x="174.5" y="79" width="7" height="22" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.75" />
+    <rect x="187" y="63" width="7" height="54" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.8500000000000001" />
+    <rect x="199.5" y="50" width="7" height="80" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.45" />
+    <rect x="212" y="40" width="7" height="100" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.55" />
+    <rect x="224.5" y="62" width="7" height="56" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.65" />
+    <rect x="237" y="58" width="7" height="64" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.75" />
+    <rect x="249.5" y="45" width="7" height="90" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.8500000000000001" />
+    <rect x="262" y="47.5" width="7" height="85" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.45" />
+    <rect x="274.5" y="63.5" width="7" height="53" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.55" />
+    <rect x="287" y="69.5" width="7" height="41" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.65" />
+    <rect x="299.5" y="75.5" width="7" height="29" rx="3.5" fill="hsl(22 75% 62%)" opacity="0.75" />
+</svg>

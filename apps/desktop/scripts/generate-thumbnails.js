@@ -137,17 +137,15 @@ const EFFECTS = [
   { id: 'chromatic-aberration', name: 'Chromatic', category: 'distort', pattern: 'distort' },
 ];
 
+// Ids reales del catálogo de VisualsView (commands/visuals.rs + visuals.ts)
 const TRANSITIONS = [
   { id: 'dissolve', name: 'Dissolve' },
-  { id: 'fade', name: 'Fade' },
-  { id: 'wipe-left', name: 'Wipe Left' },
-  { id: 'wipe-right', name: 'Wipe Right' },
-  { id: 'wipe-up', name: 'Wipe Up' },
-  { id: 'wipe-down', name: 'Wipe Down' },
-  { id: 'zoom-in', name: 'Zoom In' },
-  { id: 'zoom-out', name: 'Zoom Out' },
+  { id: 'fade-black', name: 'Fade Black' },
+  { id: 'fade-white', name: 'Fade White' },
   { id: 'slide-left', name: 'Slide Left' },
   { id: 'slide-right', name: 'Slide Right' },
+  { id: 'slide-up', name: 'Slide Up' },
+  { id: 'slide-down', name: 'Slide Down' },
 ];
 
 const MOTION_TEMPLATES = [
@@ -160,12 +158,14 @@ const MOTION_TEMPLATES = [
 ];
 
 const PRESETS = [
-  { id: 'cinematic', name: 'Cinematic' },
-  { id: 'vibrant', name: 'Vibrant' },
-  { id: 'vintage', name: 'Vintage' },
-  { id: 'cold', name: 'Cold' },
-  { id: 'warm', name: 'Warm' },
-  { id: 'dramatic', name: 'Dramatic' },
+  { id: 'soft', name: 'Soft' },
+  { id: 'dream', name: 'Dream' },
+  { id: 'noir', name: 'Noir' },
+  { id: 'vhs', name: 'VHS' },
+  { id: 'documentary', name: 'Documentary' },
+  { id: 'high-key', name: 'High Key' },
+  { id: 'low-key', name: 'Low Key' },
+  { id: 'neon', name: 'Neon' },
 ];
 
 function generateSVG(pattern, colors, width = 320, height = 180) {

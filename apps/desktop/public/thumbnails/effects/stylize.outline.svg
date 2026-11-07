@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" width="320" height="180">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:hsl(179 45% 16%);stop-opacity:1" />
+      <stop offset="100%" style="stop-color:hsl(229 50% 26%);stop-opacity:1" />
+    </linearGradient>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="7" />
+    </filter>
+    <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="10" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </defs>
+  <rect width="320" height="180" fill="url(#bg)" />
+  
+    <circle cx="50" cy="90" r="10" fill="hsl(179 70% 92%)" opacity="0.5" />
+    <circle cx="94" cy="90" r="15" fill="hsl(179 70% 92%)" opacity="0.5" />
+    <circle cx="138" cy="90" r="20" fill="hsl(179 70% 92%)" opacity="0.5" />
+    <circle cx="182" cy="90" r="10" fill="hsl(179 70% 92%)" opacity="0.5" />
+    <circle cx="226" cy="90" r="15" fill="hsl(179 70% 92%)" opacity="0.5" />
+    <circle cx="270" cy="90" r="20" fill="hsl(179 70% 92%)" opacity="0.5" />
+</svg>

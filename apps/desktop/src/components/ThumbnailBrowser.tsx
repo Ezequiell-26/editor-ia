@@ -114,6 +114,7 @@ interface ThumbnailCardProps {
 }
 
 function ThumbnailCard({ item, isSelected, onClick, onDoubleClick }: ThumbnailCardProps) {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
   return (
     <div
       className={`thumbnail-card ${isSelected ? 'selected' : ''}`}
@@ -132,8 +133,13 @@ function ThumbnailCard({ item, isSelected, onClick, onDoubleClick }: ThumbnailCa
       title={item.description || item.name}
     >
       <div className="thumbnail-preview">
-        {item.thumbnail ? (
-          <img src={item.thumbnail} alt={item.name} loading="lazy" />
+        {item.thumbnail && !thumbnailFailed ? (
+          <img
+            src={item.thumbnail}
+            alt={item.name}
+            loading="lazy"
+            onError={() => setThumbnailFailed(true)}
+          />
         ) : (
           <div className="thumbnail-placeholder">
             <Icon name={item.icon as any || 'assets'} size={28} />

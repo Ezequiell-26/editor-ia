@@ -21,6 +21,7 @@
     "fixtures:write": "node --experimental-strip-types packages/project-schema/scripts/write-fixtures.ts",
     "schema:generate": "node --experimental-strip-types packages/project-schema/scripts/generate-json-schema.ts",
     "effects:codegen": "node --experimental-strip-types packages/effect-kit/scripts/generate-recipes.ts",
+    "thumbnails:effects": "node --experimental-strip-types packages/effect-kit/scripts/generate-thumbnails.ts",
     "loop:preflight": "node scripts/loop-preflight.mjs",
     "loop:record": "node scripts/loop-record.mjs",
     "verify": "npm run typecheck && npm run test:serial && npm run test:extension && npm run test:web-tts",
