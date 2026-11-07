@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, type IconName } from './Icon';
 import { useDialogFocus } from '../hooks/useDialogFocus';
+import type { ViewId } from '../app/navigation';
+import { workspaceGroupFor } from '../app/workspace-map';
 import {
   DEFAULT_SHORTCUTS,
   SHORTCUT_CATEGORIES,
@@ -27,6 +29,12 @@ interface ExtraShortcutItem {
   readonly category: string;
   readonly categoryKey: ShortcutCategoryFilter;
   readonly hint?: string;
+  /**
+   * Sólo para atajos `nav.*`: etiqueta del grupo del workspace-map al que
+   * pertenece la vista («Preparar», «Editar», …). La sección se muestra como
+   * «Navegación · <grupo>» para no colisionar con la categoría «Editar».
+   */
+  readonly workspaceGroup?: string;
 }
 
 const GESTURE_SHORTCUTS: readonly ExtraShortcutItem[] = [
@@ -195,6 +203,11 @@ export function ShortcutsCheatSheet({ open, onClose, onOpenSettings }: Shortcuts
       const label = SHORTCUT_LABELS[id] || id;
       const rawCategory = SHORTCUT_CATEGORIES[id] || 'General';
       const categoryKey = mapCategoryKey(rawCategory);
+      // Los atajos nav.* apuntan a un ViewId: su sección sigue el grupo del
+      // mapa único del estudio, igual que la paleta de comandos.
+      const workspaceGroup = id.startsWith('nav.')
+        ? workspaceGroupFor(id.slice('nav.'.length) as ViewId)?.label
+        : undefined;
 
       return {
         id,
@@ -202,6 +215,7 @@ export function ShortcutsCheatSheet({ open, onClose, onOpenSettings }: Shortcuts
         keys: binding,
         category: rawCategory,
         categoryKey,
+        ...(workspaceGroup ? { workspaceGroup } : {}),
       };
     });
 
@@ -248,11 +262,14 @@ export function ShortcutsCheatSheet({ open, onClose, onOpenSettings }: Shortcuts
     return counts;
   }, [allItems]);
 
-  // Agrupar items filtrados por categoría para mostrar secciones legibles
+  // Agrupar items filtrados por categoría para mostrar secciones legibles.
+  // Los atajos de navegación se subdividen por el grupo del workspace-map.
   const groupedItems = useMemo(() => {
     const groups = new Map<string, typeof filteredItems>();
     for (const item of filteredItems) {
-      const groupName = item.category;
+      const groupName = item.workspaceGroup
+        ? `${item.category} · ${item.workspaceGroup}`
+        : item.category;
       if (!groups.has(groupName)) {
         groups.set(groupName, []);
       }
