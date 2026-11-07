@@ -171,6 +171,7 @@ pub mod stickman;
 pub mod sharpen;
 pub mod shorts;
 pub mod subtitles;
+pub mod subtitles_pipeline;
 pub mod system;
 pub mod thumbnail;
 pub mod timeline_import;

@@ -873,6 +873,19 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     }, ['action']),
   },
 
+  {
+    name: 'subtitles_pipeline',
+    description: `${WRITE} Pipeline automático de subtítulos: transcribe un video con faster-whisper, traduce los cues con el proveedor IA (si targetLanguage), genera .ass y opcionalmente quema subtítulos en un MP4 nuevo (libass). Devuelve assPath, cues, translated, simulated, burned.`,
+    inputSchema: obj({
+      inputPath: { type: 'string', minLength: 1, maxLength: 32_768 },
+      outputPath: { type: 'string', maxLength: 32_768 },
+      targetLanguage: { type: 'string', maxLength: 16 },
+      sourceLanguage: { type: 'string', maxLength: 16 },
+      model: { type: 'string', enum: ['tiny', 'base', 'small', 'medium'] },
+      burn: { type: 'boolean' },
+    }, ['inputPath']),
+  },
+
   // ── Marcadores ──────────────────────────────────────────────────────
   {
     name: 'markers_list',

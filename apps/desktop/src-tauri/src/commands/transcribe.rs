@@ -19,7 +19,7 @@ use crate::projects::service::{self, ProjectError, ProjectErrorCode};
 use crate::render::ffmpeg::sanitize_log;
 use crate::state::AppState;
 
-const SCRIPT: &str = include_str!("../../scripts/transcribe_faster.py");
+pub(crate) const SCRIPT: &str = include_str!("../../scripts/transcribe_faster.py");
 /// El motor no viene empaquetado: se instala en un Python del equipo.
 const INSTALL_HINT: &str =
     "instalá el motor con `python -m pip install faster-whisper` y reiniciá Olyvia";
@@ -185,7 +185,7 @@ pub struct TranscriptionResult {
     pub segments: Vec<TranscriptionSegment>,
 }
 
-fn derive_hf_home(python: &Path) -> Option<PathBuf> {
+pub(crate) fn derive_hf_home(python: &Path) -> Option<PathBuf> {
     if let Some(value) = std::env::var_os("EDITORIA_HF_HOME") {
         let path = PathBuf::from(value);
         if path.is_dir() {
@@ -202,7 +202,7 @@ fn derive_hf_home(python: &Path) -> Option<PathBuf> {
     }
 }
 
-fn validate_model(value: &str) -> Result<String, ProjectError> {
+pub(crate) fn validate_model(value: &str) -> Result<String, ProjectError> {
     match value.trim() {
         "tiny" | "base" | "small" | "medium" => Ok(value.trim().to_owned()),
         "" => Ok("small".to_owned()),
@@ -213,7 +213,7 @@ fn validate_model(value: &str) -> Result<String, ProjectError> {
     }
 }
 
-fn validate_language(value: &str) -> Result<String, ProjectError> {
+pub(crate) fn validate_language(value: &str) -> Result<String, ProjectError> {
     let value = value.trim();
     if value.is_empty() {
         return Ok("auto".to_owned());
@@ -234,7 +234,7 @@ fn validate_language(value: &str) -> Result<String, ProjectError> {
     Ok(value.to_lowercase())
 }
 
-fn parse_result(raw: &[u8]) -> Result<TranscriptionResult, ProjectError> {
+pub(crate) fn parse_result(raw: &[u8]) -> Result<TranscriptionResult, ProjectError> {
     if raw.len() > MAX_OUTPUT_BYTES {
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,

@@ -344,6 +344,7 @@ pub fn run() {
             commands::media::import_media_paths,
             commands::media::list_media_folder,
             commands::media::import_lut,
+            commands::subtitles_pipeline::subtitles_pipeline,
             commands::subtitles::choose_subtitle_file,
             commands::media::extract_freeze_frame,
             commands::media::create_video_proxy,

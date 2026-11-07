@@ -1673,6 +1673,17 @@ export interface ScreenRecordResult {
   readonly error?: string;
 }
 
+export interface SubtitlePipelineResult {
+  readonly ok: boolean;
+  readonly assPath?: string;
+  readonly outputPath?: string | null;
+  readonly cues?: number;
+  readonly language?: string;
+  readonly translated?: boolean;
+  readonly simulated?: boolean;
+  readonly burned?: boolean;
+}
+
 export interface BrowserInstanceInfo {
   readonly id: string;
   readonly port: number;
@@ -2533,6 +2544,14 @@ export interface DesktopService {
     encoder?: 'x264' | 'nvenc' | 'qsv' | 'amf' | 'mf';
   }): Promise<ScreenRecordStatus>;
   screenRecordStop(): Promise<ScreenRecordResult>;
+  subtitlesPipeline(input: {
+    inputPath: string;
+    outputPath?: string;
+    targetLanguage?: string;
+    sourceLanguage?: string;
+    model?: string;
+    burn?: boolean;
+  }): Promise<SubtitlePipelineResult>;
   browserInstanceLaunch(input: {
     profileId: string;
     proxyUrl?: string;
@@ -2882,6 +2901,7 @@ export const PROJECT_COMMANDS = {
   screenRecordStart: 'screen_record_start',
   screenRecordStop: 'screen_record_stop',
   stickmanRender: 'stickman_render',
+  subtitlesPipeline: 'subtitles_pipeline',
   browserInstanceLaunch: 'browser_instance_launch',
   browserInstanceClose: 'browser_instance_close',
   browserInstanceList: 'browser_instance_list',
@@ -4256,6 +4276,9 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     async stickmanRender(input) {
       return (await call(PROJECT_COMMANDS.stickmanRender, { request: input })) as StickmanRenderResult;
     },
+    async subtitlesPipeline(input) {
+      return (await call(PROJECT_COMMANDS.subtitlesPipeline, { request: input })) as SubtitlePipelineResult;
+    },
     async browserInstanceLaunch(input) {
       return (await call(PROJECT_COMMANDS.browserInstanceLaunch, {
         profileId: input.profileId,
@@ -4730,6 +4753,7 @@ function createUnavailableService(): DesktopService {
     screenRecordStart: async () => unavailable(),
     screenRecordStop: async () => unavailable(),
     stickmanRender: async () => unavailable(),
+    subtitlesPipeline: async () => unavailable(),
     browserInstanceLaunch: async () => unavailable(),
     browserInstanceClose: async () => unavailable(),
     browserInstanceList: async () => unavailable(),

@@ -2051,6 +2051,18 @@ export function createFakeService(): FakeService {
         hasAudio: false,
       };
     },
+    async subtitlesPipeline() {
+      return {
+        ok: true,
+        assPath: 'C:\videos\demo.es.ass',
+        outputPath: 'C:\videos\demo.es.mp4',
+        cues: 42,
+        language: 'es',
+        translated: true,
+        simulated: false,
+        burned: true,
+      };
+    },
     async browserInstanceLaunch() {
       return {
         id: 'perfil-test',

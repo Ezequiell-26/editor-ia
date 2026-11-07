@@ -757,6 +757,27 @@ export async function executeMcpTool(
       throw new Error('«action» debe ser launch, close, list, navigate o eval');
     }
 
+    case 'subtitles_pipeline': {
+      const inputPath = text(args, 'inputPath');
+      const outputPath = optionalText(args, 'outputPath');
+      const targetLanguage = optionalText(args, 'targetLanguage');
+      const sourceLanguage = optionalText(args, 'sourceLanguage');
+      const model = optionalText(args, 'model');
+      const burn = typeof args.burn === 'boolean' ? args.burn : undefined;
+      return JSON.stringify(
+        await context.store.service.subtitlesPipeline({
+          inputPath,
+          ...(outputPath ? { outputPath } : {}),
+          ...(targetLanguage ? { targetLanguage } : {}),
+          ...(sourceLanguage ? { sourceLanguage } : {}),
+          ...(model === 'tiny' || model === 'base' || model === 'small' || model === 'medium'
+            ? { model }
+            : {}),
+          ...(burn !== undefined ? { burn } : {}),
+        }),
+      );
+    }
+
     case 'subtitles_translate': {
       const rawTexts = args.texts;
       if (!Array.isArray(rawTexts)) {
