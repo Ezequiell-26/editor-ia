@@ -109,6 +109,71 @@ reconstruye el instalador salvo que el ítem lo pida.
     graph-model 6) · `tsc --noEmit -p apps/desktop` 0. No se corrió la
     suite serial completa.
 
+- `[done]` **Atajos locales del timeline reasignables + scopes del color con
+  paridad FilmCraft + reorden de cola de render (2026-11-07)** — tres gaps de
+  `docs/FOLLOW-UPS.md`/`CAPABILITY-MATRIX.md`, mismo pedido del usuario.
+  - **Atajos**: 12 ids nuevos en `state/shortcuts.ts` (`timeline.rippleToggle`,
+    `panMode`, `copyClip`, `pasteClip`, `deleteWithRipple`, `moveGroupLeft/Right`,
+    `tools.select/split/selectBackward/selectForward/zoom`) con los defaults que
+    el timeline ya usaba; `Timeline.tsx` y `EditorWorkspace.tsx` leen el registro
+    vía `bindingMatches` + `shortcutsRef` (S/M incluidos). Evidencia por id en
+    `shortcuts-pro.test.ts`. Pendiente honesto: `clipKeyboardAction` (Alt/Ctrl+Alt
+    + flechas) sigue fijo porque Shift es modificador de la acción.
+  - **Scopes**: `ColorStudio` renderiza el frame del clip gradeado
+    (`render_preview_frame`, mismo `visual_filter` del export, debounce 400 ms)
+    y pasa `realFramePath`+`analyzeScopes` a `ScopesPanel`: el botón FilmCraft
+    mide waveform/vectorscope/histograma nativos en la página de Color, no sólo
+    en el monitor.
+  - **Cola de render**: la persistencia entre sesiones ya existía
+    (`localStorage`, `running`→`pending`). Se agregó `movePending` para
+    permutar entradas `pending` — reorden real sin backend — y el botón
+    «Reordenar» del diálogo lo usa cuando el servicio no expone
+    `moveRenderQueueEntry`. Pausa/reanudar siguen deshabilitados (sin soporte
+    backend, no se simula). Backend persistente en Rust sigue pendiente.
+  - **Archivos**: `state/shortcuts.ts`, `state/shortcuts-pro.test.ts`,
+    `features/editor/Timeline.tsx` (+test), `EditorWorkspace.tsx`,
+    `features/color/ColorStudio.tsx`, `state/render-queue.ts` (+test),
+    `features/editor/ExportDialog.tsx`, `docs/ATAJOS-PRO.md`,
+    `docs/FOLLOW-UPS.md`, `docs/CAPABILITY-MATRIX.md`.
+  - **Verificación**: vitest dirigidos — shortcuts+Timeline **46/46**,
+    render-queue+ExportDialog+capabilities **24/24**, color/scopes **8/8** ·
+    `tsc --noEmit` 0. No se corrió la suite serial completa.
+
+- `[done]` **Cableado global de atajos 🟡 + fix de guardado en `runGraph`
+  (2026-11-07)** — pendientes 5 y 8 de la lista de gaps.
+  - **`App.tsx`**: `playback.shuttleForward/Pause` (`L`/`K`), `framePrev/Next`
+    (`,`/`.`) y `goToStart/End` (`Home`/`End`) ahora se despachan desde
+    cualquier vista con proyecto abierto (pausan la reproducción al saltar de
+    frame). Los ids de timeline con handler local (`S`, `M`, `H`, zoom, trim,
+    ripple…) no se duplican: el dispatcher cae en `default` sin
+    `preventDefault` y responde el handler local.
+  - **`Timeline.tsx`**: `timeline.zoomIn/Out/Fit` (`+`/`-`/`F`) usan las mismas
+    fórmulas que los botones (×1.4, ajuste `760/max(4·fps, duration)`);
+    `timeline.trimIn/Out` (`[`/`]`) recortan el clip seleccionado hasta el
+    playhead vía `trimClip`.
+  - **Conflicto cerrado**: los divisores de panel (timeline height,
+    inspector width) hacían `preventDefault` sin `stopPropagation` en
+    Home/End y flechas — ahora frenan la propagación para no disparar los
+    atajos globales/locales.
+  - **`NodeGraphView.runGraph`**: `saveNow` ahora cede un tick tras
+    `store.update` antes de guardar, igual que `saveGraph` — antes podía
+    persistir (y renderizar) el documento anterior al grafo.
+  - **Verificación**: `tsc --noEmit` 0 · vitest `App.test.tsx` +
+    `Timeline.test.tsx` + `features/nodes/` **108/108**.
+
+- `[done]` **Bindings para acciones de clip por teclado (2026-11-07)** —
+  pendiente 7 de `ATAJOS-PRO.md`.
+  - `clipKeyboardAction` (`timeline-keyboard.ts`) acepta el `ShortcutMap`
+    vigente y resuelve los 6 ids `timeline.clipMove*`/`clipTrim*`; el match
+    compara el binding del evento **sin Shift** contra el configurado **sin
+    Shift** (Shift = ±1 s / borde de salida, modificador de la acción).
+    `EditorWorkspace` le pasa `shortcutsRef.current`. Defaults idénticos al
+    esquema Alt/Ctrl+Alt anterior — migración transparente.
+  - Límite honesto documentado: bindings que sólo difieran en Shift
+    colisionan al hacer match.
+  - **Verificación**: vitest `timeline-keyboard.test.ts` **12/12** (test nuevo
+    de reasignación) + `shortcuts-pro` 5/5.
+
 - `[done]` **Unificación F4 (cierre) · onboarding de primera ejecución con el
   recorrido único (2026-11-07)** — último pendiente de la fase F4 de
   `docs/UNIFICATION-PLAN.md`. F4 queda **completada**.

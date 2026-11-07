@@ -13,7 +13,7 @@ import {
   type ProjectDocument,
 } from '@editor-ia/project-schema';
 import { updateClip } from '../../state/project-actions';
-import { useProjectStore } from '../../state/project-store';
+import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import { useThumbnail } from '../../hooks/useThumbnail';
 import { ScopesPanel } from '../editor/ScopesPanel';
 import { applyGradeProjection, compileGrade, gradeFilterId } from './color-engine';
@@ -106,6 +106,46 @@ export function ColorStudio({ clipId }: { readonly clipId: string }) {
       return document.querySelector<HTMLDivElement>('.preview-stage') ?? hiddenScopeStageRef.current;
     },
   }), []);
+  // Paridad con el monitor del editor: el botón «FilmCraft» de Scopes necesita
+  // un frame real en disco. Lo renderizamos del clip gradeado (mismo
+  // `visual_filter` del export) de forma debounced mientras la pestaña Scopes
+  // está activa; si el servicio no está disponible el panel sigue con el
+  // muestreo canvas en vivo.
+  const playback = useProjectPlayback();
+  const playhead = playback.frame;
+  const [scopeFramePath, setScopeFramePath] = useState<string | null>(null);
+  const scopeFrameBusy = useRef(false);
+  useEffect(() => {
+    if (tool !== 'scopes' || !clipId) {
+      setScopeFramePath(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (scopeFrameBusy.current) return;
+      const current = store.getProject();
+      if (!current) return;
+      scopeFrameBusy.current = true;
+      store.service
+        .renderPreviewFrame({ project: current, clipId, frame: playhead, composite: false })
+        .then((result) => {
+          if (!cancelled) setScopeFramePath(result.path);
+        })
+        .catch(() => {
+          if (!cancelled) setScopeFramePath(null);
+        })
+        .finally(() => {
+          scopeFrameBusy.current = false;
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // `project` no entra en deps a propósito: cada movimiento del grado crea un
+    // doc nuevo y dispararía un render por tecla. El proyecto vigente se lee
+    // dentro del timeout vía store.getProject().
+  }, [tool, clipId, playhead, store]);
   const defaultGrades = useRef(new Map<string, ColorGrade>());
   const interaction = useRef(false);
 
@@ -381,8 +421,13 @@ export function ColorStudio({ clipId }: { readonly clipId: string }) {
                   style={{ filter: compiled.css || undefined }} />
               </div>
             </div>
-            <ScopesPanel stageRef={scopeStageRef} onClose={() => setTool('primaries')} />
-            <p className="cg-hint">Waveform, RGB Parade, Vectorscope e Histograma calculados sobre el fotograma con el grade aplicado.</p>
+            <ScopesPanel
+              stageRef={scopeStageRef}
+              realFramePath={scopeFramePath}
+              analyzeScopes={(path) => store.service.analyzeScopesFrame({ path })}
+              onClose={() => setTool('primaries')}
+            />
+            <p className="cg-hint">Waveform, RGB Parade, Vectorscope e Histograma calculados sobre el fotograma con el grade aplicado.{scopeFramePath ? ' «FilmCraft» mide el frame renderizado del clip con el mismo filtro del export.' : ''}</p>
           </div>
         ) : tool === 'gallery' ? (
           <div className="cg-gallery">

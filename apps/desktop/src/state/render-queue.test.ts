@@ -8,6 +8,7 @@ import {
   markDone,
   markFailed,
   markRunning,
+  movePending,
   nextPending,
   queueFileName,
   removeEntry,
@@ -141,6 +142,30 @@ describe('cola de render', () => {
     }));
     const queue = enqueueProfiles([], many, true);
     expect(queue).toHaveLength(RENDER_QUEUE_LIMIT);
+  });
+
+  it('reordena pendientes sin tocar las entradas terminadas', () => {
+    let queue = enqueueProfiles([], PROFILES, true);
+    queue = markDone(queue, queue[1]!.id, 'C:\ya.mp4');
+    const second = queue[0]!;
+    const moved = movePending(queue, second.id, 'down');
+    // La pendiente restante sigue primera en orden de pendientes.
+    expect(nextPending(moved)?.profileId).toBe('p-16-9');
+    // Sin otra pendiente, no hay a dónde moverla.
+    expect(movePending(moved, second.id, 'down')).toBe(moved);
+    expect(movePending(moved, second.id, 'up')).toBe(moved);
+  });
+
+  it('mueve una pendiente al frente del orden de drenaje', () => {
+    let queue = enqueueProfiles([], [...PROFILES, { id: 'p-tercero', name: 'Tercero' }], true);
+    const third = queue[2]!;
+    const moved = movePending(queue, third.id, 'up');
+    // Un lugar entre pendientes: queda segunda en el orden de drenaje.
+    expect(nextPending(moved)?.id).toBe(queue[0]!.id);
+    const front = movePending(moved, third.id, 'up');
+    expect(nextPending(front)?.id).toBe(third.id);
+    // Las posiciones de las entradas no pendientes quedan intactas.
+    expect(moved.map((entry) => entry.id)).toEqual([queue[0]!.id, third.id, queue[1]!.id]);
   });
 
   it('genera nombres de archivo seguros', () => {

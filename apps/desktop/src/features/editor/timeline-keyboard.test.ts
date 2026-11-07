@@ -8,6 +8,7 @@ import {
   ensureDelivery,
 } from '../../state/project-actions';
 import { readyAsset } from '../../test/fake-service';
+import { DEFAULT_SHORTCUTS } from '../../state/shortcuts';
 import {
   clipKeyboardAction,
   isCompatibleTrack,
@@ -118,6 +119,21 @@ describe('teclado de la timeline · decisión de acción', () => {
     expect(clipKeyboardAction(evento({ key: 'm' }), FPS)).toBeNull();
     expect(clipKeyboardAction(evento({ key: 'Home' }), FPS)).toBeNull();
     expect(clipKeyboardAction(evento({ defaultPrevented: true }), FPS)).toBeNull();
+  });
+
+  it('respeta los bindings reasignados desde Ajustes → Atajos', () => {
+    const map = { ...DEFAULT_SHORTCUTS, 'timeline.clipMoveLeft': 'Ctrl+Shift+F5' };
+    // La tecla de fábrica ya no mueve el clip…
+    expect(clipKeyboardAction(evento({ key: 'ArrowLeft' }), FPS, map)).toBeNull();
+    // …y la nueva sí. Shift sigue siendo el modificador de la acción (±1 s),
+    // no parte del binding: se ignora al comparar.
+    expect(
+      clipKeyboardAction(
+        evento({ key: 'F5', altKey: false, ctrlKey: true, shiftKey: true }),
+        FPS,
+        map,
+      ),
+    ).toEqual({ kind: 'move', deltaFrames: -FPS });
   });
 });
 

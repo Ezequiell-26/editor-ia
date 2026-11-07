@@ -265,10 +265,14 @@ aplicado (`setActiveId('editor')`, igual que `openToolMap`).
 **Actualización 2026-11-07 (cierre de F4)**: `OnboardingTour` pasó a derivar
 sus pasos de `WORKSPACE_STEPS` — mismo id, etiqueta, acción, detalle, tip y
 vista canónica por etapa— y sólo conserva `TOUR_TARGETS` como anclas
-visuales por etapa. Con esto las cuatro superficies de aprendizaje (Inicio,
-Aprender, modo Guía del editor y tour) muestran los mismos 6 pasos de
-`app/pipeline.ts`. **F1–F4 completadas**: el plan de unificación queda
-cerrado; el siguiente trabajo sale de `docs/IMPROVEMENT-QUEUE.md`.
+visuales por etapa. `WelcomeDialog` (primera ejecución) dejó de tener copy
+propio: Pando narra los mismos 6 pasos (`PANDA_SLIDES` deriva de
+`WORKSPACE_STEPS`), el diálogo lista las seis etapas (`.welcome-journey`) y
+ofrece abrir el tour con `onOpenTour`. Con esto las cinco superficies de
+aprendizaje (Inicio, bienvenida, Aprender, modo Guía del editor y tour)
+muestran los mismos 6 pasos de `app/pipeline.ts`. **F1–F4 completadas**:
+el plan de unificación queda cerrado; el siguiente trabajo sale de
+`docs/IMPROVEMENT-QUEUE.md`.
 
 ---
 

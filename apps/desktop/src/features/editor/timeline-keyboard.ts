@@ -23,6 +23,23 @@
  */
 
 import type { Clip, ProjectDocument, Track } from '@editor-ia/project-schema';
+import {
+  DEFAULT_SHORTCUTS,
+  normalizeBinding,
+  type ShortcutId,
+  type ShortcutMap,
+} from '../../state/shortcuts';
+
+/** Ids del registro que gobiernan las acciones de clip por teclado. */
+export type ClipShortcutId = Extract<
+  ShortcutId,
+  | 'timeline.clipMoveLeft'
+  | 'timeline.clipMoveRight'
+  | 'timeline.clipMoveTrackUp'
+  | 'timeline.clipMoveTrackDown'
+  | 'timeline.clipTrimIn'
+  | 'timeline.clipTrimOut'
+>;
 
 export type ClipKeyboardAction =
   | { kind: 'move'; deltaFrames: number }
@@ -85,33 +102,68 @@ export function nearestCompatibleTrack(
 }
 
 /**
+ * Binding canónico del evento (mismo formato que `eventToBinding`, pero sobre
+ * la forma mínima del evento que este módulo necesita para los tests).
+ */
+function eventBinding(event: ClipKeyboardEvent): string {
+  const parts: string[] = [];
+  if (event.ctrlKey || event.metaKey) parts.push('Ctrl');
+  if (event.altKey) parts.push('Alt');
+  if (event.shiftKey) parts.push('Shift');
+  parts.push(event.key);
+  return normalizeBinding(parts.join('+'));
+}
+
+/**
+ * Quita `Shift` de un binding: en las acciones de clip Shift NO es parte del
+ * atajo sino el modificador de la acción (±1 segundo, borde de salida). Por
+ * eso el match se hace con el binding "base" de ambos lados.
+ */
+function stripShift(binding: string): string {
+  return normalizeBinding(binding)
+    .split('+')
+    .filter((part) => part !== 'Shift')
+    .join('+');
+}
+
+/**
  * ¿Qué acción de clip pide este evento? Devuelve null si el evento no es una
- * combinación de edición de clip: sin Alt, teclas que no son flechas, o un
- * evento que otro control ya prevenió (grip del playhead, asas de fade, menú
- * contextual).
+ * combinación de edición de clip o si otro control ya lo prevenió (grip del
+ * playhead, asas de fade, menú contextual).
+ *
+ * Los bindings se leen del registro (`shortcuts`, p.ej. el mapa vigente de
+ * Ajustes → Atajos): el usuario puede reasignar cada acción. Sin `shortcuts`
+ * se usan los defaults de fábrica, que reproducen el esquema Alt/Ctrl+Alt.
  */
 export function clipKeyboardAction(
   event: ClipKeyboardEvent,
   fps: number,
+  shortcuts?: ShortcutMap,
 ): ClipKeyboardAction | null {
   if (event.defaultPrevented) return null;
-  if (!event.altKey) return null;
-  if (event.ctrlKey || event.metaKey) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return null;
-    const edge = event.shiftKey ? 'end' : 'start';
-    return { kind: 'trim', edge, deltaFrames: event.key === 'ArrowRight' ? 1 : -1 };
-  }
+  const pressed = stripShift(eventBinding(event));
+  if (!pressed) return null;
   const second = Math.max(1, Math.round(fps));
-  switch (event.key) {
-    case 'ArrowLeft':
-      return { kind: 'move', deltaFrames: event.shiftKey ? -second : -1 };
-    case 'ArrowRight':
-      return { kind: 'move', deltaFrames: event.shiftKey ? second : 1 };
-    case 'ArrowUp':
-      return { kind: 'move-track', direction: -1 };
-    case 'ArrowDown':
-      return { kind: 'move-track', direction: 1 };
-    default:
-      return null;
+  const match = (id: ClipShortcutId): boolean =>
+    pressed ===
+    stripShift(shortcuts?.[id] ?? DEFAULT_SHORTCUTS[id]);
+  if (match('timeline.clipTrimIn')) {
+    return { kind: 'trim', edge: event.shiftKey ? 'end' : 'start', deltaFrames: -1 };
   }
+  if (match('timeline.clipTrimOut')) {
+    return { kind: 'trim', edge: event.shiftKey ? 'end' : 'start', deltaFrames: 1 };
+  }
+  if (match('timeline.clipMoveLeft')) {
+    return { kind: 'move', deltaFrames: event.shiftKey ? -second : -1 };
+  }
+  if (match('timeline.clipMoveRight')) {
+    return { kind: 'move', deltaFrames: event.shiftKey ? second : 1 };
+  }
+  if (match('timeline.clipMoveTrackUp')) {
+    return { kind: 'move-track', direction: -1 };
+  }
+  if (match('timeline.clipMoveTrackDown')) {
+    return { kind: 'move-track', direction: 1 };
+  }
+  return null;
 }

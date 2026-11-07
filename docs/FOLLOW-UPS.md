@@ -49,18 +49,22 @@ tiene superficie de UI** o requiere otra ola, con evidencia verificable.
   vez de repetir la llamada (evita duplicar costo y texto).
 - La estimación de tokens es aproximada (4 caracteres/token) y no incluye el
   contexto del proyecto; sirve como aviso, no como facturación.
-- Categoría «Timeline» del registro ya ordenada; sigue pendiente que los handlers
-  hardcodeados de `Timeline.tsx`/`EditorWorkspace.tsx` lean el registro para que
-  reasignar `S`/`M`/`Alt+…` cambie también el editor (exige tocar esos archivos,
-  fuera de esta ola). El cableado global de los atajos 🟡 sigue en `App.tsx`,
-  también fuera de alcance.
+- ✅ **Atajos locales del timeline reasignables** (ola posterior): `Timeline.tsx`
+  y `EditorWorkspace.tsx` leen el registro vía `bindingMatches` +
+  `shortcutsRef`. `S`/`M` y los 12 atajos locales nuevos (`Shift+R`, `H`,
+  `Ctrl+C/V`, `Shift+Delete`, `Alt+Shift+←/→`, `V`/`C`/`A`/`Shift+A`/`Z` del
+  selector) aparecen en Ajustes → Atajos con sus defaults originales.
+  ✅ `clipKeyboardAction` (`timeline-keyboard.ts`) también lee el registro:
+  el match ignora Shift en ambos lados porque Shift es el modificador de la
+  acción (±1 s / borde de salida), no del binding. Límite documentado en
+  `ATAJOS-PRO.md`: bindings que sólo difieran en Shift colisionan. ✅ Cableado global de los atajos 🟡 resuelto:
+  `App.tsx` despacha shuttle/frame/inicio/fin desde cualquier vista y
+  `Timeline.tsx` atiende zoom (`+`/`-`/`F`) y recorte (`[`/`]`) con las mismas
+  fórmulas que sus botones.
 - La fase de timeline pro agregó atajos **locales** en `Timeline.tsx`
-  (`Shift+R` ripple, `Alt+Shift+←/→` mover grupo, `Shift/Ctrl+clic`
-  multi-selección). No están en el registro y no son reasignables; están
-  documentados en `ATAJOS-PRO.md` §«Atajos locales del timeline (no
-  reasignables)». `Esc` no tiene handler local: la multi-selección depende de
-  `edit.deselect` del registro; migrar a `selection: { kind: 'clips', ids }` en
-  el store queda para otra ola.
+  (`Shift/Ctrl+clic` multi-selección sigue siendo mouse). `Esc` no tiene
+  handler local: la multi-selección depende de `edit.deselect` del registro;
+  migrar a `selection: { kind: 'clips', ids }` en el store queda para otra ola.
 
 ---
 
@@ -248,13 +252,17 @@ sigue quedó **fuera** de este incremento y la UI no debe ofrecerlo todavía.
   `cancel_render`, `active_render`, eventos `render-progress`/`render-finished`),
   sin pausa ni persistencia propia; la cola es la de la UI
   (`state/render-queue.ts`, localStorage, `running`→`pending` al cargar).
-- `pause_render`, `resume_render` y `move_render_queue_entry` **no existen**: la
-  UI debe dejarlos deshabilitados con motivo «la cola persistente del backend
-  llega en una próxima fase». No se publicaron métodos de servicio para no
-  prometer algo que el backend no hace.
+- `pause_render`, `resume_render` y `move_render_queue_entry` **no existen**: pausa
+  y reanudar quedan deshabilitados con motivo «la cola persistente del backend
+  llega en una próxima fase». **Reordenar ya funciona**: permutar entradas
+  `pending` es real sin backend (el runner drena `nextPending` en orden), así que
+  `movePending` (`state/render-queue.ts`) + el botón «Reordenar» del diálogo
+  intercambian las dos primeras pendientes cuando el servicio no expone
+  `moveRenderQueueEntry`; si el backend lo soporta, se delega a él. 2 tests.
 - **Pendiente:** cola persistente en Rust (JSON en app-data, estados
   queued/paused/running/completed/failed/cancelled, recuperación al iniciar,
-  reintento) y contrato tipado.
+  reintento) y contrato tipado. La persistencia entre sesiones ya existe a nivel
+  UI (`localStorage`, `running`→`pending` al cargar, con tests).
 
 ### 6.4 Recuperación, historial y duplicados (hecho)
 - Rust: `commands/recovery.rs` → `choose_media_folder`, `find_missing_assets`,

@@ -99,3 +99,20 @@
     max-height: 260px;
   }
 }
+
+/* Barra del grafo: nombre + selector de grafos guardados en el proyecto. */
+.nodes-graph-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+
+.nodes-graph-bar .field {
+  min-width: 200px;
+}
+
+.nodes-graph-bar .field input,
+.nodes-graph-bar .field select {
+  max-width: 320px;
+}

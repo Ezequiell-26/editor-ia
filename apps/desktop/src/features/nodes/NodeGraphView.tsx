@@ -33,6 +33,7 @@ import {
   type NodeGraph,
   type NodeKind,
 } from './graph-model';
+import { readStoredGraphs, upsertStoredGraph, type StoredGraph } from './graph-store';
 
 export interface NodeGraphViewProps {
   readonly onNavigate: (view: ViewId) => void;
@@ -111,12 +112,13 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [graphName, setGraphName] = useState('Grafo');
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   const graph = useMemo<NodeGraph>(
     () => ({
       version: 1,
-      name: 'grafos',
+      name: graphName,
       nodes: nodes.map((node) => ({
         id: node.id,
         kind: (node.data.kind ?? 'input') as NodeKind,
@@ -136,16 +138,43 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
       })),
       edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
     }),
-    [nodes, edges],
+    [nodes, edges, graphName],
   );
 
-  // Auto-carga el grafo más reciente guardado en <proyecto>/graphs/ al abrir
-  // la vista con un proyecto (persistencia real vía fs del servicio).
+  /** Aplica un grafo parseado al lienzo y deja el nombre visible en sync. */
+  const applyGraph = useCallback((parsed: NodeGraph, source: string) => {
+    setNodes(toFlowNodes(parsed));
+    setEdges(
+      parsed.edges.map((edge) => ({
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        animated: true,
+      })),
+    );
+    setGraphName(parsed.name);
+    setSelectedId(null);
+    setNotice(`Grafo «${parsed.name}» ${source}`);
+  }, [setEdges, setNodes]);
+
+  // Auto-carga al abrir la vista con proyecto: primero el documento
+  // (`x-nodeGraphs`, lo último guardado) y, si no hay, el legado
+  // `<proyecto>/graphs/*.json` para no perder grafos de versiones anteriores.
   const autoLoadedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!opened || nodes.length > 0 || autoLoadedFor.current === opened.root) return;
-    autoLoadedFor.current = opened.root;
-    const dir = `${opened.root}\graphs`;
+    const key = project?.id ?? opened?.root ?? null;
+    if (!key || nodes.length > 0 || autoLoadedFor.current === key) return;
+    autoLoadedFor.current = key;
+
+    const stored = readStoredGraphs(project);
+    const latest = stored[stored.length - 1];
+    if (latest) {
+      applyGraph(latest.graph, 'restaurado del proyecto');
+      return;
+    }
+    if (!opened) return;
+
+    const dir = `${opened.root}\\graphs`;
     void (async () => {
       try {
         const listing = await store.service.listDirectory(dir);
@@ -153,26 +182,16 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
           .filter((e) => e.kind === 'text' || e.name.endsWith('.json'))
           .filter((e) => e.name.endsWith('.json'))
           .sort((a, b) => b.name.localeCompare(a.name));
-        const latest = files[0];
-        if (!latest) return;
-        const content = await store.service.readTextFile(latest.path);
-        const parsed = graphFromJson(content.content);
-        setNodes(toFlowNodes(parsed));
-        setEdges(
-          parsed.edges.map((edge) => ({
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
-            animated: true,
-          })),
-        );
-        setNotice(`Grafo «${parsed.name}» restaurado desde graphs/`);
+        const file = files[0];
+        if (!file) return;
+        const content = await store.service.readTextFile(file.path);
+        applyGraph(graphFromJson(content.content), 'restaurado desde graphs/');
       } catch {
         // Sin carpeta graphs/ o archivo ilegible: se empieza con grafo vacío.
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, store.service]);
+  }, [project, opened, store.service]);
 
   const problems = useMemo(() => validateGraph(graph), [graph]);
   const selected = nodes.find((node) => node.id === selectedId) ?? null;
@@ -226,48 +245,61 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
     setSelectedId(null);
   }, [selectedId, setEdges, setNodes]);
 
-  const persistPath = useCallback(() => {
-    if (!opened) return null;
-    return `${opened.root}\\graphs\\nodos-${Date.now().toString(36)}.json`;
-  }, [opened]);
-
+  /**
+   * Guarda el grafo DENTRO del documento del proyecto (`x-nodeGraphs`), no en
+   * un archivo suelto: viaja con el `.editoria.json` y lo restauran todas las
+   * versiones de la app (las claves x-* se conservan al re-guardar).
+   */
   const saveGraph = useCallback(async () => {
-    const path = persistPath();
-    if (!path) {
-      setError('Abrí un proyecto para guardar el grafo dentro de su carpeta.');
+    if (!project) {
+      setError('Abrí un proyecto para guardar el grafo dentro del documento.');
       return;
     }
-    try {
-      await store.service.writeTextFile(path, JSON.stringify(graph, null, 2));
-      setNotice(`Grafo guardado en ${path}`);
-      setError(null);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'no se pudo guardar el grafo');
+    const name = graphName.trim() || 'Grafo';
+    const entry: StoredGraph = {
+      name,
+      updatedAt: new Date().toISOString(),
+      graph: { ...graph, name },
+    };
+    const applied = store.update(
+      (doc) => upsertStoredGraph(doc, entry),
+      { history: false },
+    );
+    if (!applied) {
+      setError('El store rechazó el guardado del grafo.');
+      return;
     }
-  }, [graph, persistPath, store.service]);
+    setError(null);
+    // `saveNow` lee el estado ya confirmado por React: hay que ceder un tick
+    // para que el render del `update` actualice `stateRef` antes de pedirlo.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const saved = await store.saveNow();
+    setNotice(
+      saved
+        ? `Grafo «${name}» guardado en el proyecto.`
+        : `Grafo «${name}» actualizado; se escribirá con el autoguardado.`,
+    );
+  }, [graph, graphName, project, store]);
+
+  const loadStoredGraph = useCallback(
+    (entry: StoredGraph) => {
+      applyGraph(entry.graph, 'cargado del proyecto');
+      setError(null);
+    },
+    [applyGraph],
+  );
 
   const loadGraph = useCallback(
     async (file: File) => {
       try {
         const text = await file.text();
-        const parsed = graphFromJson(text);
-        setNodes(toFlowNodes(parsed));
-        setEdges(
-          parsed.edges.map((edge) => ({
-            id: edge.id,
-            source: edge.source,
-            target: edge.target,
-            animated: true,
-          })),
-        );
-        setSelectedId(null);
-        setNotice(`Grafo «${parsed.name}» cargado (${parsed.nodes.length} nodos)`);
+        applyGraph(graphFromJson(text), 'cargado desde archivo');
         setError(null);
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'no se pudo leer el grafo');
       }
     },
-    [setEdges, setNodes],
+    [applyGraph],
   );
 
   const runGraph = useCallback(async () => {
@@ -288,6 +320,10 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
       const clipCount = result.results.reduce((sum, item) => sum + item.clipIds.length, 0);
       let message = `Grafo ejecutado: ${result.results.length} nodos, ${clipCount} clips en la timeline.`;
       if (result.renderRequested) {
+        // `saveNow` lee `stateRef`, que se actualiza recién cuando React
+        // confirma el `update` de arriba: sin ceder un tick se podría guardar
+        // (y renderizar) el documento anterior al grafo.
+        await new Promise((resolve) => setTimeout(resolve, 0));
         const saved = await store.saveNow();
         if (!saved) {
           setError('El grafo editó el proyecto pero no se pudo guardar para renderizar.');
@@ -331,6 +367,10 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
       ),
     [project],
   );
+
+  // Grafos persistidos dentro del documento del proyecto (x-nodeGraphs).
+  const storedGraphs = useMemo(() => readStoredGraphs(project), [project]);
+  const storedNames = useMemo(() => new Set(storedGraphs.map((g) => g.name)), [storedGraphs]);
 
   return (
     <section className="nodes-view" aria-label="Editor de nodos">
@@ -389,6 +429,38 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
           </button>
         </div>
       </header>
+
+      <div className="nodes-graph-bar">
+        <label className="field nodes-graph-name">
+          <span>Nombre del grafo</span>
+          <input
+            value={graphName}
+            placeholder="Grafo"
+            onChange={(event) => setGraphName(event.target.value)}
+          />
+        </label>
+        {storedGraphs.length > 1 ? (
+          <label className="field nodes-graph-pick">
+            <span>Guardados en el proyecto</span>
+            <select
+              value={storedNames.has(graphName) ? graphName : ''}
+              onChange={(event) => {
+                const entry = storedGraphs.find((item) => item.name === event.target.value);
+                if (entry) loadStoredGraph(entry);
+              }}
+            >
+              {!storedNames.has(graphName) ? (
+                <option value="">{graphName.trim() || 'Grafo'} (sin guardar)</option>
+              ) : null}
+              {storedGraphs.map((entry) => (
+                <option key={entry.name} value={entry.name}>
+                  {entry.name} · {entry.updatedAt.slice(0, 10)}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
 
       {notice ? <p className="notice">{notice}</p> : null}
       {error ? (

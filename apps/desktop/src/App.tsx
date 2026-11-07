@@ -34,7 +34,7 @@ import {
 } from './app/view-routing';
 import { ProjectHome } from './features/projects/ProjectHome';
 import { AppearanceProvider } from './state/AppearanceProvider';
-import { duplicateClip, rippleDeleteClip, totalFrames } from './state/project-actions';
+import { duplicateClip, fpsOf, rippleDeleteClip, totalFrames } from './state/project-actions';
 import {
   createDesktopService,
   detectNativeRuntime,
@@ -752,6 +752,38 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           event.preventDefault();
           store.setPlaying(!store.getPlaying());
           return;
+        case 'playback.shuttleForward':
+          if (!store.state.project) return;
+          event.preventDefault();
+          store.setPlaying(true);
+          return;
+        case 'playback.shuttlePause':
+          if (!store.state.project) return;
+          event.preventDefault();
+          store.setPlaying(false);
+          return;
+        case 'playback.framePrev':
+        case 'playback.frameNext':
+        case 'playback.goToStart':
+        case 'playback.goToEnd': {
+          const current = store.state.project;
+          if (!current) return;
+          event.preventDefault();
+          const fps = fpsOf(current);
+          const duration = totalFrames(current);
+          const frame = store.getPlayhead();
+          const next =
+            matched === 'playback.framePrev'
+              ? Math.max(0, frame - 1)
+              : matched === 'playback.frameNext'
+                ? Math.min(duration, frame + 1)
+                : matched === 'playback.goToStart'
+                  ? 0
+                  : duration;
+          store.setPlaying(false);
+          store.setPlayhead(next);
+          return;
+        }
         default: {
           const target = NAV_TARGET[matched];
           if (target) {

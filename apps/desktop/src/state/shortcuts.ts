@@ -57,7 +57,22 @@ export type ShortcutId =
   | 'timeline.clipMoveTrackUp'
   | 'timeline.clipMoveTrackDown'
   | 'timeline.clipTrimIn'
-  | 'timeline.clipTrimOut';
+  | 'timeline.clipTrimOut'
+  // Atajos locales del timeline que antes estaban hardcodeados en
+  // Timeline.tsx: ahora se reasignan desde Ajustes → Atajos.
+  | 'timeline.rippleToggle'
+  | 'timeline.panMode'
+  | 'timeline.copyClip'
+  | 'timeline.pasteClip'
+  | 'timeline.deleteWithRipple'
+  | 'timeline.moveGroupLeft'
+  | 'timeline.moveGroupRight'
+  // Selector de herramienta de la timeline (antes V/C/A/Shift+A/Z fijos).
+  | 'tools.select'
+  | 'tools.split'
+  | 'tools.selectBackward'
+  | 'tools.selectForward'
+  | 'tools.zoom';
 
 export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'palette.toggle': 'Paleta de comandos',
@@ -99,6 +114,18 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'timeline.clipMoveTrackDown': 'Bajar el clip a la pista compatible siguiente',
   'timeline.clipTrimIn': 'Recortar el borde de entrada del clip seleccionado',
   'timeline.clipTrimOut': 'Recortar el borde de salida del clip seleccionado',
+  'timeline.rippleToggle': 'Activar/desactivar ripple (mover y recortar desplaza)',
+  'timeline.panMode': 'Alternar modo mano (pan de la timeline)',
+  'timeline.copyClip': 'Copiar clip seleccionado',
+  'timeline.pasteClip': 'Pegar clip copiado',
+  'timeline.deleteWithRipple': 'Borrar selección cerrando los huecos',
+  'timeline.moveGroupLeft': 'Mover los clips seleccionados 1 frame a la izquierda',
+  'timeline.moveGroupRight': 'Mover los clips seleccionados 1 frame a la derecha',
+  'tools.select': 'Selector: herramienta Seleccionar',
+  'tools.split': 'Selector: herramienta Corte ágil',
+  'tools.selectBackward': 'Selector: seleccionar hacia atrás',
+  'tools.selectForward': 'Selector: seleccionar hacia adelante',
+  'tools.zoom': 'Selector: herramienta Zoom',
 };
 
 export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
@@ -141,6 +168,18 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'timeline.clipMoveTrackDown': 'Timeline',
   'timeline.clipTrimIn': 'Timeline',
   'timeline.clipTrimOut': 'Timeline',
+  'timeline.rippleToggle': 'Timeline',
+  'timeline.panMode': 'Timeline',
+  'timeline.copyClip': 'Timeline',
+  'timeline.pasteClip': 'Timeline',
+  'timeline.deleteWithRipple': 'Timeline',
+  'timeline.moveGroupLeft': 'Timeline',
+  'timeline.moveGroupRight': 'Timeline',
+  'tools.select': 'Herramientas',
+  'tools.split': 'Herramientas',
+  'tools.selectBackward': 'Herramientas',
+  'tools.selectForward': 'Herramientas',
+  'tools.zoom': 'Herramientas',
 };
 
 export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
@@ -192,6 +231,20 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'timeline.clipMoveTrackDown': 'Alt+ArrowDown',
   'timeline.clipTrimIn': 'Ctrl+Alt+ArrowLeft',
   'timeline.clipTrimOut': 'Ctrl+Alt+ArrowRight',
+  // Conservar los bindings que el timeline ya usaba: la migración es
+  // transparente para quien nunca abrió Ajustes → Atajos.
+  'timeline.rippleToggle': 'Shift+R',
+  'timeline.panMode': 'H',
+  'timeline.copyClip': 'Ctrl+C',
+  'timeline.pasteClip': 'Ctrl+V',
+  'timeline.deleteWithRipple': 'Shift+Delete',
+  'timeline.moveGroupLeft': 'Alt+Shift+ArrowLeft',
+  'timeline.moveGroupRight': 'Alt+Shift+ArrowRight',
+  'tools.select': 'V',
+  'tools.split': 'C',
+  'tools.selectBackward': 'Shift+A',
+  'tools.selectForward': 'A',
+  'tools.zoom': 'Z',
 };
 
 const ALL_IDS = Object.keys(DEFAULT_SHORTCUTS) as ShortcutId[];

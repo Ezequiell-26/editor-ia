@@ -19,6 +19,12 @@ import {
 import { useProjectStore } from '../../state/project-store';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
 import {
+  SHORTCUTS_CHANGED_EVENT,
+  bindingMatches,
+  loadShortcuts,
+  type ShortcutMap,
+} from '../../state/shortcuts';
+import {
   clipKeyboardAction,
   nearestCompatibleTrack,
   type ClipKeyboardAction,
@@ -287,6 +293,22 @@ export const EditorWorkspace = memo(function EditorWorkspace({
     store.consumeExportRequest();
   }, [store.state.exportRequested, store.consumeExportRequest]);
 
+  // Bindings vigentes de Ajustes → Atajos (S divide, flechas mueven el
+  // playhead, Alt+flechas editan el clip). El listener se engancha una vez y
+  // lee el mapa desde la ref en cada pulsación.
+  const shortcutsRef = useRef<ShortcutMap>(loadShortcuts());
+  useEffect(() => {
+    const refresh = (): void => {
+      shortcutsRef.current = loadShortcuts();
+    };
+    window.addEventListener(SHORTCUTS_CHANGED_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(SHORTCUTS_CHANGED_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+
   useEffect(() => {
     /**
      * Ejecuta una acción de clip pedida por teclado (fase 2 de accesibilidad).
@@ -353,7 +375,7 @@ export const EditorWorkspace = memo(function EditorWorkspace({
       // teclado (Alt = mover, Ctrl+Alt = recortar). Va antes del paso del
       // playhead: con un clip seleccionado las flechas con Alt editan el clip;
       // sin selección las flechas siguen moviendo el cabezal como siempre.
-      const clipAction = clipKeyboardAction(event, fpsOf(project));
+      const clipAction = clipKeyboardAction(event, fpsOf(project), shortcutsRef.current);
       if (clipAction && selection.kind === 'clip') {
         event.preventDefault();
         runClipKeyboardAction(clipAction, selection.id);
@@ -376,7 +398,7 @@ export const EditorWorkspace = memo(function EditorWorkspace({
           store.setSelection({ kind: 'none' });
         }
       }
-      if (event.key.toLowerCase() === 's' && !event.ctrlKey && !event.metaKey) {
+      if (bindingMatches(event, shortcutsRef.current['timeline.splitAtPlayhead'])) {
         if (selection.kind === 'clip') {
           event.preventDefault();
           store.mutate((current) => {
@@ -661,6 +683,10 @@ export const EditorWorkspace = memo(function EditorWorkspace({
               }}
               onDoubleClick={() => setInspectorWidth(INSPECTOR_WIDTH_DEFAULT)}
               onKeyDown={(event) => {
+                // Las flechas mueven el playhead y Home/End saltan a los
+                // extremos (handlers globales del editor): al ajustar el ancho
+                // del panel no deben disparar esos atajos.
+                event.stopPropagation();
                 if (event.key === 'ArrowLeft') {
                   event.preventDefault();
                   setInspectorWidth((width) => clampInspectorWidth(width + 16));

@@ -23,6 +23,8 @@ import {
   totalFrames,
   trimClip,
 } from './project-actions';
+import { deleteClips, moveClipsBy } from '../features/editor/timeline-edits';
+import { updateEditorPreferences } from './editor-preferences';
 import { addMarker, deleteMarker, markerAtFrame } from './markers';
 import { ProjectProvider, useProjectStore, type ProjectStoreValue } from './project-store';
 
@@ -118,6 +120,20 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'timeline.clipMoveTrackDown': [moveClip, store.update],
     'timeline.clipTrimIn': [trimClip, store.update],
     'timeline.clipTrimOut': [trimClip, store.update],
+    // Atajos locales del timeline: antes hardcodeados en Timeline.tsx, ahora
+    // leen el registro (bindingMatches) y son reasignables desde Ajustes.
+    'timeline.rippleToggle': [Timeline, updateEditorPreferences, store.setNotice],
+    'timeline.panMode': [Timeline],
+    'timeline.copyClip': [Timeline],
+    'timeline.pasteClip': [Timeline],
+    'timeline.deleteWithRipple': [deleteClips, store.update],
+    'timeline.moveGroupLeft': [moveClipsBy, store.update],
+    'timeline.moveGroupRight': [moveClipsBy, store.update],
+    'tools.select': [Timeline],
+    'tools.split': [Timeline],
+    'tools.selectBackward': [Timeline],
+    'tools.selectForward': [Timeline],
+    'tools.zoom': [Timeline],
   };
 }
 

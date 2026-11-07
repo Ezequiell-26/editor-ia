@@ -24,6 +24,7 @@ import {
   markDone,
   markFailed,
   markRunning,
+  movePending,
   nextPending,
   queueFileName,
   removeEntry,
@@ -1372,18 +1373,31 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     <button
                       type="button"
                       className="small"
-                      disabled={!queueCapabilities.reorder || queue.length < 2}
-                      title={queueCapabilityTitle(queueCapabilities, 'reorder')}
+                      disabled={queue.filter((entry) => entry.status === 'pending').length < 2}
+                      title={
+                        queueCapabilities.reorder
+                          ? 'Reordenar la cola'
+                          : 'Intercambia las dos primeras entregas pendientes (el render activo no se toca)'
+                      }
                       onClick={() => {
                         const target = queue.find((entry) => entry.status === 'pending');
-                        if (target) {
+                        const second = queue.find(
+                          (entry, index) =>
+                            entry.status === 'pending' &&
+                            queue.findIndex((item) => item.status === 'pending') !== index,
+                        );
+                        if (queueCapabilities.reorder && target && optionalQueueService?.moveRenderQueueEntry) {
                           void optionalQueueService
-                            .moveRenderQueueEntry?.(target.id, 'up')
+                            .moveRenderQueueEntry(target.id, 'up')
                             .catch((cause) => {
                               setError(
                                 cause instanceof Error ? cause.message : 'no se pudo reordenar',
                               );
                             });
+                        } else if (second) {
+                          // Sin soporte del backend, permutar pendientes sigue
+                          // siendo real: el runner drena nextPending en orden.
+                          setQueue((current) => movePending(current, second.id, 'up'));
                         }
                       }}
                     >

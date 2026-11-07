@@ -22,12 +22,12 @@ Leyenda de estado:
 
 | Tecla | Acción (etiqueta en Ajustes) | Acción existente que ejecuta | Estado |
 | --- | --- | --- | --- |
-| `L` | Shuttle: reproducir hacia adelante | `setPlaying(true)` (`project-store.tsx:498`); el motor avanza hacia adelante (`features/editor/usePlayback.ts:28-46`) | 🟡 |
-| `K` | Shuttle: pausar | `setPlaying(false)` (`project-store.tsx:498`) | 🟡 |
-| `,` | Frame anterior | Paso del playhead: `store.setPlayhead(playhead − 1)`; el paso a frame ya existe con las flechas (`EditorWorkspace.tsx:82-92`) | 🟡 |
-| `.` | Frame siguiente | `store.setPlayhead(playhead + 1)` | 🟡 |
-| `Home` | Ir al inicio de la timeline | `setPlayhead(0)`; mismo movimiento que el grip del playhead (`Timeline.tsx:1689`) | 🟡 |
-| `End` | Ir al final de la timeline | `setPlayhead(totalFrames(project))` (`project-actions.ts:4280`; grip en `Timeline.tsx:1690`) | 🟡 |
+| `L` | Shuttle: reproducir hacia adelante | `setPlaying(true)`; cableado en el dispatcher global de `App.tsx` | ✅ |
+| `K` | Shuttle: pausar | `setPlaying(false)`; cableado en `App.tsx` | ✅ |
+| `,` | Frame anterior | `setPlayhead(frame − 1)` pausando la reproducción; cableado en `App.tsx` | ✅ |
+| `.` | Frame siguiente | `setPlayhead(frame + 1)` pausando la reproducción; cableado en `App.tsx` | ✅ |
+| `Home` | Ir al inicio de la timeline | `setPlayhead(0)`; cableado en `App.tsx` | ✅ |
+| `End` | Ir al final de la timeline | `setPlayhead(totalFrames(project))`; cableado en `App.tsx` | ✅ |
 | `Space` | Reproducir / Pausar (existente) | `playback.playPause` | (ya registrado antes) |
 
 Desde la fase 2 de accesibilidad, `Space` **no roba la activación**: si el foco
@@ -42,11 +42,11 @@ el keydown se previene (`isActivatableTarget` en `state/shortcuts.ts`).
 | --- | --- | --- | --- |
 | `S` | Dividir clip en el playhead | `splitClip` (`project-actions.ts:1576`); ya responde hoy vía `EditorWorkspace.tsx:66-77` | ✅ |
 | `M` | Marcador en el playhead | `addMarker` / `deleteMarker` / `markerAtFrame` (`state/markers.ts:23,104,156`); ya responde hoy vía `Timeline.tsx:699-702` | ✅ |
-| `[` | Recortar entrada del clip al playhead | `trimClip(project, clipId, 'start', playhead)` (`project-actions.ts:1242`) | 🟡 |
-| `]` | Recortar salida del clip al playhead | `trimClip(project, clipId, 'end', playhead)` | 🟡 |
-| `+` | Acercar timeline | Botón «Acercar»: `setPxPerFrame(×1.4)` (`Timeline.tsx:1193`) | 🟡 |
-| `-` | Alejar timeline | Botón «Alejar»: `setPxPerFrame(÷1.4)` (`Timeline.tsx:1184`) | 🟡 |
-| `F` | Ajustar zoom a la duración | Botón «Ajustar»: zoom a la duración del proyecto (`Timeline.tsx:1199-1206`) | 🟡 |
+| `[` | Recortar entrada del clip al playhead | `trimClip(…, 'start', playhead)` sobre el clip seleccionado; cableado en `Timeline.tsx` | ✅ |
+| `]` | Recortar salida del clip al playhead | `trimClip(…, 'end', playhead)`; cableado en `Timeline.tsx` | ✅ |
+| `+` | Acercar timeline | `setPxPerFrame(×1.4)` — mismo factor que el botón; cableado en `Timeline.tsx` | ✅ |
+| `-` | Alejar timeline | `setPxPerFrame(÷1.4)` — mismo factor que el botón; cableado en `Timeline.tsx` | ✅ |
+| `F` | Ajustar zoom a la duración | Misma fórmula que el botón «Ajustar»; cableado en `Timeline.tsx` | ✅ |
 | `Alt+←` | Mover el clip seleccionado 1 frame a la izquierda | `moveClip` (`project-actions.ts:903`); responde vía `EditorWorkspace.tsx` (edición de clip por teclado) | ✅ |
 | `Alt+→` | Mover el clip seleccionado 1 frame a la derecha | `moveClip` | ✅ |
 | `Alt+↑` | Subir el clip a la pista compatible anterior | `moveClip` con pista de `nearestCompatibleTrack` (`features/editor/timeline-keyboard.ts`) | ✅ |
@@ -72,20 +72,25 @@ contenedor de la timeline (`EditorWorkspace.tsx`), junto a Supr y S:
   eventos ya prevenidos por otros controles (grip del playhead, asas de fade,
   menú contextual) se ignoran.
 
-## Atajos locales del timeline (no reasignables)
+## Atajos locales del timeline (reasignables desde Ajustes)
 
-Estos atajos viven en el listener propio de `Timeline.tsx` (fase de timeline
-pro) y **no** forman parte del registro global: no aparecen para reasignar en
-Ajustes → Atajos. Sólo actúan en la vista del editor, con guard de
+Los atajos que viven en el listener propio de `Timeline.tsx` ahora **leen el
+registro** (`bindingMatches` + `shortcutsRef`): aparecen en Ajustes → Atajos y
+se pueden cambiar. Sólo actúan en la vista del editor, con guard de
 `input/textarea/select/contenteditable`; los que operan sobre la selección
 múltiple además se saltan si hay un diálogo, modal o la ventana de Ajustes
 abierta.
 
-| Tecla | Acción | Notas |
-| --- | --- | --- |
-| `Shift+R` | Activar/desactivar **Ripple editing** | `preventDefault` + `stopPropagation` local; el botón del toolbar expone `aria-keyshortcuts="Shift+R"`. Combinación libre en el registro global. |
-| `Alt+Shift+←` / `Alt+Shift+→` | Mover **1 frame** el grupo multi-seleccionado | Sólo con más de un clip seleccionado; `preventDefault` local. No pisa `Alt+←/→` del registro (`timeline.clipMove*`), que el dispatcher global no ejecuta. |
-| `Shift+clic` / `Ctrl+clic` (`Cmd` en mac) | Sumar/quitar clips a la multi-selección | Es mouse, no teclado; el set se sincroniza con el store. |
+| Binding por defecto | Id del registro | Acción | Notas |
+| --- | --- | --- | --- |
+| `Shift+R` | `timeline.rippleToggle` | Activar/desactivar **Ripple editing** | El botón del toolbar expone `aria-keyshortcuts="Shift+R"`. |
+| `Alt+Shift+←` / `Alt+Shift+→` | `timeline.moveGroupLeft` / `timeline.moveGroupRight` | Mover el grupo multi-seleccionado 1 frame | Sólo con más de un clip seleccionado. No pisa `Alt+←/→` (`timeline.clipMove*`). |
+| `Ctrl+C` / `Ctrl+V` | `timeline.copyClip` / `timeline.pasteClip` | Copiar / pegar clip | Copia interna del portapapeles del timeline. |
+| `Shift+Delete` | `timeline.deleteWithRipple` | Borrar selección cerrando huecos | Distinto de `edit.rippleDelete` (`Ctrl+Shift+Delete`, global). |
+| `H` | `timeline.panMode` | Alternar herramienta mano | — |
+| `M` | `timeline.toggleMarker` | Marcador en el playhead | Ya estaba en el registro; ahora el handler lo consulta. |
+| `V` / `C` / `A` / `Shift+A` / `Z` | `tools.select` / `tools.split` / `tools.selectForward` / `tools.selectBackward` / `tools.zoom` | Selector de herramienta de la timeline | Antes hardcodeados en `Timeline.tsx`. |
+| `Shift+clic` / `Ctrl+clic` (`Cmd` en mac) | — | Sumar/quitar clips a la multi-selección | Es mouse, no teclado; el set se sincroniza con el store. |
 
 **`Esc` y multi-selección**: no hay handler local de `Esc`. La selección múltiple
 se limpia cuando el atajo global `edit.deselect` (`Escape`) deja
@@ -95,9 +100,7 @@ múltiple quedaría hasta el próximo clic. La vía robusta para otra ola es exp
 `selection: { kind: 'clips', ids }` en `state/project-store` y migrar ambos
 lados juntos.
 
-Sin cambios en `M` (marcador), `S` (dividir), `H` (herramienta mano),
-`Ctrl+C/V`, `Shift+Delete` (ripple delete) ni en la semántica global de
-`Espacio`/flechas.
+Sin cambios en la semántica global de `Espacio`/flechas.
 
 ## Pendientes
 
@@ -110,22 +113,31 @@ Sin cambios en `M` (marcador), `S` (dividir), `H` (herramienta mano),
    «Duplicar clip» (`edit.duplicateClip`) y reasignar atajos existentes estaba
    prohibido. La acción ripple existe y ya está registrada como
    `edit.rippleDelete` con `Ctrl+Shift+Delete`.
-4. **`Shift+Supr` (Shift+Delete) ripple delete**: ya opera hoy vía handler de
-   `Timeline.tsx:696-699` (`rippleDeleteSelected`). El registro mantiene
-   `edit.rippleDelete` en `Ctrl+Shift+Delete`; cambiar ese default por
-   `Shift+Delete` sería reasignar un atajo existente → quedó pendiente de
-   decisión, no se tocó.
-5. **Cableado global de los atajos 🟡** (`L`, `K`, `,`, `.`, `Home`, `End`,
-   `[`, `]`, `+`, `-`, `F`): agregar los casos al switch de `App.tsx` (o
-   handlers equivalentes) para que respondan desde cualquier vista.
+4. **`Shift+Supr` (Shift+Delete) ripple delete**: ✅ resuelto. Tiene id propio
+   `timeline.deleteWithRipple` con default `Shift+Delete`, distinto del global
+   `edit.rippleDelete` (`Ctrl+Shift+Delete`); ambos coexisten y son
+   reasignables por separado.
+5. ~~**Cableado global de los atajos 🟡**~~ ✅ resuelto: `L`/`K` (shuttle), `,`/`.`
+   (frame a frame), `Home`/`End` (inicio/fin) los despacha `App.tsx` desde
+   cualquier vista con proyecto; `[`, `]`, `+`, `-`, `F` los atiende
+   `Timeline.tsx` con las mismas fórmulas que sus botones (zoom 1.4× y ajuste a
+   duración). Los ids de timeline que ya tenían handler local (`S`, `M`, `H`,
+   ripple, copiar/pegar, multi-selección, herramientas) no se duplican: el
+   dispatcher global cae en `default` sin `preventDefault` y el handler local
+   responde. Divisores de panel con `stopPropagation` para no robar Home/End
+   ni las flechas.
 6. **Categoría «Timeline» en Ajustes**: ✅ resuelto (ola 4c). `ShortcutsCard.tsx`
    ordena los grupos con `CATEGORY_ORDER`, que ya incluye «Timeline» al final;
    ningún grupo queda con índice -1.
-7. **Reasignación de `S`/`M` y de las combinaciones de clip con Alt**: los
-   handlers propios del editor no leen el registro (`getShortcut`); si el
-   usuario reasigna esas teclas en Ajustes, el handler hardcodeado seguirá
-   respondiendo a las teclas de fábrica. Unificar exige que `Timeline.tsx` /
-   `EditorWorkspace.tsx` consulten el registro.
+7. ~~**Reasignación de las combinaciones de clip con Alt**~~ ✅ resuelto:
+   `clipKeyboardAction` (`timeline-keyboard.ts`) recibe el mapa vigente de
+   Ajustes → Atajos y compara el binding del evento **sin Shift** contra el
+   binding configurado **sin Shift** — Shift queda reservado como modificador
+   de la acción (±1 segundo al mover, borde de salida al recortar), no como
+   parte del atajo. Los 6 ids (`timeline.clipMove*`/`clipTrim*`) son
+   reasignables como cualquier otro. Límite honesto: dos bindings que sólo
+   difieran en Shift colisionarían al hacer match (la validación de
+   `assignShortcut` no los distingue).
 
 ## Notas técnicas
 

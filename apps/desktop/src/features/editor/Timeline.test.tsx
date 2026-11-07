@@ -9,6 +9,11 @@ import {
   ensureDelivery,
 } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
+import {
+  SHORTCUTS_STORAGE_KEY,
+  loadShortcuts,
+  saveShortcuts,
+} from '../../state/shortcuts';
 import { Timeline, waveformColumns, waveformPath } from './Timeline';
 
 const NOW = '2026-10-20T00:00:00.000Z';
@@ -394,5 +399,29 @@ describe('onda del clip', () => {
     expect(waveformColumns(0)).toBe(2);
     expect(waveformColumns(300)).toBe(200);
     expect(waveformColumns(10_000)).toBe(480);
+  });
+});
+
+describe('Timeline · atajos reasignables desde Ajustes', () => {
+  afterEach(() => {
+    window.localStorage.removeItem(SHORTCUTS_STORAGE_KEY);
+  });
+
+  it('el marcador sigue el binding configurado, no la tecla fija', async () => {
+    saveShortcuts({
+      ...loadShortcuts(),
+      'timeline.toggleMarker': 'Ctrl+Shift+M',
+    });
+    const { container } = renderTimeline();
+
+    // La tecla original ya no dispara la acción.
+    fireEvent.keyDown(window, { key: 'm' });
+    expect(container.querySelectorAll('.timeline-marker')).toHaveLength(0);
+
+    // El binding nuevo sí: Ctrl+Shift+M alterna el marcador en el playhead.
+    fireEvent.keyDown(window, { key: 'M', ctrlKey: true, shiftKey: true });
+    await waitFor(() => {
+      expect(container.querySelectorAll('.timeline-marker').length).toBeGreaterThan(0);
+    });
   });
 });

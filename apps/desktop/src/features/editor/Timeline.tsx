@@ -47,6 +47,13 @@ import {
 } from '../../state/project-actions';
 import { addMarker, deleteMarker, markerAtFrame } from '../../state/markers';
 import { useProjectPlayback, useProjectStore } from '../../state/project-store';
+import {
+  SHORTCUTS_CHANGED_EVENT,
+  bindingMatches,
+  loadShortcuts,
+  type ShortcutId,
+  type ShortcutMap,
+} from '../../state/shortcuts';
 import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
 import { TimelineOverview } from './TimelineOverview';
@@ -744,6 +751,20 @@ export const Timeline = memo(function Timeline() {
     top: number;
   } | null>(null);
   const clipboardRef = useRef<Clip | null>(null);
+  // Mapa de atajos vigente: los handlers de teclado leen los bindings desde
+  // Ajustes → Atajos en cada pulsación (los listeners se enganchan una vez).
+  const shortcutsRef = useRef<ShortcutMap>(loadShortcuts());
+  useEffect(() => {
+    const refresh = (): void => {
+      shortcutsRef.current = loadShortcuts();
+    };
+    window.addEventListener(SHORTCUTS_CHANGED_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(SHORTCUTS_CHANGED_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
   const [clipboardReady, setClipboardReady] = useState(false);
   const [attributesReady, setAttributesReady] = useState(hasClipAttributesClipboard);
   const latest = useRef({ project, pxPerFrame, store, snapEnabled, snapPixels: preferences.snapPixels });
@@ -1183,27 +1204,30 @@ export const Timeline = memo(function Timeline() {
     }
   }
 
-  // Atajos V/C/A/Shift+A/Z del selector. El listener se registra una sola vez
-  // y lee el handler vigente de una ref: playback.frame cambia decenas de veces
-  // por segundo y no queremos reengancharlo en cada tick.
-  const toolShortcutRef = useRef<(key: string, shift: boolean) => void>(() => {});
-  toolShortcutRef.current = (key, shift) => {
-    if (key === 'v') changeToolSelector('select');
-    else if (key === 'c') changeToolSelector('agile-split');
-    else if (key === 'a') changeToolSelector(shift ? 'select-backward' : 'select-forward');
-    else if (key === 'z') changeToolSelector('zoom');
+  // Atajos del selector de herramienta (V/C/A/Shift+A/Z por defecto,
+  // reasignables desde Ajustes → Atajos, grupo «Herramientas»). El listener
+  // se registra una sola vez y lee el handler vigente de una ref:
+  // playback.frame cambia decenas de veces por segundo y no queremos
+  // reengancharlo en cada tick.
+  const toolShortcutRef = useRef<(event: KeyboardEvent) => void>(() => {});
+  toolShortcutRef.current = (event) => {
+    const map = shortcutsRef.current;
+    const match = (id: ShortcutId): boolean => bindingMatches(event, map[id]);
+    if (match('tools.select')) changeToolSelector('select');
+    else if (match('tools.split')) changeToolSelector('agile-split');
+    else if (match('tools.selectBackward')) changeToolSelector('select-backward');
+    else if (match('tools.selectForward')) changeToolSelector('select-forward');
+    else if (match('tools.zoom')) changeToolSelector('zoom');
+    else return;
+    event.preventDefault();
   };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.ctrlKey || event.metaKey || event.altKey) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
       if (document.querySelector('[role="dialog"], .modal, .settings-window')) return;
-      const key = event.key.toLowerCase();
-      if (key !== 'v' && key !== 'c' && key !== 'a' && key !== 'z') return;
-      event.preventDefault();
-      toolShortcutRef.current(key, event.shiftKey);
+      toolShortcutRef.current(event);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -1408,47 +1432,64 @@ export const Timeline = memo(function Timeline() {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
-      const command = event.ctrlKey || event.metaKey;
-      if (command && event.key.toLowerCase() === 'c' && selectedClipId) {
+      const map = shortcutsRef.current;
+      const match = (id: ShortcutId): boolean => bindingMatches(event, map[id]);
+      if (match('timeline.copyClip') && selectedClipId) {
         event.preventDefault();
         copySelectedClip();
-      } else if (command && event.key.toLowerCase() === 'v' && clipboardRef.current) {
+      } else if (match('timeline.pasteClip') && clipboardRef.current) {
         event.preventDefault();
         pasteCopiedClip();
-      } else if (event.shiftKey && event.key === 'Delete' && selectedClipId) {
+      } else if (match('timeline.deleteWithRipple') && selectedClipId) {
         event.preventDefault();
         rippleDeleteSelected();
-      } else if (!command && !event.altKey && event.key.toLowerCase() === 'm') {
+      } else if (match('timeline.toggleMarker')) {
         event.preventDefault();
         toggleMarkerAtPlayhead();
-      } else if (!command && !event.altKey && event.key.toLowerCase() === 'h') {
+      } else if (match('timeline.panMode')) {
         event.preventDefault();
         setPanMode((value) => !value);
-      } else if (
-        event.shiftKey &&
-        !command &&
-        !event.altKey &&
-        event.key.toLowerCase() === 'r'
-      ) {
-        // Atajo local del timeline (coordinado con functional-ai): libre en el
-        // registro global. No actúa si hay un diálogo abierto.
+      } else if (match('timeline.zoomIn') || match('timeline.zoomOut') || match('timeline.zoomFit')) {
+        // Mismas fórmulas que los botones Acercar/Alejar/Ajustar de la barra.
+        event.preventDefault();
+        const currentScale = latest.current.pxPerFrame;
+        const next = match('timeline.zoomFit')
+          ? clamp(760 / Math.max(4 * fps, duration), 0.2, 14)
+          : clamp(
+              currentScale * (match('timeline.zoomIn') ? 1.4 : 1 / 1.4),
+              0.2,
+              14,
+            );
+        setPxPerFrame(next);
+        store.setNotice(
+          `Zoom ${currentScale.toFixed(2)} → ${next.toFixed(2)} px/frame.`,
+        );
+      } else if (match('timeline.trimIn') || match('timeline.trimOut')) {
+        // [ y ]: recortan el borde del clip seleccionado hasta el playhead.
+        if (!selectedClipId) return;
+        event.preventDefault();
+        const edge = match('timeline.trimIn') ? 'start' : 'end';
+        const frame = store.getPlayhead();
+        store.update((current) => {
+          const next = trimClip(current, selectedClipId, edge, frame);
+          return next ?? current;
+        });
+      } else if (match('timeline.rippleToggle')) {
+        // No actúa si hay un diálogo abierto.
         if (document.querySelector('[role="dialog"], .modal, .settings-window')) return;
         event.preventDefault();
         event.stopPropagation();
         toggleRippleMode();
       } else if (
-        event.altKey &&
-        event.shiftKey &&
-        !command &&
-        selectedClipIds.size > 1 &&
-        (event.key === 'ArrowLeft' || event.key === 'ArrowRight')
+        (match('timeline.moveGroupLeft') || match('timeline.moveGroupRight')) &&
+        selectedClipIds.size > 1
       ) {
-        // Mover el grupo seleccionado frame a frame (combianción libre; no pisa
-        // Alt+flecha del registro global, que no se ejecuta para el editor).
+        // Mover el grupo seleccionado frame a frame; no pisa Alt+flecha del
+        // registro global porque el binding ya incluye Shift.
         if (document.querySelector('[role="dialog"], .modal, .settings-window')) return;
         event.preventDefault();
         event.stopPropagation();
-        const delta = event.key === 'ArrowRight' ? 1 : -1;
+        const delta = match('timeline.moveGroupRight') ? 1 : -1;
         const ids = [...selectedClipIds];
         store.update((current) => {
           const next = moveClipsBy(current, ids, delta);
@@ -2078,6 +2119,9 @@ export const Timeline = memo(function Timeline() {
           window.addEventListener('pointercancel', up);
         }}
         onKeyDown={(event) => {
+          // Home/End también son atajos globales del playhead (registro de
+          // atajos): al manipular el divisor no deben mover la reproducción.
+          event.stopPropagation();
           if (event.key === 'ArrowUp') {
             event.preventDefault();
             setTimelineHeight((value) => clampTimelineHeight(value + 24));

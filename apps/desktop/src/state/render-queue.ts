@@ -138,6 +138,33 @@ export function clearSettled(queue: RenderQueue): RenderQueue {
   return queue.filter((entry) => entry.status === 'pending' || entry.status === 'running');
 }
 
+/**
+ * Mueve una entrada `pending` un lugar dentro del orden de pendientes.
+ *
+ * El runner drena `nextPending` en orden, así que permutar pendientes cambia
+ * de verdad qué render sigue — no hace falta soporte del backend (que sólo ve
+ * un render activo por vez). `done`/`error`/`running` no participan del
+ * orden: se respeta su posición en el arreglo.
+ */
+export function movePending(
+  queue: RenderQueue,
+  id: string,
+  direction: 'up' | 'down',
+): RenderQueue {
+  const pendingIds = queue.filter((entry) => entry.status === 'pending').map((entry) => entry.id);
+  const index = pendingIds.indexOf(id);
+  const target = direction === 'up' ? index - 1 : index + 1;
+  if (index < 0 || target < 0 || target >= pendingIds.length) return queue;
+  const otherId = pendingIds[target]!;
+  const result = [...queue];
+  const from = result.findIndex((entry) => entry.id === id);
+  const to = result.findIndex((entry) => entry.id === otherId);
+  const moved = result[from]!;
+  result[from] = result[to]!;
+  result[to] = moved;
+  return result;
+}
+
 export function summarizeQueue(queue: RenderQueue): QueueSummary {
   const summary = { pending: 0, running: 0, done: 0, error: 0, total: queue.length };
   for (const entry of queue) {
