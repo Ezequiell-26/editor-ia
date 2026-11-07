@@ -51,6 +51,8 @@ export function AiHubView({
   const [skillId, setSkillId] = useState(AI_SKILLS[0]!.id);
   const [brief, setBrief] = useState('');
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [providerRetry, setProviderRetry] = useState(0);
   const [feedback, setFeedback] = useState<string | null>(null);
   const skill = aiSkill(skillId) ?? AI_SKILLS[0]!;
   const composed = useMemo(() => composeSkillPrompt(skill, brief), [skill, brief]);
@@ -64,13 +66,16 @@ export function AiHubView({
       .then((info) => {
         if (active) setProvider(info);
       })
-      .catch(() => {
-        if (active) setProvider(null);
+      .catch((cause: unknown) => {
+        if (active) {
+          setProvider(null);
+          setProviderError(cause instanceof Error ? cause.message : 'no se pudo leer el proveedor');
+        }
       });
     return () => {
       active = false;
     };
-  }, [store.service]);
+  }, [store.service, providerRetry]);
 
   function pick(next: AiSkill): void {
     setSkillId(next.id);
@@ -332,8 +337,21 @@ export function AiHubView({
             {provider ? endpointLabel(provider.baseUrl) : '—'} · Las skills no llaman
             al modelo por sí solas. Guion y Localización usan este proveedor; si es
             remoto, esas vistas piden autorización de cuota.
+            {providerError ? ` No se pudo leer el proveedor: ${providerError}` : ''}
           </span>
         </div>
+        {providerError ? (
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => {
+              setProviderError(null);
+              setProviderRetry((n) => n + 1);
+            }}
+          >
+            Reintentar
+          </button>
+        ) : null}
         <button type="button" className="ghost" onClick={() => onNavigate('settings')}>
           Cambiar
         </button>

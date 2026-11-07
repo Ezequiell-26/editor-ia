@@ -363,7 +363,7 @@ export function RealtimeClarityPreview({
             aria-label={playing ? 'Pausar preview' : 'Reproducir preview'}
             title={playing ? 'Pausar' : 'Reproducir'}
           >
-            {playing ? '❚❚' : '▶'}
+            {playing ? 'II' : '>'}
           </button>
           <input
             type="range"

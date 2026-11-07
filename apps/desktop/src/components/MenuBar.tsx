@@ -17,7 +17,10 @@ import { useDialogFocus } from '../hooks/useDialogFocus';
 import { Icon } from './Icon';
 import { LIVE_UPDATE_FEATURES, LiveUpdateFeatureList } from '../features/editor/FilmoraStates';
 
-type MenuId = 'file' | 'edit' | 'view' | 'playback' | 'tools' | 'help';
+// Referencias 132–137: la barra agrupa las herramientas especializadas en un
+// menú «Avanzado». Se agrega ANTES de Ayuda para no alterar el orden
+// Archivo → Editar → Ver que prueba la navegación por teclado.
+type MenuId = 'file' | 'edit' | 'view' | 'playback' | 'tools' | 'advanced' | 'help';
 
 interface MenuItem {
   readonly kind: 'item';
@@ -105,6 +108,43 @@ const NEWS_AVAILABILITY: Record<string, NewsAvailability> = {
   },
 };
 
+/** Ilustración real de seguimiento de cámara (referencia 99): plano,
+ *  sujeto, reticle de tracking y trayectoria. No es un icono genérico. */
+function NewsTrackingArt(): ReactNode {
+  return (
+    <svg className="fm-news-art-svg" viewBox="0 0 560 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <rect x="0" y="0" width="560" height="200" fill="#121a21" />
+      <path d="M0 156 L560 156" stroke="currentColor" strokeOpacity="0.18" strokeWidth="1" />
+      <path d="M0 40 L560 40" stroke="currentColor" strokeOpacity="0.1" strokeWidth="1" />
+      <rect x="26" y="22" width="508" height="156" rx="3" fill="#18232c" stroke="currentColor" strokeOpacity="0.16" strokeWidth="1" />
+      <path d="M26 138 L150 82 L226 118 L318 62 L410 112 L534 70 L534 178 L26 178 Z" fill="#1d2c36" />
+      <path d="M26 158 L128 122 L226 150 L330 108 L430 146 L534 116 L534 178 L26 178 Z" fill="#233844" />
+      <circle cx="452" cy="58" r="20" fill="#2e5b6b" fillOpacity="0.65" />
+      <g fill="#314b5a">
+        <rect x="58" y="96" width="20" height="62" />
+        <rect x="84" y="112" width="14" height="46" />
+        <rect x="486" y="104" width="18" height="54" />
+      </g>
+      <g fill="#0e1a22" stroke="currentColor" strokeOpacity="0.28" strokeWidth="1">
+        <circle cx="278" cy="72" r="13" />
+        <path d="M265 88 q13 -7 26 0 l7 46 l-13 4 l-7 -28 l-7 28 l-13 -4 Z" />
+        <path d="M266 92 l-16 24 M290 92 l16 24" stroke="currentColor" strokeOpacity="0.28" strokeWidth="7" strokeLinecap="round" fill="none" />
+      </g>
+      <g fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M238 52 v-12 h12 M318 52 v-12 h-12 M238 148 v12 h12 M318 148 v12 h-12" />
+        <rect x="238" y="52" width="80" height="96" rx="2" strokeDasharray="6 5" strokeOpacity="0.7" />
+      </g>
+      <path d="M120 128 C170 108 196 96 238 92" fill="none" stroke="currentColor" strokeOpacity="0.5" strokeWidth="1.5" strokeDasharray="3 6" />
+      <circle cx="120" cy="128" r="4" fill="currentColor" fillOpacity="0.8" />
+      <circle cx="238" cy="92" r="4" fill="currentColor" fillOpacity="0.8" />
+      <g fill="none" stroke="currentColor" strokeOpacity="0.42" strokeWidth="1.5">
+        <rect x="404" y="126" width="92" height="36" rx="3" />
+        <path d="M414 144 h18 M440 144 h18 M466 144 h20" strokeLinecap="round" />
+      </g>
+    </svg>
+  );
+}
+
 function NewsDialog({
   onSelect,
   onClose,
@@ -134,8 +174,10 @@ function NewsDialog({
       <div className="fm-news-layout">
         <div className="fm-news-stage">
           <div className="fm-news-art" aria-hidden="true">
-            <Icon name="sparkles" size={42} />
-            <span>{String(index + 1).padStart(2, '0')} / {LIVE_UPDATE_FEATURES.length}</span>
+            <NewsTrackingArt />
+            <span className="fm-news-art-index">
+              {String(index + 1).padStart(2, '0')} / {LIVE_UPDATE_FEATURES.length}
+            </span>
           </div>
           <h3>{label}</h3>
           <p className="news-detail">{availability?.detail ?? ''}</p>
@@ -781,6 +823,25 @@ export function MenuBar({
       ],
     },
     {
+      id: 'advanced',
+      label: 'Avanzado',
+      entries: [
+        // Accesos reales: cada id resuelve a un MODO del editor (o a su
+        // superficie standalone sin proyecto). No hay botones decorativos.
+        { kind: 'item', label: 'Edición por texto', action: () => onSelect('text-edit') },
+        { kind: 'item', label: 'Multicámara', action: () => onSelect('multicam') },
+        { kind: 'item', label: 'Mezcla de audio', action: () => onSelect('mixer') },
+        { kind: 'item', label: 'VFX y rotoscopía', action: () => onSelect('vfx') },
+        { kind: 'item', label: 'Motion graphics', action: () => onSelect('motion') },
+        { kind: 'item', label: 'Efectos y transiciones', action: () => onSelect('visuals') },
+        { kind: 'separator', id: 'advanced-ai' },
+        { kind: 'item', label: 'Director local', action: () => onSelect('director') },
+        { kind: 'item', label: 'Editor automático', action: () => onSelect('auto-edit') },
+        { kind: 'item', label: 'AI Hub', action: () => onSelect('ai-hub') },
+        { kind: 'item', label: 'Servidores MCP', action: () => onSelect('mcp') },
+      ],
+    },
+    {
       id: 'help',
       label: 'Ayuda',
       entries: [
@@ -1023,8 +1084,10 @@ export function MenuBar({
             if (event.target === event.currentTarget) setModal(null);
           }}
         >
+          {/* Captura 99: el modal de novedades necesita dos columnas (imagen +
+              índice de funciones); el ancho de 560 px las recortaba. */}
           <div
-            className="app-modal"
+            className={`app-modal${modal === 'news' ? ' news-modal-wide' : ''}`}
             ref={dialogRef}
             role="dialog"
             aria-modal="true"

@@ -3,7 +3,9 @@ import type { ViewId } from '../../app/navigation';
 import { NAV_VIEWS } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { PandaGuide } from '../../components/PandaGuide';
+import { WorkspaceGuide } from '../../components/WorkspaceGuide';
 import { useProjectStore } from '../../state/project-store';
+import { usePipeline } from '../../state/usePipeline';
 import {
   LEARNING_UPDATED_EVENT,
   loadLearningState,
@@ -20,39 +22,10 @@ interface LearnSection {
   readonly action?: { readonly label: string; readonly view: ViewId };
 }
 
-const QUICK_STEPS: readonly { readonly title: string; readonly body: string; readonly view: ViewId; readonly label: string }[] = [
-  {
-    title: 'Creá el proyecto',
-    body: 'Elegí formato y fps exactos. Podés cambiarlos después sin perder los segundos.',
-    view: 'projects',
-    label: 'Ir a Proyectos',
-  },
-  {
-    title: 'Escribí las escenas',
-    body: 'Generá un guion con IA o escribilo a mano. Cada escena puede tener su prompt visual.',
-    view: 'script',
-    label: 'Abrir Guion',
-  },
-  {
-    title: 'Importá los recursos',
-    body: 'Imágenes, videos y voces. Confirmá derechos y licencia antes de montar.',
-    view: 'assets',
-    label: 'Abrir Medios',
-  },
-  {
-    title: 'Montá automático',
-    body: 'Producción genera la voz, asigna imágenes o videos, crea subtítulos y alterna Ken Burns.',
-    view: 'production',
-    label: 'Abrir Producción',
-  },
-  {
-    title: 'Revisá y exportá',
-    body: 'Ajustá en el editor, elegí compresión y exportá un MP4 verificado o un lote.',
-    view: 'editor',
-    label: 'Abrir Editor',
-  },
-];
-
+/* La ruta de seis pasos ya NO se define acá: vive en app/workspace-map.ts y
+   la renderiza components/WorkspaceGuide.tsx, el mismo componente que se usa
+   dentro del editor. Antes había 5 pasos acá, 6 en Inicio y 6 distintos en el
+   tour, lo que enseñaba tres recorridos diferentes. */
 const SECTIONS: readonly LearnSection[] = [
   {
     id: 'project',
@@ -186,8 +159,17 @@ const SECTIONS: readonly LearnSection[] = [
   },
 ];
 
-export function LearnView({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
+export function LearnView({
+  onNavigate,
+  onOpenTour,
+  onOpenShortcuts,
+}: {
+  readonly onNavigate: (id: ViewId) => void;
+  readonly onOpenTour?: () => void;
+  readonly onOpenShortcuts?: () => void;
+}) {
   const store = useProjectStore();
+  const pipeline = usePipeline();
   const [learning, setLearning] = useState<LearningState>(loadLearningState);
   const [query, setQuery] = useState('');
   const project = store.state.project;
@@ -281,30 +263,14 @@ export function LearnView({ onNavigate }: { readonly onNavigate: (id: ViewId) =>
         </p>
       ) : null}
 
-      <article className="learn-quick">
-        <div className="learn-quick-head">
-          <div>
-            <p className="eyebrow">Ruta rápida</p>
-            <h3>De la idea al MP4 en cinco pasos</h3>
-          </div>
-          <button type="button" className="primary" onClick={() => onNavigate('projects')}>
-            Empezar ahora
-          </button>
-        </div>
-        <ol className="learn-steps">
-          {QUICK_STEPS.map((step, index) => (
-            <li key={step.title}>
-              <span className="learn-step-number">{String(index + 1).padStart(2, '0')}</span>
-              <div>
-                <strong>{step.title}</strong>
-                <p>{step.body}</p>
-                <button type="button" className="link-button" onClick={() => onNavigate(step.view)}>
-                  {step.label} →
-                </button>
-              </div>
-            </li>
-          ))}
-        </ol>
+      <article className="learn-quick workspace-guide-card">
+        <WorkspaceGuide
+          onNavigate={onNavigate}
+          progress={pipeline}
+          currentView="learn"
+          {...(onOpenTour ? { onOpenTour } : {})}
+          {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+        />
       </article>
 
       <div className="learn-toolbar">

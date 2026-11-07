@@ -230,6 +230,8 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
   const store = useProjectStore();
   const project = store.state.project;
   const [provider, setProvider] = useState<ProviderInfo | null>(null);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [providerRetry, setProviderRetry] = useState(0);
   const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [voice, setVoice] = useState<string>('');
   const [providerBusy, setProviderBusy] = useState(false);
@@ -277,8 +279,11 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
       .then((info) => {
         if (active) setProvider(info);
       })
-      .catch(() => {
-        if (active) setProvider(null);
+      .catch((cause: unknown) => {
+        if (active) {
+          setProvider(null);
+          setProviderError(cause instanceof Error ? cause.message : 'no se pudo leer el proveedor');
+        }
       });
     void store.service
       .listVoices()
@@ -294,7 +299,7 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
     return () => {
       active = false;
     };
-  }, [project?.id, store.service]);
+  }, [project?.id, store.service, providerRetry]);
 
   const scenes = useMemo(
     () => (project ? [...project.scenes].sort((a, b) => a.order - b.order) : []),
@@ -549,7 +554,9 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
                 ? provider.kind === 'mock'
                   ? 'Simulado · sin red y sin cuota'
                   : `${provider.model || 'sin modelo'} · ${endpointLabel(provider.baseUrl)}`
-                : 'Sin configurar'}
+                : providerError
+                  ? `No se pudo leer: ${providerError}`
+                  : 'Sin configurar'}
             </p>
             <p className="fine-print">
               {provider?.hasKey
@@ -561,6 +568,18 @@ export function ScriptView({ onNavigate }: ScriptViewProps) {
           </div>
         </div>
         <div className="actions compact">
+          {providerError ? (
+            <button
+              type="button"
+              className="small"
+              onClick={() => {
+                setProviderError(null);
+                setProviderRetry((n) => n + 1);
+              }}
+            >
+              Reintentar
+            </button>
+          ) : null}
           <button type="button" className="small" onClick={() => onNavigate('settings')}>
             Ajustes del proveedor
           </button>

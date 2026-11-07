@@ -84,7 +84,7 @@ fn browser_candidates() -> Vec<(String, PathBuf)> {
     candidates
 }
 
-fn find_browser() -> Option<(String, PathBuf)> {
+pub(crate) fn find_browser() -> Option<(String, PathBuf)> {
     browser_candidates().into_iter().next()
 }
 
@@ -94,7 +94,7 @@ fn profile_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("flow-browser-profile"))
 }
 
-fn free_port() -> Option<u16> {
+pub(crate) fn free_port() -> Option<u16> {
     TcpListener::bind("127.0.0.1:0")
         .ok()
         .and_then(|listener| listener.local_addr().ok())
@@ -102,7 +102,7 @@ fn free_port() -> Option<u16> {
 }
 
 /// Pregunta al endpoint HTTP de CDP si el navegador responde de verdad.
-fn cdp_alive(port: u16) -> bool {
+pub(crate) fn cdp_alive(port: u16) -> bool {
     let url = format!("http://127.0.0.1:{port}/json/version");
     reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(3))
@@ -113,7 +113,7 @@ fn cdp_alive(port: u16) -> bool {
         .unwrap_or(false)
 }
 
-fn wait_cdp(port: u16) -> bool {
+pub(crate) fn wait_cdp(port: u16) -> bool {
     let deadline = Instant::now() + CDP_READY_TIMEOUT;
     while Instant::now() < deadline {
         if cdp_alive(port) {

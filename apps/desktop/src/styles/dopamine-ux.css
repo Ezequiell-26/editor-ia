@@ -241,8 +241,8 @@
 }
 
 .smart-hint::before {
-  content: '💡';
-  margin-right: 8px;
+  content: '';
+  margin-right: 0;
 }
 
 /* ===== TASK COMPLETION CELEBRATION ===== */
@@ -372,14 +372,15 @@
 }
 
 .field-validated::after {
-  content: '✓';
+  content: '';
   position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--color-success);
-  font-size: 16px;
-  font-weight: 700;
+  right: 14px;
+  top: 48%;
+  width: 4px;
+  height: 8px;
+  border: solid var(--color-success);
+  border-width: 0 2px 2px 0;
+  transform: translateY(-50%) rotate(45deg);
   opacity: 0;
   transition: opacity var(--transition-fast);
 }

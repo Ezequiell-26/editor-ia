@@ -30,10 +30,14 @@ interface AppShellProps {
   readonly onOpenPalette?: () => void;
   readonly onOpenShortcuts?: () => void;
   readonly onOpenTour?: () => void;
+  /** T2: puerta única al mapa de las 33 herramientas dentro del editor. */
+  readonly onOpenToolMap?: () => void;
   /** Franja opcional en el flujo del shell (aviso de modo navegador). */
   readonly banner?: ReactNode;
   readonly content: ReactNode;
   readonly flush?: boolean;
+  /** F2: la superficie activa es el editor (incluye las vistas embebidas). */
+  readonly editorSurface?: boolean;
 }
 
 export function AppShell({
@@ -45,9 +49,11 @@ export function AppShell({
   onOpenPalette,
   onOpenShortcuts,
   onOpenTour,
+  onOpenToolMap,
   banner = null,
   content,
   flush = false,
+  editorSurface = false,
 }: AppShellProps) {
   const store = useProjectStore();
   const project = store.state.project;
@@ -57,7 +63,7 @@ export function AppShell({
   const [recovering, setRecovering] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
   const hasClip = Boolean(project?.timeline.clips.length);
-  const immersive = activeId === 'editor' && Boolean(project);
+  const immersive = editorSurface && Boolean(project);
 
   /**
    * Estado de autoguardado visible en la statusbar. Usa la señal real del
@@ -161,6 +167,20 @@ export function AppShell({
             <span>Inicio</span>
           </button>
         )}
+        {/* F4 (parcial): desde cualquier hub o herramienta hay un retorno
+            persistente al editor, sin tener que volver a buscar la puerta. */}
+        {project && !editorSurface ? (
+          <button
+            type="button"
+            className="topbar-back-editor"
+            aria-label="Volver al editor"
+            data-tooltip="Volver al editor · la timeline sigue abierta"
+            onClick={() => onSelect('editor')}
+          >
+            <Icon name="editor" size={13} />
+            <span>Editor</span>
+          </button>
+        ) : null}
         <MenuBar
           activeId={activeId}
           views={views}
@@ -188,6 +208,19 @@ export function AppShell({
           </div>
         ) : null}
         <div className="topbar-actions">
+          {/* Puerta única: con proyecto abierto, TODAS las herramientas están
+              en el mapa del editor, disponible desde cualquier superficie. */}
+          {project && onOpenToolMap ? (
+            <button
+              type="button"
+              className="icon-button topbar-tool-map-btn"
+              aria-label="Mapa de herramientas"
+              data-tooltip="Todas las herramientas en el editor"
+              onClick={onOpenToolMap}
+            >
+              <Icon name="grid" size={16} />
+            </button>
+          ) : null}
           <button
             type="button"
             className="topbar-search"

@@ -187,18 +187,61 @@ pub fn fs_read(path: String) -> Result<FsFileContent, ProjectError> {
     })
 }
 
-/// Rutas que `fs_delete` nunca toca: raíces de unidad, el perfil del usuario
-/// y carpetas críticas de Windows. La escritura (`fs_write`/`fs_mkdir`) sí
-/// puede crear dentro de ellas — es el trabajo normal de la IA.
+/// Normaliza una ruta para comparar: minúsculas y separador `\`.
+fn path_key(path: &Path) -> String {
+    path.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
+/// `true` si `text` es igual a `root` o está dentro de él.
+fn path_within(text: &str, root: &str) -> bool {
+    text == root || text.starts_with(&format!("{root}\\"))
+}
+
+/// Raíces de sistema derivadas del entorno de la máquina (no hardcodeadas a
+/// `C:`): Windows, los Program Files y carpetas críticas de ProgramData.
+fn system_roots() -> Vec<String> {
+    let mut roots: Vec<String> = [
+        "SystemRoot",
+        "windir",
+        "ProgramFiles",
+        "ProgramFiles(x86)",
+        "ProgramW6432",
+        "CommonProgramFiles",
+        "CommonProgramFiles(x86)",
+    ]
+    .iter()
+    .filter_map(|var| std::env::var(var).ok())
+    .map(|value| path_key(Path::new(&value)))
+    .filter(|value| !value.is_empty())
+    .collect();
+    roots.push("c:\\programdata\\microsoft".to_owned());
+    roots.push("c:\\users\\public".to_owned());
+    roots
+}
+
+/// Carpetas del sistema donde ni escritura, ni borrado, ni movimiento deben
+/// llegar: incluyen todo lo que esté DENTRO de ellas (no sólo la raíz).
+fn inside_system_dir(path: &Path) -> bool {
+    let text = path_key(path);
+    system_roots().iter().any(|root| path_within(&text, root))
+}
+
+/// Raíces que `fs_delete`/`fs_move` jamás tocan: unidades, el perfil del
+/// usuario completo, Windows y los Program Files. La escritura
+/// (`fs_write`/`fs_mkdir`) sí puede crear dentro del perfil — es el trabajo
+/// normal de la IA — pero nunca dentro de las carpetas de sistema.
 fn protected_delete_target(path: &Path) -> bool {
     if path.parent().is_none() {
         return true;
     }
-    let text = path.to_string_lossy().replace('/', "\\").to_lowercase();
-    text.starts_with("c:\\windows")
-        || text.starts_with("c:\\program files")
-        || text.starts_with("c:\\programdata\\microsoft")
-        || text.starts_with("c:\\users\\public")
+    let text = path_key(path);
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        let profile_key = path_key(Path::new(&profile));
+        if !profile_key.is_empty() && text == profile_key {
+            return true;
+        }
+    }
+    inside_system_dir(path)
 }
 
 fn normalize_target(raw: &str) -> Result<PathBuf, ProjectError> {
@@ -219,6 +262,9 @@ fn normalize_target(raw: &str) -> Result<PathBuf, ProjectError> {
 #[tauri::command]
 pub fn fs_write(path: String, content: String) -> Result<FsWriteResult, ProjectError> {
     let target = normalize_target(&path)?;
+    if inside_system_dir(&target) {
+        return Err(invalid("esa ruta está dentro de una carpeta de sistema"));
+    }
     if content.len() > FS_WRITE_MAX_BYTES {
         return Err(invalid("el contenido supera el tope de escritura (10 MiB)"));
     }
@@ -244,6 +290,9 @@ pub fn fs_write(path: String, content: String) -> Result<FsWriteResult, ProjectE
 #[tauri::command]
 pub fn fs_mkdir(path: String, recursive: Option<bool>) -> Result<FsWriteResult, ProjectError> {
     let target = normalize_target(&path)?;
+    if inside_system_dir(&target) {
+        return Err(invalid("esa ruta está dentro de una carpeta de sistema"));
+    }
     let recursive = recursive.unwrap_or(true);
     if recursive {
         std::fs::create_dir_all(&target)
@@ -291,14 +340,17 @@ pub fn fs_delete(path: String, recursive: Option<bool>) -> Result<FsDeleteResult
 pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> {
     let source = normalize_target(&from)?;
     let target = normalize_target(&to)?;
+    if inside_system_dir(&source) {
+        return Err(invalid("el origen está dentro de una carpeta de sistema"));
+    }
     if !source.exists() {
         return Err(invalid("el origen no existe"));
     }
     if target.exists() {
         return Err(invalid("el destino ya existe"));
     }
-    if protected_delete_target(&target) {
-        return Err(invalid("el destino está en una ruta protegida"));
+    if inside_system_dir(&target) {
+        return Err(invalid("el destino está dentro de una carpeta de sistema"));
     }
     if let Some(parent) = target.parent() {
         if !parent.as_os_str().is_empty() {
@@ -426,6 +478,58 @@ mod tests {
         assert!(fs_delete(
             "C:\\no\\existe\\archivo-xyz.txt".to_owned(),
             None
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn fs_write_mkdir_reject_system_dirs() {
+        let windows = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+        assert!(fs_write(
+            Path::new(&windows).join("editoria-test.txt").to_string_lossy().into_owned(),
+            "x".to_owned()
+        )
+        .is_err());
+        assert!(fs_mkdir(
+            Path::new(&windows).join("editoria-test-dir").to_string_lossy().into_owned(),
+            None
+        )
+        .is_err());
+        let program_files = std::env::var("ProgramFiles")
+            .unwrap_or_else(|_| "C:\\Program Files".to_owned());
+        assert!(fs_write(
+            Path::new(&program_files).join("editoria-test.txt").to_string_lossy().into_owned(),
+            "x".to_owned()
+        )
+        .is_err());
+        // El perfil del usuario y Temp siguen siendo escribibles.
+        let ok = fs_write(
+            std::env::temp_dir()
+                .join(format!("olyvia-fs-sys-{}.txt", uuid::Uuid::new_v4()))
+                .to_string_lossy()
+                .into_owned(),
+            "ok".to_owned(),
+        )
+        .unwrap();
+        assert!(ok.bytes > 0);
+    }
+
+    #[test]
+    fn fs_delete_rejects_user_profile_root_and_fs_move_protects_source() {
+        if let Ok(profile) = std::env::var("USERPROFILE") {
+            // Borrar el perfil completo está prohibido (sólo la raíz; las
+            // subcarpetas del perfil sí se pueden gestionar).
+            assert!(fs_delete(profile.clone(), Some(true)).is_err());
+        }
+        let system = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
+        let source = Path::new(&system).join("editoria-move-test.txt");
+        // Aunque el origen no exista, la protección salta antes que el exists.
+        assert!(fs_move(
+            source.to_string_lossy().into_owned(),
+            std::env::temp_dir()
+                .join("editoria-move-out.txt")
+                .to_string_lossy()
+                .into_owned(),
         )
         .is_err());
     }

@@ -5,13 +5,13 @@
 
 export function PremiumShowcase() {
   return (
-    <div style={{ padding: '32px', maxWidth: '1400px', margin: '0 auto' }}>
+    <div style={{ padding: '32px', maxWidth: '1400px', margin: '0 auto'}}>
       {/* Header con gradiente */}
-      <div className="animate-in" style={{ marginBottom: '48px', textAlign: 'center' }}>
-        <h1 className="text-shine" style={{ fontSize: '48px', marginBottom: '16px' }}>
+      <div className="animate-in"style={{ marginBottom: '48px', textAlign: 'center'}}>
+        <h1 className="text-shine"style={{ fontSize: '48px', marginBottom: '16px'}}>
           Olyvia Premium UI
         </h1>
-        <p className="muted" style={{ fontSize: '18px' }}>
+        <p className="muted"style={{ fontSize: '18px'}}>
           Sistema de diseño profesional con glassmorphism y animaciones fluidas
         </p>
       </div>
@@ -19,12 +19,12 @@ export function PremiumShowcase() {
       {/* Sección de Botones */}
       <section className="showcase-section">
         <h2 className="showcase-title">Botones Premium</h2>
-        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap'}}>
           <button className="primary hover-lift">Botón Principal</button>
           <button className="ghost">Botón Ghost</button>
           <button className="small">Botón Pequeño</button>
           <button className="glass-button">Botón Glass</button>
-          <button className="primary" disabled>Deshabilitado</button>
+          <button className="primary"disabled>Deshabilitado</button>
         </div>
       </section>
 
@@ -64,7 +64,7 @@ export function PremiumShowcase() {
       {/* Sección de Badges */}
       <section className="showcase-section">
         <h2 className="showcase-title">Badges & Tags</h2>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap'}}>
           <span className="badge badge-primary">Primary</span>
           <span className="badge badge-secondary">Secondary</span>
           <span className="badge badge-success">Success</span>
@@ -77,17 +77,17 @@ export function PremiumShowcase() {
       {/* Sección de Progress Bars */}
       <section className="showcase-section">
         <h2 className="showcase-title">Barras de Progreso</h2>
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div style={{ display: 'grid', gap: '16px'}}>
           <div>
             <div className="progress">
-              <div className="progress-bar" style={{ width: '70%' }}></div>
+              <div className="progress-bar"style={{ width: '70%'}}></div>
             </div>
           </div>
           <div className="progress progress-md">
-            <div className="progress-bar" style={{ width: '50%' }}></div>
+            <div className="progress-bar"style={{ width: '50%'}}></div>
           </div>
           <div className="progress progress-lg">
-            <div className="progress-bar" style={{ width: '90%' }}></div>
+            <div className="progress-bar"style={{ width: '90%'}}></div>
           </div>
         </div>
       </section>
@@ -95,21 +95,21 @@ export function PremiumShowcase() {
       {/* Sección de Loading States */}
       <section className="showcase-section">
         <h2 className="showcase-title">Estados de Carga</h2>
-        <div style={{ display: 'flex', gap: '32px', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '32px', alignItems: 'center', flexWrap: 'wrap'}}>
           <div className="loading-spinner"></div>
           <div className="loading-dots">
             <span></span>
             <span></span>
             <span></span>
           </div>
-          <div style={{ width: '200px', height: '100px', borderRadius: '8px' }} className="skeleton-loader"></div>
+          <div style={{ width: '200px', height: '100px', borderRadius: '8px'}} className="skeleton-loader"></div>
         </div>
       </section>
 
       {/* Sección de Alerts */}
       <section className="showcase-section">
         <h2 className="showcase-title">Alertas & Notificaciones</h2>
-        <div style={{ display: 'grid', gap: '16px' }}>
+        <div style={{ display: 'grid', gap: '16px'}}>
           <div className="alert alert-info">
             <div className="alert-content">
               <div className="alert-title">Información</div>
@@ -140,15 +140,15 @@ export function PremiumShowcase() {
       {/* Sección de Inputs */}
       <section className="showcase-section">
         <h2 className="showcase-title">Inputs Premium</h2>
-        <div style={{ display: 'grid', gap: '24px', maxWidth: '600px' }}>
+        <div style={{ display: 'grid', gap: '24px', maxWidth: '600px'}}>
           <div className="field">
             <span>Input Normal</span>
-            <input type="text" placeholder="Escribe algo..." className="input-md" />
+            <input type="text"placeholder="Escribe algo..."className="input-md"/>
           </div>
           <div className="field">
             <span>Input con Focus Glow</span>
             <div className="input-glow">
-              <input type="text" placeholder="Focus para ver el glow" className="input-md" />
+              <input type="text"placeholder="Focus para ver el glow"className="input-md"/>
             </div>
           </div>
           <div className="field">
@@ -161,7 +161,7 @@ export function PremiumShowcase() {
           </div>
           <div className="field">
             <span>Textarea</span>
-            <textarea placeholder="Escribe un mensaje..." className="input-md" rows={4}></textarea>
+            <textarea placeholder="Escribe un mensaje..."className="input-md"rows={4}></textarea>
           </div>
         </div>
       </section>
@@ -169,12 +169,12 @@ export function PremiumShowcase() {
       {/* Panel Glass */}
       <section className="showcase-section">
         <h2 className="showcase-title">Panel Glassmorphism</h2>
-        <div className="glass-panel" style={{ padding: '32px', borderRadius: '16px' }}>
-          <h3 style={{ marginBottom: '16px', fontSize: '24px' }}>Panel con Efecto Glass</h3>
-          <p className="muted" style={{ marginBottom: '24px' }}>
+        <div className="glass-panel"style={{ padding: '32px', borderRadius: '16px'}}>
+          <h3 style={{ marginBottom: '16px', fontSize: '24px'}}>Panel con Efecto Glass</h3>
+          <p className="muted"style={{ marginBottom: '24px'}}>
             Este panel usa backdrop-filter con blur y saturación para crear un efecto de vidrio esmerilado profesional.
           </p>
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '12px'}}>
             <button className="primary">Acción Principal</button>
             <button className="ghost">Cancelar</button>
           </div>
@@ -200,32 +200,32 @@ export function PremiumShowcase() {
       {/* Animaciones */}
       <section className="showcase-section">
         <h2 className="showcase-title">Efectos de Animación</h2>
-        <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+        <div style={{ display: 'grid', gap: '16px', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))'}}>
           <div className="card hover-lift">
             <div className="card-body">
               <strong>Hover Lift</strong>
-              <p className="muted" style={{ fontSize: '13px' }}>Se eleva al pasar el mouse</p>
+              <p className="muted"style={{ fontSize: '13px'}}>Se eleva al pasar el mouse</p>
             </div>
           </div>
           <div className="card pulse-accent">
             <div className="card-body">
               <strong>Pulse</strong>
-              <p className="muted" style={{ fontSize: '13px' }}>Animación de pulso</p>
+              <p className="muted"style={{ fontSize: '13px'}}>Animación de pulso</p>
             </div>
           </div>
           <div className="card animated-border">
             <div className="card-body">
               <strong>Border Animado</strong>
-              <p className="muted" style={{ fontSize: '13px' }}>Borde giratorio en hover</p>
+              <p className="muted"style={{ fontSize: '13px'}}>Borde giratorio en hover</p>
             </div>
           </div>
         </div>
       </section>
 
       {/* Footer */}
-      <div style={{ marginTop: '64px', padding: '32px', textAlign: 'center' }} className="glass-panel">
-        <h3 className="animated-gradient" style={{ fontSize: '24px', marginBottom: '16px', display: 'inline-block' }}>
-          Sistema de Diseño Premium Implementado ✨
+      <div style={{ marginTop: '64px', padding: '32px', textAlign: 'center'}} className="glass-panel">
+        <h3 className="animated-gradient"style={{ fontSize: '24px', marginBottom: '16px', display: 'inline-block'}}>
+          Sistema de Diseño Premium Implementado 
         </h3>
         <p className="muted">
           Glassmorphism • Gradientes Dinámicos • Animaciones Fluidas • Componentes Modernos

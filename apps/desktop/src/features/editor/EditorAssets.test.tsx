@@ -47,7 +47,8 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
   it('muestra las pestañas con icono y etiqueta', () => {
     const view = renderRail();
     const tabs = view.container.querySelectorAll('.rail-tabs button');
-    expect(tabs).toHaveLength(8);
+    // Capturas 114–117: «Plantillas / Split Screen» es la novena vista real.
+    expect(tabs).toHaveLength(9);
     const labels = Array.from(tabs).map((tab) => tab.textContent);
     expect(labels).toEqual([
       'Medios',
@@ -58,6 +59,7 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
       'Transiciones',
       'Filtros',
       'Ajustes',
+      'Plantillas',
     ]);
     for (const tab of tabs) {
       expect(tab.querySelector('svg')).not.toBeNull();
@@ -121,5 +123,18 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
     const tabs = view.container.querySelectorAll('.rail-tabs button');
     fireEvent.click(tabs[5]!); // Índice 5: Transiciones
     expect(view.container.querySelectorAll('.transition-card').length).toBe(7);
+  });
+
+  it('la pestaña Plantillas muestra Split Screen y selecciona una plantilla real', () => {
+    const view = renderRail();
+    const tabs = view.container.querySelectorAll('.rail-tabs button');
+    fireEvent.click(tabs[8]!); // Índice 8: Plantillas (capturas 114–117)
+    const templates = view.container.querySelectorAll('.fm-split-templates-grid button');
+    expect(templates.length).toBeGreaterThan(0);
+    fireEvent.click(templates[0]!);
+    expect(templates[0]!.getAttribute('aria-pressed')).toBe('true');
+    expect(view.container.querySelector('.fm-split-templates-note')?.textContent).toMatch(
+      /Plantilla seleccionada/i,
+    );
   });
 });

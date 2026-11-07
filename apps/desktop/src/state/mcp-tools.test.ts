@@ -276,6 +276,42 @@ describe('herramientas MCP', () => {
     expect(final).toHaveProperty('projectPath');
   });
 
+  it('factory_run con generateMedia encadena guion→Flow→montaje→render', async () => {
+    const { context } = fixture();
+    const accepted = JSON.parse(
+      await executeMcpTool(
+        'factory_run',
+        {
+          brief: 'Video corto de prueba con visuales generados por Flow.',
+          outputDir: 'C:/salida',
+          scenes: 1,
+          render: false,
+          generateMedia: true,
+          flowServerId: 'flow-test',
+          flowKind: 'image',
+          approveCredits: true,
+        },
+        context,
+      ),
+    );
+
+    expect(accepted.ok).toBe(true);
+    expect(accepted.jobId).toEqual(expect.any(String));
+
+    let final: Record<string, unknown> | null = null;
+    await vi.waitFor(async () => {
+      const current = JSON.parse(
+        await executeMcpTool('factory_job_status', { jobId: accepted.jobId }, context),
+      ) as Record<string, unknown>;
+      if (current.status === 'done' || current.status === 'error') final = current;
+      expect(final).not.toBeNull();
+    }, { timeout: 8000, interval: 20 });
+
+    const completed = final as Record<string, unknown> | null;
+    expect(completed?.error ?? undefined, JSON.stringify(completed)).toBeUndefined();
+    expect(completed).toMatchObject({ status: 'done' });
+  });
+
   it('agrega pistas y clips, y cambia la velocidad', async () => {
     const { context, assetId } = fixture();
     const track = JSON.parse(
@@ -422,6 +458,118 @@ describe('herramientas MCP', () => {
     expect(readSpy).toHaveBeenCalledWith('D:\\proyectos\\lista.srt');
     expect(read.content).toContain('Hola');
     readSpy.mockRestore();
+  });
+
+  it('genera assets en Flow en lote y los importa al proyecto', async () => {
+    const { context } = fixture();
+    const genSpy = vi
+      .spyOn(context.store.service, 'flowGenerateImage')
+      .mockImplementation(async (input) => ({
+        ok: true,
+        files: [{ path: `${input.outputDir}\\flow_${input.prompt.length}.webp`, bytes: 100, ext: 'webp' }],
+        url: 'https://flow.google.com/project/x',
+      }));
+    const result = JSON.parse(
+      await executeMcpTool(
+        'flow_generate_assets',
+        { prompts: ['un gato', 'un perro'], outputDir: 'C:\\tmp\\flow' },
+        context,
+      ),
+    );
+    expect(genSpy).toHaveBeenCalledTimes(2);
+    expect(result.ok).toBe(true);
+    expect(result.results).toHaveLength(2);
+    expect(result.files).toHaveLength(2);
+    expect(result.assets.length).toBeGreaterThan(0);
+    genSpy.mockRestore();
+  });
+
+  it('analiza assets con el motor de visión y verifica archivos del disco', async () => {
+    const { context, assetId } = fixture();
+    const analyzeSpy = vi
+      .spyOn(context.store.service, 'analyzeMediaFrames')
+      .mockResolvedValue([
+        {
+          assetId,
+          kind: 'video',
+          width: 1920,
+          height: 1080,
+          brightness: 0.5,
+          dominantColor: '#336699',
+          tags: ['oscuro'],
+        } as never,
+      ]);
+    const analyzed = JSON.parse(
+      await executeMcpTool('media_analyze', { assetIds: [assetId] }, context),
+    );
+    expect(analyzeSpy).toHaveBeenCalledWith([assetId]);
+    expect(analyzed[0].assetId).toBe(assetId);
+    analyzeSpy.mockRestore();
+
+    const checkSpy = vi
+      .spyOn(context.store.service, 'checkAssetFiles')
+      .mockResolvedValue([
+        { path: 'media/toma.mp4', exists: true },
+        { path: 'media/perdido.mp4', exists: false },
+      ] as never);
+    const checked = JSON.parse(
+      await executeMcpTool('fs_check', { paths: ['media/toma.mp4', 'media/perdido.mp4'] }, context),
+    );
+    expect(checkSpy).toHaveBeenCalledWith(['media/toma.mp4', 'media/perdido.mp4']);
+    expect(checked).toHaveLength(2);
+    checkSpy.mockRestore();
+  });
+
+  it('convierte un asset suelto y un lote por la misma tool', async () => {
+    const { context, assetId } = fixture();
+    const singleSpy = vi
+      .spyOn(context.store.service, 'convertMedia')
+      .mockResolvedValue({
+        path: 'C:\\out\\toma.png',
+        bytes: 2048,
+        durationSeconds: 1,
+        formatName: 'png',
+        sourceBytes: 8192,
+        encoder: 'png',
+      });
+    const one = JSON.parse(
+      await executeMcpTool(
+        'media_convert',
+        { assetIds: [assetId], target: 'png', outputDir: 'C:\\out' },
+        context,
+      ),
+    );
+    expect(singleSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ assetId, target: 'png', outputDir: 'C:\\out' }),
+    );
+    expect(one.path).toContain('toma.png');
+    singleSpy.mockRestore();
+
+    const batchSpy = vi
+      .spyOn(context.store.service, 'convertMediaBatch')
+      .mockResolvedValue([
+        {
+          assetId,
+          label: 'Toma',
+          ok: true,
+          path: 'C:\\out\\toma.mp3',
+          bytes: 4096,
+          sourceBytes: 16384,
+          durationSeconds: 2,
+          formatName: 'mp3',
+          encoder: 'libmp3lame',
+        },
+      ]);
+    const many = JSON.parse(
+      await executeMcpTool(
+        'media_convert',
+        { assetIds: [assetId, assetId], target: 'mp3', outputDir: 'C:\\out' },
+        context,
+      ),
+    );
+    expect(batchSpy).toHaveBeenCalled();
+    expect(many[0].path).toContain('toma.mp3');
+    batchSpy.mockRestore();
   });
 
   it('falla claro si no hay proyecto o la herramienta no existe', async () => {

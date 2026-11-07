@@ -1,0 +1,101 @@
+/* Editor de nodos: canvas React Flow + inspector lateral. */
+
+.nodes-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+}
+
+.nodes-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.nodes-canvas {
+  position: relative;
+  min-height: 420px;
+  border: 1px solid var(--border, #2a2f3a);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-elevated, #14171f);
+}
+
+.nodes-canvas .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+.nodes-inspector {
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nodes-problems {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.node-card {
+  min-width: 190px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border, #2a2f3a);
+  background: var(--bg-elevated, #1a1e28);
+  color: var(--fg, #e8eaf0);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.node-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-card-head strong {
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+
+.node-card-summary {
+  color: var(--fg-dim, #9aa3b5);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-input { border-color: #3d5a80; }
+.node-effect { border-color: #7d5ba6; }
+.node-audio-fx { border-color: #2e7d5b; }
+.node-caption { border-color: #8a6d3b; }
+.node-render { border-color: #b0413e; }
+
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  background: var(--accent, #6c8cff);
+}
+
+.react-flow__edge-path {
+  stroke: var(--accent, #6c8cff);
+}
+
+@media (max-width: 900px) {
+  .nodes-layout {
+    grid-template-columns: 1fr;
+  }
+  .nodes-inspector {
+    max-height: 260px;
+  }
+}

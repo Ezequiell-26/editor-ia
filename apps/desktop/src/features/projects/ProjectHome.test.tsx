@@ -43,10 +43,16 @@ describe('Projects', () => {
       within(screen.getByRole('navigation', { name: /vistas/i })).getByRole('button', { name: /Proyectos/ }),
     );
     const projects = screen.getByRole('main');
-    expect(projects.textContent).toContain('Proyecto abierto');
+    // T2: con proyecto abierto, Proyectos es un panel lazy DENTRO del editor.
+    await waitFor(() => expect(projects.textContent).toContain('Proyecto abierto'));
+    // Los recientes se pueblan de forma asíncrona: hay que esperarlos, no
+    // alcanza con que la tarjeta del proyecto abierto ya esté en pantalla.
+    await waitFor(() =>
+      expect(
+        within(projects).getAllByRole('button', { name: /Mi obra/i }).length,
+      ).toBeGreaterThan(0),
+    );
     expect(projects.textContent).toContain('Mi obra');
-    const recents = within(projects).getAllByRole('button', { name: /Mi obra/i });
-    expect(recents.length).toBeGreaterThan(0);
     expect(window.localStorage.getItem('editoria.recent.v1')).toContain('mi-obra.editoria.json');
   });
 

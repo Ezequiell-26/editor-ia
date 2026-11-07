@@ -9,6 +9,8 @@ import {
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { InspectorSection } from './InspectorSection';
+import { OptionField } from '../../components/ui/OptionField';
+import { clipDisplayName, clipSpeedFactor } from './clip-display';
 
 /**
  * Sección del Inspector para "cortar silencios": expone el motor de
@@ -31,65 +33,6 @@ interface SilenceAnalysis {
   readonly plans: readonly ClipPlan[];
   /** Segundos de material analizado (clips con picos medidos), para el %. */
   readonly analyzedSeconds: number;
-}
-
-function speedFactorOf(clip: Clip): number {
-  const speed = 'speed' in clip ? clip.speed : undefined;
-  if (!speed) return 1;
-  return speed.num / Math.max(1, speed.den);
-}
-
-function clipLabel(clip: Clip): string {
-  return clip.label ?? 'sin nombre';
-}
-
-function OptionField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onCommit,
-}: {
-  readonly label: string;
-  readonly value: number;
-  readonly min: number;
-  readonly max: number;
-  readonly step: number;
-  readonly onCommit: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
-  function commit(): void {
-    const numeric = Number(draft);
-    if (Number.isFinite(numeric)) {
-      onCommit(Math.max(min, Math.min(max, numeric)));
-    } else {
-      setDraft(String(value));
-    }
-  }
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        type="number"
-        value={draft}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            commit();
-          }
-        }}
-      />
-    </label>
-  );
 }
 
 export function SilenceCutsSection(props: {
@@ -123,7 +66,7 @@ export function SilenceCutsSection(props: {
     (clip) =>
       (clip.kind === 'video' || clip.kind === 'audio') && clip.source.type === 'asset',
   );
-  const slowClips = candidates.filter((clip) => Math.abs(speedFactorOf(clip) - 1) > 0.001);
+  const slowClips = candidates.filter((clip) => Math.abs(clipSpeedFactor(clip) - 1) > 0.001);
   const targets = candidates.filter((clip) => !slowClips.includes(clip));
   const lockedCount = project
     ? targets.filter(
@@ -170,7 +113,7 @@ export function SilenceCutsSection(props: {
           minSilenceSeconds,
           paddingSeconds,
         });
-        if (plan) found.push({ clipId: clip.id, label: clipLabel(clip), plan, peaks });
+        if (plan) found.push({ clipId: clip.id, label: clipDisplayName(clip), plan, peaks });
       }
       setAnalysis({ plans: found, analyzedSeconds });
       if (found.length === 0) {
@@ -248,7 +191,7 @@ export function SilenceCutsSection(props: {
       </div>
       {slowClips.length > 0 ? (
         <p className="fine-print">
-          Se omiten clip(s) con velocidad distinta de 1× ({slowClips.map(clipLabel).join(', ')}).
+          Se omiten clip(s) con velocidad distinta de 1× ({slowClips.map(clipDisplayName).join(', ')}).
         </p>
       ) : null}
       {targets.length === 0 ? (

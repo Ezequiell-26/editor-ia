@@ -2017,6 +2017,99 @@ export function createFakeService(): FakeService {
     async webSessionEval() {
       return 'null';
     },
+    async flowGenerateImage(input) {
+      return {
+        ok: true,
+        files: [{ path: `${input.outputDir}\\flow_test.webp`, bytes: 1024, ext: 'webp' }],
+        url: 'https://flow.google.com/project/test',
+      };
+    },
+    async screenRecordStatus() {
+      return { recording: false };
+    },
+    async screenRecordDevices() {
+      return {
+        cameras: ['Cámara de prueba'],
+        microphones: ['Micrófono de prueba'],
+      };
+    },
+    async screenRecordStart() {
+      return {
+        recording: true,
+        output: 'C:\\recordings\\screen-test.mp4',
+        elapsedSecs: 0,
+      };
+    },
+    async screenRecordStop() {
+      return {
+        ok: true,
+        output: 'C:\\recordings\\screen-test.mp4',
+        bytes: 2048,
+        durationSecs: 4,
+        width: 1360,
+        height: 768,
+        hasAudio: false,
+      };
+    },
+    async browserInstanceLaunch() {
+      return {
+        id: 'perfil-test',
+        port: 19222,
+        pid: 1234,
+        cdpUrl: 'http://127.0.0.1:19222',
+        profileDir: 'C:\Users\test\AppData\Local\Olyvia\browser-profiles\perfil-test',
+        proxy: 'socks5://127.0.0.1:1080',
+        browser: 'Google Chrome',
+      };
+    },
+    async browserInstanceClose() {
+      return true;
+    },
+    async browserInstanceList() {
+      return [];
+    },
+    async browserInstanceNavigate() {
+      return true;
+    },
+    async browserInstanceEval() {
+      return { result: { value: 'ok' } };
+    },
+    async obsSceneList() {
+      return [
+        {
+          id: 'scene-1',
+          name: 'Escritorio + stream',
+          fps: 30,
+          captureTarget: 'desktop',
+          streamUrl: 'rtmp://live.example.com/app/key',
+        },
+      ];
+    },
+    async obsSceneSave() {
+      return { id: 'scene-1', name: 'Guardada' };
+    },
+    async obsSceneDelete() {
+      return true;
+    },
+    async obsSceneStart() {
+      return { recording: true, output: 'C:\recordings\obs-scene.mp4', elapsedSecs: 0 };
+    },
+    async stickmanRender() {
+      return {
+        ok: true,
+        path: 'C:\recordings\stickman-test.mp4',
+        action: 'walk',
+        frames: 96,
+        fps: 24,
+        width: 640,
+        height: 360,
+        durationSeconds: 4,
+        probeWidth: 640,
+        probeHeight: 360,
+        hasAudio: false,
+        verified: true,
+      };
+    },
     async systemInfo(): Promise<SystemInfo> {
       return {
         appVersion: '0.1.0-test',

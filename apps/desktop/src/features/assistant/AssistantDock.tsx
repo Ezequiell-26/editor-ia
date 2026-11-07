@@ -1698,16 +1698,22 @@ export function AssistantDock({
         ...projectContext,
         // El proveedor recibe las definiciones JSON Schema exactas; la IA
         // puede elegir una herramienta real y la app valida antes de invocarla.
-        mcpTools: MCP_TOOLS.map(({ name, description, inputSchema, annotations }) => ({
-          name,
-          description: description.slice(0, 220),
-          inputSchema,
-          annotations: {
-            readOnly: annotations?.readOnlyHint === true,
-            destructive: annotations?.destructiveHint === true,
-            openWorld: annotations?.openWorldHint === true,
-          },
-        })),
+        mcpTools: MCP_TOOLS.map(({ name, description, inputSchema, annotations }) => {
+          // Sólo viajan al proveedor las anotaciones que valen true: mandar
+          // las tres claves en false en ~110 tools gastaba ~5 KB del budget
+          // de contexto sin aportar información.
+          const hints = {
+            ...(annotations?.readOnlyHint === true ? { readOnly: true } : {}),
+            ...(annotations?.destructiveHint === true ? { destructive: true } : {}),
+            ...(annotations?.openWorldHint === true ? { openWorld: true } : {}),
+          };
+          return {
+            name,
+            description: description.slice(0, 220),
+            inputSchema,
+            ...(Object.keys(hints).length > 0 ? { annotations: hints } : {}),
+          };
+        }),
       };
       const history = [...messages, { role: 'user' as const, text }]
         .filter((entry) => entry.text !== GREETING.text)

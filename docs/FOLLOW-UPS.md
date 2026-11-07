@@ -75,42 +75,28 @@ Get-ChildItem apps/desktop/src -Recurse -Include *.ts,*.tsx |
 # -> sin resultados (sólo aparecen en el contrato y en el fake de tests)
 ```
 
-| Capacidad | Backend | Contrato TS | Estado | Qué falta / decisión |
+| Capacidad | Backend | Superficie | Estado | Resolución |
 |---|---|---|---|---|
-| Análisis de cuadros de video (`analyze_media_frames`) | `src-tauri/src/lib.rs:350` | `project-service.ts:1788` | **BACKEND SIN UI** | El doc-comment decía que el asistente "ve" los clips y no ocurre. Decisión: exponerlo en el asistente (adjuntar cuadros muestreados al contexto) o borrar la promesa del doc-comment. No se tocó en 4b. |
-| Detección de medios faltantes (`check_asset_files`) | `lib.rs:332` | `project-service.ts:1806` | **BACKEND SIN UI** | No hay verificación al abrir un proyecto con archivos movidos. Decisión: banner de "medios faltantes" en el store al abrir (requiere UI del editor). |
-| Estado del servidor MCP propio (`mcp_server_status`) | `mcp_server.rs` | `project-service.ts:1900` | **BACKEND SIN UI** | El servidor arranca con token persistente y no hay panel de URL/token/stop. Decisión: tarjeta en MCP con token enmascarado y botón detener (UI de ola siguiente). |
-| Conversión de un solo medio (`convert_media`) | `lib.rs:351` | `project-service.ts:1821` | **SIN UI** (sólo se usa el batch) | Decisión: usarlo desde Convertir para un archivo o eliminarlo del contrato en una limpieza. |
-| `inspect_flow_install` | `mcp.rs:1404`, registrado en `lib.rs:399` | — | **REGISTRADO SIN CALLER** | La configuración de Flow se escribe a mano. Decisión: usarlo en el alta de Flow o quitarlo del handler. |
+| Análisis de cuadros de video (`analyze_media_frames`) | `src-tauri/src/lib.rs` | MCP `media_analyze` → `service.analyzeMediaFrames` | **CONECTADO** | El asistente la invoca como tool MCP; descripción del catálogo aclara que muestrea el cuadro medio de videos. Test en `mcp-tools.test.ts`. |
+| Detección de medios faltantes (`check_asset_files`) | `lib.rs` | `ProjectHome.tsx` (banner al abrir) + MCP `fs_check` → `service.checkAssetFiles` | **CONECTADO** | Banner de medios faltantes al abrir proyecto y tool MCP para verificación bajo demanda. |
+| Estado del servidor MCP propio (`mcp_server_status`) | `mcp_server.rs` | `McpView.tsx` | **CONECTADO** | Panel con URL, token enmascarado y start/stop/restart. |
+| Conversión de un solo medio (`convert_media`) | `lib.rs` | MCP `media_convert` → `convertMedia` (1 asset) / `convertMediaBatch` (>1) | **CONECTADO** | La tool MCP usa la vía simple con un solo `assetId` y el batch con varios. Tests en `mcp-tools.test.ts`. |
+| `inspect_flow_install` | — | — | **ELIMINADO** | La generación Flow va por el navegador embebido (`flow_generate.rs`), no por google-flow-mcp; comando, handler y test retirados de `mcp.rs`/`lib.rs`. |
 
-### 2.1 `voice-isolation` (decisión en esta ola)
+### 2.1 `voice-isolation` (resuelto después de esta ola)
 
-`apps/desktop/src-tauri/src/commands/voice-isolation.rs` es un módulo **muerto**:
+**Estado actual: IMPLEMENTADO.** `commands/voice-isolation.rs` está declarado en
+`mod.rs` y registra `voice_isolation_status`, `voice_isolate_media` y
+`prepare_voice_isolation` en `lib.rs`. El backend embebe el wrapper Python
+`scripts/ai-voice-isolation/demucs-wrapper.py` (Demucs) y la UI lo expone con
+preparación honesta del motor (Python + torch/torchaudio/demucs/soundfile, modelo
+~2 GB en `~/.cache/demucs/`). Tools MCP: `voice_isolate` y
+`voice_isolation_prepare`.
 
-- No está declarado en `src-tauri/src/commands/mod.rs`, así que **no se compila**.
-- El handler está comentado en `lib.rs:469`
-  (`// commands::voice_isolation::isolate_voice, // TODO: Implementar voz isolation`).
-- Cita APIs que el crate ya no tiene (`ProjectError::with_context`,
-  `ProjectErrorCode::ValidationError`, `ProjectErrorCode::ProcessingError`), por
-  lo que registrarlo tal cual **no compilaría**.
-- No hay ninguna referencia desde TS (`voiceIsolation`/`isolate_voice`: 0 call
-  sites fuera del contrato).
-
-**Decisión de la ola 4b:** no se borra todavía. La tarea prohíbe tocar Rust en
-esta ola salvo que un test lo exija, y el archivo no afecta al build ni a los
-tests. La recomendación para la ola de limpieza es **eliminarlo** junto con el
-comentario de `lib.rs:469` y el TODO, con esta verificación:
-
-```powershell
-# 1) no quedan referencias
-Get-ChildItem apps/desktop/src-tauri/src -Recurse -Include *.rs |
-  Select-String -Pattern "voice_isolation|voice-isolation|isolate_voice"   # esperado: 0
-# 2) el crate sigue compilando y los tests pasan
-node scripts/rust-env.mjs -- cargo test -p editor-ia-desktop --lib
-```
-
-Mientras no exista el motor Demucs empaquetado ni una UI, el estado honesto es
-"no implementado", no un TODO que sugiera lo contrario.
+La descripción original de esta sección (módulo muerto, APIs inexistentes,
+handler comentado) quedó **obsoleta**: correspondía al árbol anterior a la
+integración Demucs. Se conserva el razonamiento como registro histórico; la
+evidencia vigente está en `voice_isolation.rs`, `lib.rs` y los tests del módulo.
 
 ---
 
@@ -119,13 +105,13 @@ Mientras no exista el motor Demucs empaquetado ni una UI, el estado honesto es
 | # | Pendiente | Archivo objetivo (dueño de la ola de UI) | Nota |
 |---|---|---|---|
 | 1 | ✅ Resuelto (ola 4b/4c): **«Probar conexión»** persistente en Ajustes → IA y en el error del asistente, con resultado tipado | `features/settings/SettingsHome.tsx`, `features/assistant/AssistantDock.tsx` | Usa `store.service.testProvider()`; devuelve `status`, `httpStatus`, `latencyMs`, `model`, `detail`. |
-| 2 | Chip «proveedor simulado» y aviso en Fábrica; corregir el texto «Con el proveedor simulado podés probar el flujo completo sin red» (ahora es falso: la Fábrica rechaza el mock) | `features/factory/FactoryView.tsx` | El rechazo en `state/batch-factory.ts` ya está implementado y testeado. |
+| 2 | ✅ Resuelto: chip «proveedor simulado» y aviso en Fábrica | `features/factory/FactoryView.tsx` | El rechazo en `state/batch-factory.ts` ya está implementado y testeado. |
 | 3 | Inicio en navegador: quitar los checks de capacidades en verde hardcodeados | `features/home/HomeView.tsx` | El banner global de modo navegador ya existe (`components/BrowserModeBanner.tsx` montado en `App.tsx`). |
 | 4 | `StartScreen`: mostrar `store.state.error` (hoy el fallo es invisible) y eliminar/implementar los CTAs `demo://` y `proyectos/demo-*` | `features/start/StartScreen.tsx`, `features/editor/EditorWorkspace.tsx` | P0-3 del audit. |
 | 5 | Pre-check de modelos on-device en Fondo/Upscale con botón «Descargar modelo» | `features/ai/RemoveBackgroundView.tsx`, `features/ai/UpscaleView.tsx` | Reutiliza `listModels()`/`downloadModel()`. |
 | 6 | Botón «Abrir Ajustes» en el error del asistente: hoy cambia de vista; validar en la ventana de Ajustes de la app nativa | `features/assistant/AssistantDock.tsx` | Ya implementado con `onSelect('settings')`; la verificación en ventana nativa queda pendiente. |
 | 7 | Integrar `BrowserModeBanner` al estilo premium del shell (hoy usa estilos inline y `position: fixed` abajo) y decidir si el launcher también ofrece acceso a Ajustes | `styles/premium/shell.css` o el dueño del shell | No se tocó CSS en 4b. |
-| 8 | Conectar `analyze_media_frames`/`check_asset_files`/`mcp_server_status`/`convert_media`/`inspect_flow_install` según §2 | varios | P1-3. |
+| 8 | ✅ Resuelto: `analyze_media_frames`/`check_asset_files`/`mcp_server_status`/`convert_media` conectados como MCP/UI; `inspect_flow_install` eliminado | varios | Ver §2 actualizado. |
 
 ### Documentación ya actualizada (no volver a pedirla)
 

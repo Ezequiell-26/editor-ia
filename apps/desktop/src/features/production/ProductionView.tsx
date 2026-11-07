@@ -292,7 +292,7 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
                 <small>{step.detail}</small>
               </span>
               <span className="step-state" aria-hidden="true">
-                {step.state === 'done' ? '✓' : step.state === 'warning' ? '!' : '·'}
+                {step.state === 'done' ? 'OK' : step.state === 'warning' ? '!' : '·'}
               </span>
             </button>
           ))}

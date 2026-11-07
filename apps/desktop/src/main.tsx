@@ -40,6 +40,9 @@ import './styles/filmora/filmora.css';
 // base. Debe ir DESPUÉS de filmora.css: sus reglas complementan (no repiten)
 // la cascada y usan la misma especificidad `.app-shell … !important`.
 import './styles/filmora/filmora-states.css';
+// Pulido final medido (tipografía, iconos, contraste, áreas de clic y detalles).
+// Debe ir DESPUÉS de states: corrige sus reglas sin reemplazarlas.
+import './styles/filmora/filmora-polish.css';
 
 // Apply the saved chrome before the first paint so the window never flashes
 // the default palette when a custom one is stored.

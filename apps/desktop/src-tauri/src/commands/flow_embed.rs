@@ -105,6 +105,17 @@ fn register_slot(slot: &str) -> u16 {
     port
 }
 
+/// Versión pub(crate) de `sanitize_slot` para otros comandos (p.ej. el
+/// generador de Flow) que necesiten validar el nombre de sesión.
+pub(crate) fn sanitize_slot_pub(slot: &str) -> Result<String, ProjectError> {
+    sanitize_slot(slot)
+}
+
+/// Puerto CDP que le corresponde a un slot (registrado o derivado del nombre).
+pub(crate) fn slot_port_for(slot: &str) -> u16 {
+    slot_port_or_default(slot)
+}
+
 fn unregister_slot(slot: &str) {
     let mut guard = SLOTS.lock().unwrap_or_else(|e| e.into_inner());
     guard.remove(slot);

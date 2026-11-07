@@ -108,7 +108,7 @@ export const COLOR_GROUPS: readonly { id: ThemeGroupId; label: string; icon?: st
   { id: 'acento', label: 'Acento', icon: '◆' },
   { id: 'estados', label: 'Estados', icon: '●' },
   { id: 'medios', label: 'Medios', icon: '▶' },
-  { id: 'marca', label: 'Marca', icon: '✦' },
+  { id: 'marca', label: 'Marca', icon: '◇' },
 ];
 
 /** Los 34 tokens editables, en el orden exacto en que se muestran. */
@@ -604,7 +604,7 @@ export const THEME_PRESET_LABELS: Readonly<
   Record<Exclude<ThemePresetId, 'custom'>, string>
 > = {
   olyvia: 'Olyvia',
-  filmora: 'Filmora 12',
+  filmora: 'Grafito estudio',
   resolve: 'Resolve',
   mint: 'Menta',
   ember: 'Ámbar',

@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { StartScreen } from './StartScreen';
-import { ProjectProvider } from '../../state/project-store';
-import { AppearanceProvider } from '../../state/AppearanceProvider';
-import { createFakeService } from '../../test/fake-service';
+import { cleanup, fireEvent, render, screen, waitFor, within } from'@testing-library/react';
+import { afterEach, describe, expect, it, vi } from'vitest';
+import { StartScreen } from'./StartScreen';
+import { ProjectProvider } from'../../state/project-store';
+import { AppearanceProvider } from'../../state/AppearanceProvider';
+import { createFakeService } from'../../test/fake-service';
 
 function renderStartScreen(onEnterApp = vi.fn(), injectedService?: ReturnType<typeof createFakeService>) {
   const service = injectedService ?? createFakeService();
@@ -46,7 +46,7 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
     // del hero (referencias Filmora 93/94). Se distingue la tarjeta por su
     // descripción para no ambiguar el nombre accesible.
     expect(screen.getByRole('button', { name: /Crear proyecto.*Personalizar formato y fps/i })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Crear Proyecto' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Crear Proyecto'})).toBeTruthy();
     expect(screen.getByRole('button', { name: /Abrir proyecto/i })).toBeTruthy();
 
     // Plantillas rápidas 1-clic
@@ -141,7 +141,7 @@ describe('StartScreen · Lanzador estilo CapCut con Actualizador', () => {
 });
 
 describe('StartScreen · honestidad de los flujos de proyecto', () => {
-  it('no ofrece demos muertas: no queda ningún CTA "Probar Demo"', () => {
+  it('no ofrece demos muertas: no queda ningún CTA"Probar Demo"', () => {
     renderStartScreen();
 
     expect(screen.queryByText(/Probar Demo/i)).toBeNull();
@@ -155,17 +155,17 @@ describe('StartScreen · honestidad de los flujos de proyecto', () => {
         {
           // Se arma por partes para que no quede la cadena literal en el código:
           // representa lo que quedó guardado en equipos con versiones viejas.
-          path: ['demo', ':', '//reels-vertical'].join(''),
+          path: ['demo',':','//reels-vertical'].join(''),
           label: 'demo.editoria.json',
-          name: '🌟 Demo: TikTok / Reels 9:16',
+          name: 'Demo: TikTok / Reels 9:16',
           openedAt: new Date().toISOString(),
         },
         {
           // Igual que la ruta demo anterior: se arma por partes para no dejar
           // la cadena literal (patrón muerto) en el código de la app.
-          path: ['proyectos', '/demo-youtube.olyvia'].join(''),
+          path: ['proyectos','/demo-youtube.olyvia'].join(''),
           label: 'demo-youtube.olyvia',
-          name: '🎬 Demo: Tutorial YouTube',
+          name: 'Demo: Tutorial YouTube',
           openedAt: new Date().toISOString(),
         },
       ]),
@@ -217,9 +217,9 @@ describe('StartScreen · honestidad de los flujos de proyecto', () => {
 describe('StartScreen · Ajustes en ventana flotante', () => {
   it('abre la configuración ahí mismo sin entrar al editor', async () => {
     const { onEnterApp } = renderStartScreen();
-    fireEvent.click(screen.getByRole('button', { name: 'Ajustes' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ajustes'}));
 
-    expect(await screen.findByRole('dialog', { name: 'Configuración' })).toBeTruthy();
+    expect(await screen.findByRole('dialog', { name: 'Configuración'})).toBeTruthy();
     expect(onEnterApp).not.toHaveBeenCalled();
 
     // SettingsHome se carga en diferido: con la suite completa compitiendo por

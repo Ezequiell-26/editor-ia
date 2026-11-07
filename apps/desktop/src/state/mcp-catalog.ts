@@ -85,7 +85,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
         items: { type: 'string', enum: ['tracks', 'clips', 'captions', 'assets', 'markers', 'profiles'] },
         description: 'Secciones a incluir. Si se omite, incluye todas.',
       },
-      limit: boundedNum(1, 500, 'Máximo de elementos por sección (1–500; por defecto 200).'),
+      limit: boundedNum(1, 500),
     }),
   },
   {
@@ -104,6 +104,57 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     name: 'assets_list',
     description: `${READ} Medios del proyecto con id, tipo, ruta y metadatos.`,
     inputSchema: obj({}),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'media_analyze',
+    description: `${READ} Analiza el contenido visual de assets del proyecto (imagen completa o cuadro medio de video: escena, color, nitidez, rostros) con el motor local.`,
+    inputSchema: obj(
+      {
+        assetIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+        },
+      },
+      ['assetIds'],
+    ),
+    annotations: { readOnlyHint: true },
+  },
+  {
+    name: 'media_convert',
+    description: `${WRITE} Convierte assets del proyecto a otro formato (png/jpg/webp/mp4/mkv/webm/mov/mp3/wav/m4a…) en outputDir. assetIds 1-20; con uno solo usa la vía simple.`,
+    inputSchema: obj(
+      {
+        assetIds: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 20,
+          items: { type: 'string', minLength: 1, maxLength: 256 },
+        },
+        target: { type: 'string', minLength: 2, maxLength: 16 },
+        outputDir: { type: 'string', minLength: 1, maxLength: 32_768 },
+        quality: boundedInt(1, 100),
+        maxWidth: boundedInt(16, 7680),
+      },
+      ['assetIds', 'target', 'outputDir'],
+    ),
+  },
+  {
+    name: 'fs_check',
+    description: `${READ} Verifica qué rutas absolutas del disco existen y devuelve metadatos básicos (tipo, tamaño).`,
+    inputSchema: obj(
+      {
+        paths: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 50,
+          items: { type: 'string', minLength: 1, maxLength: 32_768 },
+        },
+      },
+      ['paths'],
+    ),
     annotations: { readOnlyHint: true },
   },
   {
@@ -126,9 +177,9 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: obj(
       {
         name: { type: 'string', minLength: 1, maxLength: 120 },
-        width: boundedInt(2, 7680, 'por defecto 1920; máximo 7680'),
-        height: boundedInt(2, 4320, 'por defecto 1080; máximo 4320'),
-        fps: boundedNum(1, 240, 'por defecto 30; máximo 240'),
+        width: boundedInt(2, 7680),
+        height: boundedInt(2, 4320),
+        fps: boundedNum(1, 240),
       },
       ['name'],
     ),
@@ -259,7 +310,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: {
       ...obj({
         clipId: { type: 'string', minLength: 1, maxLength: 256 },
-        speed: boundedNum(0.1, 4, '1 = normal; rango 0.1–4'),
+        speed: boundedNum(0.1, 4),
         reverse: bool(),
       }, ['clipId']),
       minProperties: 2,
@@ -408,11 +459,18 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       {
         brief: { type: 'string', minLength: 10, maxLength: 4_000 },
         outputDir: { type: 'string', maxLength: 32_768 },
-        scenes: boundedInt(1, 12, '1–12'),
+        scenes: boundedInt(1, 12),
         width: boundedInt(2, 7680),
         height: boundedInt(2, 4320),
         language: { type: 'string', minLength: 2, maxLength: 12 },
         render: bool(),
+        generateMedia: bool('genera los visuales con Flow en vez de usar assets del proyecto'),
+        flowServerId: { type: 'string', maxLength: 128, description: 'Servidor MCP de Flow configurado (ver mcp_list).' },
+        flowKind: { type: 'string', enum: ['image', 'video'] },
+        flowModel: { type: 'string', maxLength: 120 },
+        flowRatio: { type: 'string', maxLength: 16 },
+        flowDuration: { type: 'string', maxLength: 16 },
+        approveCredits: bool('obligatorio true cuando generateMedia está activo'),
       },
       ['brief'],
     ),
@@ -425,7 +483,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   {
     name: 'factory_job_list',
     description: `${READ} Lista trabajos de fábrica recientes, incluidos en cola, activos, completados e interrumpidos.`,
-    inputSchema: obj({ limit: boundedInt(1, 50, '1–50; por defecto 20.') }),
+    inputSchema: obj({ limit: boundedInt(1, 50) }),
   },
   {
     name: 'factory_job_cancel',
@@ -539,18 +597,18 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'media_folder_list',
-    description: `${READ} Explora una carpeta de la PC y devuelve los archivos de medios (imagen, audio, video) con ruta absoluta, nombre, tipo y tamaño. Acepta una ruta absoluta o el nombre de una carpeta dentro de Descargas. Recorre hasta dos niveles de subcarpetas (máx. 300 archivos). Usala antes de asset_import para descubrir material disponible.`,
+    description: `${READ} Lista los archivos de medios (imagen, audio, video) de una carpeta del disco con ruta, tipo y tamaño. Acepta ruta absoluta o nombre dentro de Descargas; recorre hasta 2 niveles (máx. 300). Usala antes de asset_import.`,
     inputSchema: obj({
-      folder: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de la carpeta o su nombre dentro de Descargas.' },
-      root: { type: 'string', maxLength: 32_768, description: 'Carpeta base alternativa donde buscar por nombre (opcional).' },
+      folder: { type: 'string', minLength: 1, maxLength: 32_768 },
+      root: { type: 'string', maxLength: 32_768 },
     }, ['folder']),
     annotations: { readOnlyHint: true },
   },
   {
     name: 'fs_list',
-    description: `${READ} Lista TODO el contenido de una carpeta de la PC (subcarpetas primero, después archivos) con ruta absoluta, tipo (dir/image/audio/video/subtitle/text/other) y tamaño. No recursa: bajá nivel por nivel. Tope 500 entradas. Usala para explorar el disco antes de importar o abrir archivos.`,
+    description: `${READ} Lista el contenido de una carpeta del disco (subcarpetas primero) con ruta, tipo y tamaño, sin recursión. Tope 500. Usala para explorar el disco antes de importar.`,
     inputSchema: obj({
-      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de la carpeta a listar.' },
+      path: { type: 'string', minLength: 1, maxLength: 32_768 },
     }, ['path']),
     annotations: { readOnlyHint: true },
   },
@@ -558,7 +616,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     name: 'fs_read',
     description: `${READ} Lee el contenido de texto de un archivo de la PC (subtítulos, proyectos .editoria.json, CSV, etc.). Devuelve el texto completo hasta 512 KiB; si es más grande viene truncado. No interpreta binarios.`,
     inputSchema: obj({
-      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta del archivo a leer.' },
+      path: { type: 'string', minLength: 1, maxLength: 32_768 },
     }, ['path']),
     annotations: { readOnlyHint: true },
   },
@@ -566,32 +624,32 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     name: 'fs_write',
     description: `${WRITE} Escribe texto en un archivo de la PC (lo crea si no existe, junto con las carpetas padre). Sirve para guiones, subtítulos, scripts, JSON de proyecto, configs — cualquier texto hasta 10 MiB.`,
     inputSchema: obj({
-      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta del archivo a escribir.' },
-      content: { type: 'string', maxLength: 10_485_760, description: 'Contenido de texto a escribir.' },
+      path: { type: 'string', minLength: 1, maxLength: 32_768 },
+      content: { type: 'string', maxLength: 10_485_760 },
     }, ['path', 'content']),
   },
   {
     name: 'fs_mkdir',
     description: `${WRITE} Crea una carpeta en la PC (con todas las carpetas padre por defecto).`,
     inputSchema: obj({
-      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de la carpeta a crear.' },
-      recursive: { type: 'boolean', description: 'Crear también las carpetas padre (por defecto true).' },
+      path: { type: 'string', minLength: 1, maxLength: 32_768 },
+      recursive: { type: 'boolean' },
     }, ['path']),
   },
   {
     name: 'fs_delete',
     description: `${WRITE} Borra un archivo o carpeta de la PC. Las carpetas con contenido exigen recursive=true explícito. Rechaza rutas protegidas (raíz de unidad, Windows, Program Files).`,
     inputSchema: obj({
-      path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta a borrar.' },
-      recursive: { type: 'boolean', description: 'Borrar carpetas con contenido (por defecto false).' },
+      path: { type: 'string', minLength: 1, maxLength: 32_768 },
+      recursive: { type: 'boolean' },
     }, ['path']),
   },
   {
     name: 'fs_move',
     description: `${WRITE} Mueve o renombra un archivo/carpeta de la PC a otra ruta. El destino no debe existir (no sobrescribe); puede cruzar carpetas del mismo disco.`,
     inputSchema: obj({
-      from: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de origen.' },
-      to: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta de destino.' },
+      from: { type: 'string', minLength: 1, maxLength: 32_768 },
+      to: { type: 'string', minLength: 1, maxLength: 32_768 },
     }, ['from', 'to']),
   },
   {
@@ -602,7 +660,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'voice_isolate',
-    description: `${WRITE} Aísla la voz de un archivo de audio/video del disco con Demucs local y devuelve la ruta del stem vocals.wav (más accompaniment.wav). Requiere Python con demucs; la primera vez descarga el modelo (~2 GB). La operación es lenta: usala una vez por material y reutilizá el resultado.`,
+    description: `${WRITE} Aísla la voz de un audio/video del disco con Demucs y devuelve vocals.wav + accompaniment.wav. Requiere Python+demucs (la 1ª vez baja ~2 GB de modelo); operación lenta.`,
     inputSchema: obj({
       path: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Ruta absoluta del archivo de audio o video.' },
       model: { type: 'string', maxLength: 64, description: 'Modelo Demucs (por defecto htdemucs).' },
@@ -611,7 +669,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'voice_isolation_prepare',
-    description: `${WRITE} Genera (o reutiliza) el stem vocals.wav de un asset de audio/video DEL PROYECTE ABIERTO en media/isolation/<assetId>/. Los clips con audio.voiceIsolation.enabled lo usan automáticamente al exportar. Requiere Python con demucs; la primera vez descarga el modelo (~2 GB).`,
+    description: `${WRITE} Genera (o reutiliza) vocals.wav de un asset de audio/video del proyecto abierto; los clips con voiceIsolation lo usan al exportar. Requiere Python+demucs.`,
     inputSchema: obj({
       assetId: { type: 'string', minLength: 1, maxLength: 256, description: 'Id del asset del proyecto (ver assets_list).' },
       quality: { type: 'string', enum: ['low', 'medium', 'high', 'best'], description: 'Calidad vs velocidad (por defecto medium).' },
@@ -644,7 +702,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'flow_embed_open',
-    description: `${WRITE} Abre (o reutiliza) una sesión del navegador embebido de Olyvia y navega a una URL http(s). Por defecto abre Flow (slot "flow", https://flow.google.com); con «slot» abre cualquier otra web en su propia ventana (varias webs activas a la vez, cada una con su CDP). Úsala para que el usuario inicie sesión dentro de la app. Si Google rechaza el login en webviews, usá flow_browser_launch (Chrome real por CDP) como alternativa.`,
+    description: `${WRITE} Abre (o reutiliza) una sesión del navegador embebido y navega a una URL http(s). Sin «slot» abre Flow; con «slot» abre cualquier web en ventana propia (varias webs a la vez, cada una con su CDP). Para control total usá el CDP de web_sessions_status con Playwright.`,
     inputSchema: obj({
       url: { type: 'string', maxLength: 2_048, description: 'URL http(s) a abrir (por defecto flow.google.com para el slot flow).' },
       slot: { type: 'string', maxLength: 32, description: 'Nombre de la sesión web (1-32 chars, letras/números/-/_). Por defecto "flow".' },
@@ -673,11 +731,146 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
   },
   {
     name: 'flow_embed_eval',
-    description: `${WRITE} Ejecuta JavaScript en la página de una sesión del navegador embebido y devuelve el resultado serializado (JSON; «slot» para elegir sesión, por defecto Flow). Para control completo (clicks, screenshots, descargas) usá el endpoint CDP de web_sessions_status con un cliente CDP/Playwright.`,
+    description: `${WRITE} Ejecuta JavaScript en una sesión del navegador embebido y devuelve el resultado serializado (JSON; «slot» para elegir, por defecto Flow). Para clicks/descargas usá el CDP de web_sessions_status.`,
     inputSchema: obj({
       js: { type: 'string', maxLength: 65_536, description: 'Código JavaScript a evaluar en la página.' },
       slot: { type: 'string', maxLength: 32, description: 'Sesión (por defecto "flow").' },
     }, ['js']),
+  },
+  {
+    name: 'flow_generate_image',
+    description: `${WRITE} Genera imágenes en Google Flow de forma autónoma sobre la sesión web embebida: envía el prompt, espera y descarga las imágenes a outputDir. Requiere sesión de Google activa y Node.js >= 22. Devuelve rutas listas para asset_import.`,
+    inputSchema: obj({
+      prompt: { type: 'string', minLength: 1, maxLength: 4000, description: 'Prompt para Flow.' },
+      outputDir: { type: 'string', minLength: 1, maxLength: 32_768, description: 'Carpeta absoluta de salida.' },
+      slot: { type: 'string', maxLength: 32 },
+      url: { type: 'string', maxLength: 2_048 },
+      timeoutSecs: { type: 'integer', minimum: 60, maximum: 3600 },
+      reuseProject: { type: 'boolean' },
+    }, ['prompt', 'outputDir']),
+  },
+  {
+    name: 'flow_generate_assets',
+    description: `${WRITE} Genera imágenes en Flow para varios prompts seguidos (una sesión, cola secuencial), descarga todo a outputDir e importa los archivos al proyecto. Ideal para ilustrar un guion por escenas. Requiere sesión de Flow activa.`,
+    inputSchema: obj({
+      prompts: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 10,
+        items: { type: 'string', minLength: 1, maxLength: 4000 },
+      },
+      outputDir: { type: 'string', maxLength: 32_768 },
+      importToProject: { type: 'boolean' },
+      timeoutSecs: { type: 'integer', minimum: 60, maximum: 3600 },
+    }, ['prompts']),
+  },
+
+  {
+    name: 'screen_record',
+    description: `${WRITE} Graba y/o streamea video estilo OBS a MP4/RTMP: pantalla completa/ventana/región, webcam en PiP y micrófono. action=start (outputDir, fps, captureTarget, windowTitle, region*, webcamDevice, audioDevice, streamUrl, captureScreen), stop devuelve ruta+medidas, status estado+bytes en vivo, devices lista fuentes.`,
+    inputSchema: obj({
+      action: { type: 'string', enum: ['start', 'stop', 'status', 'devices'] },
+      outputDir: { type: 'string', maxLength: 32_768 },
+      fps: boundedInt(1, 60),
+      captureTarget: { type: 'string', enum: ['desktop', 'window', 'region'] },
+      windowTitle: { type: 'string', maxLength: 300 },
+      regionX: boundedInt(-100_000, 100_000),
+      regionY: boundedInt(-100_000, 100_000),
+      regionWidth: boundedInt(16, 7680),
+      regionHeight: boundedInt(16, 4320),
+      webcamDevice: { type: 'string', maxLength: 200 },
+      audioDevice: { type: 'string', maxLength: 200 },
+      streamUrl: { type: 'string', maxLength: 2048, description: 'URL rtmp(s):// para streamear a la vez que grabar (OBS).' },
+      encoder: { type: 'string', enum: ['x264', 'nvenc', 'qsv', 'amf', 'mf'], description: 'Codificador H.264; nvenc/qsv/amf usan hardware.' },
+      captureScreen: { type: 'boolean' },
+    }, ['action']),
+  },
+
+  {
+    name: 'stickman_render',
+    description: `${WRITE} Genera un video MP4 real de un personaje stickman articulado (rig 2D con huesos FK). action implícita por parámetros: action=idle|walk|run|wave|jump, o keyframes=[{frame, ...pose}] para animación personalizada con interpolación lineal. Devuelve ruta, frames, fps y medidas ffprobe verificadas.`,
+    inputSchema: obj({
+      outputPath: { type: 'string', minLength: 1, maxLength: 32_768 },
+      action: { type: 'string', enum: ['idle', 'walk', 'run', 'wave', 'jump'] },
+      durationSeconds: { type: 'number', minimum: 0.5, maximum: 120 },
+      fps: boundedInt(1, 60),
+      width: boundedInt(64, 1920),
+      height: boundedInt(64, 1080),
+      boneHex: { type: 'string', maxLength: 7, description: 'Color del cuerpo #RRGGBB.' },
+      bgHex: { type: 'string', maxLength: 7, description: 'Color de fondo #RRGGBB.' },
+      particles: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['confetti', 'snow', 'sparks'] },
+          count: boundedInt(1, 2000),
+          colorHex: { type: 'string', maxLength: 7 },
+        },
+      },
+      keyframes: {
+        type: 'array',
+        maxItems: 500,
+        items: {
+          type: 'object',
+          properties: {
+            frame: { type: 'integer', minimum: 0 },
+            spine: { type: 'number' }, head: { type: 'number' },
+            upperArmL: { type: 'number' }, foreArmL: { type: 'number' },
+            upperArmR: { type: 'number' }, foreArmR: { type: 'number' },
+            thighL: { type: 'number' }, shinL: { type: 'number' },
+            thighR: { type: 'number' }, shinR: { type: 'number' },
+            pelvisDy: { type: 'number' },
+          },
+          required: ['frame'],
+        },
+      },
+    }, ['outputPath']),
+  },
+
+  {
+    name: 'obs_scenes',
+    description: `${WRITE} Gestiona escenas OBS persistentes (fuentes+streaming con nombre). action=list devuelve escenas guardadas; save crea/actualiza {id?, name, fps, captureTarget, windowTitle, region*, webcamDevice, audioDevice, streamUrl, encoder, captureScreen}; delete {id}; start {id, outputDir} aplica la escena y arranca grabación/streaming.`,
+    inputSchema: obj({
+      action: { type: 'string', enum: ['list', 'save', 'delete', 'start'] },
+      id: { type: 'string', maxLength: 64 },
+      outputDir: { type: 'string', maxLength: 32_768 },
+      name: { type: 'string', maxLength: 120 },
+      fps: boundedInt(1, 60),
+      captureTarget: { type: 'string', enum: ['desktop', 'window', 'region'] },
+      windowTitle: { type: 'string', maxLength: 300 },
+      regionX: boundedInt(-100_000, 100_000),
+      regionY: boundedInt(-100_000, 100_000),
+      regionWidth: boundedInt(16, 7680),
+      regionHeight: boundedInt(16, 4320),
+      webcamDevice: { type: 'string', maxLength: 200 },
+      audioDevice: { type: 'string', maxLength: 200 },
+      streamUrl: { type: 'string', maxLength: 2048 },
+      encoder: { type: 'string', enum: ['x264', 'nvenc', 'qsv', 'amf', 'mf'] },
+      captureScreen: { type: 'boolean' },
+    }, ['action']),
+  },
+
+  {
+    name: 'subtitles_translate',
+    description: `${WRITE} Traduce un lote de subtítulos con el proveedor IA configurado (máx. 200 cues). Devuelve textos traducidos + providerId/model/simulated. Con proveedor mock devuelve el original marcado simulated=true.`,
+    inputSchema: obj({
+      texts: { type: 'array', items: { type: 'string', maxLength: 2000 }, minItems: 1, maxItems: 200 },
+      sourceLanguage: { type: 'string', minLength: 2, maxLength: 16 },
+      targetLanguage: { type: 'string', minLength: 2, maxLength: 16 },
+      glossary: { type: 'string', maxLength: 4000 },
+      approvedCost: { type: 'boolean' },
+    }, ['texts', 'sourceLanguage', 'targetLanguage']),
+  },
+
+  {
+    name: 'browser_instances',
+    description: `${WRITE} Instancias aisladas de Chromium (Chrome/Edge) con perfil propio por ID, proxy HTTP/SOCKS5 por instancia y anti-detección (stealth JS vía CDP). action=launch {profileId, proxyUrl?, url?}, close {profileId}, list, navigate {profileId,url}, eval {profileId,expression}. Devuelve puerto CDP para control externo.`,
+    inputSchema: obj({
+      action: { type: 'string', enum: ['launch', 'close', 'list', 'navigate', 'eval'] },
+      profileId: { type: 'string', minLength: 1, maxLength: 64 },
+      proxyUrl: { type: 'string', maxLength: 300 },
+      url: { type: 'string', maxLength: 2048 },
+      expression: { type: 'string', maxLength: 100000 },
+    }, ['action']),
   },
 
   // ── Marcadores ──────────────────────────────────────────────────────
@@ -778,13 +971,13 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: {
       ...obj({
         clipId: { type: 'string', minLength: 1, maxLength: 256 },
-        brightness: boundedNum(-1, 1, 'Ajuste de brillo'),
-        contrast: boundedNum(0, 3, 'Contraste (1 = normal)'),
-        saturation: boundedNum(0, 3, 'Saturación (1 = normal)'),
-        temperature: boundedNum(-1, 1, 'Temperatura de color'),
-        shadows: boundedNum(-1, 1, 'Sombras (-1 oscurecer, 1 aclarar)'),
-        highlights: boundedNum(-1, 1, 'Altas luces'),
-        fade: boundedNum(0, 1, 'Desvanecimiento (0-1)'),
+        brightness: boundedNum(-1, 1),
+        contrast: boundedNum(0, 3),
+        saturation: boundedNum(0, 3),
+        temperature: boundedNum(-1, 1),
+        shadows: boundedNum(-1, 1),
+        highlights: boundedNum(-1, 1),
+        fade: boundedNum(0, 1),
       }, ['clipId']),
       minProperties: 2,
     },
@@ -815,7 +1008,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
         fromClipId: { type: 'string', minLength: 1, maxLength: 256 },
         toClipId: { type: 'string', minLength: 1, maxLength: 256 },
         type: { type: 'string', enum: ['fade', 'dissolve', 'wipe-left', 'wipe-right', 'slide-left', 'slide-right', 'zoom-in', 'zoom-out'] },
-        durationFrames: boundedInt(1, 120, 'Duración en frames (por defecto 20)'),
+        durationFrames: boundedInt(1, 120),
       },
       ['fromClipId', 'toClipId', 'type'],
     ),
@@ -844,8 +1037,8 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
         fontFamily: { type: 'string', maxLength: 120 },
         fontSize: boundedInt(12, 300),
         color: { type: 'string', maxLength: 32 },
-        positionX: boundedNum(0, 1, 'Posición X normalizada (0-1)'),
-        positionY: boundedNum(0, 1, 'Posición Y normalizada (0-1)'),
+        positionX: boundedNum(0, 1),
+        positionY: boundedNum(0, 1),
         animation: { type: 'string', enum: ['none', 'fade-in', 'fade-out', 'slide-up', 'slide-down', 'typewriter'] },
       },
       ['text', 'startFrame', 'durationFrames'],
@@ -875,7 +1068,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
         title: { type: 'string', minLength: 1, maxLength: 200 },
         subtitle: { type: 'string', maxLength: 200 },
         startFrame: boundedInt(0, 10_000_000),
-        durationFrames: boundedInt(30, 600, 'Duración típica: 90-180 frames'),
+        durationFrames: boundedInt(30, 600),
         style: { type: 'string', enum: ['minimal', 'bar', 'box', 'modern', 'elegant'] },
         position: { type: 'string', enum: ['lower-left', 'lower-right', 'lower-center', 'upper-left', 'upper-right'] },
       },
@@ -922,7 +1115,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
           maxItems: 100,
           items: { type: 'string', minLength: 1, maxLength: 256 },
         },
-        targetLufs: boundedNum(-33, -9, 'Nivel objetivo en LUFS'),
+        targetLufs: boundedNum(-33, -9),
       },
       ['clipIds', 'targetLufs'],
     ),
@@ -934,7 +1127,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       {
         trackId: { type: 'string', minLength: 1, maxLength: 256 },
         type: { type: 'string', enum: ['fade', 'dissolve', 'wipe-left', 'wipe-right'] },
-        durationFrames: boundedInt(5, 60, 'Duración de cada transición'),
+        durationFrames: boundedInt(5, 60),
       },
       ['trackId', 'type'],
     ),
@@ -950,7 +1143,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
           maxItems: 100,
           items: { type: 'string', minLength: 1, maxLength: 256 },
         },
-        speed: boundedNum(0.1, 4, 'Velocidad (1 = normal)'),
+        speed: boundedNum(0.1, 4),
       },
       ['clipIds', 'speed'],
     ),
@@ -963,7 +1156,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: obj(
       {
         clipId: { type: 'string', minLength: 1, maxLength: 256 },
-        frame: boundedInt(0, 10_000_000, 'Frame relativo al inicio del clip'),
+        frame: boundedInt(0, 10_000_000),
         property: { type: 'string', enum: ['offsetX', 'offsetY', 'scale', 'rotationDeg', 'opacity'] },
         value: num('Valor de la propiedad'),
         easing: { type: 'string', enum: ['linear', 'ease-in', 'ease-out', 'ease-in-out', 'hold'] },
@@ -978,7 +1171,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       {
         clipId: { type: 'string', minLength: 1, maxLength: 256 },
         preset: { type: 'string', enum: ['zoom-in', 'zoom-out', 'pan-left', 'pan-right', 'pan-up', 'pan-down', 'fade-in-out', 'rotate'] },
-        intensity: boundedNum(0.1, 1, 'Intensidad del efecto (0.1-1)'),
+        intensity: boundedNum(0.1, 1),
       },
       ['clipId', 'preset'],
     ),
@@ -991,9 +1184,9 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
     inputSchema: obj(
       {
         clipId: { type: 'string', minLength: 1, maxLength: 256 },
-        lowDb: boundedNum(-12, 12, 'Bajos (graves)'),
-        midDb: boundedNum(-12, 12, 'Medios'),
-        highDb: boundedNum(-12, 12, 'Altos (agudos)'),
+        lowDb: boundedNum(-12, 12),
+        midDb: boundedNum(-12, 12),
+        highDb: boundedNum(-12, 12),
       },
       ['clipId'],
     ),
@@ -1016,8 +1209,8 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       {
         musicTrackId: { type: 'string', minLength: 1, maxLength: 256 },
         voiceTrackId: { type: 'string', minLength: 1, maxLength: 256 },
-        reductionDb: boundedNum(-24, -3, 'Cuánto bajar la música (dB)'),
-        fadeMs: boundedInt(50, 1000, 'Tiempo de fade (milisegundos)'),
+        reductionDb: boundedNum(-24, -3),
+        fadeMs: boundedInt(50, 1000),
       },
       ['musicTrackId', 'voiceTrackId'],
     ),
@@ -1045,7 +1238,7 @@ const RAW_MCP_TOOLS: readonly McpToolDefinition[] = [
       {
         clipId: { type: 'string', minLength: 1, maxLength: 256 },
         preset: { type: 'string', enum: ['teal-orange', 'bleach-bypass', 'film-noir', 'golden-hour', 'cold-blue', 'warm-sunset'] },
-        intensity: boundedNum(0, 1, 'Intensidad del preset (0-1)'),
+        intensity: boundedNum(0, 1),
       },
       ['clipId', 'preset'],
     ),
@@ -1099,6 +1292,8 @@ const READ_ONLY_TOOL_NAMES = new Set([
   'timeline_clips',
   'captions_list',
   'assets_list',
+  'media_analyze',
+  'fs_check',
   'tracks_list',
   'export_profiles',
   'critic_run',

@@ -19,6 +19,7 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 | `minisearch` | 7.2.0 | MIT | Índice de búsqueda global (**nuevo en esta ronda**) |
 | `fflate` | 0.8.3 | MIT | ZIP del paquete de entrega (**nuevo en esta ronda**) |
 | `subsrt` | 1.1.1 | MIT | Importación de subtítulos ASS/SSA (**nuevo en esta ronda**) |
+| `@xyflow/react` | 12.12.1 | MIT | Editor visual de nodos (canvas, conexiones y pan/zoom) |
 
 ## Dependencias Rust directas
 
@@ -33,6 +34,7 @@ Cargo. Antes de redistribuir un instalador, revisá también esos árboles.
 | `reqwest` | MIT OR Apache-2.0 | Llamadas HTTP a proveedores |
 | `keyring` | MIT OR Apache-2.0 | Administrador de credenciales de Windows |
 | `uuid` | Apache-2.0 OR MIT | Identificadores |
+| `tokio-tungstenite` + `futures-util` | MIT/Apache-2.0 | WebSocket CDP para instancias aisladas de navegador (**nuevo**) |
 | `zip` | MIT | Lectura de paquetes ZIP de modelos con pesos externos |
 
 ## Herramientas externas (no se distribuyen dentro del binario)

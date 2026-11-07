@@ -42,6 +42,8 @@ keyring = { version = "3", features = ["windows-native"] }
 uuid = { version = "1", features = ["v4"] }
 # Exportador multiplataforma concurrente y tareas de creador.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util"] }
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
 # QR offline para el CTA; genera una matriz y la rasterizamos con image.
 qrcodegen = "1.8"
 # Errores tipados de los módulos de creador, convertidos a ProjectError en IPC.

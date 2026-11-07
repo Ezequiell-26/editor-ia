@@ -52,6 +52,13 @@ import { useEditorPreferences } from '../../state/useEditorPreferences';
 import { TimelineOverview } from './TimelineOverview';
 import { createRafCoalescer } from './timeline-raf';
 import {
+  QuickToolsBar,
+  ToolSelectorMenu,
+  ToolbarCustomizerDialog,
+  readToolbarTools,
+  type ToolSelectorId,
+} from './FilmoraStates';
+import {
   deleteClips,
   moveClipsBy,
   rippleMoveClip,
@@ -593,7 +600,9 @@ const RULER_VIEWPORT_H = 28;
 
 const TIMELINE_MIN = 140;
 const TIMELINE_MAX = 720;
-const TIMELINE_DEFAULT = 280;
+// 335 px sitúan el inicio de la timeline en y 433 a 1360×768, exactamente
+// como en las capturas 93–128 (toolbar y 433…455, regla 455…475).
+const TIMELINE_DEFAULT = 335;
 
 function clampTimelineHeight(value: number): number {
   return Math.min(TIMELINE_MAX, Math.max(TIMELINE_MIN, Math.round(value)));
@@ -867,6 +876,10 @@ export const Timeline = memo(function Timeline() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [toolsMenuPos, setToolsMenuPos] = useState({ left: 0, top: 0 });
+  // Capturas 126/127: barra rápida personalizable y selector de herramienta.
+  const [quickTools, setQuickTools] = useState<readonly string[]>(() => readToolbarTools());
+  const [customizerOpen, setCustomizerOpen] = useState(false);
+  const [toolSelector, setToolSelector] = useState<ToolSelectorId>('select');
   const toolsMenuRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     clipId: string;
@@ -1078,6 +1091,123 @@ export const Timeline = memo(function Timeline() {
     if (selectedClipIds.size > 0) return [...selectedClipIds];
     return selectedClipId ? [selectedClipId] : [];
   }
+
+  /* ── Captura 127 · Selector de herramienta: modos con comportamiento real ──
+     «Seleccionar todo hacia delante/atrás» selecciona clips REALES del proyecto
+     a partir del playhead; «división ágil» corta en el frame clickeado y
+     «zoom» acerca la vista. Ninguna opción es un botón decorativo. */
+
+  function applySelectionTool(tool: 'select-forward' | 'select-backward'): void {
+    if (!project) return;
+    const frame = playback.frame;
+    const candidates = project.timeline.clips
+      .filter((clip) =>
+        tool === 'select-forward'
+          ? clip.startFrame + clip.durationFrames > frame
+          : clip.startFrame < frame,
+      )
+      .sort((a, b) => a.startFrame - b.startFrame);
+    const ids = candidates.map((clip) => clip.id);
+    setSelectedClipIds(new Set(ids));
+    const primary = tool === 'select-forward' ? candidates[0] : candidates[candidates.length - 1];
+    store.setSelection(primary ? { kind: 'clip', id: primary.id } : { kind: 'none' });
+    store.setNotice(
+      ids.length > 0
+        ? `Seleccionados ${ids.length} clip(s) ${
+            tool === 'select-forward' ? 'desde el playhead hacia delante' : 'hasta el playhead'
+          }.`
+        : `No hay clips ${tool === 'select-forward' ? 'después' : 'antes'} del playhead.`,
+    );
+  }
+
+  function changeToolSelector(id: ToolSelectorId): void {
+    if (id === 'select-forward' || id === 'select-backward') {
+      applySelectionTool(id);
+      setToolSelector('select');
+      return;
+    }
+    setToolSelector(id);
+    if (id === 'agile-split') {
+      store.setNotice('Modo de división ágil: hacé clic dentro de un clip para dividirlo en ese punto.');
+    } else if (id === 'zoom') {
+      store.setNotice('Herramienta de zoom: hacé clic sobre una pista para acercar la vista.');
+    }
+  }
+
+  /** Intercepta en captura para que el clic con herramienta activa NO dispare
+   *  la selección/arrastre habitual del clip. */
+  function handleToolPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
+    if (toolSelector !== 'agile-split' && toolSelector !== 'zoom') return;
+    if (!project) return;
+    if (event.button !== 0) return;
+    const target = event.target as HTMLElement | null;
+    const lane = target?.closest<HTMLElement>('.track-lane');
+    if (!lane) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = lane.getBoundingClientRect();
+    const frame = Math.max(0, Math.round((event.clientX - rect.left) / pxPerFrame));
+    if (toolSelector === 'zoom') {
+      const next = Math.min(14, pxPerFrame * 1.4);
+      setPxPerFrame(next);
+      store.setPlayhead(frame);
+      store.setNotice(
+        `Zoom ${pxPerFrame.toFixed(2)} → ${next.toFixed(2)} px/frame · ${formatTimecode(frame, fps)}.`,
+      );
+      return;
+    }
+    const trackId = lane.dataset.laneTrackId;
+    const clip = project.timeline.clips.find(
+      (item) =>
+        item.trackId === trackId &&
+        frame > item.startFrame &&
+        frame < item.startFrame + item.durationFrames,
+    );
+    if (!clip) {
+      store.setNotice('Modo de división ágil: hacé clic dentro de un clip para dividirlo.');
+      return;
+    }
+    let rightClipId: string | null = null;
+    store.update((current) => {
+      const result = splitClip(current, clip.id, frame);
+      if (!result) return current;
+      rightClipId = result.rightClipId;
+      return result.project;
+    });
+    if (rightClipId) {
+      store.setSelection({ kind: 'clip', id: rightClipId });
+      setSelectedClipIds(new Set([rightClipId, clip.id]));
+      store.setNotice(`Clip dividido en ${formatTimecode(frame, fps)} (división ágil).`);
+    } else {
+      store.setNotice('No se pudo dividir: el punto está en el borde del clip.');
+    }
+  }
+
+  // Atajos V/C/A/Shift+A/Z del selector. El listener se registra una sola vez
+  // y lee el handler vigente de una ref: playback.frame cambia decenas de veces
+  // por segundo y no queremos reengancharlo en cada tick.
+  const toolShortcutRef = useRef<(key: string, shift: boolean) => void>(() => {});
+  toolShortcutRef.current = (key, shift) => {
+    if (key === 'v') changeToolSelector('select');
+    else if (key === 'c') changeToolSelector('agile-split');
+    else if (key === 'a') changeToolSelector(shift ? 'select-backward' : 'select-forward');
+    else if (key === 'z') changeToolSelector('zoom');
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('[role="dialog"], .modal, .settings-window')) return;
+      const key = event.key.toLowerCase();
+      if (key !== 'v' && key !== 'c' && key !== 'a' && key !== 'z') return;
+      event.preventDefault();
+      toolShortcutRef.current(key, event.shiftKey);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   function toggleRippleMode(): void {
     const next = !preferences.timelineRipple;
@@ -1918,6 +2048,8 @@ export const Timeline = memo(function Timeline() {
         (preferences.timelineShowGrid ? '' : ' no-grid') +
         (preferences.timelineClipLabels === 'minimal' ? ' labels-minimal' : '')
       }
+      data-tool={toolSelector}
+      onPointerDownCapture={handleToolPointerDown}
     >
       <div
         className="timeline-resize"
@@ -1967,6 +2099,8 @@ export const Timeline = memo(function Timeline() {
       />
       <div className="timeline-toolbar">
         <div className="timeline-tools">
+          {/* Captura 127: selector de herramienta al inicio de la barra. */}
+          <ToolSelectorMenu value={toolSelector} onChange={changeToolSelector} />
           <button
             type="button"
             className="icon-button"
@@ -1993,7 +2127,8 @@ export const Timeline = memo(function Timeline() {
               setPxPerFrame(clamp(760 / (seconds * fps), 0.2, 14));
             }}
           >
-            Ajustar
+            <Icon name="fit" size={13} />
+            <span className="tool-label">Ajustar</span>
           </button>
           <button
             type="button"
@@ -2019,7 +2154,7 @@ export const Timeline = memo(function Timeline() {
             onClick={() => setSnapEnabled((value) => !value)}
           >
             <Icon name="magnet" size={13} />
-            <span className="tool-label">Magnética</span>
+            <span className="tool-label">Imán</span>
           </button>
           <button
             type="button"
@@ -2059,7 +2194,11 @@ export const Timeline = memo(function Timeline() {
           </button>
         </div>
         <div className="timeline-tools timeline-tools-filters">
-          <label className="color-filter-field">
+          <label
+            className="color-filter-field"
+            title="Filtrar clips por color (atenúa los que no coinciden)"
+          >
+            <Icon name="palette" size={13} />
             <span className="tool-label">Color</span>
             <select
               value={colorFilter}
@@ -2087,10 +2226,12 @@ export const Timeline = memo(function Timeline() {
             </button>
           ) : null}
           <label className="clip-search-field">
+            <Icon name="search" size={13} />
             <input
               type="search"
               value={clipQuery}
-              placeholder="Buscar clip"
+              placeholder=""
+              title="Buscar clips por nombre · Enter salta al coincidente"
               aria-label="Buscar clips por nombre"
               onChange={(event) => setClipQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -2102,19 +2243,22 @@ export const Timeline = memo(function Timeline() {
           </label>
         </div>
         <div className="timeline-tools">
-          <select
-            value={newTrackKind}
-            aria-label="Tipo de pista nueva"
-            onChange={(event) => setNewTrackKind(event.target.value as Track['kind'])}
-          >
-            <option value="video">Video</option>
-            <option value="image">Imagen</option>
-            <option value="audio">Audio</option>
-            <option value="narration">Narración</option>
-            <option value="caption">Subtítulos</option>
-            <option value="graphic">Gráficos</option>
-            <option value="adjustment">Ajustes</option>
-          </select>
+          <label className="track-kind-field" title="Tipo de pista nueva">
+            <Icon name="layers" size={13} />
+            <select
+              value={newTrackKind}
+              aria-label="Tipo de pista nueva"
+              onChange={(event) => setNewTrackKind(event.target.value as Track['kind'])}
+            >
+              <option value="video">Video</option>
+              <option value="image">Imagen</option>
+              <option value="audio">Audio</option>
+              <option value="narration">Narración</option>
+              <option value="caption">Subtítulos</option>
+              <option value="graphic">Gráficos</option>
+              <option value="adjustment">Ajustes</option>
+            </select>
+          </label>
           <button
             type="button"
             className="small icon-text"
@@ -2122,7 +2266,7 @@ export const Timeline = memo(function Timeline() {
             onClick={addTrackToTimeline}
           >
             <Icon name="plus" size={13} />
-            <span className="tool-label">Agregar pista</span>
+            <span className="tool-label">Pista</span>
           </button>
           <button
             type="button"
@@ -2132,7 +2276,7 @@ export const Timeline = memo(function Timeline() {
             onClick={addAdjustmentLayerToTimeline}
           >
             <Icon name="layers" size={13} />
-            <span className="tool-label">Capa de ajuste</span>
+            <span className="tool-label">Capa</span>
           </button>
         </div>
         <div className="timeline-tools">
@@ -2153,7 +2297,7 @@ export const Timeline = memo(function Timeline() {
             }}
           >
             <Icon name="split" size={13} />
-            <span className="tool-label">Dividir en playhead</span>
+            <span className="tool-label">Dividir</span>
           </button>
           <button
             type="button"
@@ -2174,7 +2318,7 @@ export const Timeline = memo(function Timeline() {
             onClick={() => deleteSelectedClips(preferences.timelineRipple)}
           >
             <Icon name="trash" size={13} />
-            <span className="tool-label">Borrar clip</span>
+            <span className="tool-label">Borrar</span>
           </button>
           <button
             type="button"
@@ -2234,7 +2378,7 @@ export const Timeline = memo(function Timeline() {
             }}
           >
             <Icon name="magnet" size={13} />
-            <span className="tool-label">Cerrar huecos</span>
+            <span className="tool-label">Cerrar</span>
           </button>
           <button
             type="button"
@@ -2248,7 +2392,7 @@ export const Timeline = memo(function Timeline() {
             }}
           >
             <Icon name="captions" size={13} />
-            <span className="tool-label">Borrar subtítulo</span>
+            <span className="tool-label">Subtítulo</span>
           </button>
         </div>
         <div
@@ -2315,6 +2459,20 @@ export const Timeline = memo(function Timeline() {
                 );
               })}
               <div className="timeline-menu-separator" role="separator" />
+              {/* Captura 126: abre el editor real de la barra rápida. */}
+              <button
+                type="button"
+                role="menuitem"
+                className="fm-toolbar-customize-entry"
+                onClick={() => {
+                  setCustomizerOpen(true);
+                  setToolsMenuOpen(false);
+                }}
+              >
+                <span>Personalizar barra de herramientas…</span>
+                <span className="timeline-menu-hint">{quickTools.length}</span>
+              </button>
+              <div className="timeline-menu-separator" role="separator" />
               <p className="timeline-menu-group-title">Herramientas de IA · pendientes</p>
               {OVERFLOW_PENDING.map((label) => (
                 <button
@@ -2336,6 +2494,9 @@ export const Timeline = memo(function Timeline() {
           <span className="duration-tracks"> · {project.timeline.tracks.length} pistas</span>
         </span>
       </div>
+
+      {/* Captura 128: fila de herramientas rápidas, personalizable desde 126. */}
+      <QuickToolsBar tools={quickTools} />
 
       {overviewVisible ? (
         <TimelineOverview
@@ -2943,6 +3104,13 @@ export const Timeline = memo(function Timeline() {
           ) : null}
         </div>
       </div>
+
+      {/* Captura 126: personalización real (drag & drop + localStorage). */}
+      <ToolbarCustomizerDialog
+        open={customizerOpen}
+        onClose={() => setCustomizerOpen(false)}
+        onSaved={(ids) => setQuickTools(ids)}
+      />
     </div>
   );
 });

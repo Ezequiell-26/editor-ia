@@ -20,13 +20,20 @@ function renderAppAt(search: string) {
   return renderApp();
 }
 
-function nav(label: string): void {
+async function nav(label: string): Promise<void> {
   const navigation = screen.getByRole('navigation', { name: /vistas/i });
-  let button = within(navigation).queryByRole('button', { name: label });
-  if (!button) {
-    fireEvent.click(within(navigation).getByRole('button', { name: /Más herramientas/i }));
-    button = within(navigation).getByRole('button', { name: label });
+  const find = () => within(navigation).queryByRole('button', { name: label });
+  if (!find()) {
+    const more = within(navigation).queryByRole('button', { name: /Más herramientas/i });
+    if (more) fireEvent.click(more);
   }
+  // El menú «Más herramientas» y los tabs internos montan de forma asíncrona:
+  // hay que esperar el botón en vez de leer el DOM un solo tick después.
+  const button = await waitFor(() => {
+    const found = find();
+    if (!found) throw new Error(`nav: no aparece el botón «${label}»`);
+    return found;
+  });
   fireEvent.click(button);
 }
 
@@ -35,7 +42,7 @@ async function hubTab(label: string): Promise<void> {
 }
 
 async function openAiHub(): Promise<void> {
-  nav('Ajustes');
+  await nav('Ajustes');
   const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
   fireEvent.click(
     within(dialog).getByRole('button', { name: /Inteligencia artificial/i }),
@@ -44,7 +51,7 @@ async function openAiHub(): Promise<void> {
 }
 
 async function createProject(name = 'Obra de prueba'): Promise<void> {
-  nav('Proyectos');
+  await nav('Proyectos');
   const input = within(screen.getByRole('main')).getByRole('textbox', { name: /nombre/i });
   fireEvent.change(input, { target: { value: name } });
   fireEvent.click(screen.getByRole('button', { name: /Crear y elegir ubicación/i }));
@@ -180,7 +187,7 @@ describe('shell de Olyvia', () => {
   it('abre el descargador, analiza una URL y la importa con el servicio simulado', async () => {
     renderApp();
     await createProject('Obra descarga');
-    nav('Descargar');
+    await nav('Descargar');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Motor de descargas'));
     await waitFor(() => expect(main.textContent).toContain('Copiar conexión'));
@@ -211,7 +218,7 @@ describe('shell de Olyvia', () => {
 
   it('descarga sin proyecto y deja el archivo en la carpeta de descargas', async () => {
     const service = renderApp();
-    nav('Descargar');
+    await nav('Descargar');
     const main = screen.getByRole('main');
     await waitFor(() =>
       expect(within(main).getByRole('textbox', { name: /URL para descargar/i })).toBeTruthy(),
@@ -236,7 +243,7 @@ describe('shell de Olyvia', () => {
   it('permite elegir carpeta y disco antes de descargar', async () => {
     window.localStorage.clear();
     const service = renderApp();
-    nav('Descargar');
+    await nav('Descargar');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Guardar en'));
     expect(main.textContent).toContain('Predeterminada');
@@ -278,21 +285,22 @@ describe('shell de Olyvia', () => {
   it('pega una URL en Proyectos y abre Descargar con el análisis listo', async () => {
     renderApp();
     await createProject('Obra URL rápida');
-    nav('Proyectos');
-    const quick = screen.getByRole('textbox', { name: /URL para descargar/i });
+    await nav('Proyectos');
+    // T2: con proyecto, Proyectos es un panel lazy DENTRO del editor.
+    const quick = await screen.findByRole('textbox', { name: /URL para descargar/i });
     fireEvent.change(quick, { target: { value: 'https://example.com/reel' } });
     const quickForm = quick.closest('form');
     if (!quickForm) throw new Error('se esperaba el formulario de descarga rápida');
     fireEvent.click(within(quickForm).getByRole('button', { name: /^Descargar$/i }));
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Video de prueba'));
     expect(
-      (screen.getByRole('textbox', { name: /URL para descargar/i }) as HTMLInputElement).value,
+      (await screen.findByRole('textbox', { name: /URL para descargar/i }) as HTMLInputElement).value,
     ).toBe('https://example.com/reel');
   });
 
   it('agrupa YouTube dentro de Descargar y conserva el formulario al volver', async () => {
     renderApp();
-    nav('Descargar');
+    await nav('Descargar');
     const url = await screen.findByRole('textbox', { name: /URL para descargar/i });
     fireEvent.change(url, { target: { value: 'https://youtube.com/watch?v=hub' } });
     await hubTab('YouTube');
@@ -316,6 +324,19 @@ describe('shell de Olyvia', () => {
     );
     fireEvent.click(screen.getByRole('tab', { name: 'Edición' }));
     await waitFor(() => expect(document.querySelector('.preview-panel')).toBeTruthy());
+  });
+
+  it('el modo Guía muestra el recorrido único de seis pasos sin dejar el editor', async () => {
+    renderApp();
+    await createProject('Obra guía');
+    fireEvent.click(screen.getByRole('tab', { name: 'Guía' }));
+    await waitFor(() =>
+      expect(screen.getByRole('tabpanel').textContent).toContain('De la idea al MP4 en seis pasos'),
+    );
+    expect(document.querySelectorAll('.workspace-guide .learn-steps > li')).toHaveLength(6);
+    // Unificación: la guía se abre DENTRO del editor y la timeline no se pierde.
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'Guía' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('redirige un deep link de utilidad al Laboratorio con su tab', async () => {
@@ -354,7 +375,7 @@ describe('shell de Olyvia', () => {
   it('abre Motion como tab interno del editor sin perder la timeline', async () => {
     renderApp();
     await createProject('Obra Motion interno');
-    nav('Motion');
+    await nav('Motion');
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Motion' }).getAttribute('aria-selected')).toBe(
         'true',
@@ -365,7 +386,7 @@ describe('shell de Olyvia', () => {
       screen.getByRole('navigation', { name: /vistas/i }).textContent,
     ).toContain('Editor');
     fireEvent.click(screen.getByRole('tab', { name: 'Edición' }));
-    nav('Motion');
+    await nav('Motion');
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Motion' }).getAttribute('aria-selected')).toBe(
         'true',
@@ -375,7 +396,7 @@ describe('shell de Olyvia', () => {
 
   it('abre Denoise Studio y muestra el flujo de reducción de ruido', async () => {
     renderApp();
-    nav('Laboratorio');
+    await nav('Laboratorio');
     await hubTab('Denoise');
     const main = screen.getByRole('main');
     await waitFor(() =>
@@ -387,7 +408,7 @@ describe('shell de Olyvia', () => {
 
   it('abre Miniaturas y muestra el editor con plantillas', async () => {
     renderApp();
-    nav('Creador');
+    await nav('Creador');
     await hubTab('Miniaturas');
     const main = screen.getByRole('main');
     await waitFor(() =>
@@ -400,7 +421,7 @@ describe('shell de Olyvia', () => {
 
   it('abre Localización, lee subtítulos y muestra la traducción', async () => {
     renderApp();
-    nav('Creador');
+    await nav('Creador');
     await hubTab('Localización');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Un video, ocho idiomas'));
@@ -451,7 +472,7 @@ describe('shell de Olyvia', () => {
   it('abre Efectos y muestra presets, transiciones y auditoría', async () => {
     renderApp();
     await createProject('Visual');
-    nav('Efectos');
+    await nav('Efectos');
     const main = screen.getByRole('main');
     await waitFor(() =>
       expect(main.textContent).toContain('El mismo look para varios clips'),
@@ -464,9 +485,9 @@ describe('shell de Olyvia', () => {
     await waitFor(() => expect(main.textContent).toContain('No hay problemas'));
   });
 
-  it('sin runtime nativo avisa y deshabilita la creación', () => {
+  it('sin runtime nativo avisa y deshabilita la creación', async () => {
     render(<App />);
-    nav('Proyectos');
+    await nav('Proyectos');
     const main = screen.getByRole('main');
     expect(main.textContent).toMatch(/Abrí la app de escritorio/i);
     expect((within(main).getByRole('button', { name: /Crear y elegir ubicación/i }) as HTMLButtonElement).disabled).toBe(true);
@@ -592,16 +613,19 @@ describe('shell de Olyvia', () => {
     expect(within(main).queryByText('V1')).toBeNull();
     fireEvent.click(within(main).getByRole('button', { name: /Agregar pista/i }));
     await waitFor(() => expect(within(screen.getByRole('main')).getByText('V1')).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: /Deshacer/i }));
+    // La barra rápida de la timeline (captura 128) también expone Deshacer/
+    // Rehacer, así que el test apunta explícitamente a los de la barra superior.
+    const topbar = within(screen.getByRole('banner'));
+    fireEvent.click(topbar.getByRole('button', { name: /Deshacer/i }));
     await waitFor(() => expect(within(screen.getByRole('main')).queryByText('V1')).toBeNull());
-    fireEvent.click(screen.getByRole('button', { name: /Rehacer/i }));
+    fireEvent.click(topbar.getByRole('button', { name: /Rehacer/i }));
     await waitFor(() => expect(within(screen.getByRole('main')).getByText('V1')).toBeTruthy());
   });
 
   it('muestra el proveedor simulado y la lista de escenas en Guion', async () => {
     renderApp();
     await createProject('Obra guion');
-    nav('Guion');
+    await nav('Guion');
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Brief'));
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Simulado'));
     expect(screen.getByRole('main').textContent).toMatch(/No hay escenas|escena/i);
@@ -613,7 +637,7 @@ describe('shell de Olyvia', () => {
   it('Producción muestra el flujo de video automático y sus pasos', async () => {
     renderApp();
     await createProject('Obra producción');
-    nav('Producción');
+    await nav('Producción');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Guion y escenas'));
     expect(main.textContent).toContain('Generar video automático');
@@ -623,7 +647,7 @@ describe('shell de Olyvia', () => {
   it('importa una timeline EDL en Producción y agrega el medio al proyecto', async () => {
     const service = renderApp();
     await createProject('Timeline importada');
-    nav('Producción');
+    await nav('Producción');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Timeline de otra app'));
     fireEvent.click(
@@ -636,7 +660,7 @@ describe('shell de Olyvia', () => {
       expect(screen.getByRole('main').textContent).toContain('EDL · 1 clips'),
     );
     expect(service.calls.timelineImports).toBe(1);
-    nav('Medios');
+    await nav('Medios');
     await waitFor(() =>
       expect(screen.getByRole('main').textContent).toContain('Toma importada'),
     );
@@ -645,7 +669,7 @@ describe('shell de Olyvia', () => {
   it('Medios muestra la biblioteca vacía y el consentimiento de derechos', async () => {
     renderApp();
     await createProject('Obra medios');
-    nav('Medios');
+    await nav('Medios');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('No hay assets todavía'));
     expect(main.textContent).toMatch(/Confirmo que tengo derechos/i);
@@ -654,7 +678,7 @@ describe('shell de Olyvia', () => {
 
   it('Ajustes abre una ventana aparte con todas las secciones', async () => {
     renderApp();
-    nav('Ajustes');
+    await nav('Ajustes');
     const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
     await waitFor(() => expect(dialog.textContent).toContain('FFmpeg'));
     expect(dialog.textContent).toMatch(/Render MP4 H\.264\/AAC/);
@@ -687,10 +711,10 @@ describe('shell de Olyvia', () => {
 
   it('la ventana de Ajustes se cierra con Escape sin cambiar la vista de fondo', async () => {
     renderApp();
-    nav('Inicio');
+    await nav('Inicio');
     const main = screen.getByRole('main');
     expect(main.textContent).toContain('Ruta de producción');
-    nav('Ajustes');
+    await nav('Ajustes');
     const dialog = await screen.findByRole('dialog', { name: 'Configuración' });
     expect(dialog).toBeTruthy();
     // El fondo sigue en Inicio: Ajustes no reemplaza la vista.
@@ -702,7 +726,7 @@ describe('shell de Olyvia', () => {
   it('Cumplimiento muestra reglas por red y audita el proyecto', async () => {
     renderApp();
     await createProject('Obra reglas');
-    nav('Descargar');
+    await nav('Descargar');
     await hubTab('Cumplimiento');
     const main = screen.getByRole('main');
     await waitFor(() => expect(main.textContent).toContain('Auditoría de preflight'));
@@ -1404,14 +1428,14 @@ describe('menú principal por flujo de trabajo', () => {
   it('Guion y Medios, pasos 2 y 3 de la ruta, están en el rail sin abrir «Más»', async () => {
     renderApp();
     expect(railLabels()).toEqual(expect.arrayContaining(['Guion', 'Medios']));
-    nav('Descargar');
+    await nav('Descargar');
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
     expect(railLabels()).toHaveLength(11);
   });
 
   it('Creador navega a su superficie sin romper el rail', async () => {
     renderApp();
-    nav('Creador');
+    await nav('Creador');
     await waitFor(() => expect(screen.getByRole('tab', { name: 'Fábrica' })).toBeTruthy());
     expect(railLabels()).toHaveLength(11);
     expect(railLabels()).not.toContain('Fábrica');
@@ -1437,10 +1461,10 @@ describe('menú principal por flujo de trabajo', () => {
   it('abre Director y Fábrica sin licencia ni bloqueo Pro', async () => {
     const service = createFakeService();
     render(<App service={service} />);
-    nav('Director');
+    await nav('Director');
     expect(await screen.findByText(/No hay un proyecto abierto/i)).toBeTruthy();
     expect(screen.queryByText(/herramienta Pro/i)).toBeNull();
-    nav('Creador');
+    await nav('Creador');
     await hubTab('Fábrica');
     expect(
       await screen.findByText(/Un brief, varias variantes listas para editar/i),
@@ -1450,7 +1474,7 @@ describe('menú principal por flujo de trabajo', () => {
 
   it('muestra la ayuda contextual de Descargas como tooltip accesible', async () => {
     renderApp();
-    nav('Descargar');
+    await nav('Descargar');
     await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
     const notes = screen.getAllByRole('note');
     expect(notes.length).toBeGreaterThan(0);
@@ -1460,4 +1484,112 @@ describe('menú principal por flujo de trabajo', () => {
       ),
     ).toBe(true);
   });
+});
+
+describe('F2 · un solo editor', () => {
+  it('con proyecto abierto, Guion y Medios viven dentro del editor y el rail sigue el modo', async () => {
+    renderApp();
+    await createProject('Obra F2');
+    await nav('Guion');
+    await waitFor(() => expect(document.querySelector('.editor-workspace')).toBeTruthy());
+    // Contenido real de ScriptView, no una pantalla nueva.
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Brief'));
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    const rail = screen.getByRole('navigation', { name: /vistas/i });
+    expect(within(rail).getByRole('button', { name: 'Guion' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('tab', { name: 'Guion' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText(/Volver a Edición/i)).toBeTruthy();
+
+    // Cambiar de modo DENTRO del editor sincroniza el rail con la herramienta.
+    fireEvent.click(screen.getByRole('tab', { name: 'Medios' }));
+    await waitFor(() =>
+      expect(within(rail).getByRole('button', { name: 'Medios' }).getAttribute('aria-current')).toBe('page'),
+    );
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+  });
+
+  it('sin proyecto, Guion conserva su empty-state standalone', async () => {
+    renderApp();
+    await nav('Guion');
+    await waitFor(() =>
+      expect(screen.getByRole('main').textContent).toContain('No hay un proyecto abierto'),
+    );
+    expect(document.querySelector('.editor-workspace')).toBeNull();
+  });
+
+  it('el menú Avanzado abre un modo del editor sin perder la timeline', async () => {
+    renderApp();
+    await createProject('Obra menú avanzado');
+    fireEvent.click(within(screen.getByRole('banner')).getByRole('button', { name: 'Avanzado' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Mezcla de audio/i }));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Mezcla' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+  });
+});
+
+describe('T2 · todas las herramientas dentro del editor', () => {
+  it('el botón de la barra abre el mapa de las 33 herramientas con la timeline visible', async () => {
+    renderApp();
+    await createProject('Obra mapa total');
+    fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Todo' }).getAttribute('aria-selected')).toBe('true'),
+    );
+    expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(33);
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+    expect(screen.getByText('33 / 33')).toBeTruthy();
+  });
+
+  it('un hub y un alias de hub se montan como panel, sin pantalla separada', async () => {
+    renderApp();
+    await createProject('Obra hubs embebidos');
+    fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(33));
+    fireEvent.click(screen.getByRole('button', { name: /^Descargar:/ }));
+    await waitFor(() => expect(screen.getByText(/Volver al mapa/i)).toBeTruthy());
+    expect(document.querySelector('.editor-workspace')).toBeTruthy();
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+
+    // Volver al mapa y abrir un ALIAS: debe reutilizar el mismo host con su tab.
+    fireEvent.click(screen.getByRole('button', { name: 'Mapa de herramientas' }));
+    await waitFor(() => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(33));
+    fireEvent.click(screen.getByRole('button', { name: /^YouTube:/ }));
+    await waitFor(() => expect(screen.getByText(/Volver al mapa/i)).toBeTruthy());
+    expect(document.querySelector('.editor-workspace')).toBeTruthy();
+    expect(document.querySelector('.timeline-panel')).toBeTruthy();
+  });
+
+  it('sin proyecto las herramientas conservan su pantalla standalone', async () => {
+    renderApp();
+    await nav('Descargar');
+    await waitFor(() => expect(screen.getByRole('main').textContent).toContain('Guardar en'));
+    expect(document.querySelector('.editor-workspace')).toBeNull();
+  });
+});
+
+describe('cobertura de vistas', () => {
+  it('toda ViewId declarada renderiza sin caer en el default mudo', async () => {
+    const { NAV_VIEWS, PIPELINE_HIDDEN_VIEWS } = await import('./app/navigation');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const ids = [...new Set([...NAV_VIEWS.map((view) => view.id), ...PIPELINE_HIDDEN_VIEWS])];
+    for (const id of ids) {
+      cleanup();
+      renderAppAt(`?view=${id}`);
+      // Esperar a que la vista monta (lazy + Suspense); el default sólo
+      // registra el warn y no produce contenido propio.
+      await waitFor(
+        () => {
+          expect(document.body.textContent?.trim().length ?? 0).toBeGreaterThan(0);
+        },
+        { timeout: 4000 },
+      );
+      const missing = warn.mock.calls.filter((call) =>
+        String(call[0]).includes('renderView sin caso'),
+      );
+      expect(missing, `la vista «${id}» cayó en el default de renderView`).toEqual([]);
+    }
+    warn.mockRestore();
+  }, 60_000);
 });

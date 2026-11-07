@@ -58,7 +58,8 @@
   --fm-ink: #e9edf1;
   --fm-ink-2: #adb7c1;
   --fm-ink-3: #8b959f;
-  --fm-ink-4: #6f7983;
+  /* 4,8:1 medido sobre --fm-panel-2 (antes 3,7:1, por debajo de AA). */
+  --fm-ink-4: #828d98;
   --fm-ink-bright: #cbd5de;
   --fm-thumb: #dce6ee;
   --fm-accent: #3df4ba;
@@ -256,7 +257,7 @@ body,
   background: var(--color-bg) !important;
   color: var(--color-text);
   font-family: var(--font-ui) !important;
-  font-size: 12px;
+  font-size: var(--fm-type-md);
   letter-spacing: 0;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -323,7 +324,7 @@ h1, h2, h3, h4, h5, h6 {
 .settings-window .eyebrow {
   text-transform: none !important;
   letter-spacing: 0.01em !important;
-  font-size: 11px;
+  font-size: var(--fm-type-sm);
   font-weight: 500;
   color: var(--ink-3);
 }
@@ -337,7 +338,7 @@ h1, h2, h3, h4, h5, h6 {
 [role='dialog'] button {
   border-radius: 2px !important;
   font-family: var(--font-ui) !important;
-  font-size: 11.5px;
+  font-size: var(--fm-type-md);
   font-weight: 500;
   letter-spacing: 0;
   box-shadow: none !important;
@@ -409,7 +410,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   color: var(--ink-1) !important;
   font-family: var(--font-ui) !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   box-shadow: none !important;
   min-height: 24px;
   padding: 3px 7px;
@@ -475,7 +476,7 @@ h1, h2, h3, h4, h5, h6 {
   height: 32px !important;
   gap: 5px !important;
   padding: 0 6px 0 0 !important;
-  font-size: 12px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
 }
@@ -484,7 +485,7 @@ h1, h2, h3, h4, h5, h6 {
   height: 22px !important;
   padding: 0 6px !important;
   border-radius: 2px !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .menubar,
 .app-shell .menubar-menus { height: 32px !important; gap: 0 !important; }
@@ -496,7 +497,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: transparent !important;
   color: var(--fm-ink-2) !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
 }
@@ -514,13 +515,13 @@ h1, h2, h3, h4, h5, h6 {
   backdrop-filter: none !important;
   padding: 3px !important;
 }
-.app-shell .menubar-item { border-radius: 2px !important; font-size: 11.5px !important; }
+.app-shell .menubar-item { border-radius: 2px !important; font-size: var(--fm-type-md) !important; }
 .app-shell .menubar-item:hover:not(:disabled) { background: var(--fm-hover-strong) !important; color: var(--fm-ink) !important; }
 
 .app-shell .topbar-center { height: 32px !important; }
 .app-shell .topbar-project { gap: 6px !important; }
-.app-shell .topbar-project-name { font-size: 11.5px !important; font-weight: 500 !important; color: var(--fm-ink-bright) !important; }
-.app-shell .topbar-project-phase { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+.app-shell .topbar-project-name { font-size: var(--fm-type-md) !important; font-weight: 500 !important; color: var(--fm-ink-bright) !important; }
+.app-shell .topbar-project-phase { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-4) !important; }
 
 .app-shell .topbar-actions { gap: 2px !important; padding-right: 4px !important; }
 .app-shell .topbar-search {
@@ -557,7 +558,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 3px !important;
   background: var(--fm-accent) !important;
   color: var(--fm-accent-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 700 !important;
   letter-spacing: 0.02em !important;
   text-transform: uppercase;
@@ -581,10 +582,10 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 8px !important;
   background: var(--fm-bar) !important;
   border-top: 1px solid var(--fm-line) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   color: var(--fm-ink-4) !important;
 }
-.app-shell .app-statusbar .statusbar-meta { font-size: 10.5px !important; }
+.app-shell .app-statusbar .statusbar-meta { font-size: var(--fm-type-sm) !important; }
 
 /* ───────────────────────── 5 · Navegación lateral ────────────────────── */
 
@@ -599,7 +600,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .sidebar .nav-item {
   border-radius: 2px !important;
   color: var(--fm-ink-3) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .sidebar button:hover { background: var(--fm-hover) !important; color: var(--fm-ink) !important; }
 .app-shell .sidebar button.active,
@@ -660,7 +661,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm-ink-3) !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 500 !important;
 }
 .app-shell .tab.active,
@@ -679,7 +680,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--fm-control-line) !important;
   background: var(--fm-bar-2) !important;
   color: var(--fm-ink-2) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   padding: 1px 6px !important;
 }
 .app-shell .chip.active { border-color: var(--fm-accent) !important; color: var(--fm-accent) !important; }
@@ -692,8 +693,8 @@ h1, h2, h3, h4, h5, h6 {
   border-bottom: 1px solid var(--fm-line) !important;
   border-radius: 0 !important;
 }
-.app-shell .view-toolbar-label { font-size: 11.5px !important; font-weight: 600 !important; letter-spacing: 0 !important; }
-.app-shell .view-count { font-size: 11px !important; color: var(--fm-ink-3) !important; }
+.app-shell .view-toolbar-label { font-size: var(--fm-type-md) !important; font-weight: 600 !important; letter-spacing: 0 !important; }
+.app-shell .view-count { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-3) !important; }
 
 /* ─────────────────────── 7 · Editor: estructura ──────────────────────── */
 
@@ -718,7 +719,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm-ink-3) !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 500 !important;
   letter-spacing: 0 !important;
 }
@@ -781,7 +782,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-tabs .active {
   border-radius: 0 !important;
   border-bottom: 2px solid transparent !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .rail-tabs .active { color: var(--fm-accent) !important; border-bottom-color: var(--fm-accent) !important; }
 .app-shell .rail-search,
@@ -789,7 +790,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-fav-filter {
   border-radius: 2px !important;
   height: 22px !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .rail-list { padding: 4px !important; gap: 2px !important; }
 .app-shell .rail-asset,
@@ -802,8 +803,8 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-asset:hover { background: var(--fm-hover) !important; border-color: var(--fm-line) !important; }
 .app-shell .rail-asset.selected { background: color-mix(in srgb, var(--fm-accent) 14%, transparent) !important; border-color: var(--fm-accent) !important; }
 .app-shell .rail-thumb { border-radius: 1px !important; background: var(--fm-input) !important; border: 1px solid var(--fm-line) !important; }
-.app-shell .rail-info { font-size: 11px !important; color: var(--fm-ink-bright) !important; }
-.app-shell .rail-actions button { font-size: 10.5px !important; }
+.app-shell .rail-info { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-bright) !important; }
+.app-shell .rail-actions button { font-size: var(--fm-type-sm) !important; }
 .app-shell .rail-foot { border-top: 1px solid var(--fm-line) !important; background: var(--fm-bar-2) !important; }
 
 /* Player · el vídeo manda; HUD y herramientas en una sola fila discreta. */
@@ -828,7 +829,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm-panel-2) !important;
   color: var(--fm-ink-2) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   backdrop-filter: none !important;
 }
 .app-shell .preview-hud-chip.strong { color: var(--fm-ink) !important; }
@@ -863,13 +864,13 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .transport-frames,
 .app-shell .transport-readout {
   font-family: var(--font-mono) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   color: var(--fm-ink-bright) !important;
   letter-spacing: 0 !important;
 }
 
 /* Inspector · pestañas, secciones y campos. */
-.app-shell .inspector-head { font-size: 11.5px !important; font-weight: 600 !important; }
+.app-shell .inspector-head { font-size: var(--fm-type-md) !important; font-weight: 600 !important; }
 .app-shell .inspector-body { padding: 8px !important; gap: 8px !important; }
 .app-shell .inspector-section {
   border: 0 !important;
@@ -879,7 +880,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 0 8px !important;
 }
 .app-shell .inspector-section-toggle {
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 600 !important;
   color: var(--fm-ink-bright) !important;
   text-transform: none !important;
@@ -889,15 +890,15 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .inspector-tabs button {
   border-radius: 0 !important;
   border-bottom: 2px solid transparent !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   color: var(--fm-ink-3) !important;
 }
 .app-shell .inspector-tabs button.active { color: var(--fm-accent) !important; border-bottom-color: var(--fm-accent) !important; }
 .app-shell .field { gap: 3px !important; }
 .app-shell .field label,
-.app-shell .field .field-label { font-size: 10.5px !important; color: var(--fm-ink-3) !important; text-transform: none !important; letter-spacing: 0 !important; }
+.app-shell .field .field-label { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-3) !important; text-transform: none !important; letter-spacing: 0 !important; }
 .app-shell .inspector-grid { gap: 6px !important; }
-.app-shell .inspector-meta { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+.app-shell .inspector-meta { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-4) !important; }
 .app-shell .color-swatch { border-radius: 2px !important; }
 .app-shell .color-swatch-fill { border-radius: 1px !important; }
 
@@ -911,9 +912,9 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   border-bottom: 2px solid var(--fm-accent) !important;
   background: transparent !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
-.app-shell .timeline-tabs-meta { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+.app-shell .timeline-tabs-meta { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-4) !important; }
 
 .app-shell .timeline-toolbar,
 .app-shell .timeline-tools {
@@ -931,7 +932,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 5px !important;
   border-radius: 2px !important;
   border: 1px solid transparent !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   color: var(--fm-ink-2) !important;
   background: transparent !important;
 }
@@ -945,49 +946,54 @@ h1, h2, h3, h4, h5, h6 {
 }
 .app-shell .timeline-toolbar .icon-button { width: 22px !important; }
 .app-shell .timeline-toolbar select,
-.app-shell .timeline-tools select { height: 22px !important; font-size: 10.5px !important; }
-.app-shell .tool-label { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
-.app-shell .zoom-readout { font-family: var(--font-mono) !important; font-size: 10.5px !important; color: var(--fm-ink-3) !important; }
+.app-shell .timeline-tools select { height: 22px !important; font-size: var(--fm-type-sm) !important; }
+.app-shell .tool-label { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-4) !important; }
+.app-shell .zoom-readout { font-family: var(--font-mono) !important; font-size: var(--fm-type-sm) !important; color: var(--fm-ink-3) !important; }
 
 .app-shell .timeline-surface,
 .app-shell .timeline-scroll,
 .app-shell .timeline-empty { background: var(--fm-bar) !important; }
 .app-shell .ruler-row,
 .app-shell .ruler-lane { background: var(--fm-timeline) !important; border-bottom: 1px solid var(--fm-line) !important; }
-.app-shell .ruler-tick { color: var(--fm-ink-4) !important; font-size: 9.5px !important; font-family: var(--font-mono) !important; }
+.app-shell .ruler-tick { color: #96a0aa !important; font-size: var(--fm-type-xs) !important; font-family: var(--font-mono) !important; }
 .app-shell .ruler-minor { background: var(--fm-line) !important; }
 .app-shell .ruler-corner { background: var(--fm-timeline) !important; border-right: 1px solid var(--fm-line) !important; }
-.app-shell .ruler-corner-title { font-size: 10.5px !important; color: var(--fm-ink-3) !important; }
+.app-shell .ruler-corner-title { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-3) !important; }
 
 .app-shell .track-head {
   background: var(--fm-timeline) !important;
   border-right: 1px solid var(--fm-line) !important;
   border-bottom: 1px solid var(--fm-line) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   color: var(--fm-ink-3) !important;
 }
 .app-shell .track-lane {
   background: var(--fm-bar) !important;
   border-bottom: 1px solid var(--fm-line) !important;
 }
-.app-shell .track-name { font-size: 10.5px !important; }
+.app-shell .track-name { font-size: var(--fm-type-sm) !important; }
 .app-shell .track-flags button { color: var(--fm-ink-4) !important; }
+.app-shell .flag.solo .flag-letter { font-size: var(--fm-type-xs) !important; }
 
 /* Clips: periwinkle de vídeo, cian de audio, borde de 1 px, sin radio. */
 .app-shell .timeline-clip {
   border-radius: 1px !important;
   border: 1px solid var(--fm-line) !important;
   box-shadow: none !important;
-  font-size: 10.5px !important;
-  color: #f2f5fa !important;
+  font-size: var(--fm-type-sm) !important;
+  /* Texto oscuro sobre clips saturados: 5,2–5,4:1 medido. El texto claro
+     anterior quedaba en 2,86–3,19:1, por debajo de AA. */
+  color: #0b1620 !important;
 }
+.app-shell .timeline-clip .clip-label,
+.app-shell .timeline-clip .clip-window { color: #0b1620 !important; }
 .app-shell .timeline-clip.kind-video { background: var(--fm-clip-video) !important; border-color: #7d97ff !important; }
 .app-shell .timeline-clip.kind-image { background: var(--color-image) !important; border-color: #a492f0 !important; }
 .app-shell .timeline-clip.kind-audio,
 .app-shell .timeline-clip.kind-narration { background: var(--fm-clip-audio) !important; border-color: #3bb8c4 !important; }
 .app-shell .timeline-clip.selected { outline: 1px solid var(--fm-accent) !important; outline-offset: -1px; }
 .app-shell .clip-thumb { border-radius: 0 !important; }
-.app-shell .clip-label { font-size: 10px !important; font-weight: 500 !important; }
+.app-shell .clip-label { font-size: var(--fm-type-xs) !important; font-weight: 500 !important; }
 .app-shell .clip-color-dot { border-radius: 1px !important; }
 .app-shell .trim-handle { background: var(--fm-accent) !important; width: 4px !important; border-radius: 0 !important; }
 
@@ -1038,8 +1044,8 @@ h1, h2, h3, h4, h5, h6 {
 }
 .start-action-card:hover,
 .welcome-option:hover { border-color: var(--fm-accent) !important; background: var(--fm-panel-2) !important; }
-.start-action-title { font-size: 12px !important; font-weight: 600 !important; }
-.start-action-desc { font-size: 10.5px !important; color: var(--fm-ink-3) !important; }
+.start-action-title { font-size: var(--fm-type-md) !important; font-weight: 600 !important; }
+.start-action-desc { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-3) !important; }
 
 /* Menús contextuales, popovers y tooltips planos. */
 .app-shell .timeline-menu,
@@ -1055,7 +1061,7 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: none !important;
   backdrop-filter: none !important;
   color: var(--fm-ink-bright) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 
 /* Banners y avisos: una línea, sin degradados. */
@@ -1067,7 +1073,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: var(--fm-bar-2) !important;
   box-shadow: none !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .banner-error { border-bottom-color: #7f2b2b !important; color: #f0a9a9 !important; }
 
@@ -1098,7 +1104,7 @@ h1, h2, h3, h4, h5, h6 {
 .settings-window label {
   text-transform: none !important;
   letter-spacing: 0 !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 500 !important;
   color: var(--fm-ink-3) !important;
 }
@@ -1117,13 +1123,13 @@ h1, h2, h3, h4, h5, h6 {
   text-transform: none !important;
   background: var(--fm-bar-2) !important;
   color: var(--fm-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .editor-empty-icon { border-radius: 2px !important; background: var(--fm-bar-2) !important; }
-.app-shell .editor-empty-title { font-size: 18px !important; letter-spacing: 0 !important; }
-.app-shell .editor-empty-desc { font-size: 11.5px !important; color: var(--fm-ink-3) !important; }
+.app-shell .editor-empty-title { font-size: var(--fm-type-2xl) !important; letter-spacing: 0 !important; }
+.app-shell .editor-empty-desc { font-size: var(--fm-type-md) !important; color: var(--fm-ink-3) !important; }
 .app-shell .editor-empty-hints { gap: 6px !important; }
-.app-shell .editor-empty-hint { font-size: 10.5px !important; color: var(--fm-ink-4) !important; }
+.app-shell .editor-empty-hint { font-size: var(--fm-type-sm) !important; color: var(--fm-ink-4) !important; }
 
 /* Banner «modo navegador»: informativo, no una franja dorada. */
 .app-shell .browser-mode-banner,
@@ -1135,7 +1141,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   box-shadow: none !important;
   color: var(--fm-ink-2) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   min-height: 26px !important;
 }
 .app-shell .browser-mode-banner-label {
@@ -1143,13 +1149,13 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--fm-control-line) !important;
   border-radius: 2px !important;
   color: var(--fm-accent) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
 }
 .app-shell .browser-mode-banner-line,
 .app-shell .browser-mode-banner-details,
-.app-shell .browser-mode-banner-details > summary { color: var(--fm-ink-2) !important; font-size: 11px !important; }
+.app-shell .browser-mode-banner-details > summary { color: var(--fm-ink-2) !important; font-size: var(--fm-type-sm) !important; }
 .app-shell .browser-mode-banner-line strong { color: var(--fm-ink) !important; }
 .app-shell .browser-mode-banner-action { border: 1px solid var(--fm-control-line) !important; border-radius: 2px !important; }
 
@@ -1173,7 +1179,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .settings-nav button,
 .app-shell .settings-nav-item {
   border-radius: 2px !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   color: var(--fm-ink-2) !important;
 }
 .app-shell .settings-nav button.active,
@@ -1210,7 +1216,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm-ink-3) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   height: 22px !important;
 }
 .app-shell .segmented button:last-child { border-right: 0 !important; }
@@ -1235,7 +1241,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   box-shadow: none !important;
 }
-.app-shell .home-hero-lead { font-size: 15px !important; }
+.app-shell .home-hero-lead { font-size: var(--fm-type-lg) !important; }
 .app-shell .home-pillar-icon { border-radius: 2px !important; }
 .app-shell .home-pillar-tag,
 .app-shell .home-hero-chip { border-radius: 2px !important; }
@@ -1335,7 +1341,7 @@ h1, h2, h3, h4, h5, h6 {
   background: rgba(3, 8, 13, 0.78) !important;
   color: #ffffff !important;
   font-family: var(--font-mono) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   line-height: 14px !important;
   font-variant-numeric: tabular-nums !important;
   letter-spacing: 0 !important;
@@ -1366,7 +1372,7 @@ h1, h2, h3, h4, h5, h6 {
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 400 !important;
   line-height: 14px !important;
   letter-spacing: 0 !important;
@@ -1409,7 +1415,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: rgba(3, 8, 13, 0.88) !important;
   color: var(--fm-ink) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   line-height: 17px !important;
   white-space: nowrap !important;
 }
@@ -1539,13 +1545,13 @@ h1, h2, h3, h4, h5, h6 {
   pointer-events: none !important;
 }
 .app-shell .topbar-project-name {
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 500 !important;
   color: var(--fm-ink-2) !important;
   letter-spacing: 0 !important;
 }
 .app-shell .topbar-project-phase {
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   color: var(--fm-ink-4) !important;
 }
 .app-shell .topbar-export-btn {
@@ -1556,7 +1562,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 3px !important;
   background: var(--fm-accent) !important;
   color: var(--fm-accent-ink) !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   box-shadow: none !important;
@@ -1565,55 +1571,43 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .topbar-export-btn:not(.ready) { opacity: 0.85 !important; }
 .app-shell .topbar-divider { background: var(--fm-line) !important; }
 
-/* ── 13.2 · Módulos: icono arriba, etiqueta abajo, subrayado activo ───── */
+/* ── 13.2 · Módulos: tira compacta de iconos, sin subrayado activo ───── */
 .app-shell .rail-tabs {
-  display: grid !important;
-  grid-template-columns: repeat(8, minmax(0, 1fr)) !important;
-  grid-auto-flow: column !important;
-  grid-auto-columns: minmax(0, 1fr) !important;
-  height: 52px !important;
-  min-height: 52px !important;
-  gap: 0 !important;
-  padding: 0 !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 3px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 4px !important;
   background: var(--fm-bar-2) !important;
   border-bottom: 1px solid var(--fm-line) !important;
-  overflow: hidden !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
 }
+.app-shell .rail-tabs::-webkit-scrollbar { height: 0 !important; width: 0 !important; }
 .app-shell .rail-tabs button {
-  display: flex !important;
-  flex-direction: column !important;
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 3px !important;
-  width: 100% !important;
+  width: 28px !important;
+  height: 28px !important;
   min-width: 0 !important;
-  height: 52px !important;
-  min-height: 52px !important;
-  padding: 4px 1px 3px !important;
+  padding: 0 !important;
   border: 0 !important;
-  border-bottom: 2px solid transparent !important;
-  border-radius: 0 !important;
+  border-radius: 7px !important;
   background: transparent !important;
   color: var(--fm-ink-3) !important;
-  font-size: 10px !important;
+  font-size: 0 !important;
   font-weight: 500 !important;
 }
 .app-shell .rail-tabs button svg { width: 16px !important; height: 16px !important; flex: none !important; }
-.app-shell .rail-tabs button span {
-  display: block !important;
-  max-width: 100% !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  font-size: 9px !important;
-  line-height: 12px !important;
-  letter-spacing: -0.15px !important;
-}
+.app-shell .rail-tabs button span { display: none !important; }
 .app-shell .rail-tabs button:hover { background: var(--fm-hover) !important; color: var(--fm-ink) !important; }
 .app-shell .rail-tabs button.active {
-  background: transparent !important;
-  border: 0 !important;
-  border-bottom: 2px solid var(--fm-accent) !important;
+  background: color-mix(in srgb, var(--fm-accent) 14%, transparent) !important;
   color: var(--fm-accent) !important;
 }
 .app-shell .rail-tabs button.active svg { color: var(--fm-accent) !important; }
@@ -1655,7 +1649,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm-ink-2) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   text-align: left !important;
 }
@@ -1677,7 +1671,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 400 !important;
   text-align: left !important;
   white-space: nowrap !important;
@@ -1699,7 +1693,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-category-label {
   margin: 11px 8px 4px !important;
   color: var(--fm-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 600 !important;
   letter-spacing: 0.07em !important;
   text-transform: uppercase !important;
@@ -1711,7 +1705,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm-accent) !important;
   color: var(--fm-accent-ink) !important;
-  font-size: 8px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 700 !important;
   line-height: 13px !important;
 }
@@ -1741,10 +1735,10 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm-panel) !important;
   border-bottom: 1px solid var(--fm-line) !important;
   color: var(--fm-ink-2) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .rail-head .eyebrow {
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   color: var(--fm-ink-4) !important;
   letter-spacing: 0.06em !important;
 }
@@ -1776,7 +1770,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 0 !important;
   background: transparent !important;
   color: var(--fm-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   outline: none !important;
 }
 .app-shell .rail-search input::placeholder { color: var(--fm-ink-4) !important; }
@@ -1791,7 +1785,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm-input) !important;
   color: var(--fm-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .rail-fav-filter { width: 26px !important; max-width: 26px !important; display: grid !important; place-items: center !important; }
 .app-shell .rail-fav-filter span { display: none !important; }
@@ -1823,16 +1817,16 @@ h1, h2, h3, h4, h5, h6 {
   left: auto !important;
   right: 4px !important;
   bottom: 4px !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   line-height: 14px !important;
   border-radius: 2px !important;
   background: rgba(3, 8, 13, 0.78) !important;
 }
-.app-shell .rail-info strong { font-size: 10px !important; line-height: 14px !important; }
+.app-shell .rail-info strong { font-size: var(--fm-type-xs) !important; line-height: 14px !important; }
 .app-shell .rail-foot {
   height: 30px !important;
   min-height: 30px !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   border-top: 1px solid var(--fm-line) !important;
   border-radius: 0 !important;
   background: var(--fm-panel) !important;
@@ -1864,7 +1858,7 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 34px !important;
   background: var(--fm-panel) !important;
   border-bottom: 1px solid var(--fm-line) !important;
-  font-size: 11.5px !important;
+  font-size: var(--fm-type-md) !important;
   color: var(--fm-ink-2) !important;
 }
 .app-shell .inspector-tabs {
@@ -1882,7 +1876,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 3px !important;
   background: var(--fm-panel-2) !important;
   color: var(--fm-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 500 !important;
   text-transform: capitalize !important;
   letter-spacing: 0 !important;
@@ -1900,7 +1894,7 @@ h1, h2, h3, h4, h5, h6 {
   width: 100% !important;
   height: 28px !important;
   padding: 0 2px !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   color: var(--fm-ink-2) !important;
 }
@@ -1964,7 +1958,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm-input) !important;
   color: var(--fm-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 
 /* ── 13.6 · Timeline: toolbar de iconos, clip periwinkle, cabezal rojo ─ */
@@ -1990,21 +1984,49 @@ h1, h2, h3, h4, h5, h6 {
   height: 24px !important;
   min-height: 24px !important;
   min-width: 24px !important;
-  padding: 0 5px !important;
+  padding: 0 3px !important;
   border: 1px solid transparent !important;
   border-radius: 2px !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
+/* Patrón icon-first de la referencia (119–128): la barra principal ya ocupa
+   todo el ancho a 1360 px. Medimos que hacer visibles las 17 etiquetas suma
+   322 px y recorta controles (incluido «Más»). Se conserva la barra completa
+   con tooltips/aria-label y la fila de herramientas rápidas SÍ muestra las
+   etiquetas de las acciones primarias. Se gana densidad real sin recortes. */
 .app-shell .timeline-toolbar button:has(svg) > .tool-label { display: none !important; }
+.app-shell .timeline-tools { gap: 3px !important; }
+.app-shell .timeline-toolbar { gap: 4px !important; }
+.app-shell .timeline-tools .fm-tool-selector > button.icon-text > .tool-label {
+  display: inline !important;
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  margin: 0 0 0 3px !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  clip: auto !important;
+  clip-path: none !important;
+  font-size: var(--fm-type-xs) !important;
+  line-height: 1 !important;
+  white-space: nowrap !important;
+}
 .app-shell .timeline-tools .zoom-fit,
-.app-shell .timeline-tools .clip-search-field { font-size: 10px !important; }
+.app-shell .timeline-tools .clip-search-field { font-size: var(--fm-type-xs) !important; }
 .app-shell .timeline-toolbar .icon-button { width: 24px !important; }
 .app-shell .timeline-toolbar svg { width: 14px !important; height: 14px !important; }
 
 /* Controles funcionales (zoom, filtros, búsqueda, tipo de pista) en formato
    compacto de 21 px: la referencia sólo muestra iconos, pero acá se conservan
    todos los controles y sus aria-label, con el mismo peso visual. */
-.app-shell .timeline-toolbar .color-filter-field > .tool-label { display: none !important; }
+.app-shell .timeline-toolbar .color-filter-field { gap: 3px !important; white-space: nowrap !important; }
+.app-shell .timeline-toolbar .color-filter-field > .tool-label {
+  display: inline !important;
+  font-size: var(--fm-type-xs) !important;
+  color: var(--fm-ink-4) !important;
+}
+.app-shell .timeline-toolbar .color-filter-field select { min-width: 62px !important; }
 .app-shell .timeline-toolbar select,
 .app-shell .timeline-toolbar .clip-search-field input {
   height: 21px !important;
@@ -2015,20 +2037,20 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm-input) !important;
   color: var(--fm-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   box-shadow: none !important;
 }
 .app-shell .timeline-toolbar .color-filter-field select { width: 76px !important; }
 .app-shell .timeline-toolbar .clip-search-field,
 .app-shell .timeline-toolbar .clip-search-field input { width: 104px !important; max-width: 104px !important; }
 .app-shell .timeline-toolbar .timeline-tools > select { width: 84px !important; }
-.app-shell .timeline-toolbar .zoom-readout { font-size: 9.5px !important; color: var(--fm-ink-4) !important; }
-.app-shell .timeline-toolbar .zoom-fit { font-size: 9.5px !important; padding: 0 4px !important; }
+.app-shell .timeline-toolbar .zoom-readout { font-size: var(--fm-type-xs) !important; color: var(--fm-ink-4) !important; }
+.app-shell .timeline-toolbar .zoom-fit { font-size: var(--fm-type-xs) !important; padding: 0 4px !important; }
 
 .app-shell .timeline-clip {
   border-radius: 3px !important;
   border: 1px solid color-mix(in srgb, var(--fm-clip-video) 70%, white) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   color: #f2f6ff !important;
   overflow: hidden !important;
 }
@@ -2043,7 +2065,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .clip-thumb { height: 60% !important; object-fit: cover !important; opacity: 0.92 !important; }
 .app-shell .clip-waveform path,
 .app-shell .waveform-path { color: color-mix(in srgb, var(--fm-clip-video) 45%, white) !important; }
-.app-shell .clip-label { font-size: 10px !important; font-weight: 600 !important; text-shadow: none !important; }
+.app-shell .clip-label { font-size: var(--fm-type-xs) !important; font-weight: 600 !important; text-shadow: none !important; }
 
 /* Cabezal rojo con cabeza circular y tooltip de dos líneas. */
 .app-shell .playhead-line {
@@ -2088,7 +2110,7 @@ h1, h2, h3, h4, h5, h6 {
   background: #2b3138 !important;
   color: var(--fm-ink) !important;
   font-family: var(--font-ui) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 400 !important;
   line-height: 15px !important;
   letter-spacing: 0 !important;
@@ -2111,8 +2133,8 @@ h1, h2, h3, h4, h5, h6 {
 /* ── 13.7 · Adaptación a ventanas angostas ───────────────────────────── */
 @media (max-width: 1240px) {
   .app-shell .rail-stage { grid-template-columns: 120px minmax(0, 1fr) !important; }
-  .app-shell .rail-category-items button { padding-left: 10px !important; font-size: 10px !important; }
-  .app-shell .rail-tabs button span { font-size: 9px !important; }
+  .app-shell .rail-category-items button { padding-left: 10px !important; font-size: var(--fm-type-xs) !important; }
+  .app-shell .rail-tabs button span { font-size: var(--fm-type-2xs) !important; }
   .app-shell .editor-grid {
     grid-template-columns: clamp(280px, 28vw, 360px) minmax(0, 1fr) 1px
       var(--inspector-width, 340px) !important;
@@ -2183,7 +2205,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 8px !important;
   border-radius: 2px !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
@@ -2210,7 +2232,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 8px !important;
   border-radius: 2px !important;
   color: var(--fm2-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .app-shell .menubar-item:hover:not(:disabled),
 .app-shell .menubar-item:focus-visible {
@@ -2223,7 +2245,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .menubar-shortcut {
   margin-left: auto !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   font-variant-numeric: tabular-nums !important;
 }
 .app-shell .menubar-separator {
@@ -2232,57 +2254,49 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm2-line) !important;
   border: 0 !important;
 }
-.app-shell .topbar-project-name { font-size: 11px !important; color: var(--fm2-ink) !important; }
-.app-shell .topbar-project-phase { font-size: 9.5px !important; color: var(--fm2-ink-4) !important; }
+.app-shell .topbar-project-name { font-size: var(--fm-type-sm) !important; color: var(--fm2-ink) !important; }
+.app-shell .topbar-project-phase { font-size: var(--fm-type-xs) !important; color: var(--fm2-ink-4) !important; }
 .app-shell .topbar-export-btn {
   height: 22px !important;
   padding: 0 12px !important;
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-accent) !important;
   color: var(--fm2-accent-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   box-shadow: none !important;
 }
 
-/* ── 14.2 · Módulos: icono arriba, etiqueta abajo, subrayado de activo ──── */
+/* ── 14.2 · Módulos: tira compacta de iconos, sin subrayado de activo ──── */
 .app-shell .rail-tabs {
   background: var(--fm2-canvas) !important;
   border-bottom: 1px solid var(--fm2-line) !important;
 }
 .app-shell .rail-tabs button {
-  gap: 1px !important;
+  gap: 0 !important;
   background: transparent !important;
   border: 0 !important;
-  border-bottom: 2px solid transparent !important;
-  border-radius: 0 !important;
+  border-radius: 7px !important;
   color: var(--fm2-ink-3) !important;
   box-shadow: none !important;
 }
-.app-shell .rail-tabs button svg { width: 15px !important; height: 15px !important; opacity: 0.85 !important; }
+.app-shell .rail-tabs button svg { width: 16px !important; height: 16px !important; opacity: 0.85 !important; }
 .app-shell .rail-tabs button:hover { background: var(--fm-hover) !important; color: var(--fm2-ink) !important; }
 .app-shell .rail-tabs button.active,
 .app-shell .rail-tabs button[aria-selected='true'] {
-  background: transparent !important;
+  background: color-mix(in srgb, var(--fm2-accent) 14%, transparent) !important;
   color: var(--fm2-accent) !important;
-  border-bottom-color: var(--fm2-accent) !important;
 }
 .app-shell .rail-tabs button.active svg,
 .app-shell .rail-tabs button[aria-selected='true'] svg { opacity: 1 !important; }
-.app-shell .rail-tabs button span {
-  font-size: 9px !important;
-  font-weight: 400 !important;
-  line-height: 12px !important;
-  letter-spacing: -0.15px !important;
-  text-transform: none !important;
-}
+.app-shell .rail-tabs button span { display: none !important; }
 .app-shell .editor-mode-tabs {
   background: var(--fm2-canvas) !important;
   border-bottom: 1px solid var(--fm2-line) !important;
 }
 .app-shell .editor-mode-tabs button {
   color: var(--fm2-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   border-radius: 0 !important;
   border-bottom: 2px solid transparent !important;
   background: transparent !important;
@@ -2313,7 +2327,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 0 !important;
   border-radius: 0 !important;
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-align: left !important;
@@ -2338,7 +2352,7 @@ h1, h2, h3, h4, h5, h6 {
   border-left: 2px solid transparent !important;
   border-radius: 0 !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   text-align: left !important;
@@ -2368,14 +2382,14 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-accent) !important;
-  font-size: 8px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 700 !important;
   line-height: 13px !important;
 }
 .app-shell .rail-category-label {
   padding: 6px 8px 2px !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 600 !important;
   letter-spacing: 0.7px !important;
   text-transform: uppercase !important;
@@ -2386,14 +2400,14 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-head { border-bottom: 1px solid var(--fm2-line) !important; }
 .app-shell .rail-head .eyebrow {
   color: var(--fm2-ink-3) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 600 !important;
   letter-spacing: 0.7px !important;
   text-transform: uppercase !important;
 }
 .app-shell .rail-head strong {
   color: var(--fm2-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-variant-numeric: tabular-nums !important;
 }
 .app-shell .rail-head .small.icon-text {
@@ -2403,7 +2417,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   box-shadow: none !important;
 }
 .app-shell .rail-head .small.primary.icon-text {
@@ -2421,7 +2435,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-search:focus-within { border-color: var(--fm2-accent) !important; }
 .app-shell .rail-search input {
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   letter-spacing: 0 !important;
 }
 .app-shell .rail-search input::placeholder { color: var(--fm2-ink-4) !important; }
@@ -2431,7 +2445,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .rail-fav-filter.active {
   border-color: var(--fm2-accent) !important;
@@ -2455,7 +2469,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 10px !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   line-height: 18px !important;
@@ -2471,7 +2485,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 .app-shell .rail-chip-count {
   color: var(--fm2-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-variant-numeric: tabular-nums !important;
 }
 .app-shell .rail-section-head {
@@ -2482,7 +2496,7 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 26px !important;
   padding: 0 8px !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   font-weight: 600 !important;
   letter-spacing: 0.7px !important;
   text-transform: uppercase !important;
@@ -2502,7 +2516,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 7px !important;
   background: var(--fm2-accent) !important;
   color: var(--fm2-accent-ink) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 700 !important;
   font-variant-numeric: tabular-nums !important;
   letter-spacing: 0 !important;
@@ -2510,17 +2524,17 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-foot {
   border-top: 1px solid var(--fm2-line) !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .rail-view-hint,
 .app-shell .rail-subheading {
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   letter-spacing: 0 !important;
 }
 .app-shell .rail-subheading {
   padding: 6px 8px 2px !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   font-weight: 600 !important;
   letter-spacing: 0.7px !important;
   text-transform: uppercase !important;
@@ -2543,7 +2557,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: rgba(0, 0, 0, 0.72) !important;
   color: #ffffff !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-variant-numeric: tabular-nums !important;
 }
 .app-shell .rail-fav {
@@ -2557,8 +2571,8 @@ h1, h2, h3, h4, h5, h6 {
   border: 0 !important;
 }
 .app-shell .rail-fav.active { color: var(--fm2-fav) !important; }
-.app-shell .rail-info strong { color: var(--fm2-ink) !important; font-size: 10.5px !important; font-weight: 400 !important; }
-.app-shell .rail-info > span { color: var(--fm2-ink-4) !important; font-size: 9.5px !important; }
+.app-shell .rail-info strong { color: var(--fm2-ink) !important; font-size: var(--fm-type-sm) !important; font-weight: 400 !important; }
+.app-shell .rail-info > span { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .preset-card,
 .app-shell .transition-card,
 .app-shell .sticker-card,
@@ -2590,7 +2604,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   letter-spacing: 0 !important;
   box-shadow: none !important;
 }
@@ -2602,7 +2616,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--fm2-line) !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   box-shadow: none !important;
 }
 .app-shell .preview-tool:hover:not(:disabled),
@@ -2615,7 +2629,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .transport-frames,
 .app-shell .transport-readout {
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   font-variant-numeric: tabular-nums !important;
   letter-spacing: 0 !important;
 }
@@ -2625,9 +2639,23 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .inspector-head {
   border-bottom: 1px solid var(--fm2-line) !important;
   color: var(--fm2-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
+}
+/* Chip de selección: antes era mono 8 px en mayúsculas y parecía un hash
+   de depuración. Ahora es una etiqueta legible en la fuente de UI. */
+.app-shell .inspector-head > span {
+  padding: 2px 7px !important;
+  border: 1px solid color-mix(in srgb, var(--fm2-accent) 34%, transparent) !important;
+  border-radius: 3px !important;
+  background: color-mix(in srgb, var(--fm2-accent) 8%, transparent) !important;
+  color: var(--fm2-ink-2) !important;
+  font-family: var(--font-ui) !important;
+  font-size: var(--fm-type-xs) !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+  text-transform: none !important;
 }
 .app-shell .inspector-tabs-wrap {
   display: flex !important;
@@ -2658,7 +2686,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
@@ -2702,7 +2730,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 10px !important;
   background: transparent !important;
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
@@ -2715,7 +2743,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .inspector .field > label,
 .app-shell .inspector-grid label {
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   font-weight: 400 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
@@ -2727,7 +2755,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   box-shadow: none !important;
 }
 .app-shell .inspector input[type='range'] { height: 3px !important; accent-color: var(--fm2-accent) !important; }
@@ -2743,7 +2771,7 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm2-accent) !important;
   border-color: var(--fm2-accent) !important;
 }
-.app-shell .inspector-meta { color: var(--fm2-ink-4) !important; font-size: 9.5px !important; }
+.app-shell .inspector-meta { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .keyframe-panel {
   border: 0 !important;
   border-top: 1px solid var(--fm2-line) !important;
@@ -2751,7 +2779,7 @@ h1, h2, h3, h4, h5, h6 {
   background: transparent !important;
   box-shadow: none !important;
 }
-.app-shell .keyframe-row { color: var(--fm2-ink-2) !important; font-size: 10px !important; }
+.app-shell .keyframe-row { color: var(--fm2-ink-2) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .color-wheels { gap: 10px !important; }
 .app-shell .color-wheel {
   border-radius: 50% !important;
@@ -2767,7 +2795,7 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm2-canvas) !important;
   border-bottom: 1px solid var(--fm2-line) !important;
 }
-.app-shell .timeline-tabs-meta { color: var(--fm2-ink-4) !important; font-size: 9.5px !important; }
+.app-shell .timeline-tabs-meta { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .timeline-toolbar { background: var(--fm2-canvas) !important; border-bottom: 1px solid var(--fm2-line) !important; }
 .app-shell .timeline-toolbar button {
   border-radius: 2px !important;
@@ -2787,11 +2815,11 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   box-shadow: none !important;
 }
 .app-shell .ruler-row,
-.app-shell .ruler-lane { color: var(--fm2-ink-4) !important; font-size: 9px !important; }
+.app-shell .ruler-lane { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; }
 .app-shell .playhead-grip {
   width: 11px !important;
   height: 16px !important;
@@ -2803,7 +2831,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .timeline-clip {
   border-radius: 2px !important;
   box-shadow: none !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 
 /* ── 14.9 · Menús contextuales con columna de atajos ───────────────────── */
@@ -2824,7 +2852,7 @@ h1, h2, h3, h4, h5, h6 {
   padding: 0 8px !important;
   border-radius: 2px !important;
   color: var(--fm2-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   background: transparent !important;
 }
 .app-shell .timeline-menu [role='menuitem'] > span:first-child { flex: 1 1 auto !important; }
@@ -2837,7 +2865,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .timeline-menu-hint {
   margin-left: auto !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   font-variant-numeric: tabular-nums !important;
 }
 .app-shell .timeline-menu-separator {
@@ -2858,13 +2886,13 @@ h1, h2, h3, h4, h5, h6 {
 [role='dialog'] .dialog-head {
   border-bottom: 1px solid var(--fm2-line) !important;
   color: var(--fm2-ink) !important;
-  font-size: 12px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
 }
 [role='dialog'] button {
   border-radius: 2px !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   box-shadow: none !important;
 }
 [role='dialog'] .primary,
@@ -2882,7 +2910,7 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: none !important;
   backdrop-filter: none !important;
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 
 /* ── 14.11 · Inicio: CTA con el único degradado permitido ──────────────── */
@@ -2894,19 +2922,19 @@ h1, h2, h3, h4, h5, h6 {
 }
 .app-shell .home-hero h1 {
   color: var(--fm2-ink) !important;
-  font-size: 22px !important;
+  font-size: var(--fm-type-display) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   line-height: 1.25 !important;
 }
-.app-shell .home-hero-lead { color: var(--fm2-ink-2) !important; font-size: 12px !important; }
+.app-shell .home-hero-lead { color: var(--fm2-ink-2) !important; font-size: var(--fm-type-md) !important; }
 .app-shell .home-hero-actions .primary,
 .app-shell .home-hero-actions button.primary {
   background: linear-gradient(90deg, var(--fm2-cta-a), var(--fm2-cta-b)) !important;
   border: 0 !important;
   border-radius: var(--fm2-radius) !important;
   color: #08131a !important;
-  font-size: 12px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 600 !important;
   box-shadow: none !important;
 }
@@ -2914,7 +2942,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--fm2-line) !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   letter-spacing: 0 !important;
 }
 .app-shell .home-pillar-card,
@@ -2929,19 +2957,19 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .home-pillar-tag,
 .app-shell .home-hero-status .eyebrow {
   color: var(--fm2-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   letter-spacing: 0.7px !important;
   text-transform: uppercase !important;
 }
 
 /* ── 14.12 · Densidad responsiva sin solapes ───────────────────────────── */
 @media (max-width: 1240px) {
-  .app-shell .rail-chip { padding: 0 6px !important; font-size: 9.5px !important; }
-  .app-shell .inspector-tabs button { padding: 0 8px !important; font-size: 10px !important; }
+  .app-shell .rail-chip { padding: 0 6px !important; font-size: var(--fm-type-xs) !important; }
+  .app-shell .inspector-tabs button { padding: 0 8px !important; font-size: var(--fm-type-xs) !important; }
 }
 @media (max-width: 980px) {
   .app-shell .rail-chips { gap: 3px !important; padding: 5px 6px 3px !important; }
-  .app-shell .preview-hud-chip { font-size: 9px !important; }
+  .app-shell .preview-hud-chip { font-size: var(--fm-type-2xs) !important; }
 }
 
 /* ── 14.13 · Proporciones medidas en 1360×768 y CTA del lanzador ──────────
@@ -3045,7 +3073,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: transparent !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   text-align: left !important;
 }
 .app-shell .inspector-tabs-menu button:hover {
@@ -3107,7 +3135,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: linear-gradient(90deg, var(--fm2-cta-a), var(--fm2-cta-b)) !important;
   color: #08131a !important;
-  font-size: 21px !important;
+  font-size: var(--fm-type-display) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   box-shadow: none !important;
@@ -3155,7 +3183,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .rail-pending-note {
   margin: 0 8px 6px !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   line-height: 1.35 !important;
 }
 .app-shell .audio-category-group[hidden] { display: none !important; }
@@ -3183,7 +3211,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   font-weight: 400 !important;
   white-space: nowrap !important;
   box-shadow: none !important;
@@ -3234,7 +3262,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .timeline-menu-group-title {
   margin: 5px 8px 2px !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 600 !important;
   letter-spacing: 0.7px !important;
   text-transform: uppercase !important;
@@ -3266,7 +3294,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .timeline-menu-color.active { border-color: var(--fm2-accent) !important; }
 .app-shell .timeline-menu-color.clear {
   color: var(--fm2-ink-3) !important;
-  font-size: 13px !important;
+  font-size: var(--fm-type-md) !important;
   line-height: 1 !important;
 }
 .app-shell .timeline-tools-overflow { position: relative !important; margin-left: auto !important; }
@@ -3292,7 +3320,7 @@ h1, h2, h3, h4, h5, h6 {
   border: 0 !important;
   border-radius: 2px !important;
   color: var(--fm2-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   background: transparent !important;
   text-align: left !important;
 }
@@ -3342,8 +3370,8 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm2-panel) !important;
   color: var(--fm2-accent) !important;
 }
-.start-screen .start-quick-label { font-size: 10.5px !important; font-weight: 600 !important; text-align: center !important; }
-.start-screen .start-quick-tag { color: var(--fm2-ink-4) !important; font-size: 9px !important; text-align: center !important; }
+.start-screen .start-quick-label { font-size: var(--fm-type-sm) !important; font-weight: 600 !important; text-align: center !important; }
+.start-screen .start-quick-tag { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; text-align: center !important; }
 .start-screen .start-services { display: flex !important; flex-direction: column !important; gap: 3px !important; }
 .start-screen .start-services button {
   display: flex !important;
@@ -3356,12 +3384,12 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .start-screen .start-services button:disabled { opacity: 0.55 !important; cursor: not-allowed !important; }
 .start-screen .start-service-badge {
   color: var(--fm2-ink-4) !important;
-  font-size: 8.5px !important;
+  font-size: var(--fm-type-2xs) !important;
   letter-spacing: 0.5px !important;
   text-transform: uppercase !important;
 }
@@ -3387,7 +3415,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   white-space: nowrap !important;
   box-shadow: none !important;
 }
@@ -3435,8 +3463,8 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm2-panel) !important;
   color: var(--fm2-accent) !important;
 }
-.start-screen .start-quick-label { font-size: 10.5px !important; font-weight: 600 !important; text-align: center !important; }
-.start-screen .start-quick-tag { color: var(--fm2-ink-4) !important; font-size: 9px !important; text-align: center !important; }
+.start-screen .start-quick-label { font-size: var(--fm-type-sm) !important; font-weight: 600 !important; text-align: center !important; }
+.start-screen .start-quick-tag { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; text-align: center !important; }
 .start-screen .start-services { display: flex !important; flex-direction: column !important; gap: 3px !important; }
 .start-screen .start-services button {
   display: flex !important;
@@ -3449,12 +3477,12 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .start-screen .start-services button:disabled { opacity: 0.55 !important; cursor: not-allowed !important; }
 .start-screen .start-service-badge {
   color: var(--fm2-ink-4) !important;
-  font-size: 8.5px !important;
+  font-size: var(--fm-type-2xs) !important;
   letter-spacing: 0.5px !important;
   text-transform: uppercase !important;
 }
@@ -3480,7 +3508,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   white-space: nowrap !important;
   box-shadow: none !important;
 }
@@ -3545,7 +3573,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 0 !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   white-space: nowrap !important;
   box-shadow: none !important;
 }
@@ -3561,7 +3589,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-accent) !important;
-  font-size: 8px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 700 !important;
 }
 .app-shell .rail-commercial-toggle { margin-left: auto !important; }
@@ -3593,7 +3621,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: transparent !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   white-space: nowrap !important;
 }
 .app-shell .ai-facet-tabs button.active {
@@ -3606,20 +3634,20 @@ h1, h2, h3, h4, h5, h6 {
   border: 1px solid var(--fm2-line) !important;
   border-radius: 2px !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .ai-facet-model-tag {
   padding: 1px 4px !important;
   border-radius: 2px !important;
   background: var(--fm2-fav) !important;
   color: #160b12 !important;
-  font-size: 8px !important;
+  font-size: var(--fm-type-2xs) !important;
   font-weight: 700 !important;
 }
-.app-shell .ai-facet-model-pending { color: var(--fm2-ink-4) !important; font-size: 9px !important; }
-.app-shell .ai-facet-title { margin: 0 !important; color: var(--fm2-ink) !important; font-size: 12px !important; text-align: center !important; }
+.app-shell .ai-facet-model-pending { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; }
+.app-shell .ai-facet-title { margin: 0 !important; color: var(--fm2-ink) !important; font-size: var(--fm-type-md) !important; text-align: center !important; }
 .app-shell .ai-facet-field { position: relative !important; display: flex !important; flex-direction: column !important; gap: 4px !important; }
-.app-shell .ai-facet-field > span:first-child { color: var(--fm2-ink-2) !important; font-size: 10px !important; }
+.app-shell .ai-facet-field > span:first-child { color: var(--fm2-ink-2) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .ai-facet-field textarea {
   width: 100% !important;
   min-height: 62px !important;
@@ -3629,9 +3657,9 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
-.app-shell .ai-facet-counter { align-self: flex-end !important; color: var(--fm2-ink-4) !important; font-size: 9px !important; }
+.app-shell .ai-facet-counter { align-self: flex-end !important; color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; }
 .app-shell .ai-facet-dropzone {
   display: flex !important;
   flex-direction: column !important;
@@ -3643,7 +3671,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
   text-align: center !important;
 }
 .app-shell .ai-facet-dropzone input { display: none !important; }
@@ -3655,20 +3683,20 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 10px !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .ai-facet-chips button.active {
   border-color: var(--fm2-accent) !important;
   color: var(--fm2-accent) !important;
 }
-.app-shell .ai-facet-duration { display: flex !important; align-items: center !important; gap: 8px !important; color: var(--fm2-ink-2) !important; font-size: 10px !important; }
+.app-shell .ai-facet-duration { display: flex !important; align-items: center !important; gap: 8px !important; color: var(--fm2-ink-2) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .ai-facet-duration select {
   height: 22px !important;
   border: 1px solid var(--fm2-line) !important;
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .ai-facet-generate {
   align-self: flex-end !important;
@@ -3678,7 +3706,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-accent) !important;
   color: var(--fm2-accent-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
 }
 .app-shell .ai-facet-generate:disabled { opacity: 0.42 !important; cursor: not-allowed !important; }
@@ -3695,9 +3723,9 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--fm2-input) !important;
   color: var(--fm2-accent) !important;
 }
-.app-shell .rail-dropzone strong { font-size: 13px !important; }
-.app-shell .rail-dropzone span { color: var(--fm2-ink-2) !important; font-size: 10px !important; }
-.app-shell .rail-dropzone em { color: var(--fm2-accent) !important; font-size: 9.5px !important; font-style: normal !important; }
+.app-shell .rail-dropzone strong { font-size: var(--fm-type-md) !important; }
+.app-shell .rail-dropzone span { color: var(--fm2-ink-2) !important; font-size: var(--fm-type-xs) !important; }
+.app-shell .rail-dropzone em { color: var(--fm2-accent) !important; font-size: var(--fm-type-xs) !important; font-style: normal !important; }
 .app-shell .rail-import-project {
   display: flex !important;
   align-items: center !important;
@@ -3708,7 +3736,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 10px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 
 /* ── 14.19 · Visor: pestañas de fuente, calidad e información de proyecto ─ */
@@ -3725,7 +3753,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: transparent !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   white-space: nowrap !important;
   box-shadow: none !important;
 }
@@ -3742,7 +3770,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: 2px !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .project-info-summary {
   padding: 8px 10px 12px !important;
@@ -3758,7 +3786,7 @@ h1, h2, h3, h4, h5, h6 {
 .app-shell .project-info-head h4 {
   margin: 0 !important;
   color: var(--fm2-ink) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
   letter-spacing: 0 !important;
   text-transform: none !important;
@@ -3770,7 +3798,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
 }
 .app-shell .project-info-thumb {
   display: flex !important;
@@ -3784,7 +3812,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink-4) !important;
-  font-size: 9px !important;
+  font-size: var(--fm-type-2xs) !important;
 }
 .app-shell .project-info-rows { margin: 0 !important; display: flex !important; flex-direction: column !important; gap: 0 !important; }
 .app-shell .project-info-rows > div {
@@ -3795,13 +3823,13 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 22px !important;
   border-bottom: 1px solid var(--fm2-line) !important;
 }
-.app-shell .project-info-rows dt { color: var(--fm2-ink-4) !important; font-size: 9.5px !important; }
+.app-shell .project-info-rows dt { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
 .app-shell .project-info-rows dd {
   margin: 0 !important;
   max-width: 58% !important;
   overflow: hidden !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   font-variant-numeric: tabular-nums !important;
   text-align: right !important;
   text-overflow: ellipsis !important;
@@ -3824,11 +3852,11 @@ h1, h2, h3, h4, h5, h6 {
   justify-content: space-between !important;
   gap: 8px !important;
   color: var(--fm2-accent) !important;
-  font-size: 12px !important;
+  font-size: var(--fm-type-md) !important;
   font-weight: 600 !important;
 }
-.export-settings-hint { color: var(--fm2-ink-4) !important; font-size: 9px !important; font-weight: 400 !important; }
-.export-settings-card .field > span { color: var(--fm2-ink-3) !important; font-size: 9.5px !important; }
+.export-settings-hint { color: var(--fm2-ink-4) !important; font-size: var(--fm-type-2xs) !important; font-weight: 400 !important; }
+.export-settings-card .field > span { color: var(--fm2-ink-3) !important; font-size: var(--fm-type-xs) !important; }
 .export-settings-card input[type='text'],
 .export-settings-card select {
   width: 100% !important;
@@ -3837,7 +3865,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink) !important;
-  font-size: 10.5px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .export-settings-card select:disabled { opacity: 0.55 !important; }
 .export-path-row { display: flex !important; align-items: center !important; gap: 6px !important; }
@@ -3850,15 +3878,15 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-input) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
 }
-.export-path-row button { height: 24px !important; font-size: 9.5px !important; }
+.export-path-row button { height: 24px !important; font-size: var(--fm-type-xs) !important; }
 .export-media-types { display: flex !important; flex-wrap: wrap !important; gap: 12px !important; }
-.export-radio { display: inline-flex !important; align-items: center !important; gap: 5px !important; color: var(--fm2-ink-2) !important; font-size: 10px !important; }
+.export-radio { display: inline-flex !important; align-items: center !important; gap: 5px !important; color: var(--fm2-ink-2) !important; font-size: var(--fm-type-xs) !important; }
 .export-radio input { accent-color: var(--fm2-accent) !important; }
-.export-settings-note { margin: 0 !important; color: var(--fm2-ink-4) !important; font-size: 9.5px !important; }
+.export-settings-note { margin: 0 !important; color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
 .export-settings-grid {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -3872,11 +3900,11 @@ h1, h2, h3, h4, h5, h6 {
   border-top: 1px solid var(--fm2-line) !important;
   padding-top: 8px !important;
   color: var(--fm2-ink-3) !important;
-  font-size: 9.5px !important;
+  font-size: var(--fm-type-xs) !important;
 }
-.export-settings-foot button { color: var(--fm2-accent) !important; font-size: 10px !important; }
+.export-settings-foot button { color: var(--fm2-accent) !important; font-size: var(--fm-type-xs) !important; }
 .export-advanced { display: grid !important; grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 4px 12px !important; }
-.export-advanced p { margin: 0 !important; color: var(--fm2-ink-3) !important; font-size: 9.5px !important; }
+.export-advanced p { margin: 0 !important; color: var(--fm2-ink-3) !important; font-size: var(--fm-type-xs) !important; }
 
 /* ── 14.21 · Modales: onboarding (94), novedades (98/99) y login (101) ─── */
 .start-screen .start-onboarding-backdrop {
@@ -3897,11 +3925,11 @@ h1, h2, h3, h4, h5, h6 {
 }
 .start-screen .start-onboarding-brand {
   color: var(--fm2-ink-2) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
   font-weight: 600 !important;
 }
-.start-screen .start-onboarding h2 { margin: 10px 0 4px !important; font-size: 15px !important; font-weight: 600 !important; }
-.start-screen .start-onboarding > p { margin: 0 0 14px !important; color: var(--fm2-ink-4) !important; font-size: 10.5px !important; }
+.start-screen .start-onboarding h2 { margin: 10px 0 4px !important; font-size: var(--fm-type-lg) !important; font-weight: 600 !important; }
+.start-screen .start-onboarding > p { margin: 0 0 14px !important; color: var(--fm2-ink-4) !important; font-size: var(--fm-type-sm) !important; }
 .start-screen .start-onboarding-options {
   display: grid !important;
   grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
@@ -3917,7 +3945,7 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--fm2-radius) !important;
   background: var(--fm2-panel-2) !important;
   color: var(--fm2-ink-2) !important;
-  font-size: 11px !important;
+  font-size: var(--fm-type-sm) !important;
 }
 .start-screen .start-onboarding-options label.active {
   border-color: var(--fm2-accent) !important;
@@ -3925,26 +3953,381 @@ h1, h2, h3, h4, h5, h6 {
 }
 .start-screen .start-onboarding-options input { accent-color: var(--fm2-accent) !important; }
 .start-screen .start-onboarding-actions { display: flex !important; justify-content: flex-end !important; gap: 8px !important; margin-top: 16px !important; }
-.start-screen .start-onboarding-actions button { height: 28px !important; padding: 0 14px !important; font-size: 10.5px !important; }
+.start-screen .start-onboarding-actions button { height: 28px !important; padding: 0 14px !important; font-size: var(--fm-type-sm) !important; }
 .start-screen .start-onboarding-actions button:disabled { opacity: 0.45 !important; cursor: not-allowed !important; }
 .start-screen .start-btn--ghost { background: transparent !important; border: 1px solid var(--fm2-line) !important; color: var(--fm2-ink-2) !important; }
 
 .news-dialog, .login-dialog { display: flex !important; flex-direction: column !important; gap: 10px !important; }
-.news-loading { padding: 26px 0 !important; color: var(--fm2-ink-3) !important; font-size: 11px !important; text-align: center !important; }
-.news-version { margin: 0 !important; color: var(--fm2-ink-4) !important; font-size: 10px !important; }
-.news-dialog h3 { margin: 0 !important; color: var(--fm2-ink) !important; font-size: 14px !important; }
-.news-detail { margin: 0 !important; color: var(--fm2-ink-3) !important; font-size: 10.5px !important; }
+.news-loading { padding: 26px 0 !important; color: var(--fm2-ink-3) !important; font-size: var(--fm-type-sm) !important; text-align: center !important; }
+.news-version { margin: 0 !important; color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
+.news-dialog h3 { margin: 0 !important; color: var(--fm2-ink) !important; font-size: var(--fm-type-lg) !important; }
+.news-detail { margin: 0 !important; color: var(--fm2-ink-3) !important; font-size: var(--fm-type-sm) !important; }
 .news-list { max-height: 210px !important; overflow-y: auto !important; margin: 0 !important; padding-left: 18px !important; }
-.news-list li { color: var(--fm2-ink-3) !important; font-size: 10.5px !important; }
+.news-list li { color: var(--fm2-ink-3) !important; font-size: var(--fm-type-sm) !important; }
 .news-list li.active { color: var(--fm2-accent) !important; }
 .news-list button { border: 0 !important; background: transparent !important; color: inherit !important; font-size: inherit !important; text-align: left !important; }
 .news-actions { display: flex !important; justify-content: flex-end !important; }
-.login-lead { margin: 0 !important; color: var(--fm2-accent) !important; font-size: 11px !important; font-weight: 600 !important; letter-spacing: 0.5px !important; }
-.login-benefits { margin: 0 !important; padding-left: 18px !important; color: var(--fm2-ink-2) !important; font-size: 10.5px !important; }
-.login-pending { margin: 0 !important; color: var(--fm2-ink-4) !important; font-size: 10px !important; }
+.login-lead { margin: 0 !important; color: var(--fm2-accent) !important; font-size: var(--fm-type-sm) !important; font-weight: 600 !important; letter-spacing: 0.5px !important; }
+.login-benefits { margin: 0 !important; padding-left: 18px !important; color: var(--fm2-ink-2) !important; font-size: var(--fm-type-sm) !important; }
+.login-pending { margin: 0 !important; color: var(--fm2-ink-4) !important; font-size: var(--fm-type-xs) !important; }
 .login-fields { display: flex !important; flex-direction: column !important; gap: 6px !important; }
-.login-fields input { height: 26px !important; padding: 0 8px !important; border: 1px solid var(--fm2-line) !important; border-radius: var(--fm2-radius) !important; background: var(--fm2-input) !important; color: var(--fm2-ink) !important; font-size: 10.5px !important; }
+.login-fields input { height: 26px !important; padding: 0 8px !important; border: 1px solid var(--fm2-line) !important; border-radius: var(--fm2-radius) !important; background: var(--fm2-input) !important; color: var(--fm2-ink) !important; font-size: var(--fm-type-sm) !important; }
 .login-fields button { height: 28px !important; background: var(--fm2-accent) !important; color: var(--fm2-accent-ink) !important; border: 0 !important; border-radius: var(--fm2-radius) !important; }
 .login-fields button:disabled, .login-social button:disabled { opacity: 0.45 !important; cursor: not-allowed !important; }
 .login-social { display: grid !important; grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 6px !important; }
-.login-social button { height: 26px !important; border: 1px solid var(--fm2-line) !important; border-radius: var(--fm2-radius) !important; background: var(--fm2-panel-2) !important; color: var(--fm2-ink-2) !important; font-size: 10px !important; }
+.login-social button { height: 26px !important; border: 1px solid var(--fm2-line) !important; border-radius: var(--fm2-radius) !important; background: var(--fm2-panel-2) !important; color: var(--fm2-ink-2) !important; font-size: var(--fm-type-xs) !important; }
+
+/* ─── 16 · Guía única del estudio (unificación F1) ──────────────────────────
+   El mismo componente se monta en Aprender, en el modo «Guía» del editor y
+   en el editor vacío. Se sobreescribe la grilla de 5 columnas de chrome.css
+   (antes había 5 pasos) por una de 3×2 y se sube la tipografía a >= 10 px. */
+.app-shell .workspace-guide { display: flex !important; flex-direction: column !important; gap: 10px !important; min-width: 0 !important; }
+.app-shell .workspace-guide .learn-quick-head { align-items: flex-start !important; gap: 10px !important; }
+.app-shell .workspace-guide .learn-quick-head h3 { font-size: var(--fm-type-lg) !important; }
+.app-shell .workspace-guide .muted { margin: 4px 0 0 !important; font-size: var(--fm-type-sm) !important; line-height: 1.45 !important; color: var(--fm2-ink-3) !important; }
+.app-shell .workspace-guide .pipeline-guide-meter { display: flex !important; align-items: center !important; gap: 8px !important; }
+.app-shell .workspace-guide .pipeline-guide-meter-track { flex: 1 1 auto !important; height: 4px !important; border-radius: 2px !important; background: var(--fm2-panel-2) !important; overflow: hidden !important; }
+.app-shell .workspace-guide .pipeline-guide-meter-track > span { display: block !important; height: 100% !important; background: var(--fm2-accent) !important; }
+.app-shell .workspace-guide .fine-print { font-size: var(--fm-type-xs) !important; color: var(--fm2-ink-3) !important; white-space: nowrap !important; }
+.app-shell .workspace-guide .learn-steps { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; gap: 8px !important; }
+.app-shell .workspace-guide .learn-steps > li { grid-template-columns: 20px minmax(0, 1fr) !important; gap: 6px !important; padding: 9px !important; border: 1px solid var(--fm2-line) !important; border-radius: 3px !important; background: var(--fm2-panel-2) !important; }
+.app-shell .workspace-guide .learn-steps > li.is-current { border-color: color-mix(in srgb, var(--fm2-accent) 55%, transparent) !important; }
+.app-shell .workspace-guide .learn-steps > li.is-done { opacity: 0.78 !important; }
+.app-shell .workspace-guide .learn-steps > li.is-here { box-shadow: inset 2px 0 0 var(--fm2-accent) !important; }
+.app-shell .workspace-guide .learn-step-number { display: flex !important; flex-direction: column !important; align-items: center !important; gap: 2px !important; font-size: var(--fm-type-xs) !important; font-weight: 400 !important; letter-spacing: 0 !important; color: var(--fm2-accent) !important; }
+.app-shell .workspace-guide .learn-step-number em { font-family: var(--font-mono) !important; font-size: var(--fm-type-xs) !important; font-style: normal !important; }
+.app-shell .workspace-guide .learn-steps > li strong { font-size: var(--fm-type-sm) !important; color: var(--fm2-ink) !important; }
+.app-shell .workspace-guide .learn-steps > li p { font-size: var(--fm-type-xs) !important; line-height: 1.4 !important; color: var(--fm2-ink-3) !important; }
+.app-shell .workspace-guide .workspace-guide-tip { margin-top: 4px !important; color: var(--fm2-ink-4) !important; }
+.app-shell .workspace-guide .link-button { margin-top: 6px !important; font-size: var(--fm-type-xs) !important; color: var(--fm2-accent) !important; }
+.app-shell .workspace-guide-map { display: flex !important; flex-direction: column !important; gap: 6px !important; padding-top: 8px !important; border-top: 1px solid var(--fm2-line) !important; }
+.app-shell .workspace-guide-groups { display: grid !important; grid-template-columns: repeat(4, minmax(0, 1fr)) !important; gap: 8px !important; }
+.app-shell .workspace-guide-group { padding: 8px !important; border: 1px solid var(--fm2-line) !important; border-radius: 3px !important; background: var(--fm2-panel-2) !important; }
+.app-shell .workspace-guide-group strong { display: block !important; font-size: var(--fm-type-sm) !important; color: var(--fm2-ink) !important; }
+.app-shell .workspace-guide-group p { margin: 3px 0 !important; font-size: var(--fm-type-xs) !important; line-height: 1.35 !important; color: var(--fm2-ink-3) !important; }
+.app-shell .workspace-guide-actions { display: flex !important; gap: 6px !important; padding-top: 6px !important; border-top: 1px solid var(--fm2-line) !important; }
+
+/* Variante compacta: dentro del editor, con la timeline siempre visible. */
+.app-shell .workspace-guide-compact { gap: 8px !important; }
+.app-shell .workspace-guide-compact .learn-steps { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 6px !important; }
+.app-shell .workspace-guide-compact .learn-steps > li { padding: 7px !important; }
+.app-shell .workspace-guide-compact .learn-steps > li p { overflow: hidden !important; text-overflow: ellipsis !important; white-space: nowrap !important; }
+.app-shell .editor-mode-panel > .workspace-guide-compact { max-height: 100% !important; overflow-y: auto !important; padding: 12px !important; }
+.app-shell .editor-empty-guide { max-height: 230px !important; overflow-y: auto !important; margin-top: 14px !important; padding-top: 10px !important; border-top: 1px solid var(--fm2-line) !important; }
+.app-shell .editor-empty-guide .learn-steps { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+@media (max-width: 1240px) {
+  .app-shell .workspace-guide .learn-steps,
+  .app-shell .workspace-guide-groups { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}
+/* premium/views.css hereda un max-width pensado para las tarjetas de 5 pasos;
+   en la guía unificada cada tarjeta debe ocupar su columna completa. */
+.app-shell .workspace-guide .learn-steps > li {
+  width: auto !important;
+  max-width: none !important;
+  justify-self: stretch !important;
+}
+/* En la tarjeta de «sin proyecto» el ancho es ~580 px: una guía de 3
+   columnas recortaba las descripciones. Se usa un stepper compacto de 2
+   columnas, sin texto de apoyo, con las seis CTA legibles. */
+.app-shell .editor-empty-guide { max-height: 246px !important; }
+.app-shell .editor-empty-guide .learn-quick-head h3 { font-size: var(--fm-type-md) !important; }
+.app-shell .editor-empty-guide .learn-steps { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 5px !important; }
+.app-shell .editor-empty-guide .learn-steps > li { grid-template-columns: 18px minmax(0, 1fr) !important; gap: 5px !important; padding: 6px !important; }
+.app-shell .editor-empty-guide .learn-steps > li p { display: none !important; }
+.app-shell .editor-empty-guide .learn-steps > li strong { font-size: var(--fm-type-xs) !important; }
+.app-shell .editor-empty-guide .link-button { margin-top: 3px !important; }
+.app-shell .editor-empty-guide .pipeline-guide-meter-track { max-width: 180px !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §15 · F2 · UN EDITOR, 15 MODOS AGRUPADOS (2026-11-06)
+   Referencias 129–137: densidad de menú, separadores, atajos a la derecha y
+   jerarquía «una barra, un contexto». Las reglas que compiten con los entries
+   dinámicos (inyectados DESPUÉS de esta capa) usan !important por el mismo
+   impasse ya documentado en §9; el resto usa tokens --fm* / --fm2* para
+   mantener el tema claro legible.
+   ══════════════════════════════════════════════════════════════════════════ */
+.app-shell .editor-mode-tabs { gap: 0 !important; }
+.app-shell .editor-mode-tab { padding: 0 10px !important; white-space: nowrap !important; }
+.app-shell .editor-mode-divider {
+  flex: 0 0 1px !important;
+  align-self: center !important;
+  height: 16px !important;
+  margin: 0 8px !important;
+  background: var(--fm2-line-strong) !important;
+}
+.app-shell .editor-mode-panel {
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+.app-shell .editor-mode-context {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+  flex: 0 0 30px !important;
+  height: 30px !important;
+  padding: 0 12px !important;
+  background: var(--fm-bar-2) !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+  font-size: var(--fm-type-sm) !important;
+}
+.app-shell .editor-mode-crumb {
+  display: flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  flex: 0 0 auto !important;
+  color: var(--fm-ink-2) !important;
+}
+.app-shell .editor-mode-crumb strong { color: var(--fm-ink) !important; font-weight: 600 !important; }
+.app-shell .editor-mode-context-hint {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: var(--fm-ink-4) !important;
+}
+.app-shell .editor-mode-back {
+  flex: 0 0 auto !important;
+  height: 22px !important;
+  margin-left: auto !important;
+}
+.app-shell .editor-mode-content {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  padding: 12px !important;
+}
+.app-shell .editor-mode-content > .workspace-guide-compact { padding: 0 !important; }
+.app-shell .editor-mode-content .view { max-width: none !important; min-height: 0 !important; }
+/* El mapa de 4 grupos también vive en el modo Guía del editor: ocupa el
+   espacio que antes quedaba vacío sin agregar una segunda superficie. */
+.app-shell .workspace-guide-map-compact { margin-top: 2px !important; }
+.app-shell .workspace-guide-map-compact .workspace-guide-groups { gap: 6px !important; }
+.app-shell .workspace-guide-map-compact .workspace-guide-group { padding: 6px 8px !important; }
+/* Retorno persistente al editor desde cualquier hub o herramienta (F4 parcial). */
+.app-shell .topbar-back-editor {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  height: 22px !important;
+  padding: 0 8px !important;
+  margin-right: 4px !important;
+  border: 1px solid var(--fm-line-strong) !important;
+  border-radius: 2px !important;
+  background: var(--fm-panel-2) !important;
+  color: var(--fm-ink-2) !important;
+  font-size: var(--fm-type-sm) !important;
+}
+.app-shell .topbar-back-editor:hover {
+  color: var(--fm-accent) !important;
+  border-color: var(--fm-accent) !important;
+}
+/* Desplegables: mismo ancho y columna de atajos que las referencias 132–137. */
+.app-shell .menubar-dropdown { min-width: 268px !important; }
+
+/* AA en las vistas ahora embebidas: los tokens legacy --color-text-faint y
+   --color-empty daban 3,5–3,7:1 sobre --fm-panel. Se usa --fm-ink-4 (4,8:1 en
+   oscuro, medido en la iteración anterior) sin tocar el preset editable. */
+.app-shell .ai-hub-skill-target,
+.app-shell .ai-hub-skill-category,
+.app-shell .ai-hub-meter span,
+.app-shell .auto-source-meta { color: var(--fm-ink-4) !important; }
+
+/* Guía compacta: los seis pasos + el mapa + los launchers deben caber en los
+   ~392 px reales del panel, sin dejar el mapa por debajo del scroll. Medido:
+   antes scrollHeight 489 px / clientHeight 392 px. */
+.app-shell .workspace-guide-compact .learn-steps { gap: 5px !important; }
+.app-shell .workspace-guide-compact .learn-steps > li { padding: 5px !important; }
+.app-shell .workspace-guide-compact .learn-steps > li p { display: none !important; }
+.app-shell .workspace-guide-compact .link-button { margin-top: 2px !important; }
+.app-shell .workspace-guide-map-compact { margin-top: 0 !important; padding-top: 4px !important; }
+.app-shell .workspace-guide-map-compact .eyebrow { display: none !important; }
+.app-shell .workspace-guide-map-compact .workspace-guide-groups { gap: 4px !important; }
+.app-shell .workspace-guide-map-compact .workspace-guide-group {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 6px !important;
+  padding: 3px 6px !important;
+}
+.app-shell .workspace-guide-compact .workspace-guide-actions { padding-top: 4px !important; }
+
+/* El topbar medía 10 px de scrollWidth de más por los controles compactos.
+   `clip` (no `hidden`) conserva overflow-y: visible, así los desplegables del
+   menú siguen abriéndose por debajo de la barra. */
+.app-shell .topbar { overflow-x: clip !important; }
+
+/* El backdrop del diálogo de atajos era el ÚNICO elemento fuera del shell que
+   seguía con blur(10px), contra el patrón plano de las referencias 129–137.
+   Medición: el modal ES 100 % opaco (rgb(27,32,38), opacity 1); las capturas
+   que parecían transparentes se tomaron a los 350 ms, durante el fadeIn de
+   180 ms de un chunk lazy. Se quita el blur por coherencia y coste de
+   composición, no para «arreglar» una opacidad inexistente. */
+.shortcuts-sheet-backdrop { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   §16 · T3 · DENSIDAD ÚNICA Y MAPA DE HERRAMIENTAS (2026-11-06)
+   El espacio ENTRE iconos se define UNA sola vez acá. Nunca se reduce el área
+   de clic (los .icon-button siguen en --ctl-h-md, 26 px). Los `!important` son
+   necesarios: los entries dinámicos se inyectan después de esta capa.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --ui-gap-tight: 1px;
+  --ui-gap: 2px;
+  --ui-gap-text: 3px;
+  --ui-pad: 4px;
+  --ui-pad-label: 6px;
+}
+
+.app-shell .topbar { gap: var(--ui-gap-tight) !important; padding-left: var(--ui-pad) !important; }
+.app-shell .topbar-brand { gap: var(--ui-gap-text) !important; padding-right: var(--ui-pad) !important; }
+.app-shell .topbar-actions { gap: var(--ui-gap-tight) !important; padding-right: var(--ui-pad-label) !important; }
+.app-shell .topbar-actions > button { margin: 0 !important; }
+.app-shell .topbar-actions .topbar-export-btn { height: 24px !important; }
+.app-shell .topbar-divider { margin: 0 var(--ui-gap) !important; }
+/* La densidad NO achica el área de clic: todo botón mantiene 24 px de alto. */
+.app-shell button { min-height: 24px !important; }
+.app-shell .rail-fav { min-width: 24px !important; }
+.app-shell .topbar-home-btn,
+.app-shell .topbar-back-editor { padding: 0 var(--ui-pad-label) !important; gap: var(--ui-gap-text) !important; }
+.app-shell .topbar-tool-map-btn { color: var(--fm-accent) !important; }
+.app-shell .menubar,
+.app-shell .menubar-menus { gap: 0 !important; }
+.app-shell .menubar-title { padding: 0 var(--ui-pad-label) !important; }
+.app-shell .menubar-dropdown { padding: var(--ui-gap) !important; }
+.app-shell .menubar-item { gap: var(--ui-pad) !important; padding: 0 var(--ui-pad-label) !important; }
+.app-shell .menubar-separator { margin: var(--ui-gap-text) 2px !important; }
+.app-shell .sidebar { padding: var(--ui-gap) 0 !important; gap: var(--ui-gap-tight) !important; }
+.app-shell .app-statusbar { gap: var(--ui-pad) !important; padding: 0 var(--ui-pad-label) !important; }
+.app-shell .icon-text { gap: var(--ui-gap-text) !important; }
+
+.app-shell .editor-mode-tabs { padding: 0 var(--ui-pad) !important; }
+.app-shell .editor-mode-tab { padding: 0 var(--ui-pad-label) !important; }
+.app-shell .editor-mode-divider { margin: 0 var(--ui-gap) !important; }
+.app-shell .editor-mode-context { gap: var(--ui-pad) !important; padding: 0 var(--ui-pad-label) !important; }
+.app-shell .editor-mode-content { padding: var(--ui-pad-label) !important; }
+.app-shell .editor-mode-back { padding: 0 var(--ui-pad) !important; margin-left: var(--ui-gap-text) !important; }
+.app-shell .editor-mode-back:last-child { margin-left: auto !important; }
+
+.app-shell .rail-tabs { padding: 0 var(--ui-gap) !important; }
+.app-shell .rail-tabs button { gap: 0 !important; padding: 2px var(--ui-gap) 0 !important; }
+.app-shell .rail-category-items button { min-height: 24px !important; }
+.app-shell .rail-actions { gap: var(--ui-gap-tight) !important; }
+.app-shell .rail-actions button { padding: 0 var(--ui-pad) !important; }
+.app-shell .rail-list { gap: var(--ui-pad) !important; padding: var(--ui-pad-label) !important; }
+.app-shell .rail-asset { gap: var(--ui-gap-text) !important; }
+
+.app-shell .view-toolbar { gap: var(--ui-pad) !important; padding: 0 var(--ui-pad-label) !important; }
+.app-shell .timeline-toolbar,
+.app-shell .timeline-tools { gap: var(--ui-gap-tight) !important; padding: 0 var(--ui-pad) !important; }
+.app-shell .timeline-toolbar button,
+.app-shell .timeline-tools button { padding: 0 var(--ui-gap) !important; }
+.app-shell .transport { gap: var(--ui-pad) !important; padding: 0 var(--ui-pad-label) !important; }
+.app-shell .transport-buttons { gap: 0 !important; }
+.app-shell .hub-tab { padding: 0 var(--ui-pad-label) !important; }
+.app-shell .inspector-tabs button { padding: 0 var(--ui-pad-label) !important; }
+.app-shell .workspace-guide,
+.app-shell .workspace-guide-compact { gap: var(--ui-pad) !important; }
+.app-shell .workspace-guide-groups { gap: var(--ui-gap) !important; }
+
+/* Punto de viñeta del tour: antes era un glifo de texto. */
+.tour-highlight-bullet {
+  display: inline-block !important;
+  width: 4px !important;
+  height: 4px !important;
+  border-radius: 50% !important;
+  background: var(--fm-accent) !important;
+}
+
+/* ── Mapa «Todo»: 33 herramientas, 4 grupos, buscador, densidad compacta ── */
+.app-shell .editor-tool-map {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--ui-pad) !important;
+  color: var(--fm-ink) !important;
+}
+.app-shell .editor-tool-map-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--ui-pad) !important;
+  flex-wrap: wrap !important;
+}
+.app-shell .editor-tool-map-title h3 { margin: 2px 0 !important; font-size: var(--fm-type-lg) !important; }
+.app-shell .editor-tool-map-title p { margin: 0 !important; color: var(--fm-ink-3) !important; }
+.app-shell .editor-tool-map-search {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--ui-gap-text) !important;
+  min-height: 26px !important;
+  padding: 0 var(--ui-pad-label) !important;
+  border: 1px solid var(--fm-line-strong) !important;
+  border-radius: 2px !important;
+  background: var(--fm-input) !important;
+  color: var(--fm-ink-3) !important;
+}
+.app-shell .editor-tool-map-search input {
+  min-width: 190px !important;
+  border: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  color: var(--fm-ink) !important;
+  font-size: var(--fm-type-sm) !important;
+}
+.app-shell .editor-tool-map-count { margin-left: auto !important; }
+.app-shell .editor-tool-map-groups {
+  display: grid !important;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  gap: var(--ui-pad) !important;
+}
+.app-shell .editor-tool-map-group {
+  min-width: 0 !important;
+  padding: var(--ui-pad-label) !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  background: var(--fm-panel-2) !important;
+}
+.app-shell .editor-tool-map-group h4 {
+  display: flex !important;
+  justify-content: space-between !important;
+  margin: 0 0 2px !important;
+  font-size: var(--fm-type-md) !important;
+  color: var(--fm-ink) !important;
+}
+.app-shell .editor-tool-map-group > p { margin: 0 0 var(--ui-gap) !important; }
+.app-shell .editor-tool-map-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: var(--ui-gap-tight) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  list-style: none !important;
+}
+.app-shell .editor-tool-chip {
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--ui-gap-text) !important;
+  width: 100% !important;
+  min-height: 24px !important;
+  padding: 2px var(--ui-pad) !important;
+  border: 1px solid transparent !important;
+  border-radius: 2px !important;
+  background: transparent !important;
+  color: var(--fm-ink-2) !important;
+  text-align: left !important;
+}
+.app-shell .editor-tool-chip:hover { background: var(--fm-hover) !important; color: var(--fm-ink) !important; }
+.app-shell .editor-tool-chip strong { flex: 0 0 auto !important; font-size: var(--fm-type-sm) !important; color: var(--fm-ink) !important; }
+.app-shell .editor-tool-chip span {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-size: var(--fm-type-xs) !important;
+  /* --fm-ink-4 daba 4,3:1 sobre --fm-panel-2; --fm-ink-3 pasa AA. */
+  color: var(--fm-ink-3) !important;
+}
+.app-shell .editor-tool-chip em { margin-left: auto !important; font-style: normal !important; font-size: var(--fm-type-2xs) !important; color: var(--fm-accent) !important; }
+.app-shell .editor-tool-chip.is-here { border-color: var(--fm-accent) !important; }
+.app-shell .editor-tool-map-empty { color: var(--fm-ink-3) !important; font-size: var(--fm-type-sm) !important; }
+@media (max-width: 1240px) {
+  .app-shell .editor-tool-map-groups { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+}

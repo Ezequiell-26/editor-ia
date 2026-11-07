@@ -570,6 +570,7 @@ const paths: Record<IconName, ReactNode> = {
 export function Icon({
   name,
   size = 18,
+  className,
   ...rest
 }: { readonly name: IconName; readonly size?: number } & SVGProps<SVGSVGElement>) {
   return (
@@ -582,6 +583,11 @@ export function Icon({
       strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
+      // Clase común `ui-icon`: permite que una sola capa CSS normalice el
+      // grosor y el tamaño de TODOS los iconos sin tocar cada punto de uso.
+      // Se concatena con la clase del llamador (`nav-icon`, `alert-icon`…),
+      // no la reemplaza.
+      className={className ? `ui-icon ${className}` : 'ui-icon'}
       aria-hidden="true"
       focusable="false"
       {...rest}

@@ -1229,14 +1229,15 @@ textarea.auto-expand {
 }
 
 .checkbox-custom:checked::after {
-  content: '✓';
+  content: '';
   position: absolute;
-  top: 50%;
+  top: 45%;
   left: 50%;
-  transform: translate(-50%, -50%);
-  color: white;
-  font-size: 12px;
-  font-weight: bold;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .checkbox-custom:hover {
@@ -2547,14 +2548,15 @@ textarea.auto-expand {
 }
 
 .checkbox-custom:checked::after {
-  content: '✓';
+  content: '';
   position: absolute;
-  top: 50%;
+  top: 45%;
   left: 50%;
-  transform: translate(-50%, -50%);
-  color: white;
-  font-size: 12px;
-  font-weight: bold;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .checkbox-custom:hover {

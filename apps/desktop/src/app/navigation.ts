@@ -12,6 +12,7 @@ export type ViewId =
   | 'multicam'
   | 'mixer'
   | 'vfx'
+  | 'nodes'
   | 'script'
   | 'assets'
   | 'download'
@@ -58,6 +59,7 @@ export const NAV_VIEWS: readonly NavView[] = [
   { id: 'multicam', label: 'Multicámara', hint: 'Multicámara · Sincronizá cámaras y cambiá de ángulo en vivo', group: 'herramientas' },
   { id: 'mixer', label: 'Mezcla', hint: 'Mezclador · Ganancia por pista, solo, mute y master', group: 'herramientas' },
   { id: 'vfx', label: 'VFX', hint: 'VFX · Nodos, rotoscopía poligonal y seguimiento facial', group: 'herramientas' },
+  { id: 'nodes', label: 'Nodos', hint: 'Editor de nodos · Grafo de procesamiento que ejecuta clips, efectos y render reales', group: 'herramientas' },
   { id: 'download', label: 'Descargar', hint: 'Descargador web · Bajar videos, fotos y audio hasta 8K', group: 'herramientas' },
   { id: 'director', label: 'Director', hint: 'Director local · Análisis medido, cortes y shorts con heurísticas y rostros (sin LLM)', group: 'herramientas' },
   { id: 'auto-edit', label: 'Automático', hint: 'Editor automático · Analiza el video y crea variantes editables sin LLM', group: 'herramientas' },

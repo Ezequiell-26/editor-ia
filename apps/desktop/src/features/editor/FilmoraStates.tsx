@@ -29,9 +29,11 @@ export function HomePromoCard({ onOpen }: { readonly onOpen: (view: ViewId) => v
       <div className="start-promo-art" aria-hidden="true">
         <span className="start-promo-art-glow" />
         <Icon name="sparkles" size={26} />
+        {/* El badge vive sobre el arte, no sobre la columna de texto: así no
+            tapa el titular y la tarjeta no necesita altura extra. */}
+        <span className="start-promo-badge">New</span>
       </div>
       <div className="start-promo-copy">
-        <span className="start-promo-badge">New</span>
         <strong>Agente de idea a video</strong>
         <p>
           Convierte tus ideas en vídeos: el agente del estudio ya está disponible en
@@ -72,35 +74,25 @@ export function EditorImportGuide({
   readonly onImport: () => void;
   readonly onDismiss: () => void;
 }) {
+  /* Vive dentro del panel de medios: el dropzone real ya está en
+     `rail-empty-import`. Esta guía sólo aporta la llamada a la acción y su
+     conector, como en la referencia 95, sin tapar el monitor de preview. */
   return (
     <div className="fm-import-guide" role="presentation">
-      <div className="fm-import-guide-frame" role="group" aria-label="Importar archivos multimedia">
-        <button type="button" className="fm-import-guide-primary" onClick={onImport}>
-          <Icon name="plus" size={18} />
-          <span>Importar</span>
-        </button>
-        <p className="fm-import-guide-hint">Arrastra vídeos, imágenes o audio aquí</p>
-        <button type="button" className="fm-import-guide-link" onClick={onImport}>
-          Escanear para importar
-        </button>
-        <button
-          type="button"
-          className="fm-import-guide-close"
-          aria-label="Cerrar guía de importación"
-          onClick={onDismiss}
-        >
-          <Icon name="close" size={12} />
-        </button>
-      </div>
-      <p className="fm-import-guide-note">
-        ¿Aún no hay archivos multimedia? Crea el guion ahora con estas herramientas…
-      </p>
       <div className="fm-import-guide-cta" role="status">
+        <span className="fm-import-guide-cta-tail" aria-hidden="true" />
         <button type="button" onClick={onImport}>
           Importar archivos
         </button>
-        <span className="fm-import-guide-cta-tail" aria-hidden="true" />
       </div>
+      <button
+        type="button"
+        className="fm-import-guide-close"
+        aria-label="Cerrar guía de importación"
+        onClick={onDismiss}
+      >
+        <Icon name="close" size={12} />
+      </button>
     </div>
   );
 }
@@ -109,6 +101,7 @@ const PERF_KEY = 'editor-ia.performance-warning.dismissed.v1';
 
 export function PerformanceNotice({ onDismiss }: { readonly onDismiss: () => void }) {
   const [remember, setRemember] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
   const close = useCallback(() => {
     if (remember) {
       try {
@@ -120,7 +113,14 @@ export function PerformanceNotice({ onDismiss }: { readonly onDismiss: () => voi
     onDismiss();
   }, [remember, onDismiss]);
   return (
-    <div className="fm-performance-notice" role="alert" aria-label="Advertencia de rendimiento">
+    // `group` + `aria-live` en vez de `alert`: es un aviso descartable, no una
+    // incidencia urgente, y así no compite con los `alert` de error del store.
+    <div
+      className="fm-performance-notice"
+      role="group"
+      aria-live="polite"
+      aria-label="Advertencia de rendimiento"
+    >
       <button
         type="button"
         className="fm-performance-notice-close"
@@ -134,9 +134,24 @@ export function PerformanceNotice({ onDismiss }: { readonly onDismiss: () => voi
         Una memoria insuficiente podría afectar a la estabilidad de Editor IA. Cierra
         las aplicaciones que consumen mucha memoria.
       </p>
-      <button type="button" className="fm-performance-notice-link">
-        Más información
+      <button
+        type="button"
+        className="fm-performance-notice-link"
+        aria-expanded={showDetails}
+        onClick={() => setShowDetails((value) => !value)}
+      >
+        {showDetails ? 'Ocultar detalles' : 'Más información'}
       </button>
+      {showDetails ? (
+        <ul className="fm-performance-notice-details">
+          <li>Cerrá otras aplicaciones que estén consumiendo mucha memoria.</li>
+          <li>Reducí la resolución de la vista previa o activá proxies en Preferencias.</li>
+          <li>
+            Editor IA no simula el render: la exportación real la ejecuta FFmpeg y
+            este aviso sólo refleja la memoria disponible del sistema.
+          </li>
+        </ul>
+      ) : null}
       <div className="fm-performance-notice-foot">
         <label>
           <input
@@ -173,6 +188,26 @@ const CAPABILITIES: readonly { readonly icon: IconName; readonly label: string }
   { icon: 'ripple', label: 'Rampa de velocidad' },
 ];
 
+/** Composición real del resultado: fotograma, escena, play y progreso. */
+function RenderSuccessArt() {
+  return (
+    <svg className="fm-render-art" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+      <rect x="0" y="0" width="320" height="180" fill="#101a26" />
+      <circle cx="248" cy="46" r="22" fill="#2f6f8f" opacity="0.55" />
+      <path d="M0 132 L74 84 L128 122 L196 66 L268 118 L320 88 L320 180 L0 180 Z" fill="#1c3a4c" />
+      <path d="M0 150 L92 112 L164 146 L236 106 L320 140 L320 180 L0 180 Z" fill="#24506a" />
+      <rect x="14" y="14" width="292" height="152" rx="4" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="1.5" />
+      <circle cx="160" cy="90" r="27" fill="#0b1620" fillOpacity="0.72" stroke="currentColor" strokeOpacity="0.8" strokeWidth="1.5" />
+      <path d="M153 79 L174 90 L153 101 Z" fill="currentColor" />
+      <rect x="14" y="152" width="292" height="14" rx="2" fill="#0b1620" fillOpacity="0.7" />
+      <rect x="20" y="158" width="196" height="3" rx="1.5" fill="currentColor" />
+      <circle cx="218" cy="159.5" r="4" fill="currentColor" />
+      <circle cx="292" cy="26" r="11" fill="currentColor" fillOpacity="0.16" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M287 26 l3.5 3.5 l6 -7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function RenderSuccessCard({
   name,
   onOpenFolder,
@@ -183,7 +218,7 @@ export function RenderSuccessCard({
   return (
     <div className="fm-render-success" role="status" aria-label="Resultado del render">
       <div className="fm-render-success-preview" aria-hidden="true">
-        <Icon name="film" size={40} />
+        <RenderSuccessArt />
       </div>
       <div className="fm-render-success-main">
         <strong>{name || 'Mi vídeo'}</strong>
@@ -261,12 +296,19 @@ export function useDraggableWindow(initial: { x: number; y: number }) {
 export function DetachedPreviewTitlebar({
   onDock,
   children,
+  dragHandlers,
 }: {
   readonly onDock: () => void;
   readonly children?: ReactNode;
+  /** Handlers reales de arrastre de `useDraggableWindow` (captura 109). */
+  readonly dragHandlers?: ReturnType<typeof useDraggableWindow>['handlers'];
 }) {
   return (
-    <div className="fm-preview-titlebar" data-tauri-drag-region="">
+    <div
+      className="fm-preview-titlebar"
+      data-tauri-drag-region=""
+      {...dragHandlers}
+    >
       <span>{children ?? 'Vista previa'}</span>
       <div className="fm-preview-titlebar-actions">
         <button type="button" aria-label="Minimizar vista previa" title="Volver al panel" onClick={onDock}>
@@ -383,7 +425,10 @@ export function SplitScreenTemplates({
           </button>
         ))}
       </div>
-      <p className="fm-split-templates-note">
+      <p
+        className="fm-split-templates-note"
+        title={`${selectedId ? `Plantilla seleccionada: ${SPLIT_SCREEN_TEMPLATES.find((item) => item.id === selectedId)?.label ?? ''}. ` : 'Elegí una plantilla para ver su distribución. '}La composición en la timeline requiere el motor de plantillas (pendiente).`}
+      >
         {selectedId
           ? `Plantilla seleccionada: ${SPLIT_SCREEN_TEMPLATES.find((item) => item.id === selectedId)?.label ?? ''}. `
           : 'Elegí una plantilla para ver su distribución. '}
@@ -418,8 +463,8 @@ export const TOOLBAR_CATALOG: readonly ToolbarTool[] = [
   { id: 'redo', label: 'Rehacer', icon: 'redo', action: 'Rehacer' },
   { id: 'delete', label: 'Eliminar', icon: 'trash', action: 'Borrar clip' },
   { id: 'split', label: 'Dividir', icon: 'split', action: 'Dividir en playhead' },
-  { id: 'trim', label: 'Recortar', icon: 'film' },
-  { id: 'quick-text', label: 'Texto rápido', icon: 'text' },
+  { id: 'trim', label: 'Recortar', icon: 'film', pending: true },
+  { id: 'quick-text', label: 'Texto rápido', icon: 'text', pending: true },
   { id: 'silence', label: 'Detección de Silencio', icon: 'volume', pending: true },
   { id: 'duration', label: 'Duración', icon: 'refresh', pending: true },
   { id: 'keyframes', label: 'Fotogramas Clave', icon: 'marker', pending: true },
@@ -640,9 +685,15 @@ export function QuickToolsBar({ tools }: { readonly tools: readonly string[] }) 
             title={tool.action ? tool.label : PENDING}
             onClick={() => {
               if (!tool.action) return;
-              const target = document.querySelector<HTMLButtonElement>(
-                `.timeline-toolbar [aria-label="${tool.action}"]`,
-              );
+              // Primero los botones propios de la timeline; Deshacer/Rehacer
+              // viven en la barra superior del shell, así que se buscan ahí
+              // como respaldo. En ambos casos se dispara el comando REAL.
+              const toolbar = document.querySelector<HTMLElement>('.timeline-toolbar');
+              const target =
+                toolbar?.querySelector<HTMLButtonElement>(`[aria-label="${tool.action}"]`) ??
+                document.querySelector<HTMLButtonElement>(
+                  `.app-shell [aria-label="${tool.action}"]`,
+                );
               if (target && !target.disabled) target.click();
             }}
           >
@@ -684,7 +735,9 @@ export function ToolSelectorMenu({
   readonly onChange: (id: ToolSelectorId) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState({ left: 0, top: 0 });
   const ref = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent): void => {
@@ -705,20 +758,44 @@ export function ToolSelectorMenu({
   return (
     <div className="fm-tool-selector" ref={ref}>
       <button
+        ref={triggerRef}
         type="button"
         className="small ghost icon-text"
         aria-label="Seleccionar herramienta"
         aria-haspopup="menu"
         aria-expanded={open}
         title={`Herramienta: ${current.label} (${current.shortcut})`}
-        onClick={() => setOpen((state) => !state)}
+        onClick={() => {
+          // La toolbar tiene overflow:hidden: un menú `absolute` se recorta.
+          // Se posiciona en `fixed` midiendo el disparador, y abre hacia
+          // arriba si no entra debajo (igual que el menú «Más» de Timeline).
+          if (!open && triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect();
+            const height = TOOL_SELECTOR_OPTIONS.length * 28 + 12;
+            const viewportH = document.documentElement.clientHeight;
+            const spaceBelow = viewportH - rect.bottom;
+            setMenuPos({
+              left: Math.max(8, Math.min(rect.left, document.documentElement.clientWidth - 252)),
+              top:
+                spaceBelow >= height + 8
+                  ? rect.bottom + 2
+                  : Math.max(8, rect.top - height - 2),
+            });
+          }
+          setOpen((state) => !state);
+        }}
       >
         <Icon name="grid" size={13} />
         <span className="tool-label">{current.label}</span>
         <Icon name="chevron-down" size={11} />
       </button>
       {open ? (
-        <div className="fm-tool-selector-menu" role="menu" aria-label="Herramientas de selección">
+        <div
+          className="fm-tool-selector-menu"
+          role="menu"
+          aria-label="Herramientas de selección"
+          style={{ left: menuPos.left, top: menuPos.top }}
+        >
           {TOOL_SELECTOR_OPTIONS.map((item) => (
             <button
               key={item.id}

@@ -37,20 +37,38 @@ export function TimelineOverview({
 }) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  // Desplazamiento (en px del interior de la barra) entre el cursor y el borde
+  // izquierdo de la ventana visible en el instante del `pointerdown`. Anclar la
+  // ventana al punto de agarre es lo que permite arrastrarla 1:1 y llegar a los
+  // extremos sin que "se trabe" ni se desfase del cursor.
+  const grabOffsetRef = useRef(0);
   const totalFrames = Math.max(1, durationFrames);
   const maxScroll = Math.max(1, contentWidth - clientWidth);
   const windowWidthRatio = Math.min(1, clientWidth / Math.max(1, contentWidth));
   const windowLeftRatio = Math.min(1 - windowWidthRatio, Math.max(0, scrollLeft / maxScroll) * (1 - windowWidthRatio));
 
-  function seekFromClientX(clientX: number): void {
+  /**
+   * Convierte la posición X del puntero en un `scrollLeft` del timeline,
+   * manteniendo anclada la ventana al punto donde se agarró (grabOffsetRef).
+   *
+   * La ventana visible ocupa `windowWidthRatio` de la barra, así que su margen
+   * izquierdo sólo puede recorrer `1 - windowWidthRatio` de la barra; por eso el
+   * ratio de scroll se calcula sobre ese tramo, igual que en el render
+   * (`windowLeftRatio = (scrollLeft / maxScroll) * (1 - windowWidthRatio)`).
+   */
+  function applyScrollFromClientX(clientX: number): void {
     const bar = barRef.current;
     if (!bar) return;
     const rect = bar.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
-    // Centrar la ventana en el punto clickeado (patrón de overview NLE).
-    const next = ratio * maxScroll;
-    onScrollTo(Math.max(0, Math.min(maxScroll, next)));
+    const width = rect.width;
+    if (width <= 0) return;
+    const cursorX = clientX - rect.left;
+    const windowWidthPx = windowWidthRatio * width;
+    const maxLeftPx = Math.max(0, width - windowWidthPx);
+    const desiredLeftPx = cursorX - grabOffsetRef.current;
+    const leftPx = Math.min(maxLeftPx, Math.max(0, desiredLeftPx));
+    const ratio = maxLeftPx > 0 ? leftPx / maxLeftPx : 0;
+    onScrollTo(Math.max(0, Math.min(maxScroll, ratio * maxScroll)));
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>): void {
@@ -59,12 +77,29 @@ export function TimelineOverview({
     event.stopPropagation();
     draggingRef.current = true;
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    seekFromClientX(event.clientX);
+    const bar = barRef.current;
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    const width = rect.width;
+    if (width <= 0) return;
+    const cursorX = event.clientX - rect.left;
+    const windowWidthPx = windowWidthRatio * width;
+    const leftPx = windowLeftRatio * width;
+    if (cursorX >= leftPx && cursorX <= leftPx + windowWidthPx) {
+      // Se agarró DENTRO de la ventana: conserva el punto de agarre para
+      // que la ventana siga al cursor 1:1 (sin saltos ni desfase).
+      grabOffsetRef.current = cursorX - leftPx;
+    } else {
+      // Clic FUERA de la ventana: la centra en el cursor y arranca el arrastre
+      // desde el centro, de modo que un solo clic salta y luego se puede afinar.
+      grabOffsetRef.current = windowWidthPx / 2;
+      applyScrollFromClientX(event.clientX);
+    }
   }
 
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>): void {
     if (!draggingRef.current) return;
-    seekFromClientX(event.clientX);
+    applyScrollFromClientX(event.clientX);
   }
 
   function finishPointer(event: ReactPointerEvent<HTMLDivElement>): void {

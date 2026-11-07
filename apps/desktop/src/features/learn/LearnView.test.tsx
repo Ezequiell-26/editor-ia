@@ -24,8 +24,11 @@ describe('centro de aprendizaje', () => {
   it('muestra la ruta rápida y navega a la herramienta', () => {
     const navigate = renderView();
     expect(screen.getByRole('heading', { name: /Tu primer video, paso a paso/i })).toBeTruthy();
-    expect(screen.getByText(/De la idea al MP4 en cinco pasos/i)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Ir a Proyectos/i }));
+    // Un único recorrido canónico de seis pasos (app/workspace-map.ts), el
+    // mismo que Inicio, el tour y la guía dentro del editor.
+    expect(screen.getByText(/De la idea al MP4 en seis pasos/i)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Ir a Exportar/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Ir a Proyecto/i }));
     expect(navigate).toHaveBeenCalledWith('projects');
   });
 

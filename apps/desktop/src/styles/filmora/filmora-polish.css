@@ -1,0 +1,655 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   filmora-polish.css · Pulido tipográfico, iconográfico y de detalle (2026-11-06)
+
+   Capa FINAL de la cascada: se importa en `main.tsx` después de filmora.css y
+   filmora-states.css. No reemplaza ninguna hoja anterior; sólo corrige los
+   defectos MEDIDOS en `.tmp-redesign/visual6/` (audit.mjs / detail.mjs):
+
+     · escala tipográfica rota: 8 / 9 / 9.5 px y decimales 10.12 / 10.5 /
+       11.04 / 11.5 px → escala entera 10 / 11 / 12 px;
+     · line-height 1.0 en texto pequeño (18–24 casos por estado);
+     · 13 textos por debajo de AA 4,5:1;
+     · 49 controles con área de clic < 24 px;
+     · trazo de icono 1.6 px en el CTA frente a 1.5 px en el resto;
+     · badge «New» solapado con el titular de la tarjeta promocional;
+     · barra del visor con scroll horizontal sin affordance visible.
+
+   Todas las reglas son sensibles al tema (`data-theme="light"`). No se oculta
+   ningún control ni se cambia texto de producto: se preserva la funcionalidad.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* #98a7b6 da >= 5,5:1 sobre --fm-panel / --fm-bar-2 / --fm-hover.
+     Reemplaza #828d98 (4,12–4,39:1) sólo en los chips medidos. */
+  --fm-polish-muted: #98a7b6;
+  --fm-polish-accent-soft: color-mix(in srgb, var(--fm-accent) 16%, transparent);
+}
+:root[data-theme='light'] {
+  --fm-polish-muted: #4c5763;
+}
+
+/* ─────────────────────── 1 · Escala tipográfica entera ─────────────────── */
+
+/* Iniciales del perfil: `chrome.css` las dejaba en 8 px con el rail colapsado
+   y `premium/shell.css` en 9 px. 10 px es el mínimo legible del sistema. */
+.app-shell .sidebar:not(.expanded) .profile-avatar,
+.app-shell .profile-avatar {
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+}
+
+/* `code { font-size: 0.92em }` producía 10.12 / 11.04 px según el padre. */
+.app-shell code,
+.app-shell .view code {
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+/* Tooltips de ayuda «?»: 9.5 px y 15 px de diámetro. */
+.app-shell .info-tip {
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  min-height: 18px !important;
+  font-size: 10px !important;
+  line-height: 1 !important;
+  font-weight: 700 !important;
+  color: var(--fm-polish-muted) !important;
+  border-color: var(--fm-control-line) !important;
+}
+.app-shell .info-tip:hover,
+.app-shell .info-tip:focus-visible { color: var(--fm-ink) !important; border-color: var(--fm-accent) !important; }
+
+/* Resúmenes y notas al pie de Descargas: 11.5 / 10.5 px sueltos. */
+.app-shell summary,
+.app-shell .download-notes-compact > span:not(.info-tip) {
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+/* Anillo de progreso de Aprender: «listo» en 9 px. */
+.app-shell .learn-progress-ring-inner > span {
+  font-size: 10px !important;
+  line-height: 1.4 !important;
+}
+
+/* Interlineado: el texto pequeño heredaba line-height == font-size, que corta
+   ascendores y descendores. 1.4 entra en controles de 20–24 px sin recortar. */
+/* `:root` + `:is()` suben la especificidad por encima de las reglas
+   `line-height: 12px !important` de app.css y de los entries dinámicos,
+   que se inyectan DESPUÉS de main.tsx y de otro modo ganarían la cascada. */
+:root .app-shell :is(span, label, button, a, code, summary, strong, em, p, li, small),
+:root .start-screen :is(span, label, button, a, code, summary, strong, em, p, li, small),
+:root [role='dialog'] :is(span, label, button, a, code, summary, strong, em, p, li, small) {
+  line-height: 1.4 !important;
+}
+.app-shell :is(.start-app-title, .start-app-pill, .start-feature-chip,
+  .preview-hud-chip, .fm-split-label, .home-status, .home-pillar-tag,
+  .eyebrow, .chip, .tag, .badge, .rail-chip-count, .start-quick-tag,
+  .field > label, .inspector-label, .statusbar-meta) {
+  line-height: 1.4 !important;
+}
+/* Las pestañas del rail fijaban 12 px de interlineado para 10 px de letra
+   y un tracking negativo de -0.15 px: ilegible en pantallas densas. */
+:root .app-shell .rail-tabs button span,
+:root .start-screen .rail-tabs button span {
+  line-height: 1.4 !important;
+  letter-spacing: 0 !important;
+}
+
+/* Render de texto: números tabulares y antialiasing consistente. */
+.app-shell {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+.app-shell :is(.timecode, .rail-chip-count, .preview-hud-chip, .statusbar-meta,
+  .track-flag-count, .rail-thumb-time, code, kbd) {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─────────────────────── 2 · Contraste AA ─────────────────────────────── */
+
+.app-shell .rail-chip-count,
+.start-screen .start-quick-tag,
+.app-shell .start-quick-tag {
+  color: var(--fm-polish-muted) !important;
+}
+
+/* ─────────────────────── 3 · Iconografía coherente ────────────────────── */
+
+/* Un solo grosor de trazo: el CTA del lanzador traía stroke-width="1.6". */
+.app-shell .ui-icon,
+.start-screen .ui-icon,
+.ui-icon {
+  stroke-width: 1.5px !important;
+}
+
+/* Tallas de control: 14 px en barras densas, 16 px en la barra superior.
+   Los iconos de 20 px son ilustración de fallback (no controles) y se quedan. */
+.app-shell .rail-search .ui-icon { width: 14px !important; height: 14px !important; }
+.app-shell .profile-chevron,
+.start-screen .profile-chevron { width: 14px !important; height: 14px !important; }
+/* Los dos iconos de 12 px del lanzador son CONTROLES (cerrar guía y buscar),
+   no ilustración. El CTA (20), el arte promocional (26) y el estado vacío
+   (28) sí son piezas de composición y conservan su talla. */
+:root .start-screen .start-new-project-tip-close .ui-icon,
+:root .start-screen .start-search-box .ui-icon {
+  width: 14px !important;
+  height: 14px !important;
+}
+.app-shell .track-flags .flag svg,
+.app-shell .track-flags .flag .ui-icon { width: 14px !important; height: 14px !important; }
+
+/* ─────────────────────── 4 · Áreas de clic y foco ─────────────────────── */
+
+.app-shell button.small,
+.app-shell .timeline-tools button.small {
+  height: 24px !important;
+  min-height: 24px !important;
+}
+/* Los entries dinámicos (premium/views.css, workspace.css) fijan 21/22 px
+   con selectores de dos clases. Esta cadena gana por especificidad y el
+   `min-height` prevalece sobre `height` aunque éste also sea !important. */
+:root .app-shell :is(select, input):not([type='checkbox']):not([type='radio']):not([type='range']),
+:root .app-shell :is(button, [role='button']),
+:root .start-screen :is(button, select, input):not([type='checkbox']):not([type='radio']),
+:root .app-shell .rail-tree-group .rail-category-items button {
+  min-height: 24px !important;
+}
+/* A 1100 px el botón «Inicio» oculta su etiqueta y queda en 22 px de ancho. */
+:root .app-shell .topbar-home-btn,
+:root .app-shell .topbar-back-editor,
+:root .app-shell .topbar-tool-map-btn {
+  min-width: 24px !important;
+}
+.app-shell input[type='checkbox'],
+.app-shell input[type='radio'] {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  accent-color: var(--fm-accent) !important;
+}
+
+/* Cabeceras de pista: la referencia pide SÓLO candado / ojo / sonido, así que
+   el nombre sigue oculto para lectores de pantalla, pero los tres botones
+   pasan de 16x20 a 24x24 (objetivo táctil completo). */
+.app-shell .track-flags { gap: 4px !important; }
+.app-shell .track-flags .flag {
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  color: var(--fm-polish-muted) !important;
+}
+
+/* Foco visible más nítido que el outline de 1 px anterior. */
+.app-shell :is(button, a, select, input, summary, [tabindex]):focus-visible,
+.start-screen :is(button, a, select, input, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--fm-accent) !important;
+  outline-offset: 1px !important;
+}
+
+/* ─────────────────────── 5 · Detalles ─────────────────────────────────── */
+
+/* El badge «New» se superponía al titular (rects x 285–321 vs 174–319).
+   Va sobre el bloque artístico de la izquierda, donde no hay texto. */
+/* El badge se movió al bloque artístico (`FilmoraStates.tsx`), que ya es
+   `position:relative`. Va en su esquina superior izquierda: no tapa el
+   titular, no añade altura a la tarjeta y no desplaza la columna izquierda. */
+.start-promo-card .start-promo-art .start-promo-badge {
+  left: 8px !important;
+  right: auto !important;
+  top: 8px !important;
+  line-height: 1.4 !important;
+}
+
+/* El visor es un HUD superpuesto de 363 px con 788 px de controles reales.
+   Se conserva TODOS los controles y el scroll horizontal decidido en
+   filmora.css, pero ahora la barra indica que existe más contenido. */
+.app-shell .preview-topbar {
+  scrollbar-width: thin !important;
+  scrollbar-color: var(--fm-scroll) transparent !important;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+}
+.app-shell .preview-topbar::-webkit-scrollbar {
+  display: block !important;
+  height: 3px !important;
+}
+.app-shell .preview-topbar::-webkit-scrollbar-track { background: transparent !important; }
+.app-shell .preview-topbar::-webkit-scrollbar-thumb {
+  background: var(--fm-scroll) !important;
+  border-radius: 2px !important;
+}
+.app-shell .preview-topbar::-webkit-scrollbar-thumb:hover { background: var(--fm-scroll-hover) !important; }
+
+/* Recortes honestos: todo texto truncado debe llevar elipsis y su título. */
+.app-shell :is(.rail-tab, .tool-label, .fm-split-label, .statusbar-meta,
+  .start-feature-chip, .preview-hud-render) {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+/* Estados desactivados: contraste suficiente para seguir siendo legibles. */
+.app-shell :is(button, select, input):disabled { opacity: 0.55 !important; }
+
+/* ─────────────── 6 · Geometría exacta de las capturas (1360×768) ───────
+   Referencia medida en docs/RECONSTRUCCION-FILMORA-93-128.md §5:
+     menú 0…28 · fila de módulos 28…72 (44 px) · árbol x 0…160 ·
+     biblioteca x 160…590 (430) · preview x 590…975 (385) ·
+     inspector x 975…1360 (385) · toolbar timeline y 433…455 ·
+     regla y 455…475 · pistas desde y 475.
+   Antes (medición .tmp-redesign/recon3/geometry/geometry.json):
+     571.2 / 387.8 / 1 / 400 · toolbar y 523 · regla y 586.
+   Las barras que no existen en la referencia (pestañas de modo, pestañas de
+   secuencia, herramientas rápidas) NO se eliminan: se sacan del flujo vertical
+   como overlays accesibles, para no perder ni una función real. */
+
+@media (min-width: 1241px) {
+  .app-shell .editor-grid {
+    /* Divisores medidos a píxel: 162 · 590 · 972 (no 160/590/975). */
+    grid-template-columns: 590px minmax(0, 1fr) 1px
+      var(--inspector-width, 388px) !important;
+  }
+  .app-shell .rail-stage { grid-template-columns: 162px minmax(0, 1fr) !important; }
+}
+
+/* Cabecera superior (borde horizontal medido en y 83–85). La fila de módulos
+   (Medios/Audio/…) se redefine como tira compacta de iconos en §9, con
+   especificidad alta para ganarle a filmora.css y a la capa dinámica
+   premium/workspace.css que la estira en grilla. */
+.app-shell .topbar { height: 28px !important; min-height: 28px !important; }
+.app-shell .preview-topbar,
+.app-shell .inspector-head {
+  height: 56px !important;
+  min-height: 56px !important;
+}
+
+/* §9 · Fila de módulos (Medios/Audio/Texto/…): tira compacta de iconos, sin
+   etiqueta y sin subrayado activo. El selector `.app-shell .asset-rail
+   .rail-tabs …` (especificidad 0,0,3,*) vence a `.app-shell .rail-tabs …`
+   de filmora.css (0,0,2,*) y de la capa dinámica premium/workspace.css,
+   que carga DESPUÉS de esta hoja vía import() dinámico. La etiqueta de la
+   vista activa la sigue mostrando el encabezado del panel (`rail-head`). */
+.app-shell .asset-rail .rail-tabs {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  gap: 3px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  padding: 0 4px !important;
+  overflow-x: auto !important;
+  overflow-y: hidden !important;
+  border-bottom: 1px solid var(--fm-line) !important;
+}
+.app-shell .asset-rail .rail-tabs::-webkit-scrollbar { height: 0 !important; width: 0 !important; }
+.app-shell .asset-rail .rail-tabs button {
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: var(--fm-ink-3) !important;
+  font-size: 0 !important;
+}
+.app-shell .asset-rail .rail-tabs button svg { width: 16px !important; height: 16px !important; flex: none !important; }
+.app-shell .asset-rail .rail-tabs button span { display: none !important; }
+.app-shell .asset-rail .rail-tabs button:hover { background: var(--fm-hover) !important; color: var(--fm-ink) !important; }
+.app-shell .asset-rail .rail-tabs button.active,
+.app-shell .asset-rail .rail-tabs button[aria-selected='true'] {
+  background: var(--fm-hover) !important;
+  background: color-mix(in srgb, var(--fm-accent) 14%, transparent) !important;
+  color: var(--fm-accent) !important;
+  border: 0 !important;
+}
+.app-shell .asset-rail .rail-tabs button.active svg,
+.app-shell .asset-rail .rail-tabs button[aria-selected='true'] svg { color: var(--fm-accent) !important; }
+
+/* La barra unificada de 16 destinos no existe en las capturas: se colapsa en
+   un único chip dentro de la fila del menú y se despliega al pasar el ratón o
+   al enfocar. NO se elimina ningún destino ni se pierde funcionalidad. */
+.app-shell .editor-workspace { position: relative !important; z-index: 90 !important; }
+/* La franja inferior tiene 620 px libres entre «Timeline 01» (x 0–261) y las
+   herramientas rápidas (x 890–1360). Ahí vive el chip, sin interceptar nada
+   de la barra superior (`.topbar-project` bloqueaba el hover en y 0–28). */
+:root .app-shell .editor-workspace > .editor-mode-tabs {
+  /* `fixed` + z-index alto: ni `.topbar-project` ni `.timeline-scroll`
+     interceptan el puntero, y los menús del topbar conservan su capa. */
+  position: fixed !important;
+  inset: auto !important;
+  top: auto !important;
+  bottom: 0 !important;
+  left: 270px !important;
+  right: auto !important;
+  width: 92px !important;
+  max-width: 92px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  z-index: 9999 !important;
+  background: transparent !important;
+  border: 0 !important;
+  overflow: hidden !important;
+}
+.app-shell .editor-mode-tab:not(.active),
+.app-shell .editor-mode-divider { display: none !important; }
+.app-shell .editor-mode-tab.active {
+  height: 20px !important;
+  min-height: 20px !important;
+  margin: 2px 0 !important;
+  padding: 0 8px !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  background: var(--fm-bar-2) !important;
+  font-size: var(--fm-type-xs) !important;
+}
+/* Al pasar el ratón o al enfocar con Tab, se despliega hacia arriba. */
+:root .app-shell .editor-workspace > .editor-mode-tabs:hover,
+:root .app-shell .editor-workspace > .editor-mode-tabs:focus-within {
+  /* El borde inferior queda fijo en y=768: el panel crece hacia arriba y el
+     puntero nunca abandona el área (evita el parpadeo abrir/cerrar). */
+  bottom: 0 !important;
+  width: 620px !important;
+  max-width: 620px !important;
+  height: auto !important;
+  max-height: 92px !important;
+  flex-wrap: wrap !important;
+  align-content: flex-end !important;
+  overflow-y: auto !important;
+  padding: 4px !important;
+  background: var(--fm-panel) !important;
+  border: 1px solid var(--fm-line-strong) !important;
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+:root .app-shell .editor-mode-tabs:hover .editor-mode-tab:not(.active),
+:root .app-shell .editor-mode-tabs:focus-within .editor-mode-tab:not(.active),
+:root .app-shell .editor-mode-tabs:hover .editor-mode-divider,
+:root .app-shell .editor-mode-tabs:focus-within .editor-mode-divider { display: inline-flex !important; }
+
+/* La esquina de la regla sólo muestra el «+» y los controles de pista en la
+   referencia: se retiran el rótulo y la insignia de secuencia (ruido). */
+:root .app-shell :is(.ruler-corner-title, .ruler-corner-badge) { display: none !important; }
+
+/* ─────────────── 8 · Barra de timeline: SÓLO iconos ───────────────
+   Pedido explícito: en la línea de «Ajustar / Color / Todos / Buscar clip»
+   no debe quedar ninguna palabra. Los controles siguen siendo reales:
+   aria-label y title conservan el nombre accesible, y los `select` nativos
+   se superponen en transparencia sobre su icono (clic = desplegable real). */
+:root:root .app-shell .timeline-toolbar :is(.tool-label, .zoom-readout, .duration-tracks, .pan-hint, .timeline-duration) {
+  display: none !important;
+}
+/* `filmora.css:2012` re mostraba «Seleccionar» con `display:inline` y una
+   capa dinámica lo forzaba a `block`. Selector más específico para el
+   disparador del selector de herramienta (captura 127). */
+:root:root .app-shell .timeline-toolbar .timeline-tools .fm-tool-selector > button.icon-text > .tool-label {
+  display: none !important;
+}
+:root:root .app-shell .timeline-toolbar :is(button, .icon-text) {
+  justify-content: center !important;
+  gap: 0 !important;
+  padding-left: 4px !important;
+  padding-right: 4px !important;
+  min-width: 22px !important;
+}
+/* Iconos de los controles que antes eran texto: misma talla que el resto. */
+:root:root .app-shell .timeline-toolbar :is(
+  .zoom-fit, .color-filter-field, .track-kind-field, .clip-search-field
+) > .ui-icon {
+  width: 14px !important;
+  height: 14px !important;
+  flex: 0 0 auto !important;
+  position: relative !important;
+  z-index: 2 !important;
+  pointer-events: none !important;
+}
+
+/* Selects de color y tipo de pista: el <select> ocupa todo el botón pero es
+   invisible; al hacer clic se abre el menú nativo con sus opciones legibles. */
+:root:root .app-shell .timeline-toolbar :is(.color-filter-field, .track-kind-field) {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  cursor: pointer !important;
+  border: 1px solid transparent !important;
+  border-radius: 2px !important;
+}
+:root:root .app-shell .timeline-toolbar :is(.color-filter-field, .track-kind-field):hover {
+  border-color: var(--fm-line) !important;
+  background: var(--fm-hover) !important;
+}
+:root:root .app-shell .timeline-toolbar :is(.color-filter-field, .track-kind-field) select {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  cursor: pointer !important;
+  appearance: auto !important;
+  font-size: 16px !important;
+}
+
+/* Buscador: icono de 22 px que se expande a 132 px sólo al enfocarlo.
+   Sin placeholder visible: al escribir sí aparece el texto (es un campo). */
+:root:root .app-shell .timeline-toolbar .clip-search-field {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  width: 22px !important;
+  min-width: 22px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  cursor: pointer !important;
+  transition: width 120ms ease !important;
+}
+:root:root .app-shell .timeline-toolbar .clip-search-field:focus-within {
+  width: 132px !important;
+  min-width: 132px !important;
+}
+:root:root .app-shell .timeline-toolbar .clip-search-field input {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: transparent !important;
+  caret-color: transparent !important;
+  opacity: 1 !important;
+  cursor: pointer !important;
+}
+:root:root .app-shell .timeline-toolbar .clip-search-field:focus-within input {
+  padding-left: 22px !important;
+  border: 1px solid var(--fm-line) !important;
+  border-radius: 2px !important;
+  background: var(--fm-input) !important;
+  color: var(--fm-ink) !important;
+  caret-color: var(--fm-accent) !important;
+  cursor: text !important;
+}
+:root:root .app-shell .timeline-toolbar .clip-search-field input::placeholder {
+  color: transparent !important;
+}
+/* El panel de preview traía 9/12 px de padding y el escenario 30 px arriba:
+   en la referencia la cabecera y el lienzo van a sangre, sin margen. */
+/* `:root` gana a los entries dinámicos (premium/workspace.css) que se
+   inyectan DESPUÉS de main.tsx y fijaban 12 px de padding lateral. */
+:root .app-shell .preview-panel { padding: 0 !important; }
+:root .app-shell .preview-stage { padding: 0 !important; gap: 0 !important; }
+/* Es un HUD absoluto (`position:absolute; left:12px; width:356px`): se
+   lleva a sangre sin cambiar su naturaleza de overlay sobre el lienzo. */
+:root .app-shell .preview-stage .preview-topbar {
+  left: 0 !important;
+  right: 0 !important;
+  top: 0 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 !important;
+  transform: none !important;
+  padding: 0 8px !important;
+}
+
+/* Timeline: el panel empieza en y 433 (grid 56 + fila superior 377).
+   `--timeline-height` se fija en 335 px en Timeline.tsx. */
+.app-shell .timeline-panel,
+.app-shell .timeline { position: relative !important; }
+/* El borde superior de 1 px retrasaba la toolbar a y 434. */
+.app-shell .timeline-panel { border-top: 0 !important; }
+.app-shell .timeline-toolbar,
+.app-shell .timeline-tools {
+  height: 22px !important;
+  min-height: 22px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+.app-shell .timeline-toolbar button,
+.app-shell .timeline-tools button { height: 20px !important; min-height: 20px !important; }
+/* El separador de altura ocupaba 4 px de flujo y retrasaba la toolbar a y 438.
+   Pasa a overlay: sigue siendo arrastrable y accesible por teclado. */
+.app-shell .timeline-resize {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  height: 6px !important;
+  margin: 0 !important;
+  z-index: 9 !important;
+}
+.app-shell .ruler-row { height: 16px !important; min-height: 16px !important; }
+.app-shell .ruler-tick { line-height: 1.2 !important; }
+
+/* Pestaña de secuencia: en la referencia vive abajo a la izquierda, no como
+   una fila de 35 px encima de la toolbar. */
+.app-shell .timeline-tabs {
+  position: absolute !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  top: auto !important;
+  z-index: 8 !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  width: auto !important;
+  max-width: 45% !important;
+  padding: 0 8px !important;
+  border-top: 1px solid var(--fm2-line) !important;
+  border-bottom: 0 !important;
+  background: var(--fm2-canvas) !important;
+}
+.app-shell .timeline-tabs button { border-bottom: 0 !important; border-top: 2px solid var(--fm-accent) !important; }
+.app-shell .timeline-tabs-meta { font-size: var(--fm-type-2xs) !important; }
+
+/* Herramientas rápidas (captura 128): tira flotante abajo a la derecha, no
+   una fila que empuja la regla 29 px hacia abajo. */
+.timeline .fm-quick-tools {
+  position: absolute !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  z-index: 8 !important;
+  width: auto !important;
+  max-width: 54% !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  padding: 0 6px !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  border-top: 1px solid var(--fm2-line) !important;
+  border-bottom: 0 !important;
+  background: var(--fm2-canvas) !important;
+}
+.timeline .fm-quick-tool { height: 18px !important; font-size: var(--fm-type-2xs) !important; }
+.app-shell .timeline-scroll { padding-bottom: 24px !important; }
+
+/* ─────────────── 7 · Minimalismo extremo ───────────────
+   Un solo acento, sin sombras, sin brillos, sin bordes redundantes. La
+   referencia declara explícitamente «sin sombras, sin blur, sin glow». */
+.app-shell .topbar,
+.app-shell .assistant-launcher,
+.start-screen .start-window { box-shadow: none !important; }
+.app-shell :is(.rail-head, .inspector-head, .panel-head, .timeline-toolbar,
+  .preview-topbar, .editor-mode-tabs) {
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+.app-shell :is(button, a, select, input, .ui-icon):not(.active):not([aria-selected='true']) {
+  text-shadow: none !important;
+}
+.app-shell .editor-mode-tab:not(.active),
+.app-shell .rail-tabs button:not(.active) { color: var(--fm-ink-3) !important; }
+.app-shell .editor-mode-tab.active,
+.app-shell .rail-tabs button.active { color: var(--fm-accent) !important; }
+/* Pesos y tracking uniformes: una sola voz tipográfica. */
+.app-shell :is(.rail-tabs button, .editor-mode-tab, .tool-label,
+  .timeline-tabs button, .inspector-head h3, .rail-head strong) {
+  font-weight: 500 !important;
+  letter-spacing: 0 !important;
+}
+.app-shell :is(.start-promo-badge, .start-quick-tag, .rail-chip-count) {
+  font-weight: 600 !important;
+  letter-spacing: 0.02em !important;
+}
+
+/* Escala tipográfica: el lanzador heredaba 13/15/32 px sueltos de capas
+   legacy. Se pliegan a la escala de 6 valores (10/11/12/14/18/22). */
+:root .start-screen :is(.start-welcome-title, .start-hero-cta, h1, h2, h3) {
+  font-size: var(--fm-type-display) !important;
+}
+:root .start-screen :is(.start-app-title, .start-app-pill, .start-action-title,
+  .start-section-title, .start-dialog-title, .start-promo-copy strong) {
+  font-size: var(--fm-type-lg) !important;
+}
+:root .start-screen :is(.start-action-desc, .start-welcome-desc, .start-privacy-note,
+  .start-service-badge, .start-quick-label, .start-quick-tag, .start-feature-chip) {
+  font-size: var(--fm-type-md) !important;
+}
+/* Dos <strong> heredaban 15 px y 13 px de capas legacy. */
+:root .start-screen .start-empty-notice strong,
+:root .app-shell .preview-overlay strong { font-size: var(--fm-type-lg) !important; }
+/* Dos iconos de cierre seguían en 12 px: todos los controles a 14/16. */
+:root .app-shell :is(.fm-performance-notice-close, .fm-import-guide-close) .ui-icon,
+:root .start-screen .start-new-project-tip-close .ui-icon {
+  width: var(--fm-icon-sm) !important;
+  height: var(--fm-icon-sm) !important;
+}
+/* Foco visible también con foco programático (medible), además del
+   `:focus-visible` para teclado ya declarado más arriba. */
+:root .app-shell :is(button, a, select, input, summary, [tabindex]):focus,
+:root .start-screen :is(button, a, select, input, summary, [tabindex]):focus {
+  outline: 1px solid color-mix(in srgb, var(--fm-accent) 70%, transparent) !important;
+  outline-offset: 1px !important;
+}
+/* Algunos entries dinámicos fijan `outline:none` con dos clases: se repite el
+   selector para ganar especificidad sin tocar su lógica. */
+:root:root .app-shell :is(button, a, select, input, summary, [tabindex]):focus,
+:root:root .start-screen :is(button, a, select, input, summary, [tabindex]):focus {
+  outline-style: solid !important;
+  outline-width: 1px !important;
+  outline-color: var(--fm-accent) !important;
+}

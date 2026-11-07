@@ -16,6 +16,7 @@ const VIEW_ICONS: Record<ViewId, IconName> = {
   multicam: 'layers',
   mixer: 'audio',
   vfx: 'effects',
+  nodes: 'motion',
   download: 'download',
   director: 'director',
   'auto-edit': 'sparkles',

@@ -125,7 +125,7 @@ export function CapabilitiesCard() {
         {capabilities.map((capability) => (
           <li key={capability.id} className={`capability${capability.available ? ' ok' : ' missing'}`}>
             <span className="capability-state" aria-hidden="true">
-              {capability.available ? '✓' : '!'}
+              {capability.available ? 'OK' : '!'}
             </span>
             <div className="capability-copy">
               <strong>{capability.label}</strong>

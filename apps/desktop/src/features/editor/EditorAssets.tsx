@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Asset, ClipEffects, ClipTransition } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
@@ -58,35 +58,37 @@ interface StickerItem {
   readonly id: string;
   readonly name: string;
   readonly category: 'trending' | 'social' | 'arrows' | 'emojis';
-  readonly emoji: string;
+  /** Etiqueta corta de texto; la interfaz no usa glifos emoji. */
+  readonly badge: string;
   readonly text: string;
   readonly animation: 'pop' | 'fade' | 'slide-up';
   readonly color: string;
 }
 
+/** Stickers de TEXTO: misma función, sin emojis en la interfaz. */
 const STICKER_LIBRARY: readonly StickerItem[] = [
-  // Trending
-  { id: 'fuego', name: 'Fuego', category: 'trending', emoji: '🔥', text: '🔥 FUEGO', animation: 'pop', color: '#ff4d4f' },
-  { id: 'estrella', name: 'Top', category: 'trending', emoji: '⭐', text: '⭐ TOP', animation: 'pop', color: '#faad14' },
-  { id: 'boom', name: 'Boom', category: 'trending', emoji: '💥', text: '💥 BOOM', animation: 'pop', color: '#f5222d' },
-  { id: 'cohete', name: 'Nivel Up', category: 'trending', emoji: '🚀', text: '🚀 NIVEL UP', animation: 'slide-up', color: '#722ed1' },
-  { id: 'cien', name: '100% Real', category: 'trending', emoji: '💯', text: '💯 REAL', animation: 'pop', color: '#f5222d' },
-  { id: 'rayo', name: 'Rayo Fast', category: 'trending', emoji: '⚡', text: '⚡ FAST', animation: 'pop', color: '#faad14' },
-  // Social
-  { id: 'subscribe', name: 'Suscríbete', category: 'social', emoji: '🔔', text: 'SUSCRÍBETE 🔔', animation: 'slide-up', color: '#ff0000' },
-  { id: 'like', name: 'Dale Like', category: 'social', emoji: '👍', text: 'DALE LIKE 👍', animation: 'pop', color: '#1890ff' },
-  { id: 'share', name: 'Compartir', category: 'social', emoji: '📲', text: 'COMPARTÍ 📲', animation: 'slide-up', color: '#52c41a' },
-  { id: 'live', name: 'En Vivo', category: 'social', emoji: '🔴', text: '🔴 EN VIVO', animation: 'fade', color: '#ff4d4f' },
-  // Flechas & Indicadores
-  { id: 'arrow-right', name: 'Mirá Aquí', category: 'arrows', emoji: '👉', text: '👉 MIRÁ AQUÍ', animation: 'pop', color: '#faad14' },
-  { id: 'arrow-down', name: 'Link Abajo', category: 'arrows', emoji: '👇', text: '👇 LINK ABAJO', animation: 'slide-up', color: '#faad14' },
-  { id: 'check', name: 'Verificado', category: 'arrows', emoji: '✔️', text: '✔️ VERIFICADO', animation: 'pop', color: '#52c41a' },
-  { id: 'alert', name: 'Atención', category: 'arrows', emoji: '⚠️', text: '⚠️ ATENCIÓN', animation: 'pop', color: '#faad14' },
-  // Emojis
-  { id: 'cool', name: 'Cool', category: 'emojis', emoji: '😎', text: '😎', animation: 'pop', color: '#ffffff' },
-  { id: 'mindblown', name: 'Shock', category: 'emojis', emoji: '🤯', text: '🤯 WOW', animation: 'pop', color: '#ffffff' },
-  { id: 'laugh', name: 'Risas', category: 'emojis', emoji: '😂', text: '😂😂😂', animation: 'pop', color: '#ffffff' },
-  { id: 'party', name: 'Fiesta', category: 'emojis', emoji: '🎉', text: '🎉 PARTY', animation: 'pop', color: '#faad14' },
+  // Tendencias
+  { id: 'fuego', name: 'Fuego', category: 'trending', badge: 'FUEGO', text: 'FUEGO', animation: 'pop', color: '#ff4d4f' },
+  { id: 'estrella', name: 'Top', category: 'trending', badge: 'TOP', text: 'TOP', animation: 'pop', color: '#faad14' },
+  { id: 'boom', name: 'Boom', category: 'trending', badge: 'BOOM', text: 'BOOM', animation: 'pop', color: '#f5222d' },
+  { id: 'cohete', name: 'Nivel Up', category: 'trending', badge: 'NIVEL UP', text: 'NIVEL UP', animation: 'slide-up', color: '#722ed1' },
+  { id: 'cien', name: '100% Real', category: 'trending', badge: 'REAL', text: '100% REAL', animation: 'pop', color: '#f5222d' },
+  { id: 'rayo', name: 'Rayo Fast', category: 'trending', badge: 'FAST', text: 'FAST', animation: 'pop', color: '#faad14' },
+  // Redes
+  { id: 'subscribe', name: 'Suscríbete', category: 'social', badge: 'SUSCRIBETE', text: 'SUSCRÍBETE', animation: 'slide-up', color: '#ff0000' },
+  { id: 'like', name: 'Dale Like', category: 'social', badge: 'LIKE', text: 'DALE LIKE', animation: 'pop', color: '#1890ff' },
+  { id: 'share', name: 'Compartir', category: 'social', badge: 'COMPARTIR', text: 'COMPARTÍ', animation: 'slide-up', color: '#52c41a' },
+  { id: 'live', name: 'En Vivo', category: 'social', badge: 'VIVO', text: 'EN VIVO', animation: 'fade', color: '#ff4d4f' },
+  // Flechas y estados
+  { id: 'arrow-right', name: 'Mirá Aquí', category: 'arrows', badge: 'AQUI', text: 'MIRÁ AQUÍ', animation: 'pop', color: '#faad14' },
+  { id: 'arrow-down', name: 'Link Abajo', category: 'arrows', badge: 'LINK', text: 'LINK ABAJO', animation: 'slide-up', color: '#faad14' },
+  { id: 'check', name: 'Verificado', category: 'arrows', badge: 'OK', text: 'VERIFICADO', animation: 'pop', color: '#52c41a' },
+  { id: 'alert', name: 'Atención', category: 'arrows', badge: 'ATENCION', text: 'ATENCIÓN', animation: 'pop', color: '#faad14' },
+  // Expresiones (sólo texto; sin pictogramas)
+  { id: 'cool', name: 'Cool', category: 'emojis', badge: 'COOL', text: 'COOL', animation: 'pop', color: '#ffffff' },
+  { id: 'mindblown', name: 'Shock', category: 'emojis', badge: 'WOW', text: 'WOW', animation: 'pop', color: '#ffffff' },
+  { id: 'laugh', name: 'Risas', category: 'emojis', badge: 'JAJA', text: 'JAJA', animation: 'pop', color: '#ffffff' },
+  { id: 'party', name: 'Fiesta', category: 'emojis', badge: 'FIESTA', text: 'FIESTA', animation: 'pop', color: '#faad14' },
 ];
 
 /** Efectos de sonido SFX predeterminados */
@@ -118,8 +120,8 @@ interface TransitionPreset {
 
 const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'dissolve', label: 'Disolución', description: 'Fundido cruzado clásico suave', iconSymbol: '░' },
-  { id: 'fade-black', label: 'Fundido a Negro', description: 'Cierre y apertura cinematográfica', iconSymbol: '⬛' },
-  { id: 'fade-white', label: 'Fundido a Blanco', description: 'Apertura luminosa desde blanco', iconSymbol: '⬜' },
+  { id: 'fade-black', label: 'Fundido a Negro', description: 'Cierre y apertura cinematográfica', iconSymbol: '■' },
+  { id: 'fade-white', label: 'Fundido a Blanco', description: 'Apertura luminosa desde blanco', iconSymbol: '□' },
   { id: 'slide-left', label: 'Deslizar Izq.', description: 'Empuje lateral hacia la izquierda', iconSymbol: '◀' },
   { id: 'slide-right', label: 'Deslizar Der.', description: 'Empuje lateral hacia la derecha', iconSymbol: '▶' },
   { id: 'slide-up', label: 'Deslizar Arriba', description: 'El clip sube desde abajo', iconSymbol: '▲' },
@@ -186,7 +188,7 @@ const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
         { id: 'trending', label: 'Tendencias' },
         { id: 'social', label: 'Redes sociales' },
         { id: 'arrows', label: 'Flechas' },
-        { id: 'emojis', label: 'Emoji' },
+        { id: 'emojis', label: 'Expresiones' },
         { id: 'sticker-ai', label: 'Sticker de IA', pending: true },
         { id: 'premium', label: 'Premium', pending: true },
       ],
@@ -726,7 +728,14 @@ function lookSwatch(id: string): string {
   }
 }
 
-export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId) => void }) {
+export function EditorAssets({
+  onNavigate,
+  emptyGuide,
+}: {
+  readonly onNavigate: (id: ViewId) => void;
+  /** Guía de primer uso (captura 95) renderizada dentro del panel de medios. */
+  readonly emptyGuide?: ReactNode;
+}) {
   const store = useProjectStore();
   const project = store.state.project;
   const [filter, setFilter] = useState<AssetFilter>('all');
@@ -880,7 +889,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
       id: `sticker-${sticker.id}`,
       name: sticker.name,
       description: 'Sticker gráfico',
-      sample: sticker.emoji,
+      sample: sticker.badge,
       style: {
         fontFamily: 'Segoe UI',
         fontSizePx: 64,
@@ -1358,6 +1367,9 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
           >
             Abrir biblioteca completa de medios
           </button>
+          {project.assets.length === 0 && emptyGuide ? (
+            <div className="fm-import-guide-slot">{emptyGuide}</div>
+          ) : null}
         </>
       ) : null}
 
@@ -1487,28 +1499,28 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
               className={stickerCategory === 'trending' ? 'active' : ''}
               onClick={() => setStickerCategory('trending')}
             >
-              Trending 🔥
+              Tendencias
             </button>
             <button
               type="button"
               className={stickerCategory === 'social' ? 'active' : ''}
               onClick={() => setStickerCategory('social')}
             >
-              Redes 🔔
+              Redes
             </button>
             <button
               type="button"
               className={stickerCategory === 'arrows' ? 'active' : ''}
               onClick={() => setStickerCategory('arrows')}
             >
-              Flechas ➡️
+              Flechas
             </button>
             <button
               type="button"
               className={stickerCategory === 'emojis' ? 'active' : ''}
               onClick={() => setStickerCategory('emojis')}
             >
-              Emojis 😂
+              Expresiones
             </button>
           </div>
           <p className="fine-print">
@@ -1523,7 +1535,7 @@ export function EditorAssets({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 onClick={() => addSticker(sticker)}
                 title={`Agregar sticker ${sticker.name}`}
               >
-                <span className="sticker-emoji">{sticker.emoji}</span>
+                <span className="sticker-emoji">{sticker.badge}</span>
                 <span className="sticker-label">{sticker.name}</span>
               </button>
             ))}

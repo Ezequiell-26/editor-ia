@@ -1,21 +1,22 @@
-import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { ViewId } from '../../app/navigation';
-import { Icon, type IconName } from '../../components/Icon';
-import { useDialogFocus } from '../../hooks/useDialogFocus';
-import { forgetRecent, loadRecents, type RecentProject } from '../../lib/recents';
-import { useProjectStore } from '../../state/project-store';
+import { lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from'react';
+import type { ViewId } from'../../app/navigation';
+import { Icon, type IconName } from'../../components/Icon';
+import { useDialogFocus } from'../../hooks/useDialogFocus';
+import { forgetRecent, loadRecents, type RecentProject } from'../../lib/recents';
+import { useProjectStore } from'../../state/project-store';
 import {
   FPS_PRESETS,
   FORMAT_PRESETS,
   evenDimension,
   validFpsRange,
-} from '../../state/video-format';
-import { detectNativeRuntime } from '../../services/project-service';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { LogicalSize } from '@tauri-apps/api/dpi';
-import { SettingsWindow } from '../../components/SettingsWindow';
-import { AppUpdaterModal } from '../updater/AppUpdaterModal';
-import { CURRENT_APP_VERSION } from '../../app/version';
+} from'../../state/video-format';
+import { detectNativeRuntime } from'../../services/project-service';
+import { getCurrentWindow } from'@tauri-apps/api/window';
+import { LogicalSize } from'@tauri-apps/api/dpi';
+import { SettingsWindow } from'../../components/SettingsWindow';
+import { AppUpdaterModal } from'../updater/AppUpdaterModal';
+import { CURRENT_APP_VERSION } from'../../app/version';
+import { HomePromoCard, NewProjectTip } from'../editor/FilmoraStates';
 
 const SettingsHome = lazy(() =>
   import('../settings/SettingsHome').then((module) => ({ default: module.SettingsHome })),
@@ -27,36 +28,36 @@ export interface StartScreenProps {
   readonly banner?: ReactNode;
 }
 
-type StartPhase = 'idle' | 'exit';
+type StartPhase ='idle'|'exit';
 
 function formatRelativeTime(isoString: string): string {
   try {
     const date = new Date(isoString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-    if (Number.isNaN(diffMs)) return 'Reciente';
+    if (Number.isNaN(diffMs)) return'Reciente';
 
     const diffSec = Math.floor(diffMs / 1000);
     const diffMin = Math.floor(diffSec / 60);
     const diffHours = Math.floor(diffMin / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffSec < 45) return 'Hace un momento';
-    if (diffMin < 60) return `Hace ${diffMin} min`;
-    if (diffHours < 24) return `Hace ${diffHours} h`;
-    if (diffDays === 1) return 'Ayer';
-    if (diffDays < 7) return `Hace ${diffDays} días`;
-    return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+    if (diffSec < 45) return'Hace un momento';
+    if (diffMin < 60) return`Hace ${diffMin} min`;
+    if (diffHours < 24) return`Hace ${diffHours} h`;
+    if (diffDays === 1) return'Ayer';
+    if (diffDays < 7) return`Hace ${diffDays} días`;
+    return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short'});
   } catch {
-    return 'Reciente';
+    return'Reciente';
   }
 }
 
 function getDefaultProjectName(): string {
   const today = new Date();
   const day = today.getDate();
-  const month = today.toLocaleDateString('es-ES', { month: 'short' }).replace('.', '');
-  return `Proyecto ${day} ${month}`;
+  const month = today.toLocaleDateString('es-ES', { month: 'short'}).replace('.','');
+  return`Proyecto ${day} ${month}`;
 }
 
 // Portada sustituta para proyectos sin medios visuales: la inicial del nombre
@@ -72,14 +73,15 @@ function projectTone(name: string): number {
   return hash % 6;
 }
 
-const ONBOARDING_KEY = 'editor-ia.onboarding.v1';
+const ONBOARDING_KEY ='editor-ia.onboarding.v1';
+const NEW_PROJECT_TIP_KEY ='editor-ia.start.new-project-tip.v1';
 const ONBOARDING_OPTIONS: readonly string[] = [
-  'Soy principiante',
-  'Suelo usar Filmora',
-  'Premiere Pro',
-  'Final Cut Pro',
-  'CapCut',
-  'Otro',
+    'Soy principiante',
+    'DaVinci Resolve',
+    'Premiere Pro',
+    'Final Cut Pro',
+    'CapCut',
+    'Otro',
 ];
 
 const QUICK_AI_TOOLS: readonly {
@@ -88,18 +90,18 @@ const QUICK_AI_TOOLS: readonly {
   readonly icon: IconName;
   readonly tag: string;
 }[] = [
-  { id: 'director', label: 'Director IA', icon: 'director', tag: 'Auto-corte' },
-  { id: 'script', label: 'Guion IA', icon: 'script', tag: 'Asistente' },
-  { id: 'production', label: 'Locución', icon: 'production', tag: 'Voz & Mix' },
-  { id: 'background', label: 'Quitar fondo', icon: 'background', tag: 'IA local' },
-  { id: 'upscale', label: 'Upscale 4K', icon: 'upscale', tag: 'Real-ESRGAN' },
-  { id: 'compress', label: 'Comprimir', icon: 'compress', tag: 'Optimizar' },
+  { id: 'director', label: 'Director IA', icon: 'director', tag: 'Auto-corte'},
+  { id: 'script', label: 'Guion IA', icon: 'script', tag: 'Asistente'},
+  { id: 'production', label: 'Locución', icon: 'production', tag: 'Voz & Mix'},
+  { id: 'background', label: 'Quitar fondo', icon: 'background', tag: 'IA local'},
+  { id: 'upscale', label: 'Upscale 4K', icon: 'upscale', tag: 'Real-ESRGAN'},
+  { id: 'compress', label: 'Comprimir', icon: 'compress', tag: 'Optimizar'},
 ];
 
 const QUICK_TEMPLATES: readonly {
   readonly id: string;
   readonly label: string;
-  readonly icon: 'film' | 'layers' | 'assets' | 'fit';
+  readonly icon: 'film'|'layers'|'assets'|'fit';
   readonly aspect: string;
   readonly width: number;
   readonly height: number;
@@ -154,11 +156,11 @@ const QUICK_TEMPLATES: readonly {
 ];
 
 const LAUNCHER_TIPS = [
-  'Espacio reproduce/pausa · Ctrl+Z deshace · Ctrl+E exporta',
-  '100% Privado: Todo el procesamiento y modelos corren localmente',
-  'Director IA: Analiza tu metraje y propone cortes automáticos',
-  'Locución local: Genera narraciones sin conexión a internet',
-  'Comprimir: Optimiza videos para plataformas con máxima calidad',
+    'Espacio reproduce/pausa · Ctrl+Z deshace · Ctrl+E exporta',
+    '100% Privado: Todo el procesamiento y modelos corren localmente',
+    'Director IA: Analiza tu metraje y propone cortes automáticos',
+    'Locución local: Genera narraciones sin conexión a internet',
+    'Comprimir: Optimiza videos para plataformas con máxima calidad',
 ];
 
 const LauncherTipText = memo(function LauncherTipText() {
@@ -181,7 +183,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   const store = useProjectStore();
   const [recents, setRecents] = useState<RecentProject[]>(() => loadRecents());
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'recent' | 'name'>('recent');
+  const [sortBy, setSortBy] = useState<'recent'|'name'>('recent');
   const [phase, setPhase] = useState<StartPhase>('idle');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -194,6 +196,11 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     () => detectNativeRuntime() && !window.localStorage.getItem(ONBOARDING_KEY),
   );
   const [onboardingChoice, setOnboardingChoice] = useState<string | null>(null);
+  // Captura 93: globo «Haz clic aquí para comenzar con tu primer vídeo». Se
+  // descarta de forma persistente; no es un elemento decorativo.
+  const [newProjectTipOpen, setNewProjectTipOpen] = useState(
+    () => window.localStorage.getItem(NEW_PROJECT_TIP_KEY) !=='1',
+  );
   const [recentThumbs, setRecentThumbs] = useState<Record<string, string>>({});
   const requestedThumbs = useRef(new Set<string>());
 
@@ -218,7 +225,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   // mostrar un botón que no puede cumplir lo que promete.
   const browserMode = !native && !store.service.available;
   const browserReason =
-    'Sólo en la app de escritorio: el navegador no puede abrir diálogos nativos ni escribir proyectos en disco.';
+  'Sólo en la app de escritorio: el navegador no puede abrir diálogos nativos ni escribir proyectos en disco.';
   const visibleError = !showCreateModal ? (error ?? store.state.error) : null;
   const recoveryOffer = store.state.recoveryOffer;
   const recoveryFileName = recoveryOffer
@@ -228,9 +235,9 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   const createDialogRef = useRef<HTMLDivElement | null>(null);
 
   // Trampa de foco (auditoría de accesibilidad, H1/H2) para el diálogo de
-  // nuevo proyecto: guarda el disparador (la tarjeta "Crear proyecto"), enfoca
+  // nuevo proyecto: guarda el disparador (la tarjeta"Crear proyecto"), enfoca
   // el primer control, atrapa Tab y cierra con Escape. El componente vive
-  // montado y el diálogo sólo a ratos: `active` lo cubre.
+  // montado y el diálogo sólo a ratos: `active`lo cubre.
   useDialogFocus({
     containerRef: createDialogRef,
     active: showCreateModal,
@@ -357,7 +364,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   async function handleQuickTemplate(tpl: (typeof QUICK_TEMPLATES)[number]): Promise<void> {
     setBusy(true);
     const ok = await store.createProject({
-      name: `${tpl.label} · ${new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}`,
+      name: `${tpl.label} · ${new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'short'})}`,
       width: tpl.width,
       height: tpl.height,
       fpsNum: tpl.fpsNum,
@@ -383,8 +390,8 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
 
   /**
    * Oferta de crash en el launcher: única superficie de la instantánea local
-   * fuera del shell (dentro del shell la muestra el banner de `AppShell`). Si la
-   * recuperación falla, `store.state.error` se ve en el banner de esta pantalla
+   * fuera del shell (dentro del shell la muestra el banner de`AppShell`). Si la
+   * recuperación falla,`store.state.error`se ve en el banner de esta pantalla
    * y la oferta sigue viva para reintentar o descartar.
    */
   async function handleRecoverSession(): Promise<void> {
@@ -400,7 +407,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
 
   function handleDismissRecovery(): void {
     const confirmed = window.confirm(
-      'Se descarta la sesión sin guardar; el proyecto en disco queda como está. ¿Continuar?',
+      'Se descarta la sesión sin guardar; el proyecto en disco queda como está. ¿Continuar? ',
     );
     if (confirmed) store.dismissRecovery();
   }
@@ -439,7 +446,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     if (!files.length) return;
 
     const first = files[0];
-    const baseName = first?.name.replace(/\.[^/.]+$/, '') || 'Nuevo proyecto importado';
+    const baseName = first?.name.replace(/\.[^/.]+$/,'') ||'Nuevo proyecto importado';
 
     setBusy(true);
     const ok = await store.createProject({
@@ -461,7 +468,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
         (r) => r.name.toLowerCase().includes(q) || r.label.toLowerCase().includes(q),
       );
     }
-    if (sortBy === 'name') {
+    if (sortBy ==='name') {
       return [...list].sort((a, b) => a.name.localeCompare(b.name));
     }
     return list;
@@ -469,17 +476,17 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
 
   return (
     <div
-      className={`start-screen ${phase === 'exit' ? 'start-screen--exit' : ''}`}
+      className={`start-screen ${phase ==='exit'? 'start-screen--exit': ''}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={(e) => void handleDrop(e)}
     >
       {/* Drag & Drop overlay */}
       {isDraggingOver && (
-        <div className="start-drop-overlay" aria-hidden="true">
+        <div className="start-drop-overlay"aria-hidden="true">
           <div className="start-drop-card">
             <span className="start-drop-icon">
-              <Icon name="plus" size={26} />
+              <Icon name="plus"size={26} />
             </span>
             <strong className="start-drop-title">Soltar archivos para iniciar</strong>
             <span className="start-drop-desc">Se creará un proyecto automáticamente</span>
@@ -490,10 +497,10 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
       {/* Olyvia project manager window */}
       <div className="start-window">
         {/* ─── Window Header (Titlebar) ─── */}
-        <header className="start-window-header" data-tauri-drag-region>
+        <header className="start-window-header"data-tauri-drag-region>
           <div className="start-window-brand">
             <div className="start-brand-box">
-              <img src="/olyvia-mark.png" alt="" />
+              <img src="/olyvia-mark.png"alt=""/>
             </div>
             <div className="start-brand-titles">
               <span className="start-app-title">Olyvia</span>
@@ -508,13 +515,13 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               aria-label="Abrir actualizador de la app"
               onClick={() => setShowUpdaterModal(true)}
             >
-              <span className="start-version-dot" aria-hidden="true" />
+              <span className="start-version-dot"aria-hidden="true"/>
               <span>v{CURRENT_APP_VERSION}</span>
-              <Icon name="refresh" size={10} />
+              <Icon name="refresh"size={10} />
             </button>
           </div>
 
-          <div className="start-window-drag-area" data-tauri-drag-region />
+          <div className="start-window-drag-area"data-tauri-drag-region />
 
           <div className="start-window-controls">
             <button
@@ -524,7 +531,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               aria-label="Ajustes"
               onClick={() => setShowSettings(true)}
             >
-              <Icon name="settings" size={13} />
+              <Icon name="settings"size={13} />
             </button>
             {native && (
               <>
@@ -537,7 +544,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                     void getCurrentWindow().minimize().catch(() => {});
                   }}
                 >
-                  <Icon name="minus" size={12} />
+                  <Icon name="minus"size={12} />
                 </button>
                 <button
                   type="button"
@@ -548,7 +555,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                     void getCurrentWindow().close().catch(() => {});
                   }}
                 >
-                  <Icon name="close" size={12} />
+                  <Icon name="close"size={12} />
                 </button>
               </>
             )}
@@ -560,8 +567,8 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
         {/* Errores visibles: sin este banner, abrir un proyecto fallido o una
             ruta inexistente dejaba al usuario sin ningún mensaje. */}
         {visibleError ? (
-          <div className="start-error-notice" role="alert">
-            <Icon name="alert" size={13} />
+          <div className="start-error-notice"role="alert">
+            <Icon name="alert"size={13} />
             <span>{visibleError}</span>
             <button
               type="button"
@@ -576,6 +583,20 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
           </div>
         ) : null}
 
+        {/* Captura 93: guía del primer proyecto, anclada a la ventana. */}
+        {newProjectTipOpen && !onboardingOpen && !showCreateModal ? (
+          <NewProjectTip
+            onDismiss={() => {
+              setNewProjectTipOpen(false);
+              try {
+                window.localStorage.setItem(NEW_PROJECT_TIP_KEY,'1');
+              } catch {
+                // Sin almacenamiento: el globo no vuelve en esta sesión.
+              }
+            }}
+          />
+        ) : null}
+
         {/* ─── Window Body: 2 Columns ─── */}
         <div className="start-body">
           {/* Left Column: Quick Actions, 1-Click Templates, AI Tools */}
@@ -583,7 +604,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
             {/* Recuperación de la sesión anterior: única superficie fuera del
                 shell. Dentro de la app la muestra el banner de AppShell. */}
             {recoveryOffer ? (
-              <div className="start-pane-section" role="status">
+              <div className="start-pane-section"role="status">
                 <div className="start-section-header">
                   <span className="start-section-title">Sesión sin guardar</span>
                 </div>
@@ -599,11 +620,11 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   }
                 >
                   <div className="start-action-icon">
-                    <Icon name="refresh" size={18} />
+                    <Icon name="refresh"size={18} />
                   </div>
                   <div className="start-action-text">
                     <strong className="start-action-title">
-                      {recovering ? 'Recuperando…' : 'Recuperar sesión anterior'}
+                      {recovering ? 'Recuperando…': 'Recuperar sesión anterior'}
                     </strong>
                     <span className="start-action-desc">
                       {recoveryFileName} · {formatRelativeTime(recoveryOffer.savedAt)}
@@ -631,7 +652,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 title={browserMode ? browserReason : undefined}
               >
                 <div className="start-action-icon">
-                  <Icon name="plus" size={18} />
+                  <Icon name="plus"size={18} />
                 </div>
                 <div className="start-action-text">
                   <strong className="start-action-title">Crear proyecto</strong>
@@ -648,7 +669,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 title={browserMode ? browserReason : undefined}
               >
                 <div className="start-action-icon">
-                  <Icon name="folder" size={16} />
+                  <Icon name="folder"size={16} />
                 </div>
                 <div className="start-action-text">
                   <strong className="start-action-title">Abrir archivo</strong>
@@ -657,9 +678,13 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               </button>
             </div>
 
+            {/* Captura 93: tarjeta «Agente de idea a video». El botón abre el
+                Director de IA real mediante la navegación del launcher. */}
+            <HomePromoCard onOpen={transitionOut} />
+
             {browserMode ? (
-              <p className="notice notice-warning" role="status">
-                <Icon name="info" size={13} />
+              <p className="notice notice-warning"role="status">
+                <Icon name="info"size={13} />
                 <span>
                   Estás en el navegador: podés recorrer la interfaz, pero crear o abrir
                   proyectos necesita la app de escritorio.
@@ -672,7 +697,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               <div className="start-section-header">
                 <span className="start-section-title">Plantillas de Redes (1 Clic)</span>
               </div>
-              <div className="start-templates-list" role="group" aria-label="Plantillas de Redes (1 clic)">
+              <div className="start-templates-list"role="group"aria-label="Plantillas de Redes (1 clic)">
                 {QUICK_TEMPLATES.map((tpl) => (
                   <button
                     key={tpl.id}
@@ -688,7 +713,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   >
                     <span
                       className="start-tpl-ratio"
-                      style={{ aspectRatio: tpl.aspect.replace(':', '/') }}
+                      style={{ aspectRatio: tpl.aspect.replace(': ','/') }}
                     >
                       <Icon name={tpl.icon} size={11} />
                     </span>
@@ -726,7 +751,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 <span className="start-section-title">Servicios</span>
               </div>
               <div className="start-services">
-                {['Filmora Cloud', 'Centro de creadores', 'Caja de herramientas', 'Invita Amigos'].map(
+                {['Editor IA Cloud','Centro de creadores','Caja de herramientas','Invita Amigos'].map(
                   (label) => (
                     <button
                       key={label}
@@ -742,11 +767,11 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               </div>
             </div>
 
-            <div className="start-left-spacer" />
+            <div className="start-left-spacer"/>
 
             {/* Status note */}
             <div className="start-privacy-note">
-              <span className="start-privacy-dot" />
+              <span className="start-privacy-dot"/>
               <span>Olyvia Video Studio · Local & Privado</span>
             </div>
           </aside>
@@ -765,7 +790,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 disabled={busy || browserMode}
                 title={browserMode ? browserReason : undefined}
               >
-                <Icon name="plus" size={20} />
+                <Icon name="plus"size={20} />
                 <span>Crear Proyecto</span>
               </button>
               <h1 className="start-welcome-title">Olyvia · Editor de Video con Inteligencia Artificial</h1>
@@ -773,14 +798,14 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 Edita videos con timeline multi-pista, generación de guiones con IA, locución en audio y corte automático de silencios. Ideal para creadores de YouTube, TikTok y cine.
               </p>
               <div className="start-welcome-features">
-                <span className="start-feature-chip">🎬 Edición Multi-Pista</span>
-                <span className="start-feature-chip">✨ Subtítulos & Auto-Corte</span>
-                <span className="start-feature-chip">🎙️ Voces & Locución IA</span>
-                <span className="start-feature-chip">📱 Formatos 9:16 y 16:9</span>
+                <span className="start-feature-chip">Edición Multi-Pista</span>
+                <span className="start-feature-chip">Subtítulos & Auto-Corte</span>
+                <span className="start-feature-chip">Voces & Locución IA</span>
+                <span className="start-feature-chip">Formatos 9:16 y 16:9</span>
               </div>
               {/* Fila de 6 accesos rápidos de la captura 93. Cada tarjeta
-                  navega a una vista REAL mediante `transitionOut`. */}
-              <div className="start-quick-access" role="group" aria-label="Accesos rápidos">
+                  navega a una vista REAL mediante`transitionOut`. */}
+              <div className="start-quick-access"role="group"aria-label="Accesos rápidos">
                 {QUICK_AI_TOOLS.map((tool) => (
                   <button
                     key={tool.id}
@@ -810,7 +835,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               <div className="start-toolbar-right">
                 {/* Search input */}
                 <div className="start-search-box">
-                  <Icon name="search" size={12} />
+                  <Icon name="search"size={12} />
                   <input
                     type="text"
                     className="start-search-input"
@@ -825,7 +850,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                       onClick={() => setSearchQuery('')}
                       aria-label="Limpiar búsqueda"
                     >
-                      <Icon name="close" size={10} />
+                      <Icon name="close"size={10} />
                     </button>
                   )}
                 </div>
@@ -834,7 +859,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 <div className="start-sort-group">
                   <button
                     type="button"
-                    className={`start-sort-btn ${sortBy === 'recent' ? 'active' : ''}`}
+                    className={`start-sort-btn ${sortBy ==='recent'? 'active': ''}`}
                     onClick={() => setSortBy('recent')}
                     title="Ordenar por fecha reciente"
                   >
@@ -842,7 +867,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   </button>
                   <button
                     type="button"
-                    className={`start-sort-btn ${sortBy === 'name' ? 'active' : ''}`}
+                    className={`start-sort-btn ${sortBy ==='name'? 'active': ''}`}
                     onClick={() => setSortBy('name')}
                     title="Ordenar por nombre"
                   >
@@ -864,10 +889,10 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                       tabIndex={0}
                       onClick={() => void handleOpenRecent(project)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter') void handleOpenRecent(project);
+                        if (e.key ==='Enter') void handleOpenRecent(project);
                       }}
                     >
-                      <div className={`start-thumb-box${recentThumbs[project.path] ? ' has-image' : ''}`}>
+                      <div className={`start-thumb-box${recentThumbs[project.path] ? 'has-image': ''}`}>
                         {recentThumbs[project.path] ? (
                           <img
                             className="start-thumb-image"
@@ -880,7 +905,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                             aria-hidden="true"
                           >
                             <span className="start-thumb-icon">
-                              <Icon name="film" size={16} />
+                              <Icon name="film"size={16} />
                             </span>
                             <span className="start-thumb-initial">
                               {projectInitial(project.name)}
@@ -892,14 +917,14 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                       </div>
 
                       <div className="start-project-info">
-                        <strong className="start-project-name" title={project.name}>
+                        <strong className="start-project-name"title={project.name}>
                           {project.name}
                         </strong>
                         <div className="start-project-meta-row">
                           <span className="start-project-time">
                             {formatRelativeTime(project.openedAt)}
                           </span>
-                          <span className="start-project-path" title={project.label}>
+                          <span className="start-project-path"title={project.label}>
                             {project.label}
                           </span>
                         </div>
@@ -912,14 +937,14 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                         aria-label={`Eliminar ${project.name} de recientes`}
                         onClick={(e) => handleDeleteRecent(e, project.path)}
                       >
-                        <Icon name="trash" size={12} />
+                        <Icon name="trash"size={12} />
                       </button>
                     </div>
                   ))}
                 </div>
               ) : recents.length > 0 ? (
                 <div className="start-empty-notice">
-                  <Icon name="search" size={20} />
+                  <Icon name="search"size={20} />
                   <span>No se encontraron proyectos con «{searchQuery}»</span>
                   <button
                     type="button"
@@ -931,7 +956,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 </div>
               ) : (
                 <div className="start-empty-notice">
-                  <Icon name="film" size={28} />
+                  <Icon name="film"size={28} />
                   <strong>Aún no tienes proyectos recientes</strong>
                   <span>Crea un nuevo proyecto o arrastra un video aquí para comenzar.</span>
                 </div>
@@ -941,8 +966,8 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   toda la ventana; esta franja lo hace visible y ocupa el alto
                   que sobra cuando hay pocos recientes. */}
               {recents.length > 0 ? (
-                <div className="start-drop-hint" aria-hidden="true">
-                  <Icon name="plus" size={15} />
+                <div className="start-drop-hint"aria-hidden="true">
+                  <Icon name="plus"size={15} />
                   <span>Arrastrá video, audio o imágenes para crear un proyecto</span>
                   <kbd>Ctrl O</kbd>
                 </div>
@@ -954,7 +979,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
         {/* ─── Window Bottom Status Bar ─── */}
         <footer className="start-window-footer">
           <div className="start-footer-left">
-            <span className="start-footer-dot" aria-hidden="true" />
+            <span className="start-footer-dot"aria-hidden="true"/>
             <LauncherTipText />
           </div>
 
@@ -964,7 +989,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               className="start-footer-link"
               onClick={() => setShowUpdaterModal(true)}
             >
-              <Icon name="refresh" size={11} />
+              <Icon name="refresh"size={11} />
               <span>Actualizaciones</span>
             </button>
             <button
@@ -972,7 +997,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               className="start-footer-link"
               onClick={() => transitionOut('learn')}
             >
-              <Icon name="learn" size={11} />
+              <Icon name="learn"size={11} />
               <span>Tutorial</span>
             </button>
           </div>
@@ -995,9 +1020,9 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
             <header className="start-dialog-header">
               <div className="start-dialog-title-group">
                 <div className="start-dialog-icon">
-                  <Icon name="plus" size={14} />
+                  <Icon name="plus"size={14} />
                 </div>
-                <h2 id="create-dialog-title" className="start-dialog-title">
+                <h2 id="create-dialog-title"className="start-dialog-title">
                   Nuevo proyecto
                 </h2>
               </div>
@@ -1007,7 +1032,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 aria-label="Cerrar diálogo"
                 onClick={() => setShowCreateModal(false)}
               >
-                <Icon name="close" size={13} />
+                <Icon name="close"size={13} />
               </button>
             </header>
 
@@ -1039,12 +1064,12 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                     <button
                       key={f.id}
                       type="button"
-                      className={`start-format-card ${formatId === f.id ? 'active' : ''}`}
+                      className={`start-format-card ${formatId === f.id ? 'active': ''}`}
                       onClick={() => pickFormat(f.id)}
                     >
                       <span
                         className="start-format-frame"
-                        style={{ aspectRatio: `${f.width} / ${f.height}` }}
+                        style={{ aspectRatio: `${f.width} / ${f.height}`}}
                       />
                       <span className="start-format-name">{f.label}</span>
                       <span className="start-format-dim">
@@ -1063,7 +1088,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                     <button
                       key={f.id}
                       type="button"
-                      className={`start-fps-chip ${fpsId === f.id ? 'active' : ''}`}
+                      className={`start-fps-chip ${fpsId === f.id ? 'active': ''}`}
                       onClick={() => pickFps(f.id)}
                     >
                       {f.label}
@@ -1073,8 +1098,8 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
               </div>
 
               {error && (
-                <div className="start-error-notice" role="alert">
-                  <Icon name="alert" size={13} />
+                <div className="start-error-notice"role="alert">
+                  <Icon name="alert"size={13} />
                   <span>{error}</span>
                 </div>
               )}
@@ -1095,11 +1120,11 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   disabled={busy || !name.trim()}
                 >
                   {busy ? (
-                    <span className="start-spinner" />
+                    <span className="start-spinner"/>
                   ) : (
-                    <Icon name="plus" size={14} />
+                    <Icon name="plus"size={14} />
                   )}
-                  <span>{busy ? 'Creando proyecto…' : 'Crear y entrar al editor'}</span>
+                  <span>{busy ? 'Creando proyecto…': 'Crear y entrar al editor'}</span>
                 </button>
               </div>
             </form>
@@ -1123,14 +1148,14 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
           persiste y define la vista de entrada: principiantes al tutorial,
           el resto directo al editor. No es un modal decorativo. */}
       {onboardingOpen ? (
-        <div className="start-onboarding-backdrop" role="presentation">
-          <div className="start-onboarding" role="dialog" aria-modal="true" aria-label="Selecciona el producto que más uses">
+        <div className="start-onboarding-backdrop"role="presentation">
+          <div className="start-onboarding"role="dialog"aria-modal="true"aria-label="Selecciona el producto que más uses">
             <div className="start-onboarding-brand">Editor IA</div>
             <h2>Selecciona el producto que más uses</h2>
             <p>Personalizaremos tu experiencia en función de lo que elijas</p>
-            <div className="start-onboarding-options" role="radiogroup" aria-label="Producto habitual">
+            <div className="start-onboarding-options"role="radiogroup"aria-label="Producto habitual">
               {ONBOARDING_OPTIONS.map((option) => (
-                <label key={option} className={onboardingChoice === option ? 'active' : ''}>
+                <label key={option} className={onboardingChoice === option ? 'active': ''}>
                   <input
                     type="radio"
                     name="onboarding-product"
@@ -1149,7 +1174,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 onClick={() => {
                   window.localStorage.setItem(ONBOARDING_KEY, onboardingChoice ?? '');
                   setOnboardingOpen(false);
-                  transitionOut(onboardingChoice === 'Soy principiante' ? 'learn' : 'editor');
+                  transitionOut(onboardingChoice ==='Soy principiante'? 'learn': 'editor');
                 }}
               >
                 Comenzar
@@ -1158,7 +1183,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                 type="button"
                 className="start-btn start-btn--ghost"
                 onClick={() => {
-                  window.localStorage.setItem(ONBOARDING_KEY, 'skipped');
+                  window.localStorage.setItem(ONBOARDING_KEY,'skipped');
                   setOnboardingOpen(false);
                 }}
               >

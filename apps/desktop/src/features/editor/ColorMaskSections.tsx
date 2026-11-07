@@ -166,6 +166,8 @@ export function ColorMaskSections({ activeLayer }: { readonly activeLayer: strin
   });
   const [hslSwatch, setHslSwatch] = useState(0);
   const [curveChannel, setCurveChannel] = useState('luma');
+  const [curveVisible, setCurveVisible] = useState(true);
+  const [toneSaturationCurves, setToneSaturationCurves] = useState(false);
   const [wheelColors, setWheelColors] = useState<Record<string, string>>({
     midtones: '#808080',
     shadows: '#808080',
@@ -337,19 +339,35 @@ export function ColorMaskSections({ activeLayer }: { readonly activeLayer: strin
               />
             ))}
           </div>
-          <button type="button" className="icon-button" aria-label="Cuentagotas" title="Cuentagotas">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Cuentagotas"
+            disabled
+            title="Requiere muestreo de píxel del motor de color (pendiente)"
+          >
             <Icon name="palette" size={12} />
           </button>
           <button
             type="button"
             className="icon-button"
             aria-label="Restablecer curva"
-            title="Restablecer curva"
-            onClick={() => setCurveChannel('luma')}
+            title="Restablecer curva al canal Luma"
+            onClick={() => {
+              setCurveChannel('luma');
+              setCurveVisible(true);
+            }}
           >
             <Icon name="refresh" size={12} />
           </button>
-          <button type="button" className="icon-button" aria-label="Eliminar curva" title="Eliminar curva">
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Eliminar curva"
+            title="Eliminar la curva de este canal (estado local de la capa)"
+            disabled={!curveVisible}
+            onClick={() => setCurveVisible(false)}
+          >
             <Icon name="trash" size={12} />
           </button>
         </div>
@@ -366,12 +384,20 @@ export function ColorMaskSections({ activeLayer }: { readonly activeLayer: strin
             <path className="fm-curve-hist-red" d="M0 160 L20 150 L36 138 L52 128 L70 96 L86 60 L100 40 L118 32 L140 58 L160 104 L182 140 L205 152 L230 156 L260 160 Z" />
             <path className="fm-curve-hist-green" d="M0 160 L24 152 L48 144 L72 120 L96 84 L120 56 L146 40 L170 64 L194 112 L220 148 L260 160 Z" />
             <path className="fm-curve-hist-white" d="M0 160 L30 156 L60 148 L90 120 L120 78 L150 44 L180 70 L210 128 L240 154 L260 160 Z" />
-            <line x1="0" y1="160" x2="260" y2="0" stroke="#d8dde2" strokeWidth="1.2" />
-            <circle cx="260" cy="0" r="3" fill="#fff" />
+            {curveVisible ? (
+              <>
+                <line x1="0" y1="160" x2="260" y2="0" stroke="#d8dde2" strokeWidth="1.2" />
+                <circle cx="260" cy="0" r="3" fill="#fff" />
+              </>
+            ) : null}
           </svg>
         </div>
         <label className="fm-check-row">
-          <input type="checkbox" />
+          <input
+            type="checkbox"
+            checked={toneSaturationCurves}
+            onChange={(event) => setToneSaturationCurves(event.target.checked)}
+          />
           <span>Curvas de tonalidad/saturación</span>
         </label>
       </Section>

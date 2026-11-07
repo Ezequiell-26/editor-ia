@@ -277,7 +277,7 @@ export function PublicationReadiness({
       <ul className="publication-checks">
         {rows.map((row) => (
           <li key={row.label} className={row.ok ? 'ok' : 'warn'}>
-            <span aria-hidden="true">{row.ok ? '✓' : '!'}</span>
+            <span aria-hidden="true">{row.ok ? 'OK' : '!'}</span>
             <div>
               <strong>{row.label}</strong>
               <small>{row.detail}</small>

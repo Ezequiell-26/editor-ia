@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react';
+import { Icon } from '../../components/Icon';
 
 const loadPopover = () =>
   import('./EmojiPickerPopover').then((module) => ({ default: module.EmojiPickerPopover }));
@@ -50,9 +51,9 @@ export function EmojiPickerButton({ onPick, label = 'Insertar emoji' }: EmojiPic
         onFocus={preloadEmojiPicker}
         onClick={handleOpen}
       >
-        <span aria-hidden="true" style={{ fontFamily: 'var(--emoji-font)' }}>
-          😀
-        </span>
+        {/* El disparador usa un icono SVG: la interfaz no muestra glifos emoji,
+            aunque la herramienta siga insertándolos en el contenido del usuario. */}
+        <Icon name="sparkles" size={14} />
       </button>
       {open ? (
         <Suspense fallback={null}>

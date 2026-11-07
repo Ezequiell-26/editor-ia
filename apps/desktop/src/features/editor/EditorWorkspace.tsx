@@ -1,7 +1,11 @@
-import {memo,  lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, memo, lazy, Suspense, useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { ViewId } from '../../app/navigation';
+import { NAV_VIEWS } from '../../app/navigation';
 import type { EditorModeId } from '../../app/view-routing';
 import { Icon } from '../../components/Icon';
+import { WorkspaceGuide } from '../../components/WorkspaceGuide';
+import { EditorToolMap } from './EditorToolMap';
+import { usePipeline } from '../../state/usePipeline';
 import {
   ProjectActionError,
   deleteCaptionCue,
@@ -22,6 +26,13 @@ import {
 import { Preview } from './Preview';
 import { Transport } from './Transport';
 import { usePlayback } from './usePlayback';
+import {
+  DetachedPreviewTitlebar,
+  EditorImportGuide,
+  PerformanceNotice,
+  performanceNoticeDismissed,
+  useDraggableWindow,
+} from './FilmoraStates';
 
 const loadAssets = () =>
   import('./EditorAssets').then((module) => ({ default: module.EditorAssets }));
@@ -44,6 +55,36 @@ const loadVisuals = () =>
   import('../visuals/VisualsView').then((module) => ({ default: module.VisualsView }));
 const loadBrain = () =>
   import('../brain/BrainPanel').then((module) => ({ default: module.BrainPanel }));
+// F2: las seis vistas de flujo se cargan bajo demanda SÓLO cuando el usuario
+// abre su modo. Sin proyecto siguen siendo pantallas standalone (App.tsx).
+const loadScript = () =>
+  import('../script/ScriptView').then((module) => ({ default: module.ScriptView }));
+const loadAssetsPanel = () =>
+  import('../assets/AssetsPanel').then((module) => ({ default: module.AssetsPanel }));
+const loadProduction = () =>
+  import('../production/ProductionView').then((module) => ({ default: module.ProductionView }));
+const loadDirector = () =>
+  import('../director/DirectorView').then((module) => ({ default: module.DirectorView }));
+const loadAutoEdit = () =>
+  import('../autoedit/AutoEditView').then((module) => ({ default: module.AutoEditView }));
+const loadAiHub = () =>
+  import('../ai-hub/AiHubView').then((module) => ({ default: module.AiHubView }));
+// T2: hosts de herramientas. Se cargan SÓLO al abrir su panel desde el mapa;
+// sin proyecto App.tsx sigue usando sus propias vistas standalone.
+const loadHome = () =>
+  import('../home/HomeView').then((module) => ({ default: module.HomeView }));
+const loadProjects = () =>
+  import('../projects/ProjectHome').then((module) => ({ default: module.ProjectHome }));
+const loadDownloadHub = () =>
+  import('../download/DownloadsHubView').then((module) => ({ default: module.DownloadsHubView }));
+const loadCreatorHub = () =>
+  import('../creator/CreatorHubView').then((module) => ({ default: module.CreatorHubView }));
+const loadLabHub = () =>
+  import('../lab/MediaLabView').then((module) => ({ default: module.MediaLabView }));
+const loadLearn = () =>
+  import('../learn/LearnView').then((module) => ({ default: module.LearnView }));
+const loadMcp = () =>
+  import('../mcp/McpView').then((module) => ({ default: module.McpView }));
 
 const EditorAssets = lazy(loadAssets);
 const Inspector = lazy(loadInspector);
@@ -56,22 +97,51 @@ const VfxView = lazy(loadVfx);
 const MotionView = lazy(loadMotion);
 const VisualsView = lazy(loadVisuals);
 const BrainPanel = lazy(loadBrain);
+const ScriptView = lazy(loadScript);
+const AssetsPanel = lazy(loadAssetsPanel);
+const ProductionView = lazy(loadProduction);
+const DirectorView = lazy(loadDirector);
+const AutoEditView = lazy(loadAutoEdit);
+const AiHubView = lazy(loadAiHub);
+const HomeView = lazy(loadHome);
+const ProjectHome = lazy(loadProjects);
+const DownloadsHubView = lazy(loadDownloadHub);
+const CreatorHubView = lazy(loadCreatorHub);
+const MediaLabView = lazy(loadLabHub);
+const LearnView = lazy(loadLearn);
+const McpView = lazy(loadMcp);
 
 type EditorMode = EditorModeId;
+type EditorModeGroup = 'flujo' | 'herramientas';
 
+/**
+ * T2 · 16 modos en DOS bloques. «Todo» es la puerta única al mapa de las 33
+ * herramientas. El separador es visual, no una superficie nueva: sigue siendo
+ * un único `role="tablist"` y la timeline sigue montada. Los contratos de
+ * tests ('Mezcla', 'Edición', 'Motion', 'Guía') se conservan.
+ */
 const EDITOR_MODES: readonly {
   readonly id: EditorMode;
   readonly label: string;
   readonly hint: string;
+  readonly group: EditorModeGroup;
 }[] = [
-  { id: 'timeline', label: 'Edición', hint: 'Timeline, preview e inspector' },
-  { id: 'brain', label: 'Cerebro', hint: 'Mide la timeline y propone cortes con motivo' },
-  { id: 'text-edit', label: 'Texto', hint: 'Transcribir y cortar desde las frases' },
-  { id: 'multicam', label: 'Multicámara', hint: 'Sincronizar cámaras y cambiar de ángulo' },
-  { id: 'mixer', label: 'Mezcla', hint: 'Ganancia, paneo y EQ por pista' },
-  { id: 'vfx', label: 'VFX', hint: 'Nodos, rotoscopía y seguimiento' },
-  { id: 'motion', label: 'Motion', hint: 'Títulos y gráficos en movimiento' },
-  { id: 'visuals', label: 'Efectos', hint: 'Presets, transiciones y auditoría visual' },
+  { id: 'timeline', label: 'Edición', hint: 'Timeline, preview e inspector', group: 'flujo' },
+  { id: 'tools', label: 'Todo', hint: 'Todas las herramientas en un mapa con buscador', group: 'flujo' },
+  { id: 'script', label: 'Guion', hint: 'Escenas, narración y asistente, sin salir del editor', group: 'flujo' },
+  { id: 'assets', label: 'Medios', hint: 'Biblioteca multimedia y licencias, sin salir del editor', group: 'flujo' },
+  { id: 'production', label: 'Producción', hint: 'Voz por escena y montaje automático', group: 'flujo' },
+  { id: 'director', label: 'Director', hint: 'Análisis medido, cortes y shorts', group: 'flujo' },
+  { id: 'auto-edit', label: 'Automático', hint: 'Variantes editables analizadas localmente', group: 'flujo' },
+  { id: 'ai-hub', label: 'AI Hub', hint: 'Prompts, briefs y operador local', group: 'flujo' },
+  { id: 'guide', label: 'Guía', hint: 'Los seis pasos y el mapa del estudio, sin salir del editor', group: 'flujo' },
+  { id: 'brain', label: 'Cerebro', hint: 'Mide la timeline y propone cortes con motivo', group: 'herramientas' },
+  { id: 'text-edit', label: 'Texto', hint: 'Transcribir y cortar desde las frases', group: 'herramientas' },
+  { id: 'multicam', label: 'Multicámara', hint: 'Sincronizar cámaras y cambiar de ángulo', group: 'herramientas' },
+  { id: 'mixer', label: 'Mezcla', hint: 'Ganancia, paneo y EQ por pista', group: 'herramientas' },
+  { id: 'vfx', label: 'VFX', hint: 'Nodos, rotoscopía y seguimiento', group: 'herramientas' },
+  { id: 'motion', label: 'Motion', hint: 'Títulos y gráficos en movimiento', group: 'herramientas' },
+  { id: 'visuals', label: 'Efectos', hint: 'Presets, transiciones y auditoría visual', group: 'herramientas' },
 ];
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -121,9 +191,9 @@ function TimelineFallback() {
 // Inspector derecho redimensionable (patrón CapCut/Filmora): el ancho se
 // persiste por equipo y el divisor es accesible por puntero y teclado.
 const INSPECTOR_WIDTH_KEY = 'editoria.inspector-width.v1';
-// 400 px acerca el panel de propiedades al ~25 % del ancho que muestran las
-// referencias de Filmora; el rango 280–560 del divisor sigue intacto.
-const INSPECTOR_WIDTH_DEFAULT = 400;
+// 388 px sitúan el borde del inspector en x 972, medido a píxel en las
+// capturas 93–137 a 1360 px. El divisor sigue siendo real (280–560).
+const INSPECTOR_WIDTH_DEFAULT = 388;
 const INSPECTOR_WIDTH_MIN = 280;
 const INSPECTOR_WIDTH_MAX = 560;
 
@@ -147,17 +217,46 @@ export const EditorWorkspace = memo(function EditorWorkspace({
   onNavigate,
   initialMode = 'timeline',
   modeRequest = 0,
+  onOpenTour,
+  onOpenShortcuts,
+  onModeChange,
+  toolView,
+  toolTab,
+  toolRequest = 0,
+  onClearTool,
 }: {
   readonly onNavigate: (id: ViewId) => void;
   readonly initialMode?: EditorModeId;
   readonly modeRequest?: number;
+  readonly onOpenTour?: () => void;
+  readonly onOpenShortcuts?: () => void;
+  /** F2: sincroniza el rail con el modo elegido dentro del editor. */
+  readonly onModeChange?: (mode: EditorModeId) => void;
+  /** T2: host canónico a montar en el modo «Todo»; sin él se muestra el mapa. */
+  readonly toolView?: ViewId;
+  /** Pestaña inicial cuando el origen era un alias de hub. */
+  readonly toolTab?: string;
+  /** Contador para reabrir la misma herramienta y reaplicar su pestaña. */
+  readonly toolRequest?: number;
+  /** Vuelta al mapa desde el breadcrumb de la herramienta. */
+  readonly onClearTool?: () => void;
 }) {
   const store = useProjectStore();
   const project = store.state.project;
+  const pipeline = usePipeline();
   const preferences = useEditorPreferences();
   const [exportOpen, setExportOpen] = useState(false);
   const [mode, setMode] = useState<EditorMode>(initialMode);
   usePlayback();
+
+  // Captura 109: el monitor puede desacoplarse a una ventana arrastrable y
+  // volver a acoplarse. Captura 95: aviso de rendimiento descartable.
+  const previewWindow = useDraggableWindow({ x: 420, y: 160 });
+  const [previewDetached, setPreviewDetached] = useState(false);
+  const [performanceNoticeOpen, setPerformanceNoticeOpen] = useState(
+    () => !performanceNoticeDismissed(),
+  );
+  const [importGuideDismissed, setImportGuideDismissed] = useState(false);
 
   // Ancho del panel Detalles (persistido). El drag actualiza sólo este estado:
   // el timeline no se re-renderiza por mover el divisor.
@@ -175,6 +274,12 @@ export const EditorWorkspace = memo(function EditorWorkspace({
   useEffect(() => {
     setMode(initialMode);
   }, [initialMode, modeRequest]);
+
+  // T2: abrir una herramienta desde el mapa (o reabrir la misma) vuelve al
+  // modo «Todo» aunque el usuario estuviera en otro tab del editor.
+  useEffect(() => {
+    if (toolView) setMode('tools');
+  }, [toolView, toolRequest]);
 
   useEffect(() => {
     if (!store.state.exportRequested) return;
@@ -335,23 +440,18 @@ export const EditorWorkspace = memo(function EditorWorkspace({
               <span>Volver a Inicio</span>
             </button>
           </div>
-          <ul className="editor-empty-hints" aria-label="Primeros pasos del editor">
-            <li className="editor-empty-hint">
-              <span>01</span>
-              <strong>Abrí o creá un proyecto</strong>
-              <em>Elegís carpeta y formato; después importás medios.</em>
-            </li>
-            <li className="editor-empty-hint">
-              <span>02</span>
-              <strong>Armá la timeline</strong>
-              <em>Montá medios, recortá y dividí con S.</em>
-            </li>
-            <li className="editor-empty-hint">
-              <span>03</span>
-              <strong>Exportá verificado</strong>
-              <em>Render MP4 con FFmpeg y control de calidad.</em>
-            </li>
-          </ul>
+          {/* Antes había acá un cuarto recorrido de 3 pasos. Ahora es el mismo
+              componente de seis etapas que Inicio, Aprender y el modo Guía. */}
+          <div className="editor-empty-guide">
+            <WorkspaceGuide
+              onNavigate={onNavigate}
+              progress={pipeline}
+              compact
+              currentView="editor"
+              {...(onOpenTour ? { onOpenTour } : {})}
+              {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+            />
+          </div>
         </div>
       </section>
     );
@@ -360,16 +460,78 @@ export const EditorWorkspace = memo(function EditorWorkspace({
   const fps = fpsOf(project);
   const modeInfo = EDITOR_MODES.find((item) => item.id === mode) ?? EDITOR_MODES[0]!;
 
+  function switchMode(next: EditorMode): void {
+    setMode(next);
+    onModeChange?.(next);
+  }
+
   function navigateFromMode(id: ViewId): void {
     if (id === 'editor') {
-      setMode('timeline');
+      switchMode('timeline');
       return;
     }
     onNavigate(id);
   }
 
+  // T2: en el modo «Todo» mostramos el mapa o, si ya se eligió una herramienta,
+  // su componente real. Los tres hubs reciben la pestaña del alias de origen.
+  const toolLabel = toolView
+    ? NAV_VIEWS.find((view) => view.id === toolView)?.label ?? toolView
+    : null;
+  const toolContent = toolView ? (
+    toolView === 'home' ? (
+      <HomeView onNavigate={navigateFromMode} />
+    ) : toolView === 'projects' ? (
+      <ProjectHome onNavigate={navigateFromMode} />
+    ) : toolView === 'download' ? (
+      <DownloadsHubView
+        onNavigate={navigateFromMode}
+        {...(toolTab ? { initialTab: toolTab } : {})}
+        requestId={toolRequest}
+      />
+    ) : toolView === 'creator' ? (
+      <CreatorHubView
+        onNavigate={navigateFromMode}
+        {...(toolTab ? { initialTab: toolTab } : {})}
+        requestId={toolRequest}
+      />
+    ) : toolView === 'lab' ? (
+      <MediaLabView
+        onNavigate={navigateFromMode}
+        {...(toolTab ? { initialTab: toolTab } : {})}
+        requestId={toolRequest}
+      />
+    ) : toolView === 'mcp' ? (
+      <McpView />
+    ) : toolView === 'learn' ? (
+      <LearnView
+        onNavigate={navigateFromMode}
+        {...(onOpenTour ? { onOpenTour } : {})}
+        {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+      />
+    ) : (
+      <EditorToolMap onNavigate={navigateFromMode} currentView={toolView} />
+    )
+  ) : (
+    <EditorToolMap onNavigate={navigateFromMode} currentView="editor" />
+  );
+
   const modeContent =
-    mode === 'text-edit' ? (
+    mode === 'tools' ? (
+      toolContent
+    ) : mode === 'script' ? (
+      <ScriptView onNavigate={navigateFromMode} />
+    ) : mode === 'assets' ? (
+      <AssetsPanel onNavigate={navigateFromMode} />
+    ) : mode === 'production' ? (
+      <ProductionView onNavigate={navigateFromMode} />
+    ) : mode === 'director' ? (
+      <DirectorView onNavigate={navigateFromMode} />
+    ) : mode === 'auto-edit' ? (
+      <AutoEditView onNavigate={navigateFromMode} />
+    ) : mode === 'ai-hub' ? (
+      <AiHubView onNavigate={navigateFromMode} />
+    ) : mode === 'text-edit' ? (
       <TextEditView onNavigate={navigateFromMode} />
     ) : mode === 'multicam' ? (
       <MulticamView onNavigate={navigateFromMode} />
@@ -383,24 +545,39 @@ export const EditorWorkspace = memo(function EditorWorkspace({
       <VisualsView onNavigate={navigateFromMode} />
     ) : mode === 'brain' ? (
       <BrainPanel />
+    ) : mode === 'guide' ? (
+      <WorkspaceGuide
+        onNavigate={navigateFromMode}
+        progress={pipeline}
+        compact
+        currentView="editor"
+        {...(onOpenTour ? { onOpenTour } : {})}
+        {...(onOpenShortcuts ? { onOpenShortcuts } : {})}
+      />
     ) : null;
 
   return (
     <section className="editor-workspace">
       <nav className="editor-mode-tabs" role="tablist" aria-label="Modos de edición">
-        {EDITOR_MODES.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={mode === item.id}
-            className={`editor-mode-tab${mode === item.id ? ' active' : ''}`}
-            data-tooltip={item.hint}
-            onClick={() => setMode(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
+        {EDITOR_MODES.map((item, index) => {
+          const firstTool = item.group === 'herramientas' && EDITOR_MODES[index - 1]?.group === 'flujo';
+          return (
+            <Fragment key={item.id}>
+              {firstTool ? <span className="editor-mode-divider" aria-hidden="true" /> : null}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === item.id}
+                className={`editor-mode-tab${mode === item.id ? ' active' : ''}`}
+                data-tooltip={item.hint}
+                data-mode-group={item.group}
+                onClick={() => switchMode(item.id)}
+              >
+                {item.label}
+              </button>
+            </Fragment>
+          );
+        })}
       </nav>
       <div
         className={`editor-grid${mode !== 'timeline' ? ' editor-mode-active' : ''}`}
@@ -409,11 +586,45 @@ export const EditorWorkspace = memo(function EditorWorkspace({
         {mode === 'timeline' ? (
           <>
             <Suspense fallback={<AssetsFallback />}>
-              <EditorAssets onNavigate={onNavigate} />
+              <EditorAssets
+                onNavigate={onNavigate}
+                emptyGuide={
+                  project.assets.length === 0 && !importGuideDismissed ? (
+                    <EditorImportGuide
+                      onImport={() => onNavigate('assets')}
+                      onDismiss={() => setImportGuideDismissed(true)}
+                    />
+                  ) : null
+                }
+              />
             </Suspense>
-            <div className="preview-panel" data-tour="preview">
+            <div
+              className={`preview-panel${previewDetached ? ' is-detached' : ''}`}
+              data-tour="preview"
+              style={previewDetached ? previewWindow.style : undefined}
+            >
+              {/* Captura 109: barra de título arrastrable cuando se desacopla. */}
+              {previewDetached ? (
+                <DetachedPreviewTitlebar
+                  onDock={() => setPreviewDetached(false)}
+                  dragHandlers={previewWindow.handlers}
+                >
+                  Vista previa · {project.name}
+                </DetachedPreviewTitlebar>
+              ) : null}
               <Preview />
               <Transport />
+              {/* Captura 95: la guía de importación vive en el panel de medios,
+                  debajo del dropzone real. El monitor queda limpio y sin solapes. */}
+              <button
+                type="button"
+                className="fm-preview-detach-toggle"
+                aria-label={previewDetached ? 'Acoplar vista previa' : 'Desacoplar vista previa'}
+                title={previewDetached ? 'Volver al panel del editor' : 'Abrir la vista previa en una ventana flotante'}
+                onClick={() => setPreviewDetached((value) => !value)}
+              >
+                <Icon name={previewDetached ? 'restore' : 'maximize'} size={12} />
+              </button>
             </div>
             <div
               className="editor-splitter"
@@ -471,7 +682,48 @@ export const EditorWorkspace = memo(function EditorWorkspace({
           </>
         ) : (
           <div className="editor-mode-panel" role="tabpanel" aria-label={modeInfo.label}>
-            <Suspense fallback={<TimelineFallback />}>{modeContent}</Suspense>
+            {/* Contexto explícito: el usuario siempre sabe que sigue dentro del
+                editor y tiene un camino directo de vuelta a la timeline. */}
+            <div className="editor-mode-context">
+              <span className="editor-mode-crumb">
+                <Icon name="editor" size={12} />
+                Editor
+                <span aria-hidden="true">›</span>
+                <strong>{mode === 'tools' ? 'Todo' : modeInfo.label}</strong>
+                {mode === 'tools' && toolLabel ? (
+                  <>
+                    <span aria-hidden="true">›</span>
+                    <strong>{toolLabel}</strong>
+                  </>
+                ) : null}
+              </span>
+              <span className="editor-mode-context-hint">
+                {mode === 'tools' && toolView
+                  ? 'Herramienta abierta dentro del editor · la timeline sigue visible'
+                  : modeInfo.hint}
+              </span>
+              {mode === 'tools' && toolView ? (
+                <button
+                  type="button"
+                  className="ghost small editor-mode-back"
+                  onClick={() => onClearTool?.()}
+                >
+                  <Icon name="grid" size={12} />
+                  Volver al mapa
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="ghost small editor-mode-back"
+                onClick={() => switchMode('timeline')}
+              >
+                <Icon name="restore" size={12} />
+                Volver a Edición
+              </button>
+            </div>
+            <div className="editor-mode-content">
+              <Suspense fallback={<TimelineFallback />}>{modeContent}</Suspense>
+            </div>
           </div>
         )}
         <div className="timeline-panel" data-tour="timeline">
@@ -479,9 +731,10 @@ export const EditorWorkspace = memo(function EditorWorkspace({
             <button
               type="button"
               role="tab"
-              aria-selected="true"
-              className="active"
-              title="Secuencia principal del proyecto"
+              aria-selected={mode === 'timeline'}
+              className={mode === 'timeline' ? 'active' : ''}
+              title="Volver a la secuencia principal (modo Edición)"
+              onClick={() => switchMode('timeline')}
             >
               Timeline 01
             </button>
@@ -494,6 +747,12 @@ export const EditorWorkspace = memo(function EditorWorkspace({
           </Suspense>
         </div>
       </div>
+
+      {/* Captura 95: aviso de rendimiento en el editor vacío. Es un toast
+          descartable, no un modal, y su cierre puede persistirse. */}
+      {performanceNoticeOpen && project.assets.length === 0 && mode === 'timeline' ? (
+        <PerformanceNotice onDismiss={() => setPerformanceNoticeOpen(false)} />
+      ) : null}
 
       {exportOpen ? (
         <Suspense fallback={null}>

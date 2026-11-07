@@ -67,7 +67,7 @@ interface AchievementToastProps {
 export function AchievementToast({ 
   title, 
   description, 
-  icon = '🎉', 
+  icon = '',
   onClose,
   duration = 3000 
 }: AchievementToastProps) {
@@ -102,7 +102,7 @@ export function AchievementToast({
             padding: '4px',
           }}
         >
-          ✕
+          ×
         </button>
       )}
     </div>
@@ -117,7 +117,7 @@ interface StreakIndicatorProps {
 export function StreakIndicator({ days, lastActive }: StreakIndicatorProps) {
   return (
     <div className="streak-indicator">
-      <span className="streak-flame">🔥</span>
+      <span className="streak-flame" aria-hidden="true" />
       <span>{days} {days === 1 ? 'día' : 'días'}</span>
       {lastActive && (
         <span style={{ fontSize: 'var(--text-xs)', opacity: 0.7 }}>
@@ -219,8 +219,8 @@ interface EmptyStateProps {
 }
 
 export function EmptyStateEnhanced({ 
-  icon = '📦', 
-  title, 
+  icon = '',
+  title,
   description, 
   actionLabel, 
   onAction 
@@ -249,7 +249,6 @@ interface SuggestionChipProps {
 export function SuggestionChip({ label, onClick }: SuggestionChipProps) {
   return (
     <button className="suggestion-chip" onClick={onClick}>
-      <span>✨</span>
       <span>{label}</span>
     </button>
   );
@@ -347,7 +346,7 @@ export function useAchievements() {
   }) => {
     setAchievements(prev => [...prev, {
       ...achievement,
-      icon: achievement.icon || '🎉',
+      icon: achievement.icon || '',
     }]);
 
     // Auto-remove después de 4 segundos

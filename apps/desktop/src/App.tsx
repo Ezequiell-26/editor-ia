@@ -9,6 +9,15 @@ import { CommandPalette } from './components/CommandPalette';
 import { SettingsWindow } from './components/SettingsWindow';
 import { ViewErrorBoundary } from './components/ViewErrorBoundary';
 import { WelcomeDialog } from './components/WelcomeDialog';
+// Ayudas bajo demanda: no pertenecen al arranque (antes ni se montaban).
+const OnboardingTour = lazy(() =>
+  import('./components/OnboardingTour').then((module) => ({ default: module.OnboardingTour })),
+);
+const ShortcutsCheatSheet = lazy(() =>
+  import('./components/ShortcutsCheatSheet').then((module) => ({
+    default: module.ShortcutsCheatSheet,
+  })),
+);
 import { buildCommands } from './app/commands';
 import {
   MAIN_NAV_VIEWS,
@@ -17,7 +26,10 @@ import {
   type ViewId,
 } from './app/navigation';
 import {
+  editorModeForView,
+  editorToolForView,
   resolveViewRoute,
+  viewForEditorMode,
   type EditorModeId,
 } from './app/view-routing';
 import { ProjectHome } from './features/projects/ProjectHome';
@@ -69,14 +81,21 @@ const EDITOR_STYLE_VIEWS: ReadonlySet<ViewId> = new Set<ViewId>([
   'motion',
   'visuals',
 ]);
+const loadEditorStyles = () => import('./styles/entries/editor.css');
+const loadContentStyles = () => import('./styles/entries/content.css');
 const viewStyleLoaders = {
-  editor: () => import('./styles/entries/editor.css'),
-  content: () => import('./styles/entries/content.css'),
+  editor: loadEditorStyles,
+  content: loadContentStyles,
+  // F2: una vista de flujo embebida necesita AMBAS capas: la del workspace
+  // (.editor-grid / .editor-mode-panel) y la de contenido (.view de la vista).
+  // Vite deduplica los módulos ya evaluados, así que no hay costo de red extra.
+  both: () => Promise.all([loadEditorStyles(), loadContentStyles()]),
 } as const;
 type ViewStyleKind = keyof typeof viewStyleLoaders;
 const viewStyleCache = new Map<ViewStyleKind, Promise<unknown>>();
 
-function styleKindForView(view: ViewId): ViewStyleKind {
+function styleKindForView(view: ViewId, embedded = false): ViewStyleKind {
+  if (embedded) return 'both';
   return EDITOR_STYLE_VIEWS.has(view) ? 'editor' : 'content';
 }
 
@@ -93,18 +112,16 @@ function ensureViewStyles(kind: ViewStyleKind): Promise<unknown> {
   return pending;
 }
 
-// Cada vista se carga una vez y se precarga en segundo plano apenas la app
-// arranca. Antes, la primera visita a cada herramienta descargaba y evaluaba su
-// chunk al hacer clic, con el cartel "Cargando herramienta…" a la vista; ahora
-// el chunk ya está en memoria y el cambio es inmediato.
+// Cada superficie CANÓNICA se carga una vez. Los 18 `ViewId` que
+// `resolveViewRoute` normaliza a un hub o a un modo del editor NO tienen
+// loader acá: sus componentes los importa el hub/editor que los contiene.
+// Antes había un loader por cada ViewId y 18 quedaban muertos en el arranque.
 const loadHome = () =>
   import('./features/home/HomeView').then((module) => ({ default: module.HomeView }));
 const loadProduction = () =>
   import('./features/production/ProductionView').then((module) => ({
     default: module.ProductionView,
   }));
-const loadFactory = () =>
-  import('./features/factory/FactoryView').then((module) => ({ default: module.FactoryView }));
 const loadCreator = () =>
   import('./features/creator/CreatorHubView').then((module) => ({
     default: module.CreatorHubView,
@@ -115,10 +132,6 @@ const loadAutoEdit = () =>
   import('./features/autoedit/AutoEditView').then((module) => ({
     default: module.AutoEditView,
   }));
-const loadYouTube = () =>
-  import('./features/youtube/YouTubeAnalyzerView').then((module) => ({
-    default: module.YouTubeAnalyzerView,
-  }));
 const loadEditor = () =>
   import('./features/editor/EditorWorkspace').then((module) => ({
     default: module.EditorWorkspace,
@@ -127,44 +140,8 @@ const loadScript = () =>
   import('./features/script/ScriptView').then((module) => ({ default: module.ScriptView }));
 const loadAssets = () =>
   import('./features/assets/AssetsPanel').then((module) => ({ default: module.AssetsPanel }));
-const loadConvert = () =>
-  import('./features/convert/ConvertView').then((module) => ({ default: module.ConvertView }));
-const loadCompare = () =>
-  import('./features/compare/CompareView').then((module) => ({ default: module.CompareView }));
-const loadCompress = () =>
-  import('./features/compress/CompressView').then((module) => ({ default: module.CompressView }));
-const loadDenoise = () =>
-  import('./features/denoise/DenoiseView').then((module) => ({ default: module.DenoiseView }));
-const loadSharpen = () =>
-  import('./features/sharpen/SharpenView').then((module) => ({ default: module.SharpenView }));
-const loadThumbnails = () =>
-  import('./features/thumbnails/ThumbnailView').then((module) => ({
-    default: module.ThumbnailView,
-  }));
-const loadLocalization = () =>
-  import('./features/localization/LocalizationView').then((module) => ({
-    default: module.LocalizationView,
-  }));
 const loadAiHub = () =>
   import('./features/ai-hub/AiHubView').then((module) => ({ default: module.AiHubView }));
-const loadMotion = () =>
-  import('./features/motion/MotionView').then((module) => ({ default: module.MotionView }));
-const loadVisuals = () =>
-  import('./features/visuals/VisualsView').then((module) => ({ default: module.VisualsView }));
-const loadBackground = () =>
-  import('./features/ai/RemoveBackgroundView').then((module) => ({
-    default: module.RemoveBackgroundView,
-  }));
-const loadUpscale = () =>
-  import('./features/ai/UpscaleView').then((module) => ({ default: module.UpscaleView }));
-const loadTextEdit = () =>
-  import('./features/text-edit/TextEditView').then((module) => ({ default: module.TextEditView }));
-const loadMulticam = () =>
-  import('./features/multicam/MulticamView').then((module) => ({ default: module.MulticamView }));
-const loadMixer = () =>
-  import('./features/mixer/MixerView').then((module) => ({ default: module.MixerView }));
-const loadVfx = () =>
-  import('./features/vfx/VfxView').then((module) => ({ default: module.VfxView }));
 const loadDownload = () =>
   import('./features/download/DownloadsHubView').then((module) => ({
     default: module.DownloadsHubView,
@@ -173,16 +150,14 @@ const loadLab = () =>
   import('./features/lab/MediaLabView').then((module) => ({
     default: module.MediaLabView,
   }));
-const loadCompliance = () =>
-  import('./features/compliance/ComplianceView').then((module) => ({
-    default: module.ComplianceView,
-  }));
 const loadLearn = () =>
   import('./features/learn/LearnView').then((module) => ({ default: module.LearnView }));
 const loadMcp = () =>
   import('./features/mcp/McpView').then((module) => ({ default: module.McpView }));
 const loadSettings = () =>
   import('./features/settings/SettingsHome').then((module) => ({ default: module.SettingsHome }));
+const loadNodes = () =>
+  import('./features/nodes/NodeGraphView').then((module) => ({ default: module.NodeGraphView }));
 
 const HomeView = lazy(loadHome);
 const ProductionView = lazy(loadProduction);
@@ -197,41 +172,25 @@ const DownloadsHubView = lazy(loadDownload);
 const MediaLabView = lazy(loadLab);
 const LearnView = lazy(loadLearn);
 const McpView = lazy(loadMcp);
+const NodeGraphView = lazy(loadNodes);
 const SettingsHome = lazy(loadSettings);
 
-/** Cargadores por vista: `projects` es estático y no necesita precarga. */
-const VIEW_PRELOADERS: Record<Exclude<ViewId, 'projects'>, () => Promise<unknown>> = {
+/** Precargadores SOLO de superficies canónicas (las que tiene `renderView`). */
+const VIEW_PRELOADERS: Partial<Record<ViewId, () => Promise<unknown>>> = {
   home: loadHome,
   director: loadDirector,
   'auto-edit': loadAutoEdit,
-  youtube: loadYouTube,
   production: loadProduction,
-  factory: loadFactory,
   creator: loadCreator,
   editor: loadEditor,
   lab: loadLab,
   script: loadScript,
   assets: loadAssets,
-  'text-edit': loadTextEdit,
-  multicam: loadMulticam,
-  mixer: loadMixer,
-  vfx: loadVfx,
   download: loadDownload,
-  compliance: loadCompliance,
-  convert: loadConvert,
-  compare: loadCompare,
-  compress: loadCompress,
-  denoise: loadDenoise,
-  sharpen: loadSharpen,
-  thumbnails: loadThumbnails,
-  localization: loadLocalization,
   'ai-hub': loadAiHub,
-  motion: loadMotion,
-  visuals: loadVisuals,
-  background: loadBackground,
-  upscale: loadUpscale,
   learn: loadLearn,
   mcp: loadMcp,
+  nodes: loadNodes,
   settings: loadSettings,
 };
 
@@ -257,6 +216,10 @@ function preloadViews(): () => void {
     if (cancelled || index >= ids.length) return;
     const loader = VIEW_PRELOADERS[ids[index]!];
     index += 1;
+    if (!loader) {
+      step();
+      return;
+    }
     void loader()
       .catch(() => null)
       .then(() => {
@@ -324,9 +287,30 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   );
   const [hubRequest, setHubRequest] = useState(0);
   const [editorRequest, setEditorRequest] = useState(0);
+  // T1: panel de herramientas activo DENTRO del editor. `toolView` es el host
+  // canónico (download/creator/lab/...), `toolTab` la pestaña si venía de un
+  // alias (youtube/convert/...). Sin proyecto estos estados no se usan.
+  const [toolView, setToolView] = useState<ViewId | null>(null);
+  const [toolTab, setToolTab] = useState<string | null>(null);
+  const [toolRequest, setToolRequest] = useState(0);
   const [settingsOpen, setSettingsOpen] = useState(initialView === 'settings');
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Una sola instancia de cada ayuda, disponible desde CUALQUIER superficie,
+  // incluido el editor. Antes estos dos componentes nunca se montaban.
+  const [tourOpen, setTourOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openTour = useCallback(() => setTourOpen(true), []);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
   const store = useProjectStore();
+  const project = store.state.project;
+  const hasProject = project !== null;
+  // F2: con proyecto abierto, seis vistas de flujo se montan DENTRO del editor.
+  // `activeId` sigue siendo el ViewId lógico para que el rail marque la
+  // herramienta real; `editorSurface` indica que el shell es el del editor.
+  const embeddedMode = hasProject ? editorModeForView(activeId) : undefined;
+  const toolActive = hasProject && toolView !== null;
+  const editorSurface = activeId === 'editor' || embeddedMode !== undefined || toolActive;
+  const needsBothStyles = embeddedMode !== undefined || toolActive;
   // `playing` vive en su propio contexto: cambia sólo al play/pausa, así que
   // la lista de comandos no se recalcula en cada frame del playhead.
   const playing = useProjectPlaying();
@@ -346,13 +330,13 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
   // contexto opuesto se prefetcha en ocioso para que la próxima navegación no
   // espere. En tests no hay fetch real: arranca resuelto para no cambiar el
   // render síncrono de los casos existentes.
-  const firstStyleKind = styleKindForView(activeId);
+  const firstStyleKind = styleKindForView(activeId, needsBothStyles);
   const [styledKind, setStyledKind] = useState<ViewStyleKind | null>(() =>
     import.meta.env.MODE === 'test' ? styleKindForView(initialView) : null,
   );
 
   useEffect(() => {
-    const kind = styleKindForView(activeId);
+    const kind = styleKindForView(activeId, needsBothStyles);
     if (import.meta.env.MODE === 'test') {
       setStyledKind(kind);
       return;
@@ -361,15 +345,68 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     void ensureViewStyles(kind).then(() => {
       if (active) setStyledKind(kind);
     });
-    const other: ViewStyleKind = kind === 'editor' ? 'content' : 'editor';
-    const timer = window.setTimeout(() => {
-      void ensureViewStyles(other);
-    }, 1_200);
+    // Con 'both' ya están las dos capas; no hace falta prefetch del opuesto.
+    if (kind !== 'both') {
+      const other: ViewStyleKind = kind === 'editor' ? 'content' : 'editor';
+      const timer = window.setTimeout(() => {
+        void ensureViewStyles(other);
+      }, 1_200);
+      return () => {
+        active = false;
+        window.clearTimeout(timer);
+      };
+    }
     return () => {
       active = false;
-      window.clearTimeout(timer);
     };
-  }, [activeId]);
+  }, [activeId, embeddedMode, toolActive, needsBothStyles]);
+
+  // Al cambiar de modo dentro del editor el rail debe seguir marcando la
+  // herramienta activa. No se incrementa `editorRequest`: el cambio se originó
+  // en EditorWorkspace, que ya tiene ese modo en su estado local.
+  const handleModeChange = useCallback((mode: EditorModeId) => {
+    setEditorMode(mode);
+    setActiveId(viewForEditorMode(mode) ?? 'editor');
+    // Cambiar de tab dentro del editor SIEMPRE abandona el panel de
+    // herramientas: éste sólo existe en el modo «Todo». Así el mapa no queda
+    // «pegado» al cambiar a Mezcla, Guion o Edición.
+    setToolView(null);
+    setToolTab(null);
+  }, []);
+
+  /** Vuelta al mapa desde el breadcrumb de una herramienta embebida. */
+  const clearTool = useCallback(() => {
+    setToolView(null);
+    setToolTab(null);
+    setEditorMode('tools');
+    setEditorRequest((request) => request + 1);
+  }, []);
+
+  /** Puerta única «Herramientas»: abre el mapa desde cualquier superficie. */
+  const openToolMap = useCallback(() => {
+    setToolView(null);
+    setToolTab(null);
+    setActiveId('editor');
+    setEditorMode('tools');
+    setEditorRequest((request) => request + 1);
+  }, []);
+
+  // Si el proyecto se abre estando ya en una herramienta (deep link, sesión
+  // recuperada), esa herramienta pasa a vivir dentro del editor. Sin proyecto
+  // se limpia para que vuelva a ser una pantalla standalone con empty-state.
+  useEffect(() => {
+    if (!hasProject) {
+      setToolView(null);
+      setToolTab(null);
+      return;
+    }
+    const tool = editorToolForView(activeId);
+    if (!tool) return;
+    setToolView(tool.view);
+    setToolTab(tool.hubTab ?? null);
+    setToolRequest((request) => request + 1);
+    setEditorMode('tools');
+  }, [hasProject]);
 
   const viewStylesReady =
     import.meta.env.MODE === 'test' || styledKind === firstStyleKind;
@@ -383,25 +420,24 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
     }
   }, [activeId]);
 
-  const project = store.state.project;
   const storeRef = useRef(store);
   storeRef.current = store;
   const saveNow = store.saveNow;
 
   useEffect(() => {
     // Salir del editor detiene la reproducción: una vista oculta no debe seguir
-    // sonando ni consumiendo cuadros.
-    if (activeId !== 'editor' && storeRef.current.getPlaying()) {
+    // sonando ni consumiendo cuadros. Las vistas embebidas SIGUEN siendo el
+    // editor, así que no cortan la reproducción.
+    if (!editorSurface && storeRef.current.getPlaying()) {
       storeRef.current.setPlaying(false);
     }
-  }, [activeId]);
+  }, [editorSurface]);
 
   // Al abrir el editor o un proyecto, la ventana pasa a pantalla completa.
   // Dependía del objeto `project`: cada edición (incluso arrastrar un slider)
   // cambiaba su identidad y disparaba un `isMaximized()` por IPC. Sólo hacen
   // falta dos primitivos estables: si hay proyecto y si el editor está activo.
-  const editorVisible = activeId === 'editor';
-  const hasProject = project !== null;
+  const editorVisible = editorSurface;
   useEffect(() => {
     if (!detectNativeRuntime()) return;
     const appWindow = getCurrentWindow();
@@ -440,14 +476,29 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       setSettingsOpen(true);
       return;
     }
+    // T1/F2: con proyecto, TODA herramienta se monta dentro del editor. F2
+    // usa un modo propio; el resto usa el panel `tools` con su host y su tab.
+    // El rail sigue marcando la vista lógica (activeId).
+    const embeddedMode = hasProject ? editorModeForView(route.view) : undefined;
+    const tool = hasProject ? editorToolForView(id) : undefined;
     setActiveId(route.view);
     setHubTab(route.hubTab ?? null);
     setHubRequest((request) => request + 1);
-    if (route.view === 'editor') {
-      setEditorMode(route.editorMode ?? 'timeline');
+    if (tool) {
+      setToolView(tool.view);
+      setToolTab(tool.hubTab ?? null);
+      setToolRequest((request) => request + 1);
+      setEditorMode('tools');
+      setEditorRequest((request) => request + 1);
+      return;
+    }
+    setToolView(null);
+    setToolTab(null);
+    if (route.view === 'editor' || embeddedMode) {
+      setEditorMode(embeddedMode ?? route.editorMode ?? 'timeline');
       setEditorRequest((request) => request + 1);
     }
-  }, []);
+  }, [hasProject]);
 
   useEffect(() => {
     const onMcpNavigate = (event: Event) => {
@@ -711,6 +762,39 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
 
   const renderView = useCallback(
     (id: ViewId) => {
+      // T1 · UN SOLO EDITOR: con proyecto abierto, los 7 hosts y los 12 alias
+      // a hubs se montan como PANEL del modo «Todo» (timeline siempre visible).
+      if (toolActive && toolView !== null) {
+        return (
+          <EditorWorkspace
+            onNavigate={navigate}
+            initialMode="tools"
+            modeRequest={editorRequest}
+            toolView={toolView}
+            {...(toolTab ? { toolTab } : {})}
+            toolRequest={toolRequest}
+            onClearTool={clearTool}
+            onModeChange={handleModeChange}
+            onOpenTour={openTour}
+            onOpenShortcuts={openShortcuts}
+          />
+        );
+      }
+      // F2: las seis vistas de flujo tienen un modo propio dentro del editor.
+      // Sin proyecto siguen siendo pantallas independientes con su empty-state.
+      const embeddedMode = hasProject && id !== 'editor' ? editorModeForView(id) : undefined;
+      if (embeddedMode) {
+        return (
+          <EditorWorkspace
+            onNavigate={navigate}
+            initialMode={embeddedMode}
+            modeRequest={editorRequest}
+            onModeChange={handleModeChange}
+            onOpenTour={openTour}
+            onOpenShortcuts={openShortcuts}
+          />
+        );
+      }
       switch (id) {
         case 'home':
           return <HomeView onNavigate={navigate} />;
@@ -736,6 +820,9 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
               onNavigate={navigate}
               initialMode={editorMode}
               modeRequest={editorRequest}
+              onModeChange={handleModeChange}
+              onOpenTour={openTour}
+              onOpenShortcuts={openShortcuts}
             />
           );
         case 'lab':
@@ -761,16 +848,42 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         case 'ai-hub':
           return <AiHubView onNavigate={navigate} />;
         case 'learn':
-          return <LearnView onNavigate={navigate} />;
+          return (
+            <LearnView
+              onNavigate={navigate}
+              onOpenTour={openTour}
+              onOpenShortcuts={openShortcuts}
+            />
+          );
         case 'mcp':
           return <McpView />;
+        case 'nodes':
+          return <NodeGraphView onNavigate={navigate} />;
         case 'settings':
           return <SettingsHome />;
         default:
+          // Una ViewId sin caso renderiza nada en silencio: avisar en
+          // consola para que la regresión sea visible en desarrollo.
+          console.warn(`[Olyvia] renderView sin caso para la vista «${id}»`);
           return null;
       }
     },
-    [navigate, hubTab, hubRequest, editorMode, editorRequest],
+    [
+      navigate,
+      hubTab,
+      hubRequest,
+      editorMode,
+      editorRequest,
+      openTour,
+      openShortcuts,
+      hasProject,
+      handleModeChange,
+      toolActive,
+      toolView,
+      toolTab,
+      toolRequest,
+      clearTool,
+    ],
   );
 
   // Una sola vista activa: el cambio es inmediato porque el chunk ya está
@@ -797,6 +910,10 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         moreViews={SECONDARY_NAV_VIEWS}
         onSelect={navigate}
         onOpenPalette={() => setPaletteOpen(true)}
+        onOpenTour={openTour}
+        onOpenShortcuts={openShortcuts}
+        onOpenToolMap={openToolMap}
+        editorSurface={editorSurface}
         {...(onReturnToStart ? { onReturnToStart } : {})}
         banner={
           browserMode ? (
@@ -808,16 +925,36 @@ function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         }
         content={content}
         flush={
-          activeId === 'editor' ||
+          editorSurface ||
           activeId === 'script' ||
           activeId === 'assets' ||
           activeId === 'production' ||
           activeId === 'director' ||
+          activeId === 'auto-edit' ||
           activeId === 'ai-hub' ||
           activeId === 'mcp'
         }
       />
       <WelcomeDialog onNavigate={navigate} />
+      {tourOpen ? (
+        <Suspense fallback={null}>
+          <OnboardingTour
+            open
+            onClose={() => setTourOpen(false)}
+            onNavigate={navigate}
+            currentView={activeId}
+          />
+        </Suspense>
+      ) : null}
+      {shortcutsOpen ? (
+        <Suspense fallback={null}>
+          <ShortcutsCheatSheet
+            open
+            onClose={() => setShortcutsOpen(false)}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
+        </Suspense>
+      ) : null}
       {settingsOpen && (
         <SettingsWindow onClose={() => setSettingsOpen(false)}>
           <SettingsHome

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ViewId } from '../app/navigation';
-import { Icon } from './Icon';
-import { useDialogFocus } from '../hooks/useDialogFocus';
+import { useCallback, useEffect, useRef, useState } from'react';
+import type { ViewId } from'../app/navigation';
+import { Icon } from'./Icon';
+import { useDialogFocus } from'../hooks/useDialogFocus';
 
-export const TOUR_COMPLETED_KEY = 'olyvia.tour.completed.v1';
+export const TOUR_COMPLETED_KEY ='olyvia.tour.completed.v1';
 
 export interface TourStep {
   readonly id: string;
@@ -28,9 +28,9 @@ export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
     content:
       'Olyvia está diseñada para que crees contenido audiovisual de alto impacto sin fricción. Todo el procesamiento corre en tu equipo: sin marcas de agua, sin cuotas sorpresa y con privacidad absoluta.',
     highlights: [
-      '⚡ Renderizado local ultrarrápido con motor FFmpeg',
-      '🔒 Privacidad 100%: tus archivos nunca salen de tu PC',
-      '🤖 Herramientas de IA para auto-corte, subtítulos y guiones',
+      'Renderizado local ultrarrápido con motor FFmpeg',
+      'Privacidad 100%: tus archivos nunca salen de tu PC',
+      'Herramientas de IA para auto-corte, subtítulos y guiones',
     ],
     proTip: 'Tip: Podés pausar y volver a abrir esta guía en cualquier momento desde la barra superior o presionando Shift + ?.',
   },
@@ -44,9 +44,9 @@ export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
     content:
       'Aquí organizás todos los elementos de tu producción: videos, pistas de música, grabaciones de voz, fotos y textos animados. Olyvia analiza formatos y genera proxies ligeros al instante.',
     highlights: [
-      '📁 Arrastrá y soltá archivos directamente desde tu explorador',
-      '🎵 Pestañas de Música, Efectos, Transiciones y Filtros',
-      '⭐ Marcá tus medios favoritos para ubicarlos con un clic',
+      'Arrastrá y soltá archivos directamente desde tu explorador',
+      'Pestañas de Música, Efectos, Transiciones y Filtros',
+      'Marcá tus medios favoritos para ubicarlos con un clic',
     ],
     proTip: 'Tip: También podés generar audios y doblajes con IA desde la barra de herramientas del proyecto.',
   },
@@ -60,9 +60,9 @@ export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
     content:
       'Montá tus clips en pistas de video (V1, V2) y audio (A1, A2). Hacé cortes quirúrgicos al instante, reordená tomas con imán magnético y controlá el ritmo de tu historia visual.',
     highlights: [
-      '✂️ Presioná "S" para dividir clips en el cabezal de reproducción',
-      '📐 Recortá inicio con "[" y final con "]" sin desajustar el tiempo',
-      '🔍 Ajustá el zoom con "+" y "-" o con la rueda del ratón',
+      'Presioná"S"para dividir clips en el cabezal de reproducción',
+      'Recortá inicio con"["y final con"]"sin desajustar el tiempo',
+      'Ajustá el zoom con"+"y"-"o con la rueda del ratón',
     ],
     proTip: 'Tip: Usá Barra espaciadora para reproducir/pausar y Ctrl+Z para deshacer.',
   },
@@ -76,9 +76,9 @@ export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
     content:
       'Observá tus cambios en tiempo real con código de tiempo preciso y medidores VU de volumen. Cambiá de formato horizontal a vertical con un solo clic para exportar a YouTube o a Shorts/Reels.',
     highlights: [
-      '📱 Conmutador de aspecto: 16:9 (Horizontal) / 9:16 (Vertical)',
-      '🔊 Medidores de audio en tiempo real para evitar distorsiones',
-      '🎞️ Previsualización fluida con proxies automáticos',
+      'Conmutador de aspecto: 16:9 (Horizontal) / 9:16 (Vertical)',
+      'Medidores de audio en tiempo real para evitar distorsiones',
+      'Previsualización fluida con proxies automáticos',
     ],
     proTip: 'Tip: Presioná F11 para previsualizar a pantalla completa.',
   },
@@ -92,9 +92,9 @@ export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
     content:
       'Ahorrá horas de edición con nuestras herramientas inteligentes: Auto-Corte de silencios, generador de guiones, clonación de voz y subtítulos automáticos sincronizados.',
     highlights: [
-      '🔇 Auto-Corte: elimina silencios y pausas incómodas en 1 clic',
-      '💬 Subtítulos automáticos con estilos dinámicos de TikTok',
-      '🤖 Asistente contextual disponible en la esquina inferior',
+      'Auto-Corte: elimina silencios y pausas incómodas en 1 clic',
+      'Subtítulos automáticos con estilos dinámicos de TikTok',
+      'Asistente contextual disponible en la esquina inferior',
     ],
     proTip: 'Tip: Abrí el Asistente en cualquier momento para pedirle ideas de edición o transcripciones.',
   },
@@ -108,9 +108,9 @@ export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
     content:
       'Cuando tu montaje esté listo, tocá Exportar. Elegí perfiles optimizados para YouTube 4K, TikTok, Instagram o archivo maestro. El render corre en tu procesador/GPU local a máxima velocidad.',
     highlights: [
-      '🚀 Perfiles listos para YouTube, Shorts, TikTok y ProRes',
-      '✨ Sin marcas de agua y sin tiempos de subida a la nube',
-      '💾 Exportación directa a tu carpeta local de videos',
+      'Perfiles listos para YouTube, Shorts, TikTok y ProRes',
+      'Sin marcas de agua y sin tiempos de subida a la nube',
+      'Exportación directa a tu carpeta local de videos',
     ],
     proTip: 'Tip: Atajo rápido Ctrl + E para abrir el cuadro de exportación en cualquier instante.',
   },
@@ -136,8 +136,8 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
   const [windowDimensions, setWindowDimensions] = useState({
-    width: typeof window !== 'undefined' ? window.innerWidth : 1200,
-    height: typeof window !== 'undefined' ? window.innerHeight : 800,
+    width: typeof window !=='undefined'? window.innerWidth : 1200,
+    height: typeof window !=='undefined'? window.innerHeight : 800,
   });
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
@@ -215,7 +215,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
   function handleClose(): void {
     if (dontShowAgain) {
       try {
-        window.localStorage.setItem(TOUR_COMPLETED_KEY, 'true');
+        window.localStorage.setItem(TOUR_COMPLETED_KEY,'true');
       } catch {
         // Ignorar si el storage no está disponible
       }
@@ -227,7 +227,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
     if (isLastStep) {
       // Completar tour
       try {
-        window.localStorage.setItem(TOUR_COMPLETED_KEY, 'true');
+        window.localStorage.setItem(TOUR_COMPLETED_KEY,'true');
       } catch {
         // Ignorar
       }
@@ -307,7 +307,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
         <defs>
           <mask id="tour-spotlight-mask">
             {/* Fondo blanco completo (visible) */}
-            <rect x="0" y="0" width="100%" height="100%" fill="white" />
+            <rect x="0"y="0"width="100%"height="100%"fill="white"/>
             {/* Recorte negro donde está el objetivo (transparente) */}
             {targetRect && targetRect.visible && (
               <rect
@@ -360,7 +360,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
             <span className="tour-step-badge">
               <span>Paso {stepIndex + 1} de {TOUR_STEPS.length}</span>
             </span>
-            <h2 id="tour-step-title" className="tour-card-title">
+            <h2 id="tour-step-title"className="tour-card-title">
               {step.title}
             </h2>
             <p className="tour-card-subtitle">{step.subtitle}</p>
@@ -372,18 +372,18 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
             data-tooltip="Cerrar tour"
             onClick={handleClose}
           >
-            <Icon name="close" size={15} />
+            <Icon name="close"size={15} />
           </button>
         </header>
 
         <div className="tour-card-content">
-          <p style={{ margin: '0 0 10px' }}>{step.content}</p>
+          <p style={{ margin: '0 0 10px'}}>{step.content}</p>
 
           {step.highlights.length > 0 && (
             <ul className="tour-highlights-list">
               {step.highlights.map((item, idx) => (
                 <li key={idx} className="tour-highlight-item">
-                  <span className="tour-highlight-bullet">✓</span>
+                  <span className="tour-highlight-bullet" aria-hidden="true" />
                   <span>{item}</span>
                 </li>
               ))}
@@ -391,15 +391,15 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
           )}
 
           {step.proTip && (
-            <div className="tour-protip-box" style={{ marginTop: '12px' }}>
-              <Icon name="info" size={16} />
+            <div className="tour-protip-box"style={{ marginTop: '12px'}}>
+              <Icon name="info"size={16} />
               <span>{step.proTip}</span>
             </div>
           )}
         </div>
 
         <div className="tour-card-footer">
-          <div className="tour-progress-dots" role="tablist" aria-label="Pasos del tour">
+          <div className="tour-progress-dots"role="tablist"aria-label="Pasos del tour">
             {TOUR_STEPS.map((s, idx) => (
               <button
                 key={s.id}
@@ -407,7 +407,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
                 role="tab"
                 aria-label={`Ir al paso ${idx + 1}: ${s.title}`}
                 aria-selected={idx === stepIndex}
-                className={`tour-dot${idx === stepIndex ? ' active' : ''}`}
+                className={`tour-dot${idx === stepIndex ? 'active': ''}`}
                 onClick={() => setStepIndex(idx)}
               />
             ))}
@@ -417,7 +417,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
             <button
               type="button"
               className="ghost"
-              style={{ fontSize: '12px', padding: '6px 10px' }}
+              style={{ fontSize: '12px', padding: '6px 10px'}}
               onClick={handleSkip}
             >
               Saltar
@@ -426,7 +426,7 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
               <button
                 type="button"
                 className="secondary"
-                style={{ fontSize: '12px', padding: '6px 12px' }}
+                style={{ fontSize: '12px', padding: '6px 12px'}}
                 onClick={handlePrev}
               >
                 Anterior
@@ -435,10 +435,10 @@ export function OnboardingTour({ open, onClose, onNavigate, currentView }: Onboa
             <button
               type="button"
               className="primary"
-              style={{ fontSize: '12px', padding: '6px 14px' }}
+              style={{ fontSize: '12px', padding: '6px 14px'}}
               onClick={handleNext}
             >
-              {isLastStep ? '¡Empezar a editar!' : 'Siguiente'}
+              {isLastStep ? '¡Empezar a editar!': 'Siguiente'}
             </button>
           </div>
         </div>

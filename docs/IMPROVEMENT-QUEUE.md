@@ -1,8 +1,180 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-05. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-06. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+- `[done]` **Pulido visual medido: letras, iconos y detalles (2026-11-06)** —
+  pedido del usuario: "arreglá y seguí mejorando los visuales del front end en
+  las letras, los iconos, los detalles, completo". Alcance: `apps/desktop`,
+  **sin tocar Rust ni backend**.
+  - **Arnés nuevo** `.tmp-redesign/visual6/` (`audit.mjs`, `detail.mjs`,
+    `detail2.mjs`, `theme-dialog.mjs`): 13 estados a 1360×768, puente Tauri
+    simulado con proyecto demo real, medición de escala tipográfica,
+    interlineado, recortes, contraste AA, áreas de clic, solapamientos,
+    iconos y desbordes. Línea base `antes2-1360/` y resultado `final2-1360/`
+    con la **misma sonda** (se reconstruyó el build sin la capa para el A/B).
+  - **Defectos medidos antes → después**: texto < 10 px **15 → 0**;
+    tamaños fuera de escala (8/9/9.5/10.12/10.5/11.04/11.5 px) **→ escala
+    entera 10/11/12**; interlineado < 1,25 **111 → 3**; contraste < 4,5:1
+    **10 → 0**; controles con área < 24 px **56 → 0**; solapamientos **1 → 0**;
+    `pageOverflow` **0 → 0**; errores de consola **0 → 0**.
+  - **Capa única nueva** `styles/filmora/filmora-polish.css`, importada al
+    FINAL de `main.tsx` (después de `filmora-states.css`). No reemplaza ni
+    edita las 9 capas legacy: corrige por especificidad, con variantes para
+    `data-theme="light"`. Corrige avatar de 8 px, `code` a `0.92em`,
+    `.info-tip` de 9.5 px/15 px, `summary` y notas de 10.5/11.5 px, anillo de
+    Aprender de 9 px, `line-height: 12px` + `letter-spacing: -0.15px` en las
+    pestañas del rail, `--fm2-ink-4` (4,12:1) en chips, `stroke-width: 1.6`
+    del CTA, iconos sueltos de 12/13 px y foco de 1 px.
+  - **Detalle de composición**: el badge «New» se movió de
+    `.start-promo-copy` a `.start-promo-art` en `FilmoraStates.tsx` (1 línea):
+    dejó de tapar el titular **sin** aumentar la altura de la tarjeta, que era
+    lo que recortaba la última fila de «Herramientas de IA integradas».
+    La barra del visor conserva sus 11 controles y el scroll horizontal
+    decidido en `filmora.css`, pero ahora muestra scrollbar fina con
+    `scroll-behavior: smooth` (antes era invisible).
+  - **Verificación visual**: 13 capturas, inspección de lanzador/editor/
+    Inicio/Descargas/Aprender, tema claro real vía `applyAppearance`
+    (`preset: 'light'`) y `pageOverflow 0`. SSIM antes/después 0,74–0,97:
+    la diferencia es el interlineado 1,4, que hace que el texto antes
+    truncado se lea completo (mejora verificada, no regresión).
+  - **Límites honestos**: los 60 textos < 4,5:1 del tema claro son deuda
+    PREVIA (`#6b7480`, acento verde, blanco sobre CTA); el token nuevo
+    `#4c5763` da ~7,5:1. El visor sigue siendo un HUD de 363 px con 788 px
+    de controles: se añadió affordance, no se reestructuró (requiere JSX).
+    Los nombres de pista siguen `sr-only` por pedido explícito anterior del
+    usuario (sólo candado/ojo/sonido).
+
+- `[done]` **Front end completo · prompt, análisis y F2 de unificación (2026-11-06)** —
+  pedido del usuario: crear un prompt, analizar con las capturas de
+  `D:\Users\ofici\Pictures\Screenshots` y mejorar, unificando TODA la app al
+  editor. Documento `docs/UI-F2-PROMPT-ANALISIS.md` (prompt maestro, inventario
+  de las 9 capturas nuevas 129–137, análisis del estado real, diseño y
+  criterios). `docs/UNIFICATION-PLAN.md` actualizado con F2 y el siguiente paso.
+  - **Análisis**: 45 capturas (93–137); las 9 nuevas son menús/diálogos de
+    referencia (1360×768, 9 SHA-256 distintos), no pantallas nuevas. Ya existía
+    el patrón de menú (separadores, atajos a la derecha, disabled, check).
+    Brecha real: 6 vistas de flujo seguían sacando al usuario del editor con
+    proyecto abierto; 9 tabs planos; sin retorno persistente; guía compacta con
+    ~97 px de contenido por debajo del scroll.
+  - **F2**: `EDITOR_EMBEDDED_VIEWS` + `editorModeForView` / `viewForEditorMode`
+    en `app/view-routing.ts` (única fuente; `resolveViewRoute` INTACTO para no
+    romper deep links ni `workspace-map`). `App.tsx`: con proyecto monta
+    `EditorWorkspace(initialMode)` para script/assets/production/director/
+    auto-edit/ai-hub, conserva el `activeId` lógico para que el rail marque la
+    herramienta, carga **ambos** entries CSS y trata la superficie como editor
+    (immersive/flush/playback); sin proyecto conserva las 6 pantallas
+    standalone con su empty-state real. `onModeChange` sincroniza rail ↔ tab.
+  - **UI**: 15 modos en 2 bloques con separador + cabecera «Editor › modo» y
+    «Volver a Edición»; menú «Avanzado» con 11 accesos reales; botón
+    persistente «Volver al editor» en `AppShell`; mapa de 4 grupos también en
+    la guía compacta (scrollHeight 489 → **392 px**, cabe sin scroll);
+    `MenuBar` con desplegable de 268 px. Corregidos los textos tenues heredados
+    (`--color-text-faint`/`--color-empty` daban 3,5–3,7:1) en AI Hub y
+    Automático → **0 textos < 4,5:1**. Quitado el blur del backdrop de atajos
+    (el modal ya era 100 % opaco; las capturas «transparentes» se tomaban
+    durante el fadeIn de 180 ms de un chunk lazy).
+  - **Verificación**: typecheck **0** · `vite build` **0** · suite serial
+    **2051 passed / 3 skipped / 0 failed** (234 archivos + 1 skip, exit 0;
+    base 2047, +4 tests nuevos) · e2e **19 passed / 1 skipped / 4 failed**
+    (exactamente los 4 previos de `input[type=color]`, sin regresiones) · arnés visual
+    `.tmp-redesign/unify/f2/` con 13 estados + 1 captura aislada: **0 errores
+    de consola / 0 pageerror**, `pageOverflow 0`, `tabsOverflow 0`, 15 tabs y
+    1 separador, `.timeline-panel` presente en los 6 modos, 4 grupos en la
+    guía, retorno al editor y sin-proyecto → empty-state preservado.
+  - **Bundle**: JS principal **581.824 B (+0,29 %)** y CSS **666.960 B
+    (+0,51 %)** frente a 580.128 / 663.563 B; ambos dentro del presupuesto 2 %.
+  - `[next]` **F3**: quitar de «Más» las 6 puertas duplicadas, resolver las
+    colisiones «Efectos»/«Texto»/«Audio» y actualizar deliberadamente
+    `navigation.test.ts`, `App.test.tsx` y `e2e/app.spec.ts`. F4 completa:
+    hubs como panel del editor, paleta/atajos desde el mapa y onboarding único.
+    Cotejo 45/45 a 1100/1360/1600, miniaturas reales, nombres de pista
+    visibles, 4 specs e2e desfasados, firma OV/EV y CDP nativa. No se declara
+    100 % unificado.
+
+- `[done]` **Unificación en un único editor · F1 (2026-11-06)** — pedido del
+  usuario: prompt completo, análisis, plan y comienzo de la unificación en
+  modo goal. Documento `docs/UNIFICATION-PLAN.md` (prompt maestro, análisis del
+  estado real, arquitectura objetivo, fases F1–F4 y estado del objetivo).
+  - **Diagnóstico**: la app ya tenía alias a hubs y 8 modos dentro del editor,
+    pero CUATRO recorridos de aprendizaje contradictorios (Inicio 6 pasos,
+    Aprender 5, tour 6 distintos y editor vacío 3 hints), 18 `ViewId` sin caso
+    en `renderView` con loaders muertos, y el tour/atajos nunca montados
+    (AppShell recibe props opcionales que `App.tsx` no pasaba).
+  - **F1**: `app/workspace-map.ts` (+test) como única fuente de verdad: 6 pasos
+    derivados de `app/pipeline.ts` y 4 grupos que cubren los **33 `ViewId`
+    exactamente una vez**. `components/WorkspaceGuide.tsx` (+test) es el único
+    componente de aprendizaje, montado en Aprender, en el nuevo modo «Guía» del
+    editor y en el editor sin proyecto. `LearnView` pasó de 5 a 6 pasos;
+    `OnboardingTour` y `ShortcutsCheatSheet` se montan una sola vez en
+    `App.tsx` y se abren desde cualquier superficie. Eliminados 18 loaders
+    muertos; los dos modales de ayuda pasaron a chunks lazy.
+  - **Medición**: 4 recorridos → 1 (mismos 6 pasos en los 4 lugares); modo Guía
+    con `.timeline-panel` presente; invariante 33/33; 14 cargadores / 14
+    entradas / 15 casos; JS principal **580.128 B (−0,46 %)** y CSS 663.563 B
+    (+1,08 %); `pageOverflow 0`, 0 `pageerror`, contraste AA 0 fallos.
+  - **Verificación**: typecheck 0 · build 0 · suite serial **2047 passed /
+    3 skipped / 0 failed** (234 archivos + 1 skip) · e2e **19 passed /
+    1 skipped / 4 failed** (los 4 previos de `input[type=color]`, sin
+    regresiones) · 6 capturas y métricas en `.tmp-redesign/unify/`.
+  - `[next]` F2: modos agrupados para `script`/`assets`/`production`/
+    `director`/`auto-edit`/`ai-hub` dentro del editor, conservando las vistas
+    standalone cuando no hay proyecto; medir antes colisión de atajos con
+    `Timeline`. F3: puertas únicas y colisiones de nombre. F4: hubs con retorno
+    y onboarding único. No se declara 100 % unificado.
+
+- `[done]` **Objetivo visual · iteraciones 1 y 2 (2026-11-06)** — pedido del usuario
+  de activar el prompt de «app de pago» y el modo goal, enfocado **sólo en el
+  front end visual**. El run externo `.agentloop/runs/20261105-233635-4108d0`
+  había fallado en el arranque (`loop_agent_error`, CLI `opencode` exit 1); el
+  objetivo se ejecutó como bucle directo con los mismos criterios medibles,
+  sin falsificar el ledger ni el run fallido. Sin commits ni push.
+  - **Estado base medido** (`.tmp-redesign/recon3/audit/baseline-*.json`):
+    17 etiquetas de toolbar ocultas, 2 de 6 plantillas Split Screen visibles
+    (contenedor 157 px / `scrollHeight` 462), guía de importación superpuesta al
+    monitor, `.rail-list` de 20 px en editor vacío, arte genérico (`sparkles` /
+    `film`), 38 textos por debajo de 4,5:1, 25 elementos a 9 px, 3 etiquetas
+    `sr-only` de pista, chip del inspector en mono 8 px.
+  - **Iteración 1 · estructura y arte**: guía de importación movida al panel de
+    medios (`EditorWorkspace.tsx` → `EditorAssets.emptyGuide`), sin overlay;
+    `.rail-list` 20 → **156 px** y `rail-main` sin desborde (ocultando pie y
+    proxies cuando no hay medios). Las **6/6** plantillas Split Screen visibles
+    sin scroll (densidad 4 px, `aspect-ratio 16/4.2`, proxies fuera de esa
+    vista). Ilustraciones SVG reales: seguimiento de cámara en el diálogo de
+    novedades (`NewsTrackingArt`, `MenuBar.tsx`) y fotograma + escena + play +
+    progreso en el resultado de exportación (`RenderSuccessArt`). Chip
+    «proyecto» del inspector pasado a UI 10 px sin mono/mayúsculas. Marca
+    ajena fuera de la UI (`THEME_PRESET_LABELS.filmora` → «Grafito estudio»,
+    opción de onboarding → «DaVinci Resolve»).
+  - **Iteración 2 · legibilidad AA**: `--fm-type-2xs` 9 → 10 px y
+    `.flag-letter` a 10 px → **0 elementos a 9 px** (escala 10/11/12, 2
+    familias, 1 grosor de trazo, 2 tallas de icono). Contraste: texto oscuro
+    sobre clips saturados (5,2–5,4:1 vs 2,86–3,19:1 anterior), ticks de regla
+    `#96a0aa` (5,96:1) y `--fm-ink-4` `#828d98` (4,8:1) →
+    **38 → 13 → 0 textos por debajo de 4,5:1** medidos con
+    `probe-contrast.mjs`.
+  - **Desviación honesta**: hacer visibles las 17 etiquetas de la toolbar
+    principal suma 322 px y recorta controles (incluido «Más»); la densidad de
+    2–3 filas quedó peor que la referencia. Se conservó el patrón icon-first
+    (referencias 119–128) con `aria-label`/tooltips y la fila de herramientas
+    rápidas con etiquetas visibles, y se ganó densidad real (padding 5→3 px,
+    gap 6→4 px). `toolbar.scrollWidth = clientWidth = 1360`, 0 recortes.
+  - **Verificación final**: typecheck 0 · build 0 · pruebas dirigidas
+    **114/114** + test nuevo de composición SVG (13/13 en ese archivo) ·
+    suite serial **2038 passed / 3 skipped / 0 failed**, exit 0 (232 archivos
+    passed + 1 skipped; una primera corrida tuvo 2 fallos flaky de
+    `EmojiPicker.focus.test.tsx`, aislado 2/2 y ausentes en la corrida final)
+    · e2e **19 passed / 1 skipped / 4 failed** (exactamente los 4 previos de
+    `input[type=color]`, sin regresiones) · arnés visual 10 estados,
+    `pageOverflow 0`, 0 `pageerror` (3 errores benignos de rutas del stub de
+    medios) · `icons.mjs`: 115 iconos, 1 trazo, 2 familias, 3 tamaños de letra.
+  - **Capturas y métricas**: `.tmp-redesign/recon3/goal1/final/` (10 PNG +
+    `results.json`) y `.tmp-redesign/recon3/goal1/*.json`.
+  - `[next]` Cotejo completo 36/36 con las referencias a 1100/1360/1600;
+    miniaturas de medios/efectos/transiciones reales; track names visibles en
+    cabecera de pista (hoy `sr-only` por diseño, 3 etiquetas de 1 px); los 4
+    specs e2e desfasados; firma OV/EV y verificación CDP nativa post-cambios.
 
 - `[done]` **Reconstrucción integral Filmora · 36 capturas (93)–(128) (2026-11-05)** —
   auditoría completa en `docs/RECONSTRUCCION-FILMORA-93-128.md` e implementación

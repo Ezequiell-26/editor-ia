@@ -1,5 +1,5 @@
 import type { ProjectDocument } from '@editor-ia/project-schema';
-import type { DesktopService } from '../services/project-service';
+import type { ConversionTarget, DesktopService } from '../services/project-service';
 import type { useProjectStore } from './project-store';
 import { runAutoCleanup } from './auto-cleanup';
 import { runAutoPilot } from './auto-pilot';
@@ -197,12 +197,15 @@ export async function executeMcpTool(
           transitionFrames: 12,
           includeCaptions: true,
           renderVideo: args.render !== false,
-          generateMedia: false,
-          flowKind: 'image',
-          flowModel: '',
-          flowRatio: '',
-          flowDuration: '',
-          approveCredits: false,
+          generateMedia: args.generateMedia === true,
+          ...(optionalText(args, 'flowServerId')
+            ? { flowServerId: optionalText(args, 'flowServerId')! }
+            : {}),
+          flowKind: args.flowKind === 'video' ? 'video' : 'image',
+          flowModel: optionalText(args, 'flowModel') ?? 'Nano Banana 2',
+          flowRatio: optionalText(args, 'flowRatio') ?? '16:9',
+          flowDuration: optionalText(args, 'flowDuration') ?? '6s',
+          approveCredits: args.approveCredits === true,
           confirmRights: true,
         },
       });
@@ -538,6 +541,285 @@ export async function executeMcpTool(
         optionalText(args, 'slot'),
       );
       return JSON.stringify({ ok: true, result });
+    }
+
+    case 'flow_generate_image': {
+      const result = await context.store.service.flowGenerateImage({
+        prompt: text(args, 'prompt'),
+        outputDir: text(args, 'outputDir'),
+        ...(optionalText(args, 'slot') ? { slot: optionalText(args, 'slot')! } : {}),
+        ...(optionalText(args, 'url') ? { url: optionalText(args, 'url')! } : {}),
+        ...(optionalNumber(args, 'timeoutSecs') !== undefined
+          ? { timeoutSecs: optionalNumber(args, 'timeoutSecs')! }
+          : {}),
+        ...(typeof args.reuseProject === 'boolean' ? { reuseProject: args.reuseProject } : {}),
+      });
+      return JSON.stringify(result);
+    }
+
+    case 'flow_generate_assets': {
+      const prompts = Array.isArray(args.prompts)
+        ? args.prompts
+            .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+            .slice(0, 10)
+        : [];
+      if (prompts.length === 0) throw new Error('faltan prompts en «prompts»');
+      const dir = outputDir(context, args);
+      const timeoutSecs = optionalNumber(args, 'timeoutSecs');
+      const importToProject = args.importToProject !== false;
+      const results: { prompt: string; ok: boolean; files: number; error?: string }[] = [];
+      const paths: string[] = [];
+      for (const prompt of prompts) {
+        try {
+          const generated = await context.store.service.flowGenerateImage({
+            prompt,
+            outputDir: dir,
+            ...(timeoutSecs !== undefined ? { timeoutSecs } : {}),
+          });
+          results.push({
+            prompt,
+            ok: generated.ok,
+            files: generated.files.length,
+            ...(generated.error ? { error: generated.error } : {}),
+          });
+          for (const file of generated.files) paths.push(file.path);
+        } catch (error) {
+          results.push({
+            prompt,
+            ok: false,
+            files: 0,
+            error: error instanceof Error ? error.message : 'falló la generación',
+          });
+        }
+      }
+      let assets: { id: string; label: string; kind: string }[] = [];
+      if (importToProject && paths.length > 0) {
+        const project = projectOf(context);
+        const rate = project.video.frameRate;
+        const outcome = await context.store.service.importMediaPaths({
+          paths,
+          fpsNum: rate.num,
+          fpsDen: rate.den,
+          confirmRights: true,
+          provider: 'google-flow-image',
+        });
+        let next = project;
+        for (const asset of outcome.assets) next = addAsset(next, asset);
+        apply(context, next);
+        assets = outcome.assets.map((asset) => ({
+          id: asset.id,
+          label: asset.label,
+          kind: asset.kind,
+        }));
+      }
+      return JSON.stringify({
+        ok: results.some((item) => item.ok),
+        outputDir: dir,
+        results,
+        files: paths,
+        assets,
+      });
+    }
+
+    case 'screen_record': {
+      const action = text(args, 'action');
+      if (action === 'start') {
+        const outputDir = text(args, 'outputDir');
+        const fps = optionalNumber(args, 'fps');
+        const webcamDevice = optionalText(args, 'webcamDevice');
+        const audioDevice = optionalText(args, 'audioDevice');
+        const streamUrl = optionalText(args, 'streamUrl');
+        const encoderRaw = optionalText(args, 'encoder');
+        const encoder =
+          encoderRaw === 'x264' || encoderRaw === 'nvenc' || encoderRaw === 'qsv' || encoderRaw === 'amf' || encoderRaw === 'mf'
+            ? encoderRaw
+            : undefined;
+        const windowTitle = optionalText(args, 'windowTitle');
+        const captureTargetRaw = optionalText(args, 'captureTarget');
+        const captureTarget =
+          captureTargetRaw === 'desktop' || captureTargetRaw === 'window' || captureTargetRaw === 'region'
+            ? captureTargetRaw
+            : undefined;
+        const captureScreen = typeof args.captureScreen === 'boolean' ? args.captureScreen : undefined;
+        const num = (key: string) => optionalNumber(args, key);
+        const result = await context.store.service.screenRecordStart({
+          outputDir,
+          ...(fps !== undefined ? { fps } : {}),
+          ...(webcamDevice ? { webcamDevice } : {}),
+          ...(audioDevice ? { audioDevice } : {}),
+          ...(streamUrl ? { streamUrl } : {}),
+          ...(encoder ? { encoder } : {}),
+          ...(windowTitle ? { windowTitle } : {}),
+          ...(captureTarget ? { captureTarget } : {}),
+          ...(num('regionX') !== undefined ? { regionX: num('regionX')! } : {}),
+          ...(num('regionY') !== undefined ? { regionY: num('regionY')! } : {}),
+          ...(num('regionWidth') !== undefined ? { regionWidth: num('regionWidth')! } : {}),
+          ...(num('regionHeight') !== undefined ? { regionHeight: num('regionHeight')! } : {}),
+          ...(captureScreen !== undefined ? { captureScreen } : {}),
+        });
+        return JSON.stringify(result);
+      }
+      if (action === 'stop') {
+        return JSON.stringify(await context.store.service.screenRecordStop());
+      }
+      if (action === 'status') {
+        return JSON.stringify(await context.store.service.screenRecordStatus());
+      }
+      if (action === 'devices') {
+        return JSON.stringify(await context.store.service.screenRecordDevices());
+      }
+      throw new Error('«action» debe ser start, stop, status o devices');
+    }
+
+    case 'obs_scenes': {
+      const action = text(args, 'action');
+      if (action === 'list') {
+        return JSON.stringify(await context.store.service.obsSceneList());
+      }
+      if (action === 'delete') {
+        return JSON.stringify({ deleted: await context.store.service.obsSceneDelete(text(args, 'id')) });
+      }
+      if (action === 'start') {
+        return JSON.stringify(
+          await context.store.service.obsSceneStart(text(args, 'id'), text(args, 'outputDir')),
+        );
+      }
+      if (action === 'save') {
+        const num = (key: string) => optionalNumber(args, key);
+        const captureTargetRaw = optionalText(args, 'captureTarget');
+        const captureTarget =
+          captureTargetRaw === 'desktop' || captureTargetRaw === 'window' || captureTargetRaw === 'region'
+            ? captureTargetRaw
+            : undefined;
+        const encoderRaw = optionalText(args, 'encoder');
+        const encoder =
+          encoderRaw === 'x264' || encoderRaw === 'nvenc' || encoderRaw === 'qsv' || encoderRaw === 'amf' || encoderRaw === 'mf'
+            ? encoderRaw
+            : undefined;
+        const scene: import('../services/project-service').ObsSceneInput = {
+          name: text(args, 'name'),
+          ...(optionalText(args, 'id') ? { id: optionalText(args, 'id')! } : {}),
+          ...(num('fps') !== undefined ? { fps: num('fps')! } : {}),
+          ...(captureTarget ? { captureTarget } : {}),
+          ...(optionalText(args, 'windowTitle') ? { windowTitle: optionalText(args, 'windowTitle')! } : {}),
+          ...(num('regionX') !== undefined ? { regionX: num('regionX')! } : {}),
+          ...(num('regionY') !== undefined ? { regionY: num('regionY')! } : {}),
+          ...(num('regionWidth') !== undefined ? { regionWidth: num('regionWidth')! } : {}),
+          ...(num('regionHeight') !== undefined ? { regionHeight: num('regionHeight')! } : {}),
+          ...(optionalText(args, 'webcamDevice') ? { webcamDevice: optionalText(args, 'webcamDevice')! } : {}),
+          ...(optionalText(args, 'audioDevice') ? { audioDevice: optionalText(args, 'audioDevice')! } : {}),
+          ...(optionalText(args, 'streamUrl') ? { streamUrl: optionalText(args, 'streamUrl')! } : {}),
+          ...(encoder ? { encoder } : {}),
+          ...(typeof args.captureScreen === 'boolean' ? { captureScreen: args.captureScreen } : {}),
+        };
+        return JSON.stringify(await context.store.service.obsSceneSave(scene));
+      }
+      throw new Error('«action» debe ser list, save, delete o start');
+    }
+
+    case 'browser_instances': {
+      const action = text(args, 'action');
+      const profileId = optionalText(args, 'profileId');
+      if (action === 'list') {
+        return JSON.stringify(await context.store.service.browserInstanceList());
+      }
+      if (action === 'close') {
+        return JSON.stringify({ closed: await context.store.service.browserInstanceClose(text(args, 'profileId')) });
+      }
+      if (action === 'launch') {
+        const proxyUrl = optionalText(args, 'proxyUrl');
+        const url = optionalText(args, 'url');
+        return JSON.stringify(
+          await context.store.service.browserInstanceLaunch({
+            profileId: text(args, 'profileId'),
+            ...(proxyUrl ? { proxyUrl } : {}),
+            ...(url ? { url } : {}),
+          }),
+        );
+      }
+      if (action === 'navigate') {
+        return JSON.stringify({
+          navigated: await context.store.service.browserInstanceNavigate(
+            text(args, 'profileId'),
+            text(args, 'url'),
+          ),
+        });
+      }
+      if (action === 'eval') {
+        return JSON.stringify(
+          await context.store.service.browserInstanceEval(
+            text(args, 'profileId'),
+            text(args, 'expression'),
+          ),
+        );
+      }
+      void profileId;
+      throw new Error('«action» debe ser launch, close, list, navigate o eval');
+    }
+
+    case 'subtitles_translate': {
+      const rawTexts = args.texts;
+      if (!Array.isArray(rawTexts)) {
+        throw new Error('«texts» debe ser un array de strings');
+      }
+      const texts = rawTexts.filter((t): t is string => typeof t === 'string');
+      const sourceLanguage = text(args, 'sourceLanguage');
+      const targetLanguage = text(args, 'targetLanguage');
+      const glossary = optionalText(args, 'glossary');
+      const approvedCost = typeof args.approvedCost === 'boolean' ? args.approvedCost : undefined;
+      return JSON.stringify(
+        await context.store.service.translateSubtitles({
+          texts,
+          sourceLanguage,
+          targetLanguage,
+          ...(glossary ? { glossary } : {}),
+          ...(approvedCost !== undefined ? { approvedCost } : {}),
+        }),
+      );
+    }
+
+    case 'stickman_render': {
+      const outputPath = text(args, 'outputPath');
+      const action = optionalText(args, 'action');
+      const durationSeconds = optionalNumber(args, 'durationSeconds');
+      const fps = optionalNumber(args, 'fps');
+      const width = optionalNumber(args, 'width');
+      const height = optionalNumber(args, 'height');
+      const boneHex = optionalText(args, 'boneHex');
+      const bgHex = optionalText(args, 'bgHex');
+      const rawParticles = args.particles;
+      const particles =
+        typeof rawParticles === 'object' && rawParticles !== null
+          ? (() => {
+              const p = rawParticles as Record<string, unknown>;
+              const kind = p.kind;
+              return {
+                ...(kind === 'confetti' || kind === 'snow' || kind === 'sparks' ? { kind } : {}),
+                ...(typeof p.count === 'number' ? { count: p.count } : {}),
+                ...(typeof p.colorHex === 'string' ? { colorHex: p.colorHex } : {}),
+              };
+            })()
+          : undefined;
+      const rawKf = args.keyframes;
+      const keyframes = Array.isArray(rawKf)
+        ? rawKf
+            .filter((k): k is Record<string, unknown> => typeof k === 'object' && k !== null)
+            .map((k) => ({ frame: typeof k.frame === 'number' ? k.frame : 0 }))
+        : undefined;
+      const result = await context.store.service.stickmanRender({
+        outputPath,
+        ...(action === 'idle' || action === 'walk' || action === 'run' || action === 'wave' || action === 'jump'
+          ? { action }
+          : {}),
+        ...(durationSeconds !== undefined ? { durationSeconds } : {}),
+        ...(fps !== undefined ? { fps } : {}),
+        ...(width !== undefined ? { width } : {}),
+        ...(height !== undefined ? { height } : {}),
+        ...(boneHex ? { boneHex } : {}),
+        ...(bgHex ? { bgHex } : {}),
+        ...(keyframes && keyframes.length > 0 ? { keyframes } : {}),
+      });
+      return JSON.stringify(result);
     }
 
     case 'markers_list':
@@ -1010,6 +1292,51 @@ export async function executeMcpTool(
           };
         }),
       );
+
+    case 'media_analyze': {
+      const ids = Array.isArray(args.assetIds)
+        ? args.assetIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).slice(0, 20)
+        : [];
+      if (ids.length === 0) throw new Error('faltan ids de assets en «assetIds»');
+      return JSON.stringify(await context.store.service.analyzeMediaFrames(ids));
+    }
+
+    case 'fs_check': {
+      const paths = Array.isArray(args.paths)
+        ? args.paths.filter((p): p is string => typeof p === 'string' && p.trim().length > 0).slice(0, 50)
+        : [];
+      if (paths.length === 0) throw new Error('faltan rutas en «paths»');
+      return JSON.stringify(await context.store.service.checkAssetFiles(paths));
+    }
+
+    case 'media_convert': {
+      const ids = Array.isArray(args.assetIds)
+        ? args.assetIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0).slice(0, 20)
+        : [];
+      if (ids.length === 0) throw new Error('faltan ids de assets en «assetIds»');
+      const target = text(args, 'target') as ConversionTarget;
+      const outputDir = text(args, 'outputDir');
+      const quality = optionalNumber(args, 'quality');
+      const maxWidth = optionalNumber(args, 'maxWidth');
+      if (ids.length === 1) {
+        const result = await context.store.service.convertMedia({
+          assetId: ids[0] as string,
+          target,
+          outputDir,
+          ...(quality !== undefined ? { quality } : {}),
+          ...(maxWidth !== undefined ? { maxWidth } : {}),
+        });
+        return JSON.stringify(result);
+      }
+      const items = await context.store.service.convertMediaBatch(
+        ids,
+        target,
+        outputDir,
+        quality,
+        maxWidth,
+      );
+      return JSON.stringify(items);
+    }
 
     case 'tracks_list': {
       const project = projectOf(context);

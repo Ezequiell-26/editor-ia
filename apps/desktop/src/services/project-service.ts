@@ -1639,6 +1639,89 @@ export interface WebSessionsStatus {
   readonly sessions: readonly WebSessionInfo[];
 }
 
+export interface FlowGenerateFile {
+  readonly path: string;
+  readonly bytes?: number;
+  readonly ext?: string;
+}
+
+export interface FlowGenerateResult {
+  readonly ok: boolean;
+  readonly files: readonly FlowGenerateFile[];
+  readonly url?: string;
+  readonly error?: string;
+  readonly timedOut?: boolean;
+}
+
+export interface ScreenRecordStatus {
+  readonly recording: boolean;
+  readonly output?: string;
+  readonly elapsedSecs?: number;
+  readonly bytes?: number;
+  readonly webcam?: string;
+  readonly streaming?: boolean;
+}
+
+export interface ScreenRecordResult {
+  readonly ok: boolean;
+  readonly output?: string;
+  readonly bytes?: number;
+  readonly durationSecs?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly hasAudio?: boolean;
+  readonly error?: string;
+}
+
+export interface BrowserInstanceInfo {
+  readonly id: string;
+  readonly port: number;
+  readonly pid?: number;
+  readonly cdpUrl: string;
+  readonly profileDir: string;
+  readonly proxy?: string;
+  readonly browser: string;
+}
+
+export interface ObsScene {
+  readonly id: string;
+  readonly name: string;
+  readonly fps?: number;
+  readonly captureTarget?: 'desktop' | 'window' | 'region';
+  readonly windowTitle?: string;
+  readonly regionX?: number;
+  readonly regionY?: number;
+  readonly regionWidth?: number;
+  readonly regionHeight?: number;
+  readonly webcamDevice?: string;
+  readonly audioDevice?: string;
+  readonly streamUrl?: string;
+  readonly encoder?: 'x264' | 'nvenc' | 'qsv' | 'amf' | 'mf';
+  readonly captureScreen?: boolean;
+}
+
+export type ObsSceneInput = Omit<ObsScene, 'id'> & { readonly id?: string };
+
+export interface StickmanRenderResult {
+  readonly ok: boolean;
+  readonly path?: string;
+  readonly action?: string;
+  readonly frames?: number;
+  readonly fps?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly durationSeconds?: number;
+  readonly probeWidth?: number | null;
+  readonly probeHeight?: number | null;
+  readonly hasAudio?: boolean;
+  readonly verified?: boolean;
+}
+
+export interface CaptureDevices {
+  readonly cameras: readonly string[];
+  readonly microphones: readonly string[];
+}
+
 export interface MatchMediaPlanResult {
   readonly assignments: readonly number[];
   readonly model: string;
@@ -2424,6 +2507,57 @@ export interface DesktopService {
   webSessionClose(slot?: string): Promise<boolean>;
   webSessionNav(direction: 'back' | 'forward' | 'reload', slot?: string): Promise<boolean>;
   webSessionEval(js: string, slot?: string): Promise<string>;
+  flowGenerateImage(input: {
+    prompt: string;
+    outputDir: string;
+    slot?: string;
+    url?: string;
+    timeoutSecs?: number;
+    reuseProject?: boolean;
+  }): Promise<FlowGenerateResult>;
+  screenRecordStatus(): Promise<ScreenRecordStatus>;
+  screenRecordDevices(): Promise<CaptureDevices>;
+  screenRecordStart(input: {
+    outputDir: string;
+    fps?: number;
+    webcamDevice?: string;
+    captureScreen?: boolean;
+    captureTarget?: 'desktop' | 'window' | 'region';
+    windowTitle?: string;
+    regionX?: number;
+    regionY?: number;
+    regionWidth?: number;
+    regionHeight?: number;
+    audioDevice?: string;
+    streamUrl?: string;
+    encoder?: 'x264' | 'nvenc' | 'qsv' | 'amf' | 'mf';
+  }): Promise<ScreenRecordStatus>;
+  screenRecordStop(): Promise<ScreenRecordResult>;
+  browserInstanceLaunch(input: {
+    profileId: string;
+    proxyUrl?: string;
+    url?: string;
+  }): Promise<BrowserInstanceInfo>;
+  browserInstanceClose(profileId: string): Promise<boolean>;
+  browserInstanceList(): Promise<BrowserInstanceInfo[]>;
+  browserInstanceNavigate(profileId: string, url: string): Promise<boolean>;
+  browserInstanceEval(profileId: string, expression: string): Promise<unknown>;
+  obsSceneList(): Promise<ObsScene[]>;
+  obsSceneSave(scene: ObsSceneInput): Promise<ObsScene>;
+  obsSceneDelete(id: string): Promise<boolean>;
+  obsSceneStart(id: string, outputDir: string): Promise<ScreenRecordStatus>;
+  stickmanRender(input: {
+    outputPath: string;
+    action?: 'idle' | 'walk' | 'run' | 'wave' | 'jump';
+    durationSeconds?: number;
+    fps?: number;
+    width?: number;
+    height?: number;
+    keyframes?: { frame: number }[];
+    boneHex?: string;
+    bgHex?: string;
+    particles?: { kind?: 'confetti' | 'snow' | 'sparks'; count?: number; colorHex?: string };
+  }): Promise<StickmanRenderResult>;
   systemInfo(): Promise<SystemInfo>;
   chooseTool(tool: 'ffmpeg' | 'ffprobe'): Promise<SystemInfo | null>;
   revealOutput(path: string): Promise<void>;
@@ -2742,6 +2876,21 @@ export const PROJECT_COMMANDS = {
   webSessionClose: 'web_session_close',
   webSessionNav: 'web_session_nav',
   webSessionEval: 'web_session_eval',
+  flowGenerateImage: 'flow_generate_image',
+  screenRecordStatus: 'screen_record_status',
+  screenRecordDevices: 'screen_record_devices',
+  screenRecordStart: 'screen_record_start',
+  screenRecordStop: 'screen_record_stop',
+  stickmanRender: 'stickman_render',
+  browserInstanceLaunch: 'browser_instance_launch',
+  browserInstanceClose: 'browser_instance_close',
+  browserInstanceList: 'browser_instance_list',
+  browserInstanceNavigate: 'browser_instance_navigate',
+  browserInstanceEval: 'browser_instance_eval',
+  obsSceneList: 'obs_scene_list',
+  obsSceneSave: 'obs_scene_save',
+  obsSceneDelete: 'obs_scene_delete',
+  obsSceneStart: 'obs_scene_start',
   systemInfo: 'system_info',
   chooseTool: 'choose_tool',
   revealOutput: 'reveal_output',
@@ -4068,6 +4217,76 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         slot: slot ?? null,
       })) as string;
     },
+    async flowGenerateImage(input) {
+      return (await call(PROJECT_COMMANDS.flowGenerateImage, {
+        prompt: input.prompt,
+        outputDir: input.outputDir,
+        slot: input.slot ?? null,
+        url: input.url ?? null,
+        timeoutSecs: input.timeoutSecs ?? null,
+        reuseProject: input.reuseProject ?? null,
+      })) as FlowGenerateResult;
+    },
+    async screenRecordStatus() {
+      return (await call(PROJECT_COMMANDS.screenRecordStatus)) as ScreenRecordStatus;
+    },
+    async screenRecordDevices() {
+      return (await call(PROJECT_COMMANDS.screenRecordDevices)) as CaptureDevices;
+    },
+    async screenRecordStart(input) {
+      return (await call(PROJECT_COMMANDS.screenRecordStart, {
+        outputDir: input.outputDir,
+        fps: input.fps ?? null,
+        webcamDevice: input.webcamDevice ?? null,
+        captureScreen: input.captureScreen ?? null,
+        captureTarget: input.captureTarget ?? null,
+        windowTitle: input.windowTitle ?? null,
+        regionX: input.regionX ?? null,
+        regionY: input.regionY ?? null,
+        regionWidth: input.regionWidth ?? null,
+        regionHeight: input.regionHeight ?? null,
+        audioDevice: input.audioDevice ?? null,
+        streamUrl: input.streamUrl ?? null,
+        encoder: input.encoder ?? null,
+      })) as ScreenRecordStatus;
+    },
+    async screenRecordStop() {
+      return (await call(PROJECT_COMMANDS.screenRecordStop)) as ScreenRecordResult;
+    },
+    async stickmanRender(input) {
+      return (await call(PROJECT_COMMANDS.stickmanRender, { request: input })) as StickmanRenderResult;
+    },
+    async browserInstanceLaunch(input) {
+      return (await call(PROJECT_COMMANDS.browserInstanceLaunch, {
+        profileId: input.profileId,
+        proxyUrl: input.proxyUrl ?? null,
+        url: input.url ?? null,
+      })) as BrowserInstanceInfo;
+    },
+    async browserInstanceClose(profileId) {
+      return (await call(PROJECT_COMMANDS.browserInstanceClose, { profileId })) as boolean;
+    },
+    async browserInstanceList() {
+      return (await call(PROJECT_COMMANDS.browserInstanceList)) as BrowserInstanceInfo[];
+    },
+    async browserInstanceNavigate(profileId, url) {
+      return (await call(PROJECT_COMMANDS.browserInstanceNavigate, { profileId, url })) as boolean;
+    },
+    async browserInstanceEval(profileId, expression) {
+      return await call(PROJECT_COMMANDS.browserInstanceEval, { profileId, expression });
+    },
+    async obsSceneList() {
+      return (await call(PROJECT_COMMANDS.obsSceneList)) as ObsScene[];
+    },
+    async obsSceneSave(scene) {
+      return (await call(PROJECT_COMMANDS.obsSceneSave, { scene })) as ObsScene;
+    },
+    async obsSceneDelete(id) {
+      return (await call(PROJECT_COMMANDS.obsSceneDelete, { id })) as boolean;
+    },
+    async obsSceneStart(id, outputDir) {
+      return (await call(PROJECT_COMMANDS.obsSceneStart, { id, outputDir })) as ScreenRecordStatus;
+    },
     async systemInfo() {
       return (await call(PROJECT_COMMANDS.systemInfo)) as SystemInfo;
     },
@@ -4505,6 +4724,21 @@ function createUnavailableService(): DesktopService {
     webSessionClose: async () => unavailable(),
     webSessionNav: async () => unavailable(),
     webSessionEval: async () => unavailable(),
+    flowGenerateImage: async () => unavailable(),
+    screenRecordStatus: async () => unavailable(),
+    screenRecordDevices: async () => unavailable(),
+    screenRecordStart: async () => unavailable(),
+    screenRecordStop: async () => unavailable(),
+    stickmanRender: async () => unavailable(),
+    browserInstanceLaunch: async () => unavailable(),
+    browserInstanceClose: async () => unavailable(),
+    browserInstanceList: async () => unavailable(),
+    browserInstanceNavigate: async () => unavailable(),
+    browserInstanceEval: async () => unavailable(),
+    obsSceneList: async () => unavailable(),
+    obsSceneSave: async () => unavailable(),
+    obsSceneDelete: async () => unavailable(),
+    obsSceneStart: async () => unavailable(),
     systemInfo: async () => unavailable(),
     chooseTool: async () => unavailable(),
     revealOutput: async () => unavailable(),

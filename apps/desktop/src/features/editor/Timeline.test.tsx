@@ -246,7 +246,7 @@ describe('alto de la timeline', () => {
   it('se puede achicar con el teclado y queda recordado', () => {
     renderTimeline();
     const handle = screen.getByRole('separator', { name: /alto de la timeline/i });
-    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('280px');
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('335px');
     fireEvent.keyDown(handle, { key: 'Home' });
     expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('140px');
     expect(window.localStorage.getItem('editoria.timeline-height.v1')).toBe('140');
@@ -260,7 +260,7 @@ describe('alto de la timeline', () => {
     fireEvent.keyDown(handle, { key: 'End' });
     expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('720px');
     fireEvent.doubleClick(handle);
-    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('280px');
+    expect(document.documentElement.style.getPropertyValue('--timeline-height')).toBe('335px');
   });
 });
 

@@ -9,6 +9,8 @@ import {
 import { fpsOf } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { InspectorSection } from './InspectorSection';
+import { OptionField } from '../../components/ui/OptionField';
+import { clipDisplayName, clipSpeedFactor } from './clip-display';
 
 /**
  * Sección del Inspector para cortar por pausas de voz.
@@ -30,65 +32,6 @@ interface Analysis {
   readonly analyzedSeconds: number;
   /** Clips sin subtítulos que cubran su ventana. */
   readonly withoutCues: number;
-}
-
-function speedFactorOf(clip: Clip): number {
-  const speed = 'speed' in clip ? clip.speed : undefined;
-  if (!speed) return 1;
-  return speed.num / Math.max(1, speed.den);
-}
-
-function clipLabel(clip: Clip): string {
-  return clip.label ?? 'sin nombre';
-}
-
-function OptionField({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onCommit,
-}: {
-  readonly label: string;
-  readonly value: number;
-  readonly min: number;
-  readonly max: number;
-  readonly step: number;
-  readonly onCommit: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
-  function commit(): void {
-    const numeric = Number(draft);
-    if (Number.isFinite(numeric)) {
-      onCommit(Math.max(min, Math.min(max, numeric)));
-    } else {
-      setDraft(String(value));
-    }
-  }
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <input
-        type="number"
-        value={draft}
-        min={min}
-        max={max}
-        step={step}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            commit();
-          }
-        }}
-      />
-    </label>
-  );
 }
 
 export function SpeechCutsSection(props: {
@@ -116,7 +59,7 @@ export function SpeechCutsSection(props: {
     (clip) =>
       (clip.kind === 'video' || clip.kind === 'audio') &&
       clip.source.type === 'asset' &&
-      Math.abs(speedFactorOf(clip) - 1) < 0.001,
+      Math.abs(clipSpeedFactor(clip) - 1) < 0.001,
   );
   const lockedCount = project
     ? candidates.filter(
@@ -154,7 +97,7 @@ export function SpeechCutsSection(props: {
         minPauseSeconds,
         paddingSeconds,
       });
-      if (plan) found.push({ clipId: clip.id, label: clipLabel(clip), plan });
+      if (plan) found.push({ clipId: clip.id, label: clipDisplayName(clip), plan });
     }
     setAnalysis({ plans: found, analyzedSeconds, withoutCues });
     if (found.length === 0) {

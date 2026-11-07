@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { useDialogFocus } from '../hooks/useDialogFocus';
 import {
   DEFAULT_SHORTCUTS,
@@ -80,18 +80,19 @@ const GESTURE_SHORTCUTS: readonly ExtraShortcutItem[] = [
   },
 ];
 
+/** Categorías con iconos SVG del sistema, sin glifos emoji. */
 const CATEGORY_TABS: readonly {
   readonly id: ShortcutCategoryFilter;
   readonly label: string;
-  readonly icon: string;
+  readonly icon: IconName;
 }[] = [
-  { id: 'all', label: 'Todos', icon: '⚡' },
-  { id: 'playback', label: 'Reproducción', icon: '🎬' },
-  { id: 'timeline', label: 'Línea de Tiempo', icon: '✂️' },
-  { id: 'edit', label: 'Edición', icon: '✏️' },
-  { id: 'nav', label: 'Navegación', icon: '🧭' },
-  { id: 'file', label: 'Archivo', icon: '💾' },
-  { id: 'gestures', label: 'Ratón y Gestos', icon: '🖱️' },
+  { id: 'all', label: 'Todos', icon: 'grid' },
+  { id: 'playback', label: 'Reproducción', icon: 'play' },
+  { id: 'timeline', label: 'Línea de Tiempo', icon: 'film' },
+  { id: 'edit', label: 'Edición', icon: 'split' },
+  { id: 'nav', label: 'Navegación', icon: 'fit' },
+  { id: 'file', label: 'Archivo', icon: 'save' },
+  { id: 'gestures', label: 'Ratón y Gestos', icon: 'hand' },
 ];
 
 function mapCategoryKey(rawCategory: string): ShortcutCategoryFilter {
@@ -341,7 +342,7 @@ export function ShortcutsCheatSheet({ open, onClose, onOpenSettings }: Shortcuts
                   className={`shortcuts-tab-btn${active ? ' active' : ''}`}
                   onClick={() => setSelectedCategory(tab.id)}
                 >
-                  <span aria-hidden="true">{tab.icon}</span>
+                  <Icon name={tab.icon} size={13} />
                   <span>{tab.label}</span>
                   <span className="shortcuts-tab-count">{count}</span>
                 </button>
