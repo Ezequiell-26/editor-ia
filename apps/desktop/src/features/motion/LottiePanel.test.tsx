@@ -56,7 +56,8 @@ async function createProject(): Promise<void> {
 }
 
 async function openMotion(): Promise<HTMLElement> {
-  nav('Motion');
+  // F3: Motion ya no está en el rail; se abre como tab del editor.
+  fireEvent.click(await screen.findByRole('tab', { name: 'Motion' }));
   return screen.findByRole('heading', { name: /^Lottie \(\.json \/ \.lottie\)$/ }, { timeout: 10_000 });
 }
 

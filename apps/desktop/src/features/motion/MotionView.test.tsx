@@ -33,7 +33,8 @@ describe('vista Motion', () => {
   it('agrega un título a la timeline y abre el editor', async () => {
     render(<App service={createFakeService()} />);
     await createProject();
-    nav('Motion');
+    // F3: Motion ya no está en el rail; se abre como tab del editor.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Motion' }));
     expect(
       await screen.findByRole(
         'heading',
@@ -58,7 +59,8 @@ describe('vista Motion', () => {
   it('genera props con IA y espera confirmación antes de aplicar', async () => {
     render(<App service={createFakeService()} />);
     await createProject();
-    nav('Motion');
+    // F3: Motion ya no está en el rail; se abre como tab del editor.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Motion' }));
     const brief = await screen.findByLabelText(/Brief para Motion/i);
     fireEvent.change(brief, { target: { value: 'Un cierre cálido para un tutorial de cocina' } });
     fireEvent.click(screen.getByRole('button', { name: /Generar con IA/i }));
@@ -71,7 +73,8 @@ describe('vista Motion', () => {
   it('permite cambiar de plantilla y editar props', async () => {
     render(<App service={createFakeService()} />);
     await createProject();
-    nav('Motion');
+    // F3: Motion ya no está en el rail; se abre como tab del editor.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Motion' }));
     fireEvent.click(await screen.findByRole('button', { name: /Lower third/i }));
     const name = screen.getByLabelText('Nombre');
     fireEvent.change(name, { target: { value: 'Ana Pérez' } });

@@ -21,9 +21,14 @@
 #   y los tests del módulo tocado (`npx vitest run <archivos>` en apps/desktop,
 #   `cargo test -p editor-ia-desktop --lib <filtro>` para Rust).
 #
-# Elegí la siguiente brecha por impacto/riesgo/evidencia, en este orden si
-# siguen pendientes: transiciones OBS en vivo → editor visual del rig
-# stickman → física 2D → scopes en preview → grafos dentro del .olyp.
+# Elegí la siguiente mejora por impacto/riesgo/evidencia. La fuente de
+# verdad del trabajo pendiente es, en este orden:
+#   1. docs/IMPROVEMENT-QUEUE.md — ítems [next]/[pending] declarados.
+#   2. docs/UNIFICATION-PLAN.md — siguiente fase del plan (F4+).
+#   3. .editoria-loop/LEDGER.json — cola y estado de pasadas anteriores.
+#   4. Si todo lo anterior está hecho o bloqueado, una brecha demostrable
+#      en docs/CAPABILITY-MATRIX.md sección 7.
+# No repitas trabajo ya registrado como [done] en la cola ni en el ledger.
 #
 # Si NO hay una mejora segura y acotada que puedas validar en esta pasada,
 # no inventes trabajo: escribí un resumen breve de por qué no había nada

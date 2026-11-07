@@ -1,8 +1,64 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-06. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+- `[done]` **Unificación F4 (parcial) · paleta desde el mapa y copy de primera
+  ejecución (2026-11-07)** — slice acotado de la fase F4 de
+  `docs/UNIFICATION-PLAN.md`, ejecutado en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Paleta de comandos generada desde `workspace-map`**: `app/commands.ts`
+    ya no mantiene una lista manual de 15 vistas «principal» + resto plano
+    bajo la categoría genérica «Navegar». Los 33 comandos `nav.*` se generan
+    desde `WORKSPACE_GROUPS`: el orden sigue los 4 grupos del estudio
+    (Preparar → Editar → Potenciar → Configurar) y la `category` es la
+    etiqueta real del grupo, así que buscar «editar» o «preparar» en la
+    paleta encuentra las herramientas del recorrido. Las etiquetas salen de
+    `NAV_VIEWS` (fuente única) y los 9 atajos `nav.*` personalizables se
+    conservan vía `NAV_SHORTCUTS`. Un test nuevo fija orden, categoría y
+    etiqueta contra el mapa.
+  - **Copy de primera ejecución alineado**: `WelcomeDialog` decía «Cinco
+    pasos» desde antes de F1; ahora usa `WORKSPACE_STEP_COUNT` (6), el mismo
+    recorrido canónico que Inicio, Aprender, el modo Guía y el editor vacío.
+    Test nuevo lo fija.
+  - **Archivos**: `app/commands.ts` (+test), `components/WelcomeDialog.tsx`
+    (+test).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    (commands, workspace-map, navigation, view-routing, WelcomeDialog,
+    CommandPalette ×2) **34/34** · `App.test.tsx` **74/74**. No se corrió la
+    suite serial completa en esta pasada (cambio acotado a catálogo de
+    comandos + copy; los consumidores usan ids `nav.*`, no etiquetas).
+  - **Siguiente paso F4**: hubs como panel del editor con retorno persistente
+    (T2 ya monta herramientas como panel: verificar cobertura de los 3 hubs
+    download/creator/lab), atajos del cheat sheet agrupados por los grupos
+    del mapa, y cierre del recorrido único en primera ejecución.
+
+- `[done]` **Unificación F3 · puertas únicas en «Más» (2026-11-07)** —
+  cierre de la fase F3 de `docs/UNIFICATION-PLAN.md`, ejecutada en una pasada
+  del protocolo del loop (Devin CLI). Las 6 vistas que `resolveViewRoute`
+  resuelve a modo del editor (Texto, Multicámara, Mezcla, VFX, Motion,
+  Efectos) ya no tienen puerta propia en el rail: sus nombres colisionaban
+  con las tabs del editor. `SECONDARY_NAV_VIEWS` las excluye derivando de
+  `resolveViewRoute` (sin segunda lista que mantener); quedan 5 puertas
+  (Nodos, Director, Automático, AI Hub, MCP — estas tres últimas conservadas
+  porque tienen pantalla standalone sin proyecto, F2). Siguen alcanzables
+  por paleta de comandos, deep links y las tabs del editor.
+  - **Archivos**: `app/navigation.ts` (+test), `components/Sidebar.tsx`
+    (tooltip), `App.test.tsx`, `features/motion/MotionView.test.tsx`,
+    `features/motion/LottiePanel.test.tsx`, `e2e/app.spec.ts`,
+    `e2e/helpers.ts`, `docs/UNIFICATION-PLAN.md`.
+  - **Contrato actualizado deliberadamente** (no desactivado): tests de nav
+    assertan la no-duplicación; `App.test.tsx` navega Motion/Efectos por tab
+    del editor («Efectos» se acotó al tablist de modos porque el inspector
+    tiene otra tab homónima); e2e suma aserciones negativas de las 6
+    etiquetas en `#sidebar-more-list`.
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    (navigation, view-routing, workspace-map, MotionView, LottiePanel)
+    **24/24** · `App.test.tsx` **74/74** · Playwright `app.spec.ts`
+    **4/4** en Chrome real (incluye las nuevas aserciones F3).
+  - **Siguiente paso**: F4 (hubs como panel del editor, paleta/atajos desde
+    `workspace-map`, onboarding único). Detalle en `docs/UNIFICATION-PLAN.md`.
 
 - `[done]` **Pulido visual medido: letras, iconos y detalles (2026-11-06)** —
   pedido del usuario: "arreglá y seguí mejorando los visuales del front end en
@@ -586,8 +642,26 @@ Detalle en `docs/EDIT-BRAIN.md`.
 - `[done]` **Guion y narración** — `analyzeScript` + cinco reglas: escenas sin material,
   sin narración, narración demasiado rápida o lenta y subtítulos ilegibles. Son
   recomendaciones sin payload y penalizan el score. **3 tests**.
-- `[pending]` El cerebro todavía no reescribe texto ni reordena escenas; tampoco usa la
-  grilla de beats para alinear cortes ya existentes (sólo para crear cortes nuevos).
+- `[pending]` El cerebro todavía no reescribe texto ni reordena escenas.
+- `[done]` **Cortes existentes al pulso (2026-11-07)** — el cerebro ya no sólo crea
+  cortes sobre beats (`beatPolicy`): la política nueva `beatAlignPolicy` propone un
+  **roll** (`rollClip`, primitivas existentes) que mueve cada corte contiguo al beat
+  más cercano cuando el corrimiento es chico (3 frames a ~80 ms de tolerancia hasta
+  `min(medio pulso, 0,25 s)`) y la ventana de fuente lo permite. La política replica
+  los guardas de `trimGuards`/`rollClip` (velocidad 1×, sin keyframes/stabilización,
+  pista desbloqueada, vecino real del roll, `outFrame+delta <= duración medida`,
+  `inFrame+delta >= 0`) para no proponer lo que va a fallar; el payload `roll` quedó
+  aplicable en `applyProposal` (antes `trim`/`roll` eran stubs honestos). Riesgo
+  `moderate`: entra en «Aplicar» pero no en «Aplicar lo seguro». Tope de 6 propuestas
+  por plan, ordenadas por |delta|.
+  - **Archivos**: `state/brain/policies.ts`, `types.ts` (`beat-align` + payload
+    `roll`), `apply.ts`, `brain.test.ts`.
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    `state/brain` + `features/brain` + `project-actions` **128/128** (4 tests nuevos:
+    roll al beat, corte ya alineado, sin ventana de fuente, confianza baja).
+  - **Pendiente honesto**: `npm run verify` completo no se corrió (la suite serial
+    arrastra ~13 fallos preexistentes documentados arriba); la evidencia es el
+    typecheck + los módulos tocados.
 
 ## Lote efectos declarativos (2026-11-01)
 

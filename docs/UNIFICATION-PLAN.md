@@ -201,8 +201,8 @@ documento como registro de estado. El ledger de `.editoria-loop/` no se tocó.
 |---|---|---|
 | F1 | **completada y verificada** | `.tmp-redesign/unify/shots/results-final2.json`, `.tmp-redesign/unify/serial-final.log` (**2047 passed / 3 skipped / 0 failed**), `.tmp-redesign/unify/e2e-final.log` (**19/1/4**, los 4 previos) |
 | F2 | **completada y verificada** | `.tmp-redesign/unify/f2/shots/results.json` (13 estados, 0 errores), `.tmp-redesign/unify/f2/serial.log`; ver entrada en `docs/IMPROVEMENT-QUEUE.md` |
-| F3 | pendiente | requiere actualizar `navigation.test.ts` y `App.test.tsx` al contrato nuevo |
-| F4 | parcial | retorno persistente al editor implementado en F2; faltan hubs como panel, paleta/atajos desde el mapa y onboarding único |
+| F3 | **completada y verificada (2026-11-07)** | `SECONDARY_NAV_VIEWS` excluye lo que `resolveViewRoute` resuelve a modo del editor: «Más» queda en 5 puertas (Nodos, Director, Automático, AI Hub, MCP); colisiones «Efectos»/«Texto»/«Mezcla» resueltas. typecheck desktop 0 · tests nav/routing/map/motion 24/24 · `App.test.tsx` 74/74 · e2e `app.spec.ts` 4/4 con aserciones negativas nuevas |
+| F4 | parcial | retorno persistente al editor implementado en F2; paleta de comandos generada desde `WORKSPACE_GROUPS` y copy de primera ejecución alineado al recorrido único (2026-11-07). Faltan: hubs como panel con retorno persistente en los 3 hubs, atajos del cheat sheet agrupados por el mapa y cierre del onboarding único |
 
 **F1 ejecutada** (archivos): `app/workspace-map.ts` (+test),
 `components/WorkspaceGuide.tsx` (+test), `app/view-routing.ts` (modo `guide`),
@@ -242,11 +242,17 @@ añadió el menú «Avanzado» (accesos reales), el botón persistente «Volver 
 editor» y el mapa de 4 grupos en la guía compacta. No hubo colisión de atajos:
 las seis vistas no registran listeners globales.
 
-**Siguiente paso concreto (F3)**: resolver las colisiones de nombre
-(«Efectos», «Texto», «Audio»), quitar de «Más» las 6 puertas que ya son tabs
-del editor y dejar un único acceso por función. Requiere actualizar
-deliberadamente `navigation.test.ts`, `App.test.tsx:111-129, 367-387` y
-`e2e/app.spec.ts:44-52` al contrato nuevo, con evidencia, sin desactivar tests.
+**Siguiente paso concreto (F4)**: F4 quedó parcial el 2026-11-07: la paleta
+de comandos ya se genera desde `WORKSPACE_GROUPS` (orden y categoría por
+grupo, etiquetas de `NAV_VIEWS`, atajos `nav.*` conservados) y el copy de
+`WelcomeDialog` usa `WORKSPACE_STEP_COUNT` en vez del «cinco pasos» viejo.
+F3 quedó cerrada el mismo día: las 6 vistas que `resolveViewRoute` resuelve
+a modo del editor ya no tienen puerta en «Más» (quedan Nodos, Director,
+Automático, AI Hub y MCP), sin listas duplicadas que mantener. Falta:
+hubs (`download`/`creator`/`lab`) como panel del editor con retorno
+persistente — T2 ya monta herramientas como panel, verificar cobertura —,
+atajos del cheat sheet agrupados por los grupos del mapa y el cierre del
+onboarding de primera ejecución con el recorrido único.
 
 ---
 

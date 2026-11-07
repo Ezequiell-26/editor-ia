@@ -133,7 +133,7 @@ export function Sidebar({
               aria-label={moreOpen ? 'Cerrar herramientas avanzadas' : 'Más herramientas'}
               aria-expanded={moreOpen}
               aria-controls="sidebar-more-list"
-              data-tooltip="Más herramientas · Director, Automático y modos del editor (Texto, Multicámara, Mezcla, VFX, Motion, Efectos)"
+              data-tooltip="Más herramientas · Director, Automático, AI Hub, Nodos y MCP"
               onClick={() => setMoreOpen((open) => !open)}
             >
               <Icon name="grid" className="nav-icon" size={15} />

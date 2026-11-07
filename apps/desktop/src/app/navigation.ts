@@ -1,3 +1,5 @@
+import { resolveViewRoute } from './view-routing';
+
 export type ViewId =
   | 'home'
   | 'projects'
@@ -143,9 +145,19 @@ const HUB_COVERED = new Set<ViewId>([
  * Herramientas avanzadas visibles tras «Más». AI Hub y MCP también viven acá:
  * son superficies de IA reales (compositor/operador y servidores MCP) y tenerlas
  * sólo en la paleta o en Ajustes las volvía indescubribles.
+ *
+ * F3 · Puertas únicas: las vistas que `resolveViewRoute` resuelve a un modo
+ * del editor (Texto, Multicámara, Mezcla, VFX, Motion, Efectos) NO repiten
+ * puerta acá — ya son tabs del editor y su nombre colisionaba con ellos.
+ * Siguen alcanzables por la paleta de comandos, deep links y los propios tabs.
+ * Director, Automático y AI Hub se conservan porque además tienen pantalla
+ * standalone cuando no hay proyecto abierto (F2).
  */
 export const SECONDARY_NAV_VIEWS: readonly NavView[] = NAV_VIEWS.filter(
-  (view) => !MAIN_IDS.has(view.id) && !HUB_COVERED.has(view.id),
+  (view) =>
+    !MAIN_IDS.has(view.id) &&
+    !HUB_COVERED.has(view.id) &&
+    !resolveViewRoute(view.id).editorMode,
 );
 
 /** Vistas donde la ruta no aporta contexto. */

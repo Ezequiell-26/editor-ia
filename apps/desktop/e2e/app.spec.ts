@@ -49,6 +49,10 @@ test('la barra lateral navega por todas las vistas', async ({ page }) => {
   await expect(moreList.getByRole('button', { name: 'Director', exact: true })).toBeVisible();
   await expect(moreList.getByRole('button', { name: 'AI Hub', exact: true })).toBeVisible();
   await expect(moreList.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+  // F3 · puertas únicas: las que ya son tabs del editor no repiten puerta.
+  for (const label of ['Texto', 'Multicámara', 'Mezcla', 'VFX', 'Motion', 'Efectos']) {
+    await expect(moreList.getByRole('button', { name: label, exact: true })).toHaveCount(0);
+  }
   await clickNav(page, 'Director');
   await expect(page.locator('main.content')).not.toBeEmpty();
 

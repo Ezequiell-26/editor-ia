@@ -53,6 +53,10 @@ describe('diálogo de bienvenida · trampa de foco', () => {
     simularRuntimeNativo();
     const { onNavigate } = renderWelcome();
 
+    // El recorrido canónico tiene 6 pasos (workspace-map); el copy no puede
+    // quedar desfasado como pasó con «cinco pasos».
+    expect(screen.getByText(/6 pasos del recorrido/)).toBeTruthy();
+
     fireEvent.click(screen.getByRole('button', { name: /Crear mi primer video/ }));
 
     expect(onNavigate).toHaveBeenCalledWith('projects');

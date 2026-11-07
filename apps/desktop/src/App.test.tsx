@@ -124,7 +124,8 @@ describe('shell de Olyvia', () => {
       within(navigation).getByRole('button', { name: /Más herramientas/i }),
     );
     expect(within(navigation).getByRole('button', { name: 'Director' })).toBeTruthy();
-    expect(within(navigation).getByRole('button', { name: 'Motion' })).toBeTruthy();
+    // F3: Motion ya es tab del editor; no repite puerta en «Más».
+    expect(within(navigation).queryByRole('button', { name: 'Motion' })).toBeNull();
     // AI Hub y MCP ahora se descubren desde «Más» (antes sólo en la paleta o
     // en Ajustes); siguen fuera del rail principal.
     expect(within(navigation).getByRole('button', { name: 'AI Hub' })).toBeTruthy();
@@ -376,7 +377,8 @@ describe('shell de Olyvia', () => {
   it('abre Motion como tab interno del editor sin perder la timeline', async () => {
     renderApp();
     await createProject('Obra Motion interno');
-    await nav('Motion');
+    // F3: Motion salió del rail; su única puerta es la tab del editor.
+    fireEvent.click(await screen.findByRole('tab', { name: 'Motion' }));
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Motion' }).getAttribute('aria-selected')).toBe(
         'true',
@@ -387,7 +389,7 @@ describe('shell de Olyvia', () => {
       screen.getByRole('navigation', { name: /vistas/i }).textContent,
     ).toContain('Editor');
     fireEvent.click(screen.getByRole('tab', { name: 'Edición' }));
-    await nav('Motion');
+    fireEvent.click(await screen.findByRole('tab', { name: 'Motion' }));
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Motion' }).getAttribute('aria-selected')).toBe(
         'true',
@@ -473,7 +475,10 @@ describe('shell de Olyvia', () => {
   it('abre Efectos y muestra presets, transiciones y auditoría', async () => {
     renderApp();
     await createProject('Visual');
-    await nav('Efectos');
+    // F3: Efectos (visuals) es tab del editor, ya no puerta del rail.
+    // Se acota al tablist de modos: hay otra tab «Efectos» en el inspector.
+    const modeTabs = screen.getByRole('tablist', { name: /Modos de edición/i });
+    fireEvent.click(within(modeTabs).getByRole('tab', { name: 'Efectos' }));
     const main = screen.getByRole('main');
     await waitFor(() =>
       expect(main.textContent).toContain('El mismo look para varios clips'),

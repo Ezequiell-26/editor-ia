@@ -56,7 +56,7 @@ describe('registro de navegación', () => {
     }
     const secondary = SECONDARY_NAV_VIEWS.map((view) => view.id);
     expect(secondary).toContain('director');
-    expect(secondary).toContain('motion');
+    expect(secondary).toContain('nodes');
     // Las superficies de IA estaban sólo en la paleta o en Ajustes.
     expect(secondary).toContain('ai-hub');
     expect(secondary).toContain('mcp');
@@ -65,6 +65,38 @@ describe('registro de navegación', () => {
     // Lo que ya vive dentro de un hub no repite puerta en «Más».
     expect(secondary).not.toContain('factory');
     expect(secondary).not.toContain('denoise');
+  });
+
+  it('F3 · no repite en «Más» las vistas que ya son tabs del editor', () => {
+    // Contrato de puertas únicas: texto/Multicámara/Mezcla/VFX/Motion/Efectos
+    // se abren como tabs del editor (resolveViewRoute -> editorMode), así que
+    // no pueden tener una segunda puerta con el mismo nombre en «Más».
+    const secondary = new Set(SECONDARY_NAV_VIEWS.map((view) => view.id));
+    for (const id of [
+      'text-edit',
+      'multicam',
+      'mixer',
+      'vfx',
+      'motion',
+      'visuals',
+    ] as const) {
+      expect(secondary.has(id)).toBe(false);
+    }
+    // Director, Automático y AI Hub SÍ quedan: tienen pantalla standalone
+    // cuando no hay proyecto abierto (F2), no son un duplicado puro.
+    expect(secondary.has('director')).toBe(true);
+    expect(secondary.has('auto-edit')).toBe(true);
+    expect(secondary.has('ai-hub')).toBe(true);
+    // Y ninguna etiqueta de «Más» puede colisionar con una tab del editor.
+    const editorTabLabels = new Set(['Edición', 'Todo', 'Guion', 'Medios', 'Producción', 'Director', 'Automático', 'AI Hub', 'Guía', 'Cerebro', 'Texto', 'Multicámara', 'Mezcla', 'VFX', 'Motion', 'Efectos']);
+    const collisions = SECONDARY_NAV_VIEWS.filter((view) => editorTabLabels.has(view.label));
+    // Director/Automático/AI Hub comparten nombre a propósito (misma función,
+    // superficie dual); el resto no puede repetir.
+    expect(collisions.map((view) => view.id).sort()).toEqual([
+      'ai-hub',
+      'auto-edit',
+      'director',
+    ]);
   });
 
   it('describe AI Hub y Director por lo que hacen de verdad, sin prometer LLM', () => {

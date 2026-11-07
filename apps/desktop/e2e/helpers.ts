@@ -24,8 +24,9 @@ export async function enterSettings(page: Page): Promise<void> {
 
 /**
  * Abre el desplegable «Más» del rail (herramientas avanzadas: Director,
- * Automático y los modos del editor). El rail sólo muestra las vistas
- * principales; las secundarias viven acá.
+ * Automático, AI Hub, Nodos y MCP). El rail sólo muestra las vistas
+ * principales; las secundarias viven acá. Las que ya son tabs del editor
+ * (Texto, Multicámara, Mezcla, VFX, Motion, Efectos) no tienen puerta propia.
  */
 export async function openSecondaryNav(page: Page): Promise<void> {
   const toggle = page.locator('.sidebar .nav-more > button').first();

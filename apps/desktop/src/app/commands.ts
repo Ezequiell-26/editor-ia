@@ -1,6 +1,7 @@
 import type { ViewId } from './navigation';
 import { NAV_VIEWS } from './navigation';
 import { getShortcut, type ShortcutId } from '../state/shortcuts';
+import { WORKSPACE_GROUPS } from './workspace-map';
 
 export interface Command {
   readonly id: string;
@@ -34,44 +35,42 @@ function keys(id: ShortcutId): string | undefined {
   return getShortcut(id);
 }
 
-export function buildCommands(ctx: CommandContext): Command[] {
-  const nav = (id: ViewId, label: string, shortcutId?: ShortcutId): Command => ({
-    id: `nav.${id}`,
-    label,
-    category: 'Navegar',
-    shortcut: shortcutId ? keys(shortcutId) : undefined,
-    action: () => ctx.navigate(id),
-  });
+const NAV_BY_ID = new Map(NAV_VIEWS.map((view) => [view.id, view]));
 
-  const primaryNavigation: Command[] = [
-    nav('home', 'Inicio', 'nav.home'),
-    nav('editor', 'Editor de video', 'nav.editor'),
-    nav('script', 'Guion y escenas', 'nav.script'),
-    nav('assets', 'Biblioteca', 'nav.assets'),
-    nav('production', 'Producción', 'nav.production'),
-    nav('factory', 'Fábrica', 'nav.factory'),
-    nav('director', 'Director', 'nav.director'),
-    nav('download', 'Descargar', 'nav.download'),
-    nav('settings', 'Ajustes', 'nav.settings'),
-    nav('compliance', 'Cumplimiento'),
-    nav('convert', 'Conversión'),
-    nav('learn', 'Aprender'),
-    nav('mcp', 'Servidores MCP'),
-    nav('projects', 'Proyectos'),
-  ];
-  // La paleta es la vía rápida para llegar a cualquier vista; se genera desde
-  // el registro de navegación para que ninguna herramienta quede afuera al
-  // agregar una vista nueva.
-  const listedViews = new Set(
-    primaryNavigation.map((command) => command.id.replace(/^nav\./, '')),
-  );
-  const extraNavigation = NAV_VIEWS.filter((view) => !listedViews.has(view.id)).map(
-    (view) => nav(view.id, view.label),
+/** Atajos de navegación que ya existen en el registro personalizable. */
+const NAV_SHORTCUTS: Partial<Record<ViewId, ShortcutId>> = {
+  home: 'nav.home',
+  editor: 'nav.editor',
+  script: 'nav.script',
+  assets: 'nav.assets',
+  production: 'nav.production',
+  factory: 'nav.factory',
+  director: 'nav.director',
+  download: 'nav.download',
+  settings: 'nav.settings',
+};
+
+export function buildCommands(ctx: CommandContext): Command[] {
+  // La paleta es la vía rápida para llegar a cualquier vista. Los comandos
+  // nav.* se generan desde WORKSPACE_GROUPS (la única fuente del mapa): el
+  // orden sigue los 4 grupos del estudio y la categoría es la del grupo, así
+  // buscar «editar» o «preparar» encuentra las herramientas del recorrido.
+  // Las etiquetas salen de NAV_VIEWS, nunca de una lista paralela.
+  const navCommands: Command[] = WORKSPACE_GROUPS.flatMap((group) =>
+    group.views.map((view) => {
+      const shortcutId = NAV_SHORTCUTS[view];
+      return {
+        id: `nav.${view}`,
+        label: NAV_BY_ID.get(view)?.label ?? view,
+        category: group.label,
+        shortcut: shortcutId ? keys(shortcutId) : undefined,
+        action: () => ctx.navigate(view),
+      };
+    }),
   );
 
   return [
-    ...primaryNavigation,
-    ...extraNavigation,
+    ...navCommands,
 
     {
       id: 'file.save',

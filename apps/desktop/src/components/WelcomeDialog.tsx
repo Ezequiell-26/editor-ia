@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ViewId } from '../app/navigation';
+import { WORKSPACE_STEP_COUNT } from '../app/workspace-map';
 import { detectNativeRuntime } from '../services/project-service';
 import { loadProfile } from '../state/profile';
 import { useProjectStore } from '../state/project-store';
@@ -118,7 +119,9 @@ export function WelcomeDialog({ onNavigate }: { readonly onNavigate: (id: ViewId
             <Icon name="learn" size={20} />
             <span>
               <strong>Ver el tutorial completo</strong>
-              <span>Cinco pasos y guía de cada herramienta</span>
+              <span>
+                {WORKSPACE_STEP_COUNT} pasos del recorrido y guía de cada herramienta
+              </span>
             </span>
           </button>
           <button
