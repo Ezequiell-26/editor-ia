@@ -4,6 +4,29 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Unificación F4 (2ª parte) · atajos del cheat sheet agrupados por
+  el mapa (2026-11-07)** — slice acotado de la fase F4 de
+  `docs/UNIFICATION-PLAN.md`, ejecutado en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Atajos `nav.*` por grupo del estudio**: `ShortcutsCheatSheet` ya no
+    muestra los 9 atajos de navegación bajo una única sección plana
+    «Navegación». Cada `nav.<view>` resuelve su `ViewId` con
+    `workspaceGroupFor` (misma fuente que la paleta de comandos) y se
+    agrupa como «Navegación · Preparar / Editar / Potenciar / Aprender y
+    ajustar». El prefijo evita la colisión con la categoría «Editar» de los
+    atajos `edit.*`. El filtro «Navegación» y la búsqueda no cambian.
+  - **Archivos**: `components/ShortcutsCheatSheet.tsx` (+test nuevo
+    `ShortcutsCheatSheet.test.tsx`, 4 tests).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    **25/25** (ShortcutsCheatSheet 4/4 + workspace-map, commands,
+    navigation, view-routing 21/21). No se corrió la suite serial completa
+    (cambio acotado a un componente lazy de UI).
+  - **Siguiente paso F4**: verificar cobertura de los 3 hubs
+    (`download`/`creator`/`lab`) como panel del editor con retorno
+    persistente (T1 ya los monta vía `EDITOR_TOOL_HOSTS` → modo `tools`;
+    falta la verificación medida) y cierre del onboarding de primera
+    ejecución con el recorrido único.
+
 - `[done]` **Unificación F4 (parcial) · paleta desde el mapa y copy de primera
   ejecución (2026-11-07)** — slice acotado de la fase F4 de
   `docs/UNIFICATION-PLAN.md`, ejecutado en una pasada del protocolo del loop
