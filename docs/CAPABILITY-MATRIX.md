@@ -77,6 +77,7 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | Instancias Chromium aisladas con proxy + stealth CDP | Playwright/puppeteer | ✅ | `browser_instances.rs`: perfil por `profile_id`, `--proxy-server`, flags anti-automatización y overrides JS vía `Page.addScriptToEvaluateOnNewDocument`. Tool MCP `browser_instances` |
 | Pipeline guion→video (`factory_run` async) | — | ✅ | `batch-factory.ts`, `mcp-orchestrator-jobs`, test e2e con Flow |
 | Grabación tipo OBS (pantalla/ventana/región/webcam/audio/RTMP) | OBS | ✅ | `screen_record.rs`, dispositivos dshow, stats ffprobe, `streamUrl` RTMP |
+| Preview de escena OBS (frame PNG sin grabar) | OBS | ✅ | `screen_record_snapshot` + `obs_scene_preview`: reutiliza los helpers de args de captura de `screen_record` (desktop/ventana/región + webcam PiP) → ffmpeg 1 frame → PNG. Comandos Tauri + `obs_scenes` action=`preview` en MCP + servicio/fake. Tests Rust de args |
 | Archivos: ls/read/write/mkdir/move/delete protegidos | — | ✅ | `files.rs` con protección de rutas de sistema y perfil |
 | Editor visual de nodos | xyflow, rete | ✅ | `features/nodes/` con `@xyflow/react` 12.12.1 (MIT): grafo tipado, ejecución real sobre clips del proyecto (efectos→`stack`, audio→`audioStack`), render vía primer perfil de exportación. 6 tests `graph-model.test.ts` |
 | Análisis de contenido visual local | — | ✅ | `image_sense.rs` (luz/color/rostros/nitidez), MCP `media_analyze` |
@@ -96,10 +97,10 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 1. ~~**Editor de nodos visual**~~ **HECHO**: `@xyflow/react` integrado con ejecución real sobre la timeline (ver fila de la matriz). Persistencia de grafos en proyecto queda como mejora.
 2. **Motor stickman/rigging 2D**: **HECHO (v1)** — `commands/stickman.rs`: rig FK con 14 huesos, 5 acciones procedurales (idle/walk/run/wave/jump) + keyframes con interpolación, raster propio + ffmpeg. 5 tests. Partículas y física quedan pendientes.
 3. ~~EQ/compresor por clip~~ — resuelto: el catálogo de audio del effect-kit ya se compila a filtros `-af` por clip y llega al render.
-4. **Escenas OBS**: **HECHO** — `commands/obs_scenes.rs`: presets persistentes (capture target, webcam, mic, RTMP, encoder) en `obs-scenes.json`, `obs_scene_start` delega en el motor real. Tool MCP `obs_scenes`. Transiciones entre escenas y preview en vivo quedan pendientes.
+4. **Escenas OBS**: **HECHO** — `commands/obs_scenes.rs`: presets persistentes (capture target, webcam, mic, RTMP, encoder) en `obs-scenes.json`, `obs_scene_start` delega en el motor real, `obs_scene_preview` captura un frame PNG real de la escena (ver fila de la matriz). Tool MCP `obs_scenes`. Transiciones entre escenas quedan pendientes.
 5. **Scopes en preview nativo**: existen scopes de color (`filmcraft_scopes`); verificar paridad waveform/vectorscope en la UI de color.
 6. ~~**Subtítulos traducidos automáticos**~~ **HECHO (v1)** — `subtitles_pipeline.rs`: video → faster-whisper → traducción por proveedor (mock honesto `simulated:true`) → `.ass` con PlayRes real → burn-in FFmpeg con verificación. Tool MCP + servicio + 3 tests.
-7. **Transiciones OBS en vivo** y **preview de escena**: pendiente (filtergraph multi-inputo con timeline).
+7. **Transiciones OBS en vivo**: pendiente (filtergraph multi-inputo con timeline). ~~Preview de escena~~ **HECHO**: `obs_scene_preview`/`screen_record_snapshot`.
 8. **Editor visual del rig stickman** y **física 2D**: pendiente (hoy código/keyframes/MCP + partículas).
 9. **Grafos de nodos dentro del `.olyp`**: hoy persisten como `graphs/*.json` del proyecto con auto-carga del último.
 
