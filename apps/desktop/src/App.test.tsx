@@ -1594,8 +1594,11 @@ describe('T2 · todas las herramientas dentro del editor', () => {
 
     // «Volver al mapa» regresa al mapa de herramientas sin salir del editor.
     fireEvent.click(screen.getByRole('button', { name: /Volver al mapa/i }));
-    await waitFor(() =>
-      expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length),
+    // El default de waitFor (1 s) es corto bajo la carga de la suite completa:
+    // el desmonte del hub lazy y el mapa pueden tardar más en commitear.
+    await waitFor(
+      () => expect(document.querySelectorAll('.editor-tool-chip')).toHaveLength(NAV_VIEWS.length),
+      { timeout: 10_000 },
     );
     expect(document.querySelector('.timeline-panel')).toBeTruthy();
 
