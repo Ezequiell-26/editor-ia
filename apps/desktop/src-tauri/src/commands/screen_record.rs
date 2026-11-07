@@ -772,6 +772,8 @@ pub async fn screen_record_snapshot(
         .arg("-frames:v")
         .arg("1")
         .arg("-an")
+        .arg("-update")
+        .arg("1")
         .arg(output.as_os_str());
     hide_console(&mut command);
 
