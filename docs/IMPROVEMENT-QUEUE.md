@@ -4,6 +4,31 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Unificación F4 (cierre) · OnboardingTour sobre el recorrido
+  único (2026-11-07)** — última pieza de la fase F4 de
+  `docs/UNIFICATION-PLAN.md`, ejecutada en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Tour derivado de `WORKSPACE_STEPS`**: `OnboardingTour` ya no define sus
+    propios 6 pasos (welcome/assets/timeline/preview/ai-tools/export, un
+    recorrido distinto). `TOUR_STEPS` se construye con `map` sobre
+    `WORKSPACE_STEPS`: mismos ids, `title`=label, `subtitle`=action,
+    `content`=detail, `proTip`=tip y `view`=la etapa canónica, así que cada
+    paso navega a la vista real del pipeline (projects → script → assets →
+    production → editor → production). Lo único propio que queda es
+    `TOUR_TARGETS`, el ancla visual por etapa (toolbar de Proyectos/Guion/
+    Medios/Producción, timeline del editor y botón Exportar del topbar, que es
+    global). Test nuevo fija la derivación campo por campo.
+  - **Archivos**: `components/OnboardingTour.tsx` (−75 líneas de copy
+    duplicado), `components/OnboardingTour.test.tsx` (nuevo, 3 tests).
+  - **Verificación**: `tsc --noEmit -p apps/desktop` 0 · vitest dirigido
+    (OnboardingTour 3/3, WorkspaceGuide 4/4, LearnView 2/2, workspace-map
+    4/4) **13/13** · `App.test.tsx` **76/76**. No se corrió la suite serial
+    completa (cambio acotado a un componente lazy de UI).
+  - **F4 queda cerrada**: paleta desde el mapa, atajos agrupados, hubs como
+    panel con retorno y onboarding con el recorrido único. Criterio del plan
+    cumplido: LearnView, WorkspaceGuide (Inicio/Guía/editor) y OnboardingTour
+    muestran los mismos 6 pasos de `app/pipeline.ts`.
+
 - `[done]` **Unificación F4 (3ª parte) · hubs medidos + fix de «Volver al
   mapa» (2026-11-07)** — slice acotado de la fase F4 de
   `docs/UNIFICATION-PLAN.md`, ejecutado en una pasada del protocolo del loop

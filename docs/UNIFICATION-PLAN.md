@@ -202,7 +202,7 @@ documento como registro de estado. El ledger de `.editoria-loop/` no se tocó.
 | F1 | **completada y verificada** | `.tmp-redesign/unify/shots/results-final2.json`, `.tmp-redesign/unify/serial-final.log` (**2047 passed / 3 skipped / 0 failed**), `.tmp-redesign/unify/e2e-final.log` (**19/1/4**, los 4 previos) |
 | F2 | **completada y verificada** | `.tmp-redesign/unify/f2/shots/results.json` (13 estados, 0 errores), `.tmp-redesign/unify/f2/serial.log`; ver entrada en `docs/IMPROVEMENT-QUEUE.md` |
 | F3 | **completada y verificada (2026-11-07)** | `SECONDARY_NAV_VIEWS` excluye lo que `resolveViewRoute` resuelve a modo del editor: «Más» queda en 5 puertas (Nodos, Director, Automático, AI Hub, MCP); colisiones «Efectos»/«Texto»/«Mezcla» resueltas. typecheck desktop 0 · tests nav/routing/map/motion 24/24 · `App.test.tsx` 74/74 · e2e `app.spec.ts` 4/4 con aserciones negativas nuevas |
-| F4 | parcial | retorno persistente al editor implementado en F2; paleta de comandos generada desde `WORKSPACE_GROUPS` y copy de primera ejecución alineado al recorrido único (2026-11-07); atajos `nav.*` del cheat sheet agrupados por los grupos del mapa vía `workspaceGroupFor` (2026-11-07); los 3 hubs (`download`/`creator`/`lab`) verificados como panel del editor con retorno persistente y pestaña inicial por alias — con fix real de `clearTool` que expulsaba al usuario del editor al volver al mapa (2026-11-07, `App.test.tsx` 76/76). Falta: cierre del onboarding de primera ejecución con el recorrido único |
+| F4 | **completada y verificada (2026-11-07)** | paleta de comandos generada desde `WORKSPACE_GROUPS` y copy de primera ejecución alineado (`WelcomeDialog` usa `WORKSPACE_STEP_COUNT`); atajos `nav.*` del cheat sheet agrupados por los grupos del mapa vía `workspaceGroupFor`; los 3 hubs (`download`/`creator`/`lab`) verificados como panel del editor con retorno persistente y pestaña inicial por alias — con fix real de `clearTool` que expulsaba al usuario del editor al volver al mapa (`App.test.tsx` 76/76); `OnboardingTour` derivado de `WORKSPACE_STEPS` (mismos 6 pasos, navegación a la vista canónica de cada etapa, anclas `TOUR_TARGETS`) con test de derivación campo por campo (`OnboardingTour.test.tsx` 3/3, typecheck 0) |
 
 **F1 ejecutada** (archivos): `app/workspace-map.ts` (+test),
 `components/WorkspaceGuide.tsx` (+test), `app/view-routing.ts` (modo `guide`),
@@ -260,8 +260,15 @@ y el cierre del onboarding de primera ejecución con el recorrido único.
 3 hubs quedó hecha en `App.test.tsx` (76/76) y destapó un bug real:
 `clearTool` no restauraba `activeId='editor'`, así que «Volver al mapa»
 montaba la pantalla standalone del hub y sacaba al usuario del editor. Fix
-aplicado (`setActiveId('editor')`, igual que `openToolMap`). F4 sólo resta
-el cierre del onboarding de primera ejecución con el recorrido único.
+aplicado (`setActiveId('editor')`, igual que `openToolMap`).
+
+**Actualización 2026-11-07 (cierre de F4)**: `OnboardingTour` pasó a derivar
+sus pasos de `WORKSPACE_STEPS` — mismo id, etiqueta, acción, detalle, tip y
+vista canónica por etapa— y sólo conserva `TOUR_TARGETS` como anclas
+visuales por etapa. Con esto las cuatro superficies de aprendizaje (Inicio,
+Aprender, modo Guía del editor y tour) muestran los mismos 6 pasos de
+`app/pipeline.ts`. **F1–F4 completadas**: el plan de unificación queda
+cerrado; el siguiente trabajo sale de `docs/IMPROVEMENT-QUEUE.md`.
 
 ---
 

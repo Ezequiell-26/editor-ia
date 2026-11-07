@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from'react';
 import type { ViewId } from'../app/navigation';
+import type { PipelineStageId } from'../app/pipeline';
+import { WORKSPACE_STEPS } from'../app/workspace-map';
 import { Icon } from'./Icon';
 import { useDialogFocus } from'../hooks/useDialogFocus';
 
@@ -17,104 +19,39 @@ export interface TourStep {
   readonly proTip?: string;
 }
 
-export const TOUR_STEPS: readonly [TourStep, ...TourStep[]] = [
-  {
-    id: 'welcome',
-    targetSelector: '[data-tour="brand"]',
-    fallbackSelector: '.topbar-brand',
-    view: 'home',
-    title: 'Bienvenido a Olyvia Studio',
-    subtitle: 'Suite de video inteligente, ágil y local-first',
-    content:
-      'Olyvia está diseñada para que crees contenido audiovisual de alto impacto sin fricción. Todo el procesamiento corre en tu equipo: sin marcas de agua, sin cuotas sorpresa y con privacidad absoluta.',
-    highlights: [
-      'Renderizado local ultrarrápido con motor FFmpeg',
-      'Privacidad 100%: tus archivos nunca salen de tu PC',
-      'Herramientas de IA para auto-corte, subtítulos y guiones',
-    ],
-    proTip: 'Tip: Podés pausar y volver a abrir esta guía en cualquier momento desde la barra superior o presionando Shift + ?.',
-  },
-  {
-    id: 'assets',
-    targetSelector: '[data-tour="assets"]',
-    fallbackSelector: '.asset-rail',
-    view: 'editor',
-    title: '1. Biblioteca de Medios & Recursos',
-    subtitle: 'Importación y organización inteligente',
-    content:
-      'Aquí organizás todos los elementos de tu producción: videos, pistas de música, grabaciones de voz, fotos y textos animados. Olyvia analiza formatos y genera proxies ligeros al instante.',
-    highlights: [
-      'Arrastrá y soltá archivos directamente desde tu explorador',
-      'Pestañas de Música, Efectos, Transiciones y Filtros',
-      'Marcá tus medios favoritos para ubicarlos con un clic',
-    ],
-    proTip: 'Tip: También podés generar audios y doblajes con IA desde la barra de herramientas del proyecto.',
-  },
-  {
-    id: 'timeline',
-    targetSelector: '[data-tour="timeline"]',
-    fallbackSelector: '.timeline-panel',
-    view: 'editor',
-    title: '2. Línea de Tiempo Multi-Pista',
-    subtitle: 'El corazón de tu edición con precisión a frame',
-    content:
-      'Montá tus clips en pistas de video (V1, V2) y audio (A1, A2). Hacé cortes quirúrgicos al instante, reordená tomas con imán magnético y controlá el ritmo de tu historia visual.',
-    highlights: [
-      'Presioná"S"para dividir clips en el cabezal de reproducción',
-      'Recortá inicio con"["y final con"]"sin desajustar el tiempo',
-      'Ajustá el zoom con"+"y"-"o con la rueda del ratón',
-    ],
-    proTip: 'Tip: Usá Barra espaciadora para reproducir/pausar y Ctrl+Z para deshacer.',
-  },
-  {
-    id: 'preview',
-    targetSelector: '[data-tour="preview"]',
-    fallbackSelector: '.preview-panel',
-    view: 'editor',
-    title: '3. Monitor de Previsualización',
-    subtitle: 'Reproducción fluida y cambio de formato 16:9 / 9:16',
-    content:
-      'Observá tus cambios en tiempo real con código de tiempo preciso y medidores VU de volumen. Cambiá de formato horizontal a vertical con un solo clic para exportar a YouTube o a Shorts/Reels.',
-    highlights: [
-      'Conmutador de aspecto: 16:9 (Horizontal) / 9:16 (Vertical)',
-      'Medidores de audio en tiempo real para evitar distorsiones',
-      'Previsualización fluida con proxies automáticos',
-    ],
-    proTip: 'Tip: Presioná F11 para previsualizar a pantalla completa.',
-  },
-  {
-    id: 'ai-tools',
-    targetSelector: '[data-tour="ai-tools"]',
-    fallbackSelector: '.assistant-launcher',
-    view: 'editor',
-    title: '4. Aceleradores de IA & Asistente',
-    subtitle: 'Automatizá lo repetitivo en segundos',
-    content:
-      'Ahorrá horas de edición con nuestras herramientas inteligentes: Auto-Corte de silencios, generador de guiones, clonación de voz y subtítulos automáticos sincronizados.',
-    highlights: [
-      'Auto-Corte: elimina silencios y pausas incómodas en 1 clic',
-      'Subtítulos automáticos con estilos dinámicos de TikTok',
-      'Asistente contextual disponible en la esquina inferior',
-    ],
-    proTip: 'Tip: Abrí el Asistente en cualquier momento para pedirle ideas de edición o transcripciones.',
-  },
-  {
-    id: 'export',
-    targetSelector: '[data-tour="export"]',
-    fallbackSelector: '.topbar-export-btn',
-    view: 'editor',
-    title: '5. Exportación & Entrega Final',
-    subtitle: 'Renderizado local con aceleración por hardware',
-    content:
-      'Cuando tu montaje esté listo, tocá Exportar. Elegí perfiles optimizados para YouTube 4K, TikTok, Instagram o archivo maestro. El render corre en tu procesador/GPU local a máxima velocidad.',
-    highlights: [
-      'Perfiles listos para YouTube, Shorts, TikTok y ProRes',
-      'Sin marcas de agua y sin tiempos de subida a la nube',
-      'Exportación directa a tu carpeta local de videos',
-    ],
-    proTip: 'Tip: Atajo rápido Ctrl + E para abrir el cuadro de exportación en cualquier instante.',
-  },
-];
+/**
+ * Ancla visual de cada etapa del recorrido único. Las vistas se resuelven con
+ * `WORKSPACE_STEPS` (app/workspace-map.ts): el tour no define pasos propios,
+ * sólo dice qué elemento de pantalla conviene iluminar en cada etapa.
+ */
+const TOUR_TARGETS: Readonly<
+  Record<PipelineStageId, { readonly target: string; readonly fallback?: string }>
+> = {
+  project: { target:'.projects-view .project-toolbar', fallback:'.projects-view' },
+  script: { target:'.script-view .view-toolbar', fallback:'.script-view' },
+  media: { target:'.assets-view .view-toolbar', fallback:'.assets-view' },
+  voice: { target:'.production-view .view-toolbar', fallback:'.production-view' },
+  edit: { target:'[data-tour="timeline"]', fallback:'.timeline-panel' },
+  export: { target:'[data-tour="export"]', fallback:'.topbar-export-btn' },
+};
+
+/** Los mismos seis pasos que Inicio, Aprender, la guía del editor y el tour. */
+const TOUR_STEP_LIST: TourStep[] = WORKSPACE_STEPS.map((step) => {
+  const target = TOUR_TARGETS[step.id];
+  return {
+    id: step.id,
+    targetSelector: target.target,
+    ...(target.fallback ? { fallbackSelector: target.fallback } : {}),
+    view: step.view,
+    title: step.label,
+    subtitle: step.action,
+    content: step.detail,
+    highlights: [],
+    proTip: step.tip,
+  };
+});
+
+export const TOUR_STEPS = TOUR_STEP_LIST as [TourStep, ...TourStep[]];
 
 export interface OnboardingTourProps {
   readonly open: boolean;
