@@ -306,7 +306,9 @@ describe('shell de Olyvia', () => {
     const url = await screen.findByRole('textbox', { name: /URL para descargar/i });
     fireEvent.change(url, { target: { value: 'https://youtube.com/watch?v=hub' } });
     await hubTab('YouTube');
-    expect(await screen.findByText('Analizador de YouTube')).toBeTruthy();
+    expect(
+      await screen.findByText('Analizador de YouTube', {}, { timeout: 5000 }),
+    ).toBeTruthy();
     await hubTab('Descargar');
     expect(
       (screen.getByRole('textbox', { name: /URL para descargar/i }) as HTMLInputElement).value,
@@ -317,8 +319,9 @@ describe('shell de Olyvia', () => {
     renderApp();
     await createProject('Obra modos');
     fireEvent.click(screen.getByRole('tab', { name: 'Mezcla' }));
-    await waitFor(() =>
-      expect(screen.getByRole('main').textContent).toContain('Mezcla de audio'),
+    await waitFor(
+      () => expect(screen.getByRole('main').textContent).toContain('Mezcla de audio'),
+      { timeout: 5000 },
     );
     expect(document.querySelector('.timeline-surface')).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'Mezcla' }).getAttribute('aria-selected')).toBe(
@@ -344,7 +347,7 @@ describe('shell de Olyvia', () => {
   it('redirige un deep link de utilidad al Laboratorio con su tab', async () => {
     renderAppAt('?view=convert');
     const main = screen.getByRole('main');
-    const tab = await within(main).findByRole('tab', { name: 'Convertir' });
+    const tab = await within(main).findByRole('tab', { name: 'Convertir' }, { timeout: 5000 });
     await waitFor(() => expect(tab.getAttribute('aria-selected')).toBe('true'));
     const rail = screen.getByRole('navigation', { name: /vistas/i });
     expect(
@@ -355,7 +358,7 @@ describe('shell de Olyvia', () => {
   it('redirige un deep link de creador al hub con su tab', async () => {
     renderAppAt('?view=factory');
     const main = screen.getByRole('main');
-    const tab = await within(main).findByRole('tab', { name: 'Fábrica' });
+    const tab = await within(main).findByRole('tab', { name: 'Fábrica' }, { timeout: 5000 });
     await waitFor(() => expect(tab.getAttribute('aria-selected')).toBe('true'));
     const rail = screen.getByRole('navigation', { name: /vistas/i });
     expect(
@@ -366,7 +369,10 @@ describe('shell de Olyvia', () => {
   it('redirige un deep link de modo del editor al editor canónico', async () => {
     renderAppAt('?view=mixer');
     const main = screen.getByRole('main');
-    await waitFor(() => expect(within(main).getByRole('heading', { name: /Estudio de Edici.n de Video/ })).toBeTruthy());
+    await waitFor(
+      () => expect(within(main).getByRole('heading', { name: /Estudio de Edici.n de Video/ })).toBeTruthy(),
+      { timeout: 5000 },
+    );
     const rail = screen.getByRole('navigation', { name: /vistas/i });
     expect(
       within(rail).getByRole('button', { name: 'Editor' }).getAttribute('aria-current'),
@@ -402,9 +408,9 @@ describe('shell de Olyvia', () => {
     await nav('Laboratorio');
     await hubTab('Denoise');
     const main = screen.getByRole('main');
-    await waitFor(() =>
-      expect(main.textContent).toContain('Reducir ruido en tiempo real'),
-    );
+    await waitFor(() => expect(main.textContent).toContain('Reducir ruido en tiempo real'), {
+      timeout: 5000,
+    });
     expect(main.textContent).toContain('Elegir video');
     expect(main.textContent).toContain('Elegir imagen');
   });

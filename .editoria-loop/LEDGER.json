@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T17:35:20.454Z"
+    "lastPassAt": "2026-11-07T18:18:54.165Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -408,6 +408,14 @@
     }
   ],
   "passes": [
+    {
+      "at": "2026-11-07T18:18:54.164Z",
+      "taskId": null,
+      "status": "done",
+      "note": "Pasada sobre la cola de mejora (ledger cerrado: preflight idle). Item: 5 tests flaky en App.test.tsx — chunks lazy de hubs (lab/creator/download-youtube) y modos del editor (mixer, editor) superaban el timeout default de 1s de findBy/waitFor bajo carga; cada test pasaba aislado y el DOM mostraba .view-loading. Mismo patron que 56a1ff8. Fix: 6 esperas a {timeout:5000}. Verificacion: vitest App.test.tsx 76/76 (antes 5 failed); tsc reporta 1 error ajeno en VpnCard.test.tsx (WIP VPN del usuario, no tocado). Registrado en docs/IMPROVEMENT-QUEUE.md y memory/2026-11-07-app-test-lazy-hubs-timeouts.md.",
+      "remedy": null,
+      "verifyRan": false
+    },
     {
       "at": "2026-11-07T17:35:20.454Z",
       "taskId": null,

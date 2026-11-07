@@ -4,6 +4,23 @@ Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Suite: timeouts reales para chunks lazy de hubs y modos
+  (2026-11-07)** — misma clase de flake que la entrada anterior, en una
+  pasada del protocolo del loop (Devin CLI).
+  - **Causa**: `App.test.tsx` fallaba con 5 tests en la corrida completa
+    (76 tests) y pasaba cada uno aislado. Vistas lazy
+    (`YouTubeAnalyzerView`, `MediaLabView`, `CreatorHubView`,
+    `MixerView`, `DenoiseView`, `EditorWorkspace`) superan el timeout
+    default de 1 s de `findBy*`/`waitFor` bajo carga; el DOM volcado
+    mostraba `.view-loading` persistente. No era un fallo de producto.
+  - **Fix**: 6 esperas en `App.test.tsx` subidas a `{ timeout: 5000 }`
+    (mismo criterio que `createProject` y que el fix anterior de
+    Descargar).
+  - **Verificación**: `npx vitest run src/App.test.tsx` **76/76** (antes
+    5 failed). `npx tsc --noEmit -p apps/desktop/tsconfig.json` reporta 1
+    error ajeno en `VpnCard.test.tsx` (trabajo VPN no confirmado del
+    usuario, no tocado).
+
 - `[done]` **Suite: espera real para el chunk lazy de Descargar (2026-11-07)** —
   regresión de test detectada en una pasada del protocolo del loop (Devin CLI).
   - **Causa**: con proyecto abierto, `nav('Descargar')` monta
