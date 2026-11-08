@@ -160,6 +160,22 @@ impl ProjectStageExecutor {
                 }
                 continue;
             }
+            // Requisitos `music` con convención `music:`/`ambient:`/`pad:`
+            // los satisface el generador local de cama ambiental.
+            if req.kind == StudioResourceKind::Music
+                && crate::infrastructure::studio::local_music::is_music_prompt(&req.query)
+            {
+                match self.acquire_music(ctx, req, &plan.id) {
+                    Ok(entries) => {
+                        acquired.extend(entries);
+                        continue;
+                    }
+                    Err(_) => {
+                        unsatisfied.push(req.id.clone());
+                        continue;
+                    }
+                }
+            }
             // Requisitos `image` con convención `title:`/`card:` los
             // satisface el generador local de tarjetas (ffmpeg drawtext).
             // Otros `image` siguen el camino normal de adquisición.
@@ -545,6 +561,47 @@ impl ProjectStageExecutor {
             }));
         }
         Ok(Some(entries))
+    }
+
+    /// Genera la cama musical para requisitos `music` con la convención
+    /// `music:`/`ambient:`/`pad:` (pad de senos vía ffmpeg).
+    fn acquire_music(
+        &self,
+        ctx: &StageContext,
+        req: &crate::studio::plan::ResourceRequirement,
+        plan_id: &str,
+    ) -> Result<Vec<Value>, ProjectError> {
+        let generator = crate::infrastructure::studio::local_music::LocalMusicGenerator::new(
+            self.ffmpeg.clone(),
+        );
+        let mut entries = Vec::new();
+        for i in 0..req.max_count.max(1) {
+            let request = GenerationRequest {
+                request_id: format!("{plan_id}-{}-{i}", req.id),
+                kind: StudioResourceKind::Music,
+                prompt: req.query.clone(),
+                duration_seconds: None,
+                voice: None,
+                params: json!({}),
+            };
+            let result = generator.generate(&request, &ctx.project_root)?;
+            let asset_id = self.register_generated_asset_typed(
+                ctx,
+                &result.path,
+                generator.provider_id(),
+                &req.query,
+                "audio",
+            )?;
+            entries.push(json!({
+                "requirementId": req.id,
+                "path": result.path,
+                "bytes": result.bytes,
+                "externalId": request.request_id,
+                "sourceId": generator.provider_id(),
+                "assetId": asset_id,
+            }));
+        }
+        Ok(entries)
     }
 
     /// Registra un archivo generado localmente (voz, etc.) como
@@ -1275,6 +1332,69 @@ mod tests {
             .expect("asset en el documento");
         assert_eq!(asset["kind"], "audio");
         assert_eq!(asset["rights"]["provenance"]["origin"], "generated-locally");
+        let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
+        let entry = catalog.get(&asset_id).unwrap().expect("asset en catálogo");
+        assert_eq!(entry.kind, StudioResourceKind::Audio);
+        assert!(entry.duration_frames.unwrap_or(0) > 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Generación de música REAL: un requisito `music` con convención
+    /// `music:` sintetiza un MP3 con ffmpeg, lo registra como asset
+    /// `audio` y el catálogo lo resuelve (así `edit` lo monta como cama).
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test acquire_music -- --ignored`
+    #[test]
+    #[ignore]
+    fn acquire_music_generates_registers_and_indexes_asset() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("generación de música omitida: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        let ffmpeg = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned()),
+        );
+        let ffprobe = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFPROBE").unwrap_or_else(|_| "ffprobe".to_owned()),
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "exec-acq-music-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(dir.join("media")).unwrap();
+        fs::write(
+            dir.join("project.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "video": { "frameRate": { "num": 30, "den": 1 } },
+                "assets": []
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let executor = ProjectStageExecutor::new(Some(ffprobe)).with_ffmpeg(Some(ffmpeg));
+        let mut plan = plan(1);
+        plan.requirements[0].kind = StudioResourceKind::Music;
+        plan.requirements[0].query = "music:ambient".to_owned();
+        let outcome = executor
+            .execute(StudioStage::Acquire, &ctx(&plan, &dir))
+            .unwrap();
+        assert!(outcome.completed, "{:?}", outcome.error);
+        assert_eq!(outcome.cost_cents, Some(0));
+        let output = outcome.output.unwrap();
+        assert_eq!(output["acquired"], 1, "{output}");
+        assert_eq!(output["resources"][0]["sourceId"], "local-ffmpeg-ambient");
+        let asset_id = output["resources"][0]["assetId"]
+            .as_str()
+            .expect("la música generada debe registrarse como asset")
+            .to_owned();
+        let path = output["resources"][0]["path"].as_str().unwrap().to_owned();
+        assert!(dir.join(&path).is_file(), "el MP3 debe existir: {path}");
+        assert!(path.starts_with("media/generated/musica-"));
+
         let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
         let entry = catalog.get(&asset_id).unwrap().expect("asset en catálogo");
         assert_eq!(entry.kind, StudioResourceKind::Audio);
