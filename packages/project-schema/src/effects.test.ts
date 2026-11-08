@@ -151,6 +151,27 @@ describe('efectos de clip', () => {
     expect(unknown.success).toBe(false);
   });
 
+  it('exige clip mate para luma-wipe', () => {
+    const mate = '44444444-4444-4444-8444-444444444444';
+    const ok = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionIn: { type: 'luma-wipe', frames: 12, mateClipId: mate },
+    });
+    expect(ok.success).toBe(true);
+
+    const missing = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionIn: { type: 'luma-wipe', frames: 12 },
+    });
+    expect(missing.success).toBe(false);
+
+    const badMate = ClipSchema.safeParse({
+      ...imageClip(undefined),
+      transitionIn: { type: 'luma-wipe', frames: 12, mateClipId: 'mate' },
+    });
+    expect(badMate.success).toBe(false);
+  });
+
   it('acepta animaciones de entrada y salida válidas y rechaza las inválidas', () => {
     const ok = ClipSchema.safeParse({
       ...imageClip(undefined),

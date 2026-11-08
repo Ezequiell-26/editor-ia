@@ -26,6 +26,12 @@ export interface MotionTextLayer {
   readonly animation: MotionAnimation;
 }
 
+/** Punto normalizado 0..1 dentro de la caja de la capa (origen arriba-izquierda). */
+export interface MotionPoint {
+  readonly x: number;
+  readonly y: number;
+}
+
 export interface MotionRectLayer {
   readonly kind: 'rect';
   readonly x: number;
@@ -34,7 +40,8 @@ export interface MotionRectLayer {
   readonly height: number;
   readonly color: string;
   readonly opacity: number;
-  /** Formas no rectangulares del titler (polígono ASS / clip-path CSS). */
+  /** Formas no rectangulares del titler (polígono ASS / clip-path CSS).
+   * `custom` usa `points` (3..16 vértices libres dentro de la caja). */
   readonly shape?:
     | 'rect'
     | 'ellipse'
@@ -43,7 +50,10 @@ export interface MotionRectLayer {
     | 'star'
     | 'pentagon'
     | 'hexagon'
-    | 'arrow';
+    | 'arrow'
+    | 'custom';
+  /** Vértices del polígono para `shape: 'custom'`; ignorados con otras formas. */
+  readonly points?: readonly MotionPoint[];
   readonly animation: MotionAnimation;
 }
 
@@ -69,10 +79,12 @@ export interface MotionContext {
 export interface MotionField {
   readonly id: string;
   readonly label: string;
-  readonly kind: 'text' | 'textarea' | 'color' | 'select' | 'number';
+  readonly kind: 'text' | 'textarea' | 'color' | 'select' | 'number' | 'polygon';
   readonly options?: readonly { readonly value: string; readonly label: string }[];
   readonly min?: number;
   readonly max?: number;
+  /** Si está, el campo queda deshabilitado salvo que `props[key] === value`. */
+  readonly requires?: { readonly key: string; readonly value: string };
 }
 
 export interface MotionTemplate {
@@ -202,6 +214,7 @@ function rect(
   opacity: number,
   anim: MotionAnimation,
   shape?: MotionRectLayer['shape'],
+  points?: readonly MotionPoint[],
 ): MotionRectLayer {
   return {
     kind: 'rect',
@@ -212,6 +225,7 @@ function rect(
     color,
     opacity: clamp(opacity),
     ...(shape ? { shape } : {}),
+    ...(points && points.length >= 3 ? { points } : {}),
     animation: anim,
   };
 }
@@ -1006,14 +1020,31 @@ export const cinematicTitleTemplate: MotionTemplate = {
   },
 };
 
+const badgePointSchema = z
+  .object({
+    x: z.number().gte(0).lte(1),
+    y: z.number().gte(0).lte(1),
+  })
+  .strict();
+
+/** Vértices por defecto de la forma «Personalizada»: cheurón abierto abajo. */
+export const DEFAULT_CUSTOM_POINTS: MotionPoint[] = [
+  { x: 0.12, y: 0.2 },
+  { x: 0.5, y: 0.8 },
+  { x: 0.88, y: 0.2 },
+];
+
 const badgeSchema = z
   .object({
     text: z.string().trim().min(1).max(60),
     color: hexColor.default('#7c3aed'),
     textColor: hexColor.default('#ffffff'),
     shape: z
-      .enum(['ellipse', 'triangle', 'diamond', 'star', 'pentagon', 'hexagon', 'arrow'])
+      .enum(['ellipse', 'triangle', 'diamond', 'star', 'pentagon', 'hexagon', 'arrow', 'custom'])
       .default('ellipse'),
+    /** Vértices 0..1 dentro de la caja de la insignia; sólo se usan con
+     * shape 'custom' (se conserva si se vuelve a una forma con nombre). */
+    points: z.array(badgePointSchema).min(3).max(16).default(DEFAULT_CUSTOM_POINTS),
     animation: animationSchema.default('pop'),
   })
   .strict();
@@ -1048,7 +1079,14 @@ export const badgeTemplate: MotionTemplate = {
         { value: 'pentagon', label: 'Pentágono' },
         { value: 'hexagon', label: 'Hexágono' },
         { value: 'arrow', label: 'Flecha' },
+        { value: 'custom', label: 'Personalizada' },
       ],
+    },
+    {
+      id: 'points',
+      label: 'Puntos de la forma',
+      kind: 'polygon',
+      requires: { key: 'shape', value: 'custom' },
     },
     { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
   ],
@@ -1065,7 +1103,17 @@ export const badgeTemplate: MotionTemplate = {
     const fontSize = proFontSize(44, unit);
     const lineHeight = (fontSize * 1.3) / context.height;
     return [
-      rect(badgeX, badgeY, badgeWidth, badgeHeight, props.color, 0.94, anim, props.shape),
+      rect(
+        badgeX,
+        badgeY,
+        badgeWidth,
+        badgeHeight,
+        props.color,
+        0.94,
+        anim,
+        props.shape,
+        props.shape === 'custom' ? props.points : undefined,
+      ),
       {
         kind: 'text',
         x: badgeX,

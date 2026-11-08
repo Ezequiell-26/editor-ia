@@ -148,3 +148,44 @@
     padding: 12px;
   }
 }
+
+/* Editor de puntos de la forma personalizada del titler */
+.motion-polygon-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.motion-polygon-svg {
+  width: 100%;
+  aspect-ratio: 4 / 1;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.motion-polygon-svg[data-disabled='true'] {
+  cursor: default;
+}
+
+.motion-polygon-shape {
+  fill: rgba(125, 211, 192, 0.25);
+  stroke: #7dd3c0;
+  stroke-width: 1;
+}
+
+.motion-polygon-vertex {
+  fill: #7dd3c0;
+  stroke: #0f172a;
+  stroke-width: 1;
+  cursor: grab;
+}
+
+.motion-polygon-hint {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.3;
+}

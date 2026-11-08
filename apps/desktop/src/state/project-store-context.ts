@@ -16,3 +16,5 @@ export const ProjectContext = createContext<ProjectStoreValue | null>(null);
 export const PlayheadContext = createContext<number>(0);
 
 export const PlayingContext = createContext<boolean>(false);
+
+export const PlaybackRateContext = createContext<number>(1);

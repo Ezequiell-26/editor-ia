@@ -1,4 +1,4 @@
-import type { Asset, Clip, ClipEffects, ProjectDocument } from '@editor-ia/project-schema';
+import type { Asset, Clip, ClipEffects, ClipTransition, ProjectDocument } from '@editor-ia/project-schema';
 import type {
   VisualCatalog,
   VisualPresetSpec,
@@ -80,6 +80,50 @@ export function safeTransitionFrames(requested: number, clip: Clip): number {
   return Math.max(1, Math.min(Math.round(requested), Math.max(1, clip.durationFrames), 120));
 }
 
+/**
+ * `transitionIn` para la aplicación por lote. `dip-color` exige `color` y
+ * `luma-wipe` un `mateClipId` (el schema los valida); sin el dato devuelven
+ * `undefined` para que la vista lo cuente como omitido en vez de escribir un
+ * documento inválido.
+ */
+export function batchTransitionIn(
+  clip: Clip,
+  type: ClipTransition['type'],
+  frames: number,
+  params: { color?: string; mateClipId?: string | undefined } = {},
+): ClipTransition | undefined {
+  const safe = safeTransitionFrames(frames, clip);
+  if (type === 'dip-color') {
+    return params.color ? { type, frames: safe, color: params.color } : undefined;
+  }
+  if (type === 'luma-wipe') {
+    return params.mateClipId
+      ? { type, frames: safe, mateClipId: params.mateClipId }
+      : undefined;
+  }
+  return { type, frames: safe };
+}
+
+/**
+ * Color efectivo de `dip-color` en la aplicación por lote: el override de la
+ * vista gana; `null` fuerza el general; sin override se conserva el color que
+ * el clip ya tiene en su `transitionIn` (p. ej. afinado en el Inspector) y
+ * sólo como último recurso cae al general. Así «Aplicar» no pisa colores
+ * propios que el usuario ya había elegido.
+ */
+export function dipColorForClip(
+  transitionIn: ClipTransition | undefined,
+  override: string | null | undefined,
+  general: string,
+): string {
+  if (override === null) return general;
+  if (override) return override;
+  if (transitionIn?.type === 'dip-color' && transitionIn.color) {
+    return transitionIn.color;
+  }
+  return general;
+}
+
 export function transitionDescription(transition: VisualTransitionSpec | undefined): string {
   return transition?.description ?? 'Sin transición de entrada.';
 }
@@ -124,6 +168,17 @@ export const FALLBACK_VISUAL_CATALOG: VisualCatalog = {
     { id: 'slide-right', label: 'Deslizar desde la izquierda', description: 'El clip entra desde el borde izquierdo.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
     { id: 'slide-up', label: 'Deslizar desde abajo', description: 'El clip entra desde el borde inferior.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
     { id: 'slide-down', label: 'Deslizar desde arriba', description: 'El clip entra desde el borde superior.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'slide-3d-left', label: 'Deslizar 3D desde la derecha', description: 'El clip entra rotando en perspectiva sobre el eje vertical.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'slide-3d-right', label: 'Deslizar 3D desde la izquierda', description: 'El clip entra rotando en perspectiva sobre el eje vertical.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'slide-3d-up', label: 'Deslizar 3D desde abajo', description: 'El clip entra rotando en perspectiva sobre el eje horizontal.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'slide-3d-down', label: 'Deslizar 3D desde arriba', description: 'El clip entra rotando en perspectiva sobre el eje horizontal.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-left', label: 'Barrido hacia la izquierda', description: 'El clip entrante se revela barriendo desde la derecha.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-right', label: 'Barrido hacia la derecha', description: 'El clip entrante se revela barriendo desde la izquierda.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-up', label: 'Barrido hacia arriba', description: 'El clip entrante se revela barriendo desde abajo.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'wipe-down', label: 'Barrido hacia abajo', description: 'El clip entrante se revela barriendo desde arriba.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'iris', label: 'Iris circular', description: 'El clip entrante abre desde el centro en círculo.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
+    { id: 'dip-color', label: 'Fundido a color', description: 'El clip entra fundiéndose desde un color; color general para todos, personalizable por clip.', defaultFrames: 12, maxFrames: 120, overlapsPrevious: false, available: true },
+    { id: 'luma-wipe', label: 'Barrido por luminancia', description: 'El clip entrante se revela por la luminancia de un clip mate elegido por clip.', defaultFrames: 15, maxFrames: 120, overlapsPrevious: true, available: true },
   ],
   filters: [],
 };

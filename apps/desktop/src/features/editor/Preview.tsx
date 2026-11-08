@@ -477,6 +477,7 @@ function VideoLayer({
   project,
   playheadFrame,
   playing,
+  playbackRate,
   muted,
   trackId = '',
   trackGain = 0,
@@ -487,6 +488,7 @@ function VideoLayer({
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
   readonly playing: boolean;
+  readonly playbackRate: number;
   readonly muted: boolean;
   readonly trackId?: string;
   readonly trackGain?: number;
@@ -515,6 +517,10 @@ function VideoLayer({
   const windowed = clip.kind === 'video' || clip.kind === 'audio';
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'video' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
+  // El elemento tiene que avanzar sourceSeconds por segundo de reloj: la
+  // velocidad del clip por la velocidad de la reproducción. preservesPitch
+  // mantiene el tono del audio como hace el export (atempo).
+  const elementRate = Math.min(8, Math.max(0.1, speed * playbackRate));
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
@@ -587,6 +593,13 @@ function VideoLayer({
       video.pause();
     }
   }, [playing, sourceSeconds, url]);
+
+  useEffect(() => {
+    const video = ref.current;
+    if (!video) return;
+    video.preservesPitch = true;
+    video.playbackRate = elementRate;
+  }, [elementRate]);
 
   useEffect(() => {
     if (ref.current) ref.current.volume = volume;
@@ -786,6 +799,7 @@ function AudioLayer({
   project,
   playheadFrame,
   playing,
+  playbackRate,
   trackId = '',
   trackGain = 0,
 }: {
@@ -794,6 +808,7 @@ function AudioLayer({
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
   readonly playing: boolean;
+  readonly playbackRate: number;
   readonly trackId?: string;
   readonly trackGain?: number;
 }) {
@@ -807,6 +822,9 @@ function AudioLayer({
   const windowed = clip.kind === 'audio';
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'audio' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
+  // Igual que en VideoLayer: el elemento avanza a speed × velocidad de
+  // reproducción y preservesPitch conserva el tono como el export.
+  const elementRate = Math.min(8, Math.max(0.1, speed * playbackRate));
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
@@ -865,6 +883,13 @@ function AudioLayer({
       audio.pause();
     }
   }, [playing, sourceSeconds, url]);
+
+  useEffect(() => {
+    const audio = ref.current;
+    if (!audio) return;
+    audio.preservesPitch = true;
+    audio.playbackRate = elementRate;
+  }, [elementRate]);
 
   useEffect(() => {
     if (ref.current) ref.current.volume = volume;
@@ -1556,6 +1581,7 @@ export const Preview = memo(function Preview() {
                   project={project}
                   playheadFrame={playhead}
                   playing={playing}
+                  playbackRate={playback.rate}
                   muted={!track || !isTrackAudible(track, project.timeline.tracks)}
                   trackId={track ? track.id : ''}
                   trackGain={track ? trackGainDb(track) : 0}
@@ -1599,6 +1625,7 @@ export const Preview = memo(function Preview() {
               project={project}
               playheadFrame={playhead}
               playing={playing}
+              playbackRate={playback.rate}
               trackId={track ? track.id : ''}
               trackGain={track ? trackGainDb(track) : 0}
             />

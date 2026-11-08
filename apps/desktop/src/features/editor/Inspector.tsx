@@ -109,6 +109,7 @@ import {
 } from '../../state/project-actions';
 import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
+import { lumaMateById, lumaMateCandidates, lumaMateIsStale, lumaMateOptionLabel, moveLumaMateToOwnTrack } from './luma-mate';
 import { InspectorSection as Section } from './InspectorSection';
 import { ColorPropertiesPanel } from './properties/ColorPropertiesPanel';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
@@ -702,6 +703,33 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
     'transitionIn' in clip
       ? (clip as Clip & { transitionIn?: { frames: number } }).transitionIn?.frames ?? 0
       : 0;
+  // Candidatos a mate del luma wipe: clips visuales habilitados cuya ventana
+  // activa (inicio propio menos su lead) cubre el solape de este clip, con la
+  // misma tolerancia de un frame que valida el renderer. Una pista oculta
+  // también puede aportar la máscara: el render sólo lee su luminancia.
+  const lumaMates = lumaMateCandidates(
+    project.timeline.clips,
+    project.timeline.tracks,
+    clip,
+    fps,
+  );
+  const lumaMateStale = lumaMateIsStale(
+    project.timeline.clips,
+    project.timeline.tracks,
+    clip,
+    fps,
+  );
+  // Mate asignado y su pista: el render sólo lee su luminancia, así que
+  // ocultar la pista del mate es el flujo normal (no cambia la máscara).
+  const lumaMateAssigned =
+    transitionIn?.type === 'luma-wipe'
+      ? lumaMateById(project.timeline.clips, project.timeline.tracks, transitionIn.mateClipId)
+      : undefined;
+  const lumaMateTrack = lumaMateAssigned?.track;
+  const lumaMateSameTrack = lumaMateAssigned?.clip.trackId === clip.trackId;
+  const lumaMateTrackClipCount = lumaMateTrack
+    ? project.timeline.clips.filter((item) => item.trackId === lumaMateTrack.id).length
+    : 0;
   const faceCenterBlockReason =
     clip.kind !== 'video'
       ? null
@@ -2165,6 +2193,11 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                           ...(event.target.value === 'dip-color' && !transitionIn?.color
                             ? { color: '#1b2a4a' }
                             : {}),
+                          ...(event.target.value === 'luma-wipe' &&
+                          transitionIn?.mateClipId === undefined &&
+                          lumaMates[0]
+                            ? { mateClipId: lumaMates[0].clip.id }
+                            : {}),
                         },
                       }),
                     );
@@ -2188,6 +2221,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 <option value="wipe-right">Barrido hacia la derecha</option>
                 <option value="wipe-up">Barrido hacia arriba</option>
                 <option value="wipe-down">Barrido hacia abajo</option>
+                <option value="iris">Iris circular</option>
+                <option value="luma-wipe">Barrido por luminancia (clip mate)</option>
               </select>
             </label>
             <NumberField
@@ -2230,6 +2265,101 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                   }
                 />
               </label>
+            ) : null}
+            {transitionIn?.type === 'luma-wipe' ? (
+              <>
+                <label className="field">
+                  <span>Clip mate (máscara)</span>
+                  <select
+                    value={transitionIn.mateClipId ?? ''}
+                    onChange={(event) =>
+                      store.update((current) =>
+                        updateClip(current, clip.id, {
+                          transitionIn: {
+                            ...transitionIn,
+                            type: 'luma-wipe',
+                            mateClipId: event.target.value || undefined,
+                          },
+                        }),
+                      )
+                    }
+                  >
+                    <option value="">Elegí un clip…</option>
+                    {lumaMateStale && transitionIn.mateClipId ? (
+                      <option value={transitionIn.mateClipId}>
+                        Mate actual (ya no cubre el solape)
+                      </option>
+                    ) : null}
+                    {lumaMates.map((candidate) => (
+                      <option key={candidate.clip.id} value={candidate.clip.id}>
+                        {lumaMateOptionLabel(candidate)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {lumaMateStale ? (
+                  <p className="notice notice-warning" role="alert">
+                    El clip mate asignado ya no cubre el solape (se movió, se
+                    deshabilitó o cambió de tipo). El export va a fallar hasta
+                    elegir otro mate válido o quitar la transición.
+                  </p>
+                ) : lumaMates.length === 0 ? (
+                  <p className="fine-print">
+                    No hay clips que cubran el solape. El mate puede ser video,
+                    imagen o frame congelado en cualquier pista — una pista
+                    oculta también sirve, porque el render sólo usa su
+                    luminancia como máscara.
+                  </p>
+                ) : null}
+                {lumaMateAssigned && lumaMateSameTrack ? (
+                  <p className="notice notice-warning" role="alert">
+                    El mate está en la misma pista que este clip: ocultarla
+                    también ocultaría el clip en el preview y el export.
+                    Mové el mate a otra pista para usarla sólo como máscara.
+                  </p>
+                ) : lumaMateTrack ? (
+                  <>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={lumaMateTrack.hidden}
+                        onChange={(event) =>
+                          store.update((current) =>
+                            updateTrack(current, lumaMateTrack.id, {
+                              hidden: event.target.checked,
+                            }),
+                          )
+                        }
+                      />
+                      <span>Ocultar la pista «{lumaMateTrack.label}»</span>
+                    </label>
+                    <p className="fine-print">
+                      {lumaMateTrack.hidden
+                        ? 'La pista del mate está oculta: no aparece en el preview ni en el export, pero sigue aportando la máscara por luminancia.'
+                        : lumaMateTrackClipCount <= 1
+                          ? 'La pista sólo contiene el mate: ocultarla lo saca del preview y del export sin perder la máscara.'
+                          : `La pista tiene ${lumaMateTrackClipCount} clips: ocultarla los saca a todos del preview y del export. Si querés conservarlos, usá «Mover el mate a una pista propia».`}
+                    </p>
+                  </>
+                ) : null}
+                {lumaMateAssigned && (lumaMateSameTrack || lumaMateTrackClipCount > 1) ? (
+                  <button
+                    type="button"
+                    className="small"
+                    onClick={() => {
+                      store.update((current) => {
+                        const next = moveLumaMateToOwnTrack(current, lumaMateAssigned.clip.id);
+                        if (!next) {
+                          throw new Error('no se pudo mover el mate: la pista está bloqueada');
+                        }
+                        return next;
+                      });
+                    }}
+                  >
+                    Mover el mate a una pista propia oculta
+                  </button>
+                ) : null}
+              </>
             ) : null}
           </div>
           <p className="fine-print">

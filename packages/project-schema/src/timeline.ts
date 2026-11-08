@@ -801,6 +801,8 @@ export const ClipTransitionSchema = z
       'wipe-right',
       'wipe-up',
       'wipe-down',
+      'iris',
+      'luma-wipe',
     ]),
     frames: z.number().int().min(1).max(MAX_TRANSITION_FRAMES),
     /** Color del fundido para `dip-color` (port Kdenlive dip to color). */
@@ -808,6 +810,8 @@ export const ClipTransitionSchema = z
       .string()
       .regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i, 'transition colour must be a hex triplet')
       .optional(),
+    /** Clip cuyo video aporta la máscara de luminancia para `luma-wipe`. */
+    mateClipId: EntityIdSchema.optional(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -816,6 +820,13 @@ export const ClipTransitionSchema = z
         code: z.ZodIssueCode.custom,
         path: ['color'],
         message: 'a dip-to-color transition needs a colour',
+      });
+    }
+    if (value.type === 'luma-wipe' && value.mateClipId === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['mateClipId'],
+        message: 'a luma wipe needs a mate clip',
       });
     }
   });

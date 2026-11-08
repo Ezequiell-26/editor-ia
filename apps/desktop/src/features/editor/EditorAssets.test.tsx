@@ -122,7 +122,7 @@ describe('EditorAssets · barra de herramientas y biblioteca estilo CapCut', () 
     const view = renderRail();
     const tabs = view.container.querySelectorAll('.rail-tabs button');
     fireEvent.click(tabs[5]!); // Índice 5: Transiciones
-    expect(view.container.querySelectorAll('.transition-card').length).toBe(16);
+    expect(view.container.querySelectorAll('.transition-card').length).toBe(17);
   });
 
   it('la pestaña Plantillas muestra Split Screen y selecciona una plantilla real', () => {

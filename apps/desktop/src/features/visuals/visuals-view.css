@@ -315,3 +315,64 @@
   display: flex;
   gap: 8px;
 }
+
+.visuals-transition-params {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.visuals-transition-params .field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.visuals-transition-params .field span {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.visuals-transition-params .field select {
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #ffffff;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.visuals-transition-params .field select:focus {
+  outline: none;
+  border-color: #007aff;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.visuals-dip-colors {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.visuals-dip-color-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.visuals-dip-color-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.visuals-dip-color-row .ghost {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  font-size: 12px;
+}

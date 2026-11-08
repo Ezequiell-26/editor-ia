@@ -135,6 +135,7 @@ const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'wipe-right', label: 'Barrido Der.', description: 'El nuevo clip barre desde la izquierda', iconSymbol: '⇥' },
   { id: 'wipe-up', label: 'Barrido Arriba', description: 'El nuevo clip barre desde abajo', iconSymbol: '⇡' },
   { id: 'wipe-down', label: 'Barrido Abajo', description: 'El nuevo clip barre desde arriba', iconSymbol: '⇣' },
+  { id: 'iris', label: 'Iris', description: 'El nuevo clip abre desde el centro en círculo', iconSymbol: '◉' },
 ];
 
 /* ── Árbol por módulo (capturas 100, 102–111, 114) ─────────────────────────
@@ -230,6 +231,7 @@ const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
         { id: 'fade', label: 'Desvanecimiento y disolución' },
         { id: 'slide', label: 'Deslizar' },
         { id: 'wipe', label: 'Barrido' },
+        { id: 'iris', label: 'Iris' },
         { id: 'zoom', label: 'Zoom', pending: true },
         { id: '3d', label: 'Efectos 3D', pending: true },
         { id: 'premium', label: 'Premium', pending: true },
@@ -305,6 +307,7 @@ function transitionMatchesPreset(preset: (typeof TRANSITION_PRESETS)[number], id
   if (id === 'fade') return preset.id === 'dissolve' || preset.id.startsWith('fade-');
   if (id === 'slide') return preset.id.startsWith('slide-');
   if (id === 'wipe') return preset.id.startsWith('wipe-');
+  if (id === 'iris') return preset.id === 'iris';
   return true;
 }
 function lookMatchesPreset(look: (typeof COLOR_LOOKS)[number], id: string): boolean {

@@ -1,4 +1,5 @@
 import { ColorSwatch } from '../../components/ColorSwatch';
+import { PolygonEditor } from './PolygonEditor';
 import type { MotionTemplate } from './templates';
 
 function colorValue(value: unknown): string {
@@ -25,14 +26,19 @@ export function MotionForm({
         const update = (next: unknown): void => {
           onChange({ ...props, [field.id]: next });
         };
+        const unmet =
+          field.requires !== undefined && props[field.requires.key] !== field.requires.value;
+        const fieldDisabled = disabled || unmet;
         return (
           <label key={field.id} className="motion-field" htmlFor={id}>
             <span>{field.label}</span>
-            {field.kind === 'select' ? (
+            {field.kind === 'polygon' ? (
+              <PolygonEditor value={raw} onChange={update} disabled={fieldDisabled} />
+            ) : field.kind === 'select' ? (
               <select
                 id={id}
                 value={value}
-                disabled={disabled}
+                disabled={fieldDisabled}
                 onChange={(event) => update(event.target.value)}
               >
                 {(field.options ?? []).map((option) => (
@@ -45,7 +51,7 @@ export function MotionForm({
               <ColorSwatch
                 label={field.label}
                 value={colorValue(raw)}
-                disabled={disabled}
+                disabled={fieldDisabled}
                 onChange={update}
               />
             ) : field.kind === 'textarea' ? (
@@ -53,7 +59,7 @@ export function MotionForm({
                 id={id}
                 rows={3}
                 value={value}
-                disabled={disabled}
+                disabled={fieldDisabled}
                 onChange={(event) => update(event.target.value)}
               />
             ) : field.kind === 'number' ? (
@@ -63,7 +69,7 @@ export function MotionForm({
                 value={value}
                 min={field.min}
                 max={field.max}
-                disabled={disabled}
+                disabled={fieldDisabled}
                 onChange={(event) => update(Number(event.target.value))}
               />
             ) : (
@@ -71,7 +77,7 @@ export function MotionForm({
                 id={id}
                 type="text"
                 value={value}
-                disabled={disabled}
+                disabled={fieldDisabled}
                 onChange={(event) => update(event.target.value)}
               />
             )}

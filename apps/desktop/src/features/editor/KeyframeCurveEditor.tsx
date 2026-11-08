@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   cubicBezierProgress,
   getBezierFromEasing,
-  type ClipTransformKeyframe,
   type CubicBezier,
 } from '@editor-ia/project-schema';
 
@@ -26,16 +25,33 @@ export type CurveSegment = {
   bezier: CubicBezier;
 };
 
+/**
+ * Lo mínimo que el editor necesita de una clave: lo comparten los keyframes
+ * de transform (`ClipTransformKeyframe`) y los de parámetro de efecto
+ * (`EffectKeyframe` de effect-kit, que no depende de project-schema).
+ */
+export type CurveEditorKeyframe = {
+  readonly frame: number;
+  readonly easing?: string | undefined;
+  readonly bezier?: CubicBezier | undefined;
+};
+
 type KeyframeCurveEditorProps = {
-  keyframes: readonly ClipTransformKeyframe[];
-  /** Propiedad animada que se muestra como referencia en la etiqueta. */
-  property?: 'scale' | 'opacity' | 'offsetX' | 'offsetY' | 'rotationDeg';
+  keyframes: readonly CurveEditorKeyframe[];
+  /**
+   * Propiedad animada que se muestra como referencia en la etiqueta. Las
+   * claves de transform pasan su nombre interno ('scale' → «escala»); las de
+   * efecto pasan la etiqueta visible del parámetro.
+   */
+  property?: string | undefined;
+  /** Id del texto de ayuda para `aria-describedby` (único por instancia). */
+  helpId?: string | undefined;
   /**
    * Se llama al soltar el arrastre de un manejador con la curva editada del
    * segmento. Devolver `false` indica que el proyecto no aceptó el cambio y el
    * editor revierte la curva local.
    */
-  onEditBezier?: (index: number, bezier: CubicBezier) => boolean | void;
+  onEditBezier?: ((index: number, bezier: CubicBezier) => boolean | void) | undefined;
 };
 
 function clamp01(value: number): number {
@@ -43,13 +59,13 @@ function clamp01(value: number): number {
 }
 
 /** Curva inicial de un segmento: la guardada en su keyframe de inicio o la del preset de easing. */
-export function initialBezier(keyframes: readonly ClipTransformKeyframe[], index: number): CubicBezier {
+export function initialBezier(keyframes: readonly CurveEditorKeyframe[], index: number): CubicBezier {
   const start = keyframes[index];
   return start?.bezier ?? getBezierFromEasing(start?.easing);
 }
 
 /** Segmentos con span real en frames entre keyframes consecutivos. */
-export function segmentsOf(keyframes: readonly ClipTransformKeyframe[]): CurveSegment[] {
+export function segmentsOf(keyframes: readonly CurveEditorKeyframe[]): CurveSegment[] {
   const sorted = [...keyframes].sort((a, b) => a.frame - b.frame);
   const segments: CurveSegment[] = [];
   for (let i = 0; i + 1 < sorted.length; i += 1) {
@@ -82,7 +98,7 @@ export function handleDistance(
   return Math.hypot(dx, dy);
 }
 
-export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: KeyframeCurveEditorProps) {
+export function KeyframeCurveEditor({ keyframes, property, helpId, onEditBezier }: KeyframeCurveEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [segments, setSegments] = useState<CurveSegment[]>(() => segmentsOf(keyframes));
   const draggingRef = useRef<{ index: number; kind: 'cp1' | 'cp2' } | null>(null);
@@ -324,7 +340,7 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
           ? 'rotación'
           : property === 'offsetX' || property === 'offsetY'
             ? 'posición'
-            : 'transformación';
+            : (property ?? 'transformación');
 
   if (segments.length === 0) {
     return (
@@ -343,7 +359,7 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
         role="application"
         aria-roledescription="editor de curvas Bézier"
         tabIndex={0}
-        aria-describedby="keyframe-curve-help"
+        aria-describedby={helpId ?? 'keyframe-curve-help'}
         aria-label={`Editor de curvas Bézier de ${propertyLabel}: ${segments.length} segmentos entre ${keyframes.length} keyframes.${selectedHandle ? ` Manejador seleccionado: ${selectedHandle.kind === 'cp1' ? 'entrada' : 'salida'} del segmento ${selectedHandle.index + 1}.` : ''}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -354,7 +370,7 @@ export function KeyframeCurveEditor({ keyframes, property, onEditBezier }: Keyfr
       {!canvasReady ? (
         <p className="fine-print">Vista de curvas no disponible en este entorno; la edición por arrastre requiere canvas.</p>
       ) : null}
-      <p className="fine-print" id="keyframe-curve-help">
+      <p className="fine-print" id={helpId ?? 'keyframe-curve-help'}>
         Arrastrá los puntos naranjas o usá las flechas del teclado (Shift para pasos grandes) para editar la curva de
         cada segmento; las teclas [ y ] recorren los manejadores y Tab sale del editor. El valor queda dentro del rango
         0–1 del esquema.

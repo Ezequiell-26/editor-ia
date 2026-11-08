@@ -446,6 +446,33 @@
   color: var(--color-accent);
 }
 
+.effect-param-curve {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.effect-param-easings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.effect-easing-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--text-xs);
+}
+
+.effect-param-keys {
+  max-height: 120px;
+}
+
+.effect-param-keys .keyframe-row {
+  font-size: var(--text-xs);
+}
+
 .effect-stack-empty {
   border: 1px dashed var(--color-border);
   border-radius: 8px;
@@ -479,6 +506,14 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.effect-templates-section {
+  margin: 2px 0 0;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .effect-templates-list {

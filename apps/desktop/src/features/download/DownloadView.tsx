@@ -30,6 +30,7 @@ import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
 import { addMarker } from '../../state/markers';
 import { parseSubtitles } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
+import { LOCALIZATION_LANGUAGES } from '../localization/localization';
 import { takePendingDownloadUrl } from './pending';
 import {
   clampParallel,
@@ -3190,46 +3191,34 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                             disabled={busy}
                             onChange={(event) => setTranslateTo(event.target.value)}
                           >
-                            <option value="es">Español</option>
-                            <option value="en">Inglés</option>
-                            <option value="pt">Portugués</option>
-                            <option value="fr">Francés</option>
-                            <option value="de">Alemán</option>
-                            <option value="it">Italiano</option>
-                            <option value="ja">Japonés</option>
-                            <option value="zh">Chino</option>
+                            {LOCALIZATION_LANGUAGES.map((language) => (
+                              <option key={language.code} value={language.code}>
+                                {language.label}
+                              </option>
+                            ))}
                           </select>
                         </label>
                       ) : null}
                       <div className="download-utility-grid">
-                        {([
-                          ['es', 'Español'],
-                          ['en', 'Inglés'],
-                          ['pt', 'Portugués'],
-                          ['fr', 'Francés'],
-                          ['de', 'Alemán'],
-                          ['it', 'Italiano'],
-                          ['ja', 'Japonés'],
-                          ['zh', 'Chino'],
-                        ] as const)
-                          .filter(([value]) => value !== translateTo)
-                          .map(([value, label]) => (
-                            <label className="check" key={value}>
-                              <input
-                                type="checkbox"
-                                checked={translateExtras.includes(value)}
-                                disabled={busy}
-                                onChange={(event) =>
-                                  setTranslateExtras((current) =>
-                                    event.target.checked
-                                      ? [...current, value]
-                                      : current.filter((item) => item !== value),
-                                  )
-                                }
-                              />
-                              <span>También {label}</span>
-                            </label>
-                          ))}
+                        {LOCALIZATION_LANGUAGES.filter(
+                          (language) => language.code !== translateTo,
+                        ).map((language) => (
+                          <label className="check" key={language.code}>
+                            <input
+                              type="checkbox"
+                              checked={translateExtras.includes(language.code)}
+                              disabled={busy}
+                              onChange={(event) =>
+                                setTranslateExtras((current) =>
+                                  event.target.checked
+                                    ? [...current, language.code]
+                                    : current.filter((item) => item !== language.code),
+                                )
+                              }
+                            />
+                            <span>También {language.label}</span>
+                          </label>
+                        ))}
                       </div>
                       <label className="check">
                         <input

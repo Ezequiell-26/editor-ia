@@ -282,6 +282,137 @@ export function setParamKeyframeAt(
   });
 }
 
+/**
+ * Escribe la curva Bézier del segmento que empieza en la clave del `frame`
+ * dado (la clave conserva valor y easing). `null` quita la curva y vuelve a
+ * regir `easing`/lineal. Devuelve el mismo stack si la pista o la clave no
+ * existen — el editor de curvas sólo edita claves existentes.
+ */
+export function setParamKeyframeBezier(
+  stack: EffectStack,
+  instanceId: string,
+  paramId: string,
+  frame: number,
+  bezier: NonNullable<EffectKeyframe['bezier']> | null,
+): EffectStack {
+  const rounded = Math.max(0, Math.round(frame));
+  return stack.map((instance) => {
+    if (instance.id !== instanceId) return instance;
+    const existing = instance.keyframes?.[paramId];
+    if (!existing || existing.length === 0) return instance;
+    const tracks: Record<string, EffectKeyframe[]> = {};
+    for (const [id, keys] of Object.entries(instance.keyframes ?? {})) {
+      tracks[id] = [...keys];
+    }
+    const track = [...existing].sort(byFrame);
+    const at = track.findIndex((key) => key.frame === rounded);
+    if (at < 0) return instance;
+    const previous = track[at]!;
+    track[at] = {
+      frame: previous.frame,
+      value: previous.value,
+      ...(previous.easing !== undefined ? { easing: previous.easing } : {}),
+      ...(bezier ? { bezier } : {}),
+    };
+    tracks[paramId] = track;
+    return patchInstance(instance, tracks);
+  });
+}
+
+/**
+ * Escribe el preset de interpolación (`easing`) de la clave del `frame`
+ * dado — gobierna el segmento que empieza en ella. Elegir un preset
+ * reemplaza la curva propia de ese tramo: el bezier gana sobre easing en
+ * el muestreo, así que se quita para que el preset rija de verdad. El
+ * valor de la clave no cambia. No-op si la pista o la clave no existen.
+ */
+export function setParamKeyframeEasing(
+  stack: EffectStack,
+  instanceId: string,
+  paramId: string,
+  frame: number,
+  easing: NonNullable<EffectKeyframe['easing']>,
+): EffectStack {
+  const rounded = Math.max(0, Math.round(frame));
+  return stack.map((instance) => {
+    if (instance.id !== instanceId) return instance;
+    const existing = instance.keyframes?.[paramId];
+    if (!existing || existing.length === 0) return instance;
+    const tracks: Record<string, EffectKeyframe[]> = {};
+    for (const [id, keys] of Object.entries(instance.keyframes ?? {})) {
+      tracks[id] = [...keys];
+    }
+    const track = [...existing].sort(byFrame);
+    const at = track.findIndex((key) => key.frame === rounded);
+    if (at < 0) return instance;
+    const previous = track[at]!;
+    track[at] = {
+      frame: previous.frame,
+      value: previous.value,
+      easing,
+    };
+    tracks[paramId] = track;
+    return patchInstance(instance, tracks);
+  });
+}
+
+/**
+ * Quita la clave del `frame` dado de la pista del parámetro — la vía para
+ * borrar una clave sin mover el playhead (la lista del editor de curvas).
+ * Misma invariante que `toggleParamKeyframe`: si quedan menos de 2 claves la
+ * pista entera se elimina, porque el schema exige mínimo 2. No-op si la
+ * pista o la clave no existen.
+ */
+export function removeParamKeyframe(
+  stack: EffectStack,
+  instanceId: string,
+  paramId: string,
+  frame: number,
+): EffectStack {
+  const rounded = Math.max(0, Math.round(frame));
+  return stack.map((instance) => {
+    if (instance.id !== instanceId) return instance;
+    const existing = instance.keyframes?.[paramId];
+    if (!existing || existing.length === 0) return instance;
+    const track = [...existing].sort(byFrame);
+    const at = track.findIndex((key) => key.frame === rounded);
+    if (at < 0) return instance;
+    const next = [...track];
+    next.splice(at, 1);
+    const tracks: Record<string, EffectKeyframe[]> = {};
+    for (const [id, keys] of Object.entries(instance.keyframes ?? {})) {
+      tracks[id] = [...keys];
+    }
+    if (next.length < 2) delete tracks[paramId];
+    else tracks[paramId] = next;
+    return patchInstance(instance, tracks);
+  });
+}
+
+/** Quita la curva Bézier de todas las claves del parámetro (vuelven a `easing`). */
+export function clearParamKeyframeCurves(
+  stack: EffectStack,
+  instanceId: string,
+  paramId: string,
+): EffectStack {
+  return stack.map((instance) => {
+    if (instance.id !== instanceId || !instance.keyframes?.[paramId]) return instance;
+    const tracks: Record<string, EffectKeyframe[]> = {};
+    for (const [id, keys] of Object.entries(instance.keyframes ?? {})) {
+      if (id !== paramId) {
+        tracks[id] = [...keys];
+        continue;
+      }
+      tracks[id] = keys.map((key) => {
+        if (key.bezier === undefined) return key;
+        const { bezier: _dropped, ...rest } = key;
+        return rest;
+      });
+    }
+    return patchInstance(instance, tracks);
+  });
+}
+
 /** Quita toda la animación de un parámetro (vuelve al valor estático). */
 export function clearParamKeyframes(
   stack: EffectStack,

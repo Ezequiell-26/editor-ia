@@ -7,7 +7,7 @@ import { ioRangeFromDocument, projectWithIoRange, type IoRange } from './io-rang
 import { ProjectActionError, cloneProject, totalFrames } from './project-actions';
 import { clearRecoverySnapshot, createRecoveryWriter, readRecoverySnapshot, shouldOfferRecovery, type RecoveryWriter } from './recovery';
 import type { Selection, ProjectPhase, StoreState, CreateProjectInput, ProjectStoreValue, ProjectProviderProps } from './project-store-types';
-import { ProjectContext, PlayheadContext, PlayingContext } from './project-store-context';
+import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext } from './project-store-context';
 
 
 
@@ -79,7 +79,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   // haya llegado al render.
   const [playheadFrame, setPlayheadFrame] = useState(0);
   const [playing, setPlayingState] = useState(false);
-  const playbackRef = useRef({ frame: 0, playing: false });
+  const [playbackRate, setPlaybackRateState] = useState(1);
+  const playbackRef = useRef({ frame: 0, playing: false, rate: 1 });
   /**
    * `totalFrames` recorre todos los clips y cues. Antes se ejecutaba una vez
    * por render del provider (es decir, en cada frame de reproducci├│n) y otra
@@ -132,7 +133,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     // Un proyecto reci├®n abierto desde disco invalida cualquier instant├ínea
     // previa: el registro de recuperaci├│n solo cubre trabajo sin persistir.
     clearRecoverySnapshot();
-    playbackRef.current = { frame: 0, playing: false };
+    playbackRef.current = { ...playbackRef.current, frame: 0, playing: false };
     setPlayheadFrame(0);
     setPlayingState(false);
     setState({
@@ -528,6 +529,17 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
 
   const getPlayhead = useCallback((): number => playbackRef.current.frame, []);
   const getPlaying = useCallback((): boolean => playbackRef.current.playing, []);
+  const getPlaybackRate = useCallback((): number => playbackRef.current.rate, []);
+
+  const setPlaybackRate = useCallback((rate: number) => {
+    if (!Number.isFinite(rate)) return;
+    const next = Math.min(8, Math.max(0.1, rate));
+    if (playbackRef.current.rate === next) {
+      return;
+    }
+    playbackRef.current = { ...playbackRef.current, rate: next };
+    setPlaybackRateState(next);
+  }, []);
 
   const setPlayhead = useCallback(
     (frame: number) => {
@@ -555,7 +567,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     persistedVersionRef.current = 0;
     // Cierre voluntario: la instant├ínea deja de representar trabajo pendiente.
     clearRecoverySnapshot();
-    playbackRef.current = { frame: 0, playing: false };
+    playbackRef.current = { ...playbackRef.current, frame: 0, playing: false };
     setPlayheadFrame(0);
     setPlayingState(false);
     setState(INITIAL);
@@ -631,8 +643,10 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       clearIoRange,
       setPlayhead,
       setPlaying,
+      setPlaybackRate,
       getPlayhead,
       getPlaying,
+      getPlaybackRate,
       requestExport,
       consumeExportRequest,
       acceptRecovery,
@@ -652,6 +666,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       openProject,
       getPlayhead,
       getPlaying,
+      getPlaybackRate,
       openProjectAt,
       packageProject,
       redo,
@@ -663,6 +678,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setNotice,
       setPlayhead,
       setPlaying,
+      setPlaybackRate,
       setSelection,
       requestExport,
       consumeExportRequest,
@@ -676,7 +692,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   return (
     <PlayheadContext.Provider value={playheadFrame}>
       <PlayingContext.Provider value={playing}>
-        <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
+        <PlaybackRateContext.Provider value={playbackRate}>
+          <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
+        </PlaybackRateContext.Provider>
       </PlayingContext.Provider>
     </PlayheadContext.Provider>
   );

@@ -11,7 +11,7 @@ export function usePlayback(): void {
   const playing = playback.playing;
   const project = store.state.project;
   const loop = useEditorPreferences().loopPlayback;
-  const { setPlayhead, setPlaying, durationFrames } = store;
+  const { setPlayhead, setPlaying, durationFrames, getPlaybackRate } = store;
   const playheadRef = useRef(playback.frame);
   playheadRef.current = playback.frame;
 
@@ -41,7 +41,9 @@ export function usePlayback(): void {
     const tick = (now: number) => {
       const deltaSeconds = Math.min(0.1, (now - last) / 1000);
       last = now;
-      frame += deltaSeconds * fps;
+      // La velocidad se lee del ref en cada tick: cambiarla a mitad de la
+      // reproducción no reinicia el bucle rAF ni corta el audio.
+      frame += deltaSeconds * fps * getPlaybackRate();
       if (frame >= total) {
         if (loop) {
           // Bucle: vuelve al inicio sin cortar la reproducción.
@@ -64,5 +66,5 @@ export function usePlayback(): void {
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [playing, hasProject, fps, setPlayhead, setPlaying, durationFrames, loop]);
+  }, [playing, hasProject, fps, setPlayhead, setPlaying, durationFrames, loop, getPlaybackRate]);
 }

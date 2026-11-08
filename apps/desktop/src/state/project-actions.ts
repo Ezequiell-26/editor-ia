@@ -2054,6 +2054,10 @@ export function applyTransitionToCuts(
       // dip-color exige color válido (el schema lo requiere); sin él el
       // documento quedaría inválido, así que el corte se salta.
       if (type === 'dip-color' && color === undefined) continue;
+      // luma-wipe exige `mateClipId` (el schema lo valida); la aplicación
+      // masiva no puede elegir un mate por corte, así que se salta y se
+      // aplica desde el Inspector, donde se elige el clip mate.
+      if (type === 'luma-wipe') continue;
       const target = clip as Clip & { transitionIn?: ClipTransition };
       target.transitionIn = {
         type,

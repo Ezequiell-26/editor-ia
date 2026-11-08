@@ -10,11 +10,20 @@ import type {
 } from '../../services/project-service';
 import { updateClip } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
+import { ColorSwatch } from '../../components/ColorSwatch';
+import {
+  lumaMateCandidates,
+  lumaMateOptionLabel,
+  lumaMatePick,
+  type LumaMateCandidate,
+} from '../editor/luma-mate';
 import {
   FALLBACK_VISUAL_CATALOG,
   assetLabel,
+  batchTransitionIn,
   clipLabel,
   clipTime,
+  dipColorForClip,
   mergePresetEffects,
   quickEffects,
   safeTransitionFrames,
@@ -71,6 +80,10 @@ export function VisualsView({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [transitionType, setTransitionType] = useState('dissolve');
   const [transitionFrames, setTransitionFrames] = useState(12);
+  const [dipColor, setDipColor] = useState('#1b2a4a');
+  // `null` = forzar el color general aunque el clip tenga uno propio.
+  const [dipColorById, setDipColorById] = useState<Record<string, string | null>>({});
+  const [mateChoice, setMateChoice] = useState<Record<string, string>>({});
   const [quick, setQuick] = useState<QuickValues>(QUICK_DEFAULTS);
   const [audit, setAudit] = useState<VisualAudit | null>(null);
   const [busy, setBusy] = useState(false);
@@ -118,6 +131,32 @@ export function VisualsView({
   const primary = selectedClips[0] ?? null;
   const transitionSpec = catalog.transitions.find((item) => item.id === transitionType);
   const availableEffects = catalog.effects.filter((effect) => effect.available);
+
+  // Candidatos a mate por clip seleccionado, calculados con la transición que
+  // se va a escribir (el solape depende de `frames`), misma regla que el
+  // Inspector y que la validación del render.
+  const mateCandidates = useMemo(() => {
+    const map = new Map<string, LumaMateCandidate[]>();
+    if (!project || transitionType !== 'luma-wipe') return map;
+    for (const clip of selectedClips) {
+      const frames = safeTransitionFrames(transitionFrames, clip);
+      const probe = {
+        ...clip,
+        transitionIn: { type: 'luma-wipe' as const, frames },
+      } as Clip;
+      map.set(
+        clip.id,
+        lumaMateCandidates(
+          project.timeline.clips,
+          project.timeline.tracks,
+          probe,
+          fps,
+        ),
+      );
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project, transitionType, selectedIds, transitionFrames, fps]);
 
   function toggleClip(id: string): void {
     setSelectedIds((current) =>
@@ -174,6 +213,7 @@ export function VisualsView({
     const type = transitionType as ClipTransition['type'];
     setError(null);
     let clamped = 0;
+    let skipped = 0;
     const ok = store.update(
       (current) =>
         selectedIds.reduce((next, id) => {
@@ -181,15 +221,37 @@ export function VisualsView({
           if (!clip) return next;
           const frames = safeTransitionFrames(transitionFrames, clip);
           if (frames !== transitionFrames) clamped += 1;
-          return updateClip(next, id, {
-            transitionIn: { type, frames },
+          const ownTransition = 'transitionIn' in clip ? clip.transitionIn : undefined;
+          let mateClipId: string | undefined;
+          if (type === 'luma-wipe') {
+            const probe = {
+              ...clip,
+              transitionIn: { type: 'luma-wipe' as const, frames },
+            } as Clip;
+            const candidates = lumaMateCandidates(
+              next.timeline.clips,
+              next.timeline.tracks,
+              probe,
+              fps,
+            );
+            mateClipId = lumaMatePick(clip, mateChoice[id], candidates);
+          }
+          const transitionIn = batchTransitionIn(clip, type, frames, {
+            color: dipColorForClip(ownTransition, dipColorById[id], dipColor),
+            mateClipId,
           });
+          if (!transitionIn) {
+            skipped += 1;
+            return next;
+          }
+          return updateClip(next, id, { transitionIn });
         }, current),
       {
         notice:
-          clamped > 0
+          (clamped > 0
             ? `Transición aplicada; ${clamped} clip(s) se acotaron a su duración.`
-            : `Transición aplicada a ${selectedClips.length} clip(s).`,
+            : `Transición aplicada a ${selectedClips.length} clip(s).`) +
+          (skipped > 0 ? ` ${skipped} clip(s) se omitieron por falta de mate válido.` : ''),
       },
     );
     if (ok) setAudit(null);
@@ -542,6 +604,129 @@ export function VisualsView({
                 </button>
               </div>
             </div>
+
+            {transitionType === 'dip-color' ? (
+              <div className="visuals-transition-params">
+                <label className="field">
+                  <span>Color general del fundido</span>
+                  <ColorSwatch
+                    value={
+                      selectedClips.length === 1 && primary
+                        ? dipColorForClip(
+                            'transitionIn' in primary ? primary.transitionIn : undefined,
+                            dipColorById[primary.id],
+                            dipColor,
+                          )
+                        : dipColor
+                    }
+                    onChange={(hex) => {
+                      setDipColor(hex);
+                      if (selectedClips.length === 1 && primary) {
+                        setDipColorById((current) => ({
+                          ...current,
+                          [primary.id]: hex,
+                        }));
+                      }
+                    }}
+                    label="color general del fundido"
+                  />
+                </label>
+                {selectedClips.length > 1 ? (
+                  <div className="visuals-dip-colors">
+                    {selectedClips.map((clip) => {
+                      const name = clipLabel(clip);
+                      const ownTransition =
+                        'transitionIn' in clip ? clip.transitionIn : undefined;
+                      const value = dipColorForClip(
+                        ownTransition,
+                        dipColorById[clip.id],
+                        dipColor,
+                      );
+                      return (
+                        <div className="visuals-dip-color-row" key={clip.id}>
+                          <label className="field">
+                            <span>{name}</span>
+                            <ColorSwatch
+                              value={value}
+                              onChange={(hex) =>
+                                setDipColorById((current) => ({
+                                  ...current,
+                                  [clip.id]: hex,
+                                }))
+                              }
+                              label={name}
+                            />
+                          </label>
+                          {value !== dipColor ? (
+                            <button
+                              type="button"
+                              className="ghost"
+                              aria-label={`Quitar color propio de ${name}`}
+                              onClick={() =>
+                                setDipColorById((current) => ({
+                                  ...current,
+                                  [clip.id]: null,
+                                }))
+                              }
+                            >
+                              General
+                            </button>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <p className="fine-print">
+                  {selectedClips.length > 1
+                    ? 'El color general aplica a los clips sin color propio; cada clip conserva el suyo si ya tiene uno.'
+                    : 'El color elegido se aplica al clip seleccionado.'}
+                </p>
+              </div>
+            ) : null}
+
+            {transitionType === 'luma-wipe' ? (
+              <div className="visuals-transition-params">
+                {selectedClips.map((clip) => {
+                  const candidates = mateCandidates.get(clip.id) ?? [];
+                  const value =
+                    lumaMatePick(clip, mateChoice[clip.id], candidates) ?? '';
+                  return (
+                    <label className="field" key={clip.id}>
+                      <span>
+                        Mate de {clipLabel(clip)}
+                        {candidates.length === 0 ? ' · sin candidato' : ''}
+                      </span>
+                      <select
+                        value={value}
+                        disabled={candidates.length === 0}
+                        onChange={(event) =>
+                          setMateChoice((current) => ({
+                            ...current,
+                            [clip.id]: event.target.value,
+                          }))
+                        }
+                      >
+                        {candidates.length === 0 ? (
+                          <option value="">Sin clip mate válido</option>
+                        ) : null}
+                        {candidates.map((candidate) => (
+                          <option key={candidate.clip.id} value={candidate.clip.id}>
+                            {lumaMateOptionLabel(candidate)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+                <p className="fine-print">
+                  El mate puede ser video, imagen o frame congelado en cualquier
+                  pista — una pista oculta también sirve, porque el render sólo
+                  usa su luminancia. Los clips sin mate válido se omiten al aplicar.
+                </p>
+              </div>
+            ) : null}
+
             <p className="fine-print">{transitionSpec?.description ?? 'Sin transición.'}</p>
           </section>
         </div>

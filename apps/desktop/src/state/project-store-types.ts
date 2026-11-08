@@ -91,10 +91,14 @@ export interface ProjectStoreValue {
   clearIoRange(): void;
   setPlayhead(frame: number): void;
   setPlaying(playing: boolean): void;
+  /** Multiplicador de la velocidad de reproducción (0.1–8). */
+  setPlaybackRate(rate: number): void;
   /** Playhead actual sin suscribir el componente (siempre fresco). */
   getPlayhead(): number;
   /** Estado de reproducciâ”œâ”‚n actual sin suscribir el componente. */
   getPlaying(): boolean;
+  /** Velocidad actual sin suscribir el componente. */
+  getPlaybackRate(): number;
   requestExport(): void;
   consumeExportRequest(): void;
   /** Abre el proyecto de la oferta de recuperaciâ”œâ”‚n; false si no hay oferta o fallâ”œâ”‚. */

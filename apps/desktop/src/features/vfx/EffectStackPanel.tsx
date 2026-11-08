@@ -1,6 +1,9 @@
 import { ColorSwatch } from '../../components/ColorSwatch';
 import { useState } from 'react';
+import type { CubicBezier } from '@editor-ia/project-schema';
+import { KeyframeCurveEditor } from '../editor/KeyframeCurveEditor';
 import {
+  clearParamKeyframeCurves,
   duplicateInstance,
   effectRegistry,
   fidelityLabel,
@@ -10,15 +13,19 @@ import {
   paramGroups,
   paramKeyframes,
   removeInstance,
+  removeParamKeyframe,
   resetInstance,
   sampleKeyframes,
   setInstanceEnabled,
   setInstanceParam,
   setParamKeyframeAt,
+  setParamKeyframeBezier,
+  setParamKeyframeEasing,
   shiftInstance,
   toggleParamKeyframe,
   clearParamKeyframes,
   type EffectInstance,
+  type EffectKeyframe,
   type EffectManifest,
   type EffectStack,
   type ParamSpec,
@@ -51,6 +58,14 @@ function displayValue(spec: ParamSpec, value: ParamValue): string {
   }
 }
 
+const EASING_LABELS: Record<NonNullable<EffectKeyframe['easing']>, string> = {
+  linear: 'Lineal',
+  'ease-in': 'Acelerar',
+  'ease-out': 'Desacelerar',
+  'ease-in-out': 'Suave',
+  hold: 'Mantener',
+};
+
 interface ParamAnimation {
   /** Hay una clave exactamente en el frame del playhead. */
   readonly active: boolean;
@@ -60,6 +75,22 @@ interface ParamAnimation {
   readonly onClear: () => void;
   /** Escribe/crea la clave del frame (auto-key del slider). */
   readonly onKeyedValue: (next: number) => void;
+  /** Pista del parámetro (≥2 claves) para el editor de curvas Bézier. */
+  readonly track?: readonly EffectKeyframe[] | undefined;
+  /** Alguna clave ya tiene curva propia (no la del preset/lineal). */
+  readonly hasCurve?: boolean | undefined;
+  /** Id único del texto de ayuda del editor (varios paneles por clip). */
+  readonly curveHelpId?: string | undefined;
+  /** Escribe la curva del segmento que empieza en la clave `index` (ordenada). */
+  readonly onEditCurve?: ((index: number, bezier: CubicBezier) => boolean) | undefined;
+  /** Escribe el preset de interpolación de la clave del `frame` dado. */
+  readonly onSetEasing?:
+    | ((frame: number, easing: NonNullable<EffectKeyframe['easing']>) => void)
+    | undefined;
+  /** Quita las curvas de todas las claves (vuelven a easing/lineal). */
+  readonly onClearCurves?: (() => void) | undefined;
+  /** Quita una clave suelta del frame dado (lista del editor de curva). */
+  readonly onRemoveKey?: ((frame: number) => void) | undefined;
 }
 
 function ParamControl({
@@ -73,6 +104,7 @@ function ParamControl({
   readonly onChange: (next: ParamValue) => void;
   readonly animation?: ParamAnimation | undefined;
 }) {
+  const [curveOpen, setCurveOpen] = useState(false);
   if (spec.type === 'bool') {
     return (
       <label className="effect-param switch">
@@ -179,6 +211,18 @@ function ParamControl({
                 ×
               </button>
             ) : null}
+            {animation.track && animation.track.length >= 2 ? (
+              <button
+                type="button"
+                className={`icon-button${curveOpen ? ' on' : ''}`}
+                aria-pressed={curveOpen}
+                aria-label={`Curva de ${spec.label}`}
+                title="Editar la curva de interpolación entre claves"
+                onClick={() => setCurveOpen((value) => !value)}
+              >
+                ∿
+              </button>
+            ) : null}
           </span>
         ) : null}
       </span>
@@ -197,6 +241,92 @@ function ParamControl({
           else onChange(next);
         }}
       />
+      {curveOpen && animation?.track && animation.track.length >= 2 ? (
+        <span className="effect-param-curve">
+          {animation.onRemoveKey ? (
+            <span className="keyframe-list effect-param-keys">
+              {[...animation.track]
+                .sort((a, b) => a.frame - b.frame)
+                .map((key) => (
+                  <span key={key.frame} className="keyframe-row">
+                    <span className="fine-print">
+                      frame {key.frame} · {displayValue(spec, key.value)}
+                      {key.bezier ? ' · curva propia' : key.easing && key.easing !== 'linear' ? ` · ${EASING_LABELS[key.easing]}` : ''}
+                    </span>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`Quitar la clave del frame ${key.frame} de ${spec.label}`}
+                      title="Quitar esta clave"
+                      onClick={() => animation.onRemoveKey?.(key.frame)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+            </span>
+          ) : null}
+          <KeyframeCurveEditor
+            keyframes={animation.track}
+            property={spec.label}
+            helpId={animation.curveHelpId}
+            onEditBezier={animation.onEditCurve}
+          />
+          {animation.onSetEasing ? (
+            <span className="effect-param-easings">
+              {[...animation.track]
+                .sort((a, b) => a.frame - b.frame)
+                .slice(0, -1)
+                .map((key, index, sorted) => {
+                  const next = sorted[index + 1];
+                  const custom = key.bezier !== undefined;
+                  return (
+                    <label key={key.frame} className="effect-easing-field">
+                      <span
+                        className="fine-print"
+                        title={`Del frame ${key.frame} al ${next?.frame ?? '…'}`}
+                      >
+                        Tramo {index + 1}
+                      </span>
+                      <select
+                        value={custom ? '__custom' : (key.easing ?? 'linear')}
+                        aria-label={`Interpolación del tramo ${index + 1} de ${spec.label}`}
+                        onChange={(event) => {
+                          const picked = event.target.value;
+                          if (picked === '__custom') return;
+                          animation.onSetEasing?.(
+                            key.frame,
+                            picked as NonNullable<EffectKeyframe['easing']>,
+                          );
+                        }}
+                      >
+                        <option value="linear">Lineal</option>
+                        <option value="ease-in">Acelerar</option>
+                        <option value="ease-out">Desacelerar</option>
+                        <option value="ease-in-out">Suave</option>
+                        <option value="hold">Mantener</option>
+                        {custom ? (
+                          <option value="__custom" disabled>
+                            Curva propia
+                          </option>
+                        ) : null}
+                      </select>
+                    </label>
+                  );
+                })}
+            </span>
+          ) : null}
+          {animation.hasCurve && animation.onClearCurves ? (
+            <button
+              type="button"
+              className="small"
+              onClick={animation.onClearCurves}
+            >
+              Quitar curvas
+            </button>
+          ) : null}
+        </span>
+      ) : null}
     </ParamTag>
   );
 }
@@ -314,6 +444,29 @@ function StackRow({
                     ? {
                         active: track?.some((key) => key.frame === keyframeFrame) ?? false,
                         animated,
+                        track,
+                        hasCurve: track?.some((key) => key.bezier !== undefined) ?? false,
+                        curveHelpId: `effect-curve-help-${instance.id}-${spec.id}`,
+                        onEditCurve: (index: number, bezier: CubicBezier) => {
+                          const sorted = [...(track ?? [])].sort((a, b) => a.frame - b.frame);
+                          const key = sorted[index];
+                          if (!key) return false;
+                          onChange(
+                            setParamKeyframeBezier(stack, instance.id, spec.id, key.frame, bezier),
+                          );
+                          return true;
+                        },
+                        onSetEasing: (
+                          frame: number,
+                          easing: NonNullable<EffectKeyframe['easing']>,
+                        ) =>
+                          onChange(
+                            setParamKeyframeEasing(stack, instance.id, spec.id, frame, easing),
+                          ),
+                        onClearCurves: () =>
+                          onChange(clearParamKeyframeCurves(stack, instance.id, spec.id)),
+                        onRemoveKey: (frame: number) =>
+                          onChange(removeParamKeyframe(stack, instance.id, spec.id, frame)),
                         onToggle: () =>
                           onChange(
                             toggleParamKeyframe(

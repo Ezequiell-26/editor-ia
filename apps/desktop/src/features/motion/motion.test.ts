@@ -194,6 +194,55 @@ describe('motion plan', () => {
     });
   });
 
+  it('la insignia personalizada dibuja el polígono de points', () => {
+    const points = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 0.5, y: 1 },
+    ];
+    const plan = buildMotionPlan(
+      badgeTemplate,
+      { text: 'NUEVO', shape: 'custom', points },
+      context,
+    );
+    const badge = plan.layers.find((layer) => layer.kind === 'rect');
+    expect(badge).toMatchObject({ shape: 'custom', points });
+    // Las formas con nombre ignoran los puntos aunque vengan en props.
+    const named = buildMotionPlan(
+      badgeTemplate,
+      { text: 'NUEVO', shape: 'star', points },
+      context,
+    );
+    const star = named.layers.find((layer) => layer.kind === 'rect');
+    expect(star).toMatchObject({ shape: 'star' });
+    expect(star && 'points' in star ? star.points : undefined).toBeUndefined();
+  });
+
+  it('la insignia personalizada sin points usa el polígono por defecto', () => {
+    const plan = buildMotionPlan(badgeTemplate, { text: 'NUEVO', shape: 'custom' }, context);
+    const badge = plan.layers.find((layer) => layer.kind === 'rect');
+    expect(badge).toMatchObject({
+      shape: 'custom',
+      points: [
+        { x: 0.12, y: 0.2 },
+        { x: 0.5, y: 0.8 },
+        { x: 0.88, y: 0.2 },
+      ],
+    });
+  });
+
+  it('rechaza puntos de forma inválidos', () => {
+    for (const points of [
+      [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+      [{ x: -0.1, y: 0 }, { x: 1, y: 0 }, { x: 0.5, y: 1 }],
+      [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0.5, y: 1.5 }],
+    ]) {
+      expect(() =>
+        buildMotionPlan(badgeTemplate, { text: 'NUEVO', shape: 'custom', points }, context),
+      ).toThrow(MotionPlanError);
+    }
+  });
+
   it('rechaza props inválidas de la insignia', () => {
     expect(() =>
       buildMotionPlan(badgeTemplate, { text: '', color: '#fff', textColor: '#fff' }, context),

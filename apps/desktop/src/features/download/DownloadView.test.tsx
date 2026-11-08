@@ -341,6 +341,39 @@ describe('descargador · delogo y Lanczos', () => {
     );
   });
 
+  it('ofrece los doce idiomas del backend al traducir subtítulos', async () => {
+    renderView();
+    await analyzeSample();
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: /Descargar subtítulos y adjuntarlos/i }),
+    );
+    fireEvent.click(
+      screen.getByRole('checkbox', { name: /Traducir los subtítulos al descargar/i }),
+    );
+    const select = screen.getByLabelText(/Idioma de destino/i) as HTMLSelectElement;
+    const labels = Array.from(select.options).map((option) => option.textContent);
+    expect(labels).toHaveLength(12);
+    for (const label of [
+      'Español',
+      'Inglés',
+      'Chino',
+      'Hindi',
+      'Árabe',
+      'Portugués',
+      'Bengalí',
+      'Ruso',
+      'Francés',
+      'Alemán',
+      'Italiano',
+      'Japonés',
+    ]) {
+      expect(labels).toContain(label);
+    }
+    for (const label of ['También Hindi', 'También Árabe', 'También Bengalí', 'También Ruso']) {
+      expect(screen.getByRole('checkbox', { name: label })).toBeTruthy();
+    }
+  });
+
   it('escanea la carpeta vigilada, agrega feeds y prueba proxies', async () => {
     renderView((service) => {
       service.downloadMedia = () => new Promise<DownloadOutcome>(() => {});

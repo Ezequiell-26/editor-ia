@@ -1,12 +1,19 @@
-import { useState, type PointerEvent } from 'react';
+import type { PointerEvent } from 'react';
 import { Icon } from '../../components/Icon';
 import { formatTimecode, splitClip } from '../../state/project-actions';
 import { useProjectPlayback, useProjectStore } from '../../state/project-store';
+import { updateEditorPreferences } from '../../state/editor-preferences';
+import { useEditorPreferences } from '../../state/useEditorPreferences';
+
+const PLAYBACK_RATES = [0.25, 0.5, 1, 2, 4] as const;
 
 export function Transport() {
   const store = useProjectStore();
   const project = store.state.project;
-  const [loop, setLoop] = useState(false);
+  // El bucle es la preferencia persistida `loopPlayback`: la misma que lee
+  // `usePlayback` y el checkbox de Ajustes → Editor, así el botón del
+  // transporte nunca muestra un estado que la reproducción no cumple.
+  const loop = useEditorPreferences().loopPlayback;
   // El transport sí necesita el frame en cada tick (timecode y scrubber).
   const playback = useProjectPlayback();
   if (!project) return null;
@@ -128,10 +135,23 @@ export function Transport() {
           className={`transport-button${loop ? ' active' : ''}`}
           aria-label="Bucle de reproducción"
           title={loop ? 'Bucle activado' : 'Activar bucle'}
-          onClick={() => setLoop(!loop)}
+          onClick={() => updateEditorPreferences({ loopPlayback: !loop })}
         >
           <Icon name="refresh" size={13} />
         </button>
+        <select
+          className="transport-rate"
+          aria-label="Velocidad de reproducción"
+          title="Velocidad de reproducción"
+          value={playback.rate}
+          onChange={(event) => store.setPlaybackRate(Number(event.target.value))}
+        >
+          {PLAYBACK_RATES.map((rate) => (
+            <option key={rate} value={rate}>
+              {rate}×
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="transport-timeline">

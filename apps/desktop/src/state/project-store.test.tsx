@@ -10,6 +10,7 @@ import { projectWithIoRange } from './io-range';
 import {
   ProjectProvider,
   usePlayheadFrame,
+  useProjectPlaybackRate,
   useProjectPlaying,
   useProjectStore,
 } from './project-store';
@@ -158,6 +159,57 @@ describe('playback fuera del store principal', () => {
     });
     // `playing` tampoco forma parte del store: el probe sigue sin renders.
     expect(storeProbeRenders).toBe(before);
+  });
+
+  it('setPlaybackRate actualiza el contexto sin tocar el store ni el playhead', async () => {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('Velocidad', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'velocidad.editoria.json',
+      path: 'C:\\tmp\\velocidad.editoria.json',
+      root: 'C:\\tmp',
+    };
+    let storeProbeRenders = 0;
+    function StoreProbe() {
+      useProjectStore();
+      storeProbeRenders += 1;
+      return null;
+    }
+    function RateProbe() {
+      const rate = useProjectPlaybackRate();
+      const store = useProjectStore();
+      return (
+        <div>
+          <span data-testid="rate">{String(rate)}</span>
+          <button type="button" onClick={() => store.setPlaybackRate(2)}>
+            velocidad 2x
+          </button>
+          <button type="button" onClick={() => store.setPlaybackRate(99)}>
+            velocidad fuera de rango
+          </button>
+        </div>
+      );
+    }
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <RateProbe />
+        <StoreProbe />
+      </ProjectProvider>,
+    );
+    expect(screen.getByTestId('rate').textContent).toBe('1');
+    const before = storeProbeRenders;
+    fireEvent.click(screen.getByRole('button', { name: 'velocidad 2x' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('2');
+    });
+    // La velocidad vive en su propio contexto: el store no se re-renderiza.
+    expect(storeProbeRenders).toBe(before);
+    // El clamp es 0.1–8: un valor fuera de rango se rechaza por el tope.
+    fireEvent.click(screen.getByRole('button', { name: 'velocidad fuera de rango' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('8');
+    });
   });
 });
 

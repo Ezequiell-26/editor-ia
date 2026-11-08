@@ -35,7 +35,7 @@ function renderPanel(onApply = vi.fn()) {
 describe('plantillas de efectos en la UI', () => {
   it('guarda el stack actual y permite aplicarlo de nuevo', () => {
     const onApply = renderPanel();
-    fireEvent.click(screen.getByText('Plantillas (0)'));
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
     fireEvent.change(screen.getByLabelText('Nombre de la plantilla'), {
       target: { value: 'Mi look' },
     });
@@ -44,7 +44,9 @@ describe('plantillas de efectos en la UI', () => {
     expect(loadEffectTemplates().some((entry) => entry.name === 'Mi look')).toBe(true);
     expect(screen.getByText(/Plantilla «Mi look» guardada/)).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Aplicar' }));
+    const row = screen.getByText('Mi look').closest('li');
+    expect(row).toBeTruthy();
+    fireEvent.click(within(row as HTMLElement).getByRole('button', { name: 'Aplicar' }));
     expect(onApply).toHaveBeenCalledTimes(1);
     const applied = onApply.mock.calls[0]?.[0] as EffectStack;
     expect(applied).toHaveLength(1);
@@ -55,18 +57,47 @@ describe('plantillas de efectos en la UI', () => {
 
   it('exporta la plantilla como JSON descargable', () => {
     renderPanel();
-    fireEvent.click(screen.getByText('Plantillas (0)'));
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
     fireEvent.change(screen.getByLabelText('Nombre de la plantilla'), {
       target: { value: 'Descargable' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Guardar stack actual' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Exportar' }));
+    const row = screen.getByText('Descargable').closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'Exportar' }));
     expect(URL.createObjectURL).toHaveBeenCalled();
+  });
+
+  it('aplica una plantilla de fábrica con su stack completo', () => {
+    const onApply = renderPanel();
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
+    const row = screen.getByText('Look cine').closest('li') as HTMLElement;
+    fireEvent.click(within(row).getByRole('button', { name: 'Aplicar' }));
+    expect(onApply).toHaveBeenCalledTimes(1);
+    const applied = onApply.mock.calls[0]?.[0] as EffectStack;
+    expect(applied.map((i) => i.effectId)).toEqual([
+      'color.saturation',
+      'color.contrast',
+      'color.temperature',
+      'light.vignette',
+    ]);
+    // Parámetros de la receta, no los defaults del manifiesto.
+    expect(applied[0]?.params.saturation).toBeCloseTo(0.85);
+    expect(applied[3]?.params.angle).toBeCloseTo(0.55);
+  });
+
+  it('lista las plantillas de fábrica separadas de las propias', () => {
+    renderPanel();
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
+    expect(screen.getByText('De fábrica')).toBeTruthy();
+    expect(screen.getByText('Blanco y negro')).toBeTruthy();
+    // Sin plantillas del usuario no hay sección «Propias».
+    expect(screen.queryByText('Propias')).toBeNull();
+    expect(screen.getByText(/Todavía no guardaste plantillas propias/)).toBeTruthy();
   });
 
   it('importa un JSON válido y rechaza uno corrupto', async () => {
     renderPanel();
-    fireEvent.click(screen.getByText('Plantillas (0)'));
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
     const input = screen.getByLabelText('Importar plantilla JSON') as HTMLInputElement;
 
     const bad = new File(['{no json'], 'mala.json', { type: 'application/json' });
@@ -99,7 +130,7 @@ describe('plantillas de efectos en la UI', () => {
 
   it('avisa cuando la plantilla es del otro tipo de pila', async () => {
     renderPanel();
-    fireEvent.click(screen.getByText('Plantillas (0)'));
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
     const input = screen.getByLabelText('Importar plantilla JSON') as HTMLInputElement;
     const audioFile = new File(
       [

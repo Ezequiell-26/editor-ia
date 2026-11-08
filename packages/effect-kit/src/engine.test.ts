@@ -11,15 +11,19 @@ import {
 import {
   MAX_STACK_EFFECTS,
   addInstance,
+  clearParamKeyframeCurves,
   clearParamKeyframes,
   createInstance,
   duplicateInstance,
   moveInstance,
   removeInstance,
+  removeParamKeyframe,
   resetInstance,
   setInstanceEnabled,
   setInstanceParam,
   setParamKeyframeAt,
+  setParamKeyframeBezier,
+  setParamKeyframeEasing,
   shiftInstance,
   toggleInstance,
   toggleParamKeyframe,
@@ -194,11 +198,11 @@ describe('keyframes por parámetro', () => {
   ];
 
   it('crea la primera pista con una compañera plana (mínimo 2 del schema)', () => {
-    let stack = [createInstance(exposure, { id: 'a', params: { exposure: 0.4 } })];
+    let stack: EffectStack = [createInstance(exposure, { id: 'a', params: { exposure: 0.4 } })];
     stack = toggleParamKeyframe(stack, exposure, 'a', 'exposure', 12);
     const keys = stack[0]?.keyframes?.exposure ?? [];
     expect(keys).toHaveLength(2);
-    expect(keys.map((key) => key.frame).sort((a, b) => a.frame - b.frame)).toEqual([0, 12]);
+    expect(keys.map((key) => key.frame).sort((a, b) => a - b)).toEqual([0, 12]);
     expect(keys.every((key) => key.value === 0.4)).toBe(true);
   });
 
@@ -214,7 +218,7 @@ describe('keyframes por parámetro', () => {
   });
 
   it('borra la pista entera si queda una sola clave', () => {
-    let stack = [
+    let stack: EffectStack = [
       {
         ...createInstance(exposure, { id: 'a' }),
         keyframes: {
@@ -227,6 +231,37 @@ describe('keyframes por parámetro', () => {
     ];
     stack = toggleParamKeyframe(stack, exposure, 'a', 'exposure', 0);
     expect(stack[0]?.keyframes).toBeUndefined();
+  });
+
+  it('removeParamKeyframe borra una clave suelta y conserva la pista', () => {
+    let stack: EffectStack = [
+      {
+        ...createInstance(exposure, { id: 'a' }),
+        keyframes: {
+          exposure: [
+            { frame: 0, value: -1 },
+            { frame: 15, value: 0 },
+            { frame: 30, value: 1 },
+          ],
+        },
+      },
+    ];
+    stack = removeParamKeyframe(stack, 'a', 'exposure', 15);
+    expect(stack[0]?.keyframes?.exposure?.map((key) => key.frame)).toEqual([0, 30]);
+  });
+
+  it('removeParamKeyframe elimina la pista entera si queda una sola clave', () => {
+    let stack = removeParamKeyframe(animated(), 'a', 'exposure', 0);
+    expect(stack[0]?.keyframes).toBeUndefined();
+    stack = removeParamKeyframe(animated(), 'a', 'exposure', 30);
+    expect(stack[0]?.keyframes).toBeUndefined();
+  });
+
+  it('removeParamKeyframe es no-op sin pista, sin clave en el frame o sin instancia', () => {
+    const plain = [createInstance(exposure, { id: 'b' })];
+    expect(removeParamKeyframe(plain, 'b', 'exposure', 0)[0]?.keyframes).toBeUndefined();
+    expect(removeParamKeyframe(animated(), 'a', 'exposure', 12)[0]?.keyframes?.exposure).toHaveLength(2);
+    expect(removeParamKeyframe(animated(), 'zzz', 'exposure', 0)[0]?.keyframes?.exposure).toHaveLength(2);
   });
 
   it('el slider escribe en la clave del frame sólo si la pista existe', () => {
@@ -243,6 +278,69 @@ describe('keyframes por parámetro', () => {
     const stack = clearParamKeyframes(animated(), 'a', 'exposure');
     expect(stack[0]?.keyframes).toBeUndefined();
     expect(stack[0]?.params.exposure).toBe(0.2);
+  });
+
+  it('setParamKeyframeBezier escribe la curva de la clave del segmento y la preserva al reescribir el valor', () => {
+    const curve = { cp1X: 0.2, cp1Y: 0.1, cp2X: 0.8, cp2Y: 0.9 };
+    let stack = setParamKeyframeBezier(animated(), 'a', 'exposure', 0, curve);
+    const first = stack[0]?.keyframes?.exposure?.find((key) => key.frame === 0);
+    expect(first?.bezier).toEqual(curve);
+    expect(first?.value).toBe(-1);
+    // Reescribir el valor no aplana la curva (misma regla que easing).
+    stack = setParamKeyframeAt(stack, exposure, 'a', 'exposure', 0, -0.5);
+    expect(stack[0]?.keyframes?.exposure?.find((key) => key.frame === 0)?.bezier).toEqual(curve);
+    // null quita la curva de esa clave.
+    stack = setParamKeyframeBezier(stack, 'a', 'exposure', 0, null);
+    expect(stack[0]?.keyframes?.exposure?.find((key) => key.frame === 0)?.bezier).toBeUndefined();
+  });
+
+  it('setParamKeyframeBezier es no-op sin pista o sin clave en el frame', () => {
+    const plain = [createInstance(exposure, { id: 'b' })];
+    const noTrack = setParamKeyframeBezier(plain, 'b', 'exposure', 0, {
+      cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 1,
+    });
+    expect(noTrack[0]?.keyframes).toBeUndefined();
+    const noKey = setParamKeyframeBezier(animated(), 'a', 'exposure', 12, {
+      cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 1,
+    });
+    expect(noKey[0]?.keyframes?.exposure?.every((key) => key.bezier === undefined)).toBe(true);
+  });
+
+  it('setParamKeyframeEasing escribe el preset, conserva el valor y reemplaza la curva propia', () => {
+    const curve = { cp1X: 0.2, cp1Y: 0.1, cp2X: 0.8, cp2Y: 0.9 };
+    let stack = setParamKeyframeBezier(animated(), 'a', 'exposure', 0, curve);
+    stack = setParamKeyframeEasing(stack, 'a', 'exposure', 0, 'ease-in');
+    const first = stack[0]?.keyframes?.exposure?.find((key) => key.frame === 0);
+    expect(first?.easing).toBe('ease-in');
+    expect(first?.value).toBe(-1);
+    // El bezier ganaba sobre easing: al elegir preset se quita para que rija.
+    expect(first?.bezier).toBeUndefined();
+    // La otra clave no se toca.
+    expect(
+      stack[0]?.keyframes?.exposure?.find((key) => key.frame === 30)?.easing,
+    ).toBeUndefined();
+    // El muestreo refleja el preset en el tramo.
+    expect(sampleKeyframes(stack[0]?.keyframes?.exposure, 15)).toBeCloseTo(-0.5, 5);
+  });
+
+  it('setParamKeyframeEasing es no-op sin pista o sin clave en el frame', () => {
+    const plain = [createInstance(exposure, { id: 'b' })];
+    const noTrack = setParamKeyframeEasing(plain, 'b', 'exposure', 0, 'hold');
+    expect(noTrack[0]?.keyframes).toBeUndefined();
+    const noKey = setParamKeyframeEasing(animated(), 'a', 'exposure', 12, 'hold');
+    expect(
+      noKey[0]?.keyframes?.exposure?.every((key) => key.easing === undefined),
+    ).toBe(true);
+  });
+
+  it('clearParamKeyframeCurves quita bezier de todas las claves sin tocar la pista', () => {
+    const curve = { cp1X: 0.2, cp1Y: 0.1, cp2X: 0.8, cp2Y: 0.9 };
+    let stack = setParamKeyframeBezier(animated(), 'a', 'exposure', 0, curve);
+    stack = setParamKeyframeBezier(stack, 'a', 'exposure', 30, curve);
+    stack = clearParamKeyframeCurves(stack, 'a', 'exposure');
+    const track = stack[0]?.keyframes?.exposure ?? [];
+    expect(track).toHaveLength(2);
+    expect(track.every((key) => key.bezier === undefined)).toBe(true);
   });
 
   it('ignora parámetros no numéricos', () => {

@@ -1,7 +1,7 @@
 import { useContext, useMemo } from 'react';
 import type { ProjectDocument } from '@editor-ia/project-schema';
 import { formatTimecode } from './project-actions';
-import { ProjectContext, PlayheadContext, PlayingContext } from './project-store-context';
+import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext } from './project-store-context';
 import type { ProjectStoreValue } from './project-store-types';
 
 
@@ -32,11 +32,22 @@ export function useProjectPlaying(): boolean {
 }
 
 
+/** Velocidad de reproducción: cambia sólo al elegir otra, no por frame. */
+export function useProjectPlaybackRate(): number {
+  return useContext(PlaybackRateContext);
+}
+
+
 /** Atajo para quien necesita ambos (preview, transport, loop de playback). */
-export function useProjectPlayback(): { readonly frame: number; readonly playing: boolean } {
+export function useProjectPlayback(): {
+  readonly frame: number;
+  readonly playing: boolean;
+  readonly rate: number;
+} {
   const frame = usePlayheadFrame();
   const playing = useProjectPlaying();
-  return useMemo(() => ({ frame, playing }), [frame, playing]);
+  const rate = useProjectPlaybackRate();
+  return useMemo(() => ({ frame, playing, rate }), [frame, playing, rate]);
 }
 
 

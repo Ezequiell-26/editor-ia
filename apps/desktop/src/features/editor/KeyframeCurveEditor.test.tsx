@@ -199,7 +199,7 @@ describe('KeyframeCurveEditor (interacción)', () => {
 
   it('sin keyframes suficientes muestra el mensaje vacío', () => {
     const { getByLabelText, queryByRole } = render(
-      <KeyframeCurveEditor keyframes={[{ frame: 0, scale: 1 }]} property="scale" />,
+      <KeyframeCurveEditor keyframes={[{ frame: 0 }]} property="scale" />,
     );
     expect(getByLabelText('Curvas sin keyframes')).toBeTruthy();
     expect(queryByRole('img')).toBeNull();

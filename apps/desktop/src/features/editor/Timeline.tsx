@@ -110,6 +110,8 @@ const TRANSITION_LABELS: Record<string, string> = {
   'wipe-right': 'Barrido',
   'wipe-up': 'Barrido',
   'wipe-down': 'Barrido',
+  iris: 'Iris',
+  'luma-wipe': 'Barrido por luminancia',
 };
 
 /**

@@ -2645,7 +2645,9 @@
                           "wipe-left",
                           "wipe-right",
                           "wipe-up",
-                          "wipe-down"
+                          "wipe-down",
+                          "iris",
+                          "luma-wipe"
                         ]
                       },
                       "frames": {
@@ -2656,6 +2658,9 @@
                       "color": {
                         "type": "string",
                         "pattern": "^#(?:[0-9a-f]{3}|[0-9a-f]{6})$"
+                      },
+                      "mateClipId": {
+                        "$ref": "#/properties/id"
                       }
                     },
                     "required": [

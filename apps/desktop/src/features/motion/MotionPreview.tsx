@@ -90,7 +90,14 @@ export function MotionPreview({
                       ? regularPolygonClipPath(6)
                       : shape === 'arrow'
                         ? arrowClipPath()
-                        : undefined;
+                        : shape === 'custom' && Array.isArray(layer.points)
+                          ? `polygon(${layer.points
+                              .map(
+                                (point) =>
+                                  `${(point.x * 100).toFixed(2)}% ${(point.y * 100).toFixed(2)}%`,
+                              )
+                              .join(', ')})`
+                          : undefined;
           return (
             <div
               key={`${layer.kind}-${index}`}

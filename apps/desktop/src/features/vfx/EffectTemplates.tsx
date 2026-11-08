@@ -10,6 +10,7 @@ import {
   type EffectTemplate,
   type EffectTemplateKind,
 } from '../../state/effect-templates';
+import { builtinEffectTemplates } from '../../state/builtin-effect-templates';
 
 export interface EffectTemplatesProps {
   readonly kind: EffectTemplateKind;
@@ -47,6 +48,7 @@ export function EffectTemplates({ kind, stack, onApply }: EffectTemplatesProps) 
   const [templates, setTemplates] = useState<readonly EffectTemplate[]>(() =>
     loadEffectTemplates().filter((entry) => entry.kind === kind),
   );
+  const builtins = builtinEffectTemplates(kind);
   const [name, setName] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -101,48 +103,84 @@ export function EffectTemplates({ kind, stack, onApply }: EffectTemplatesProps) 
 
   return (
     <details className="effect-templates">
-      <summary>Plantillas ({templates.length})</summary>
+      <summary>Plantillas ({templates.length + builtins.length})</summary>
       <div className="effect-templates-body">
+        {builtins.length > 0 ? (
+          <>
+            <p className="fine-print effect-templates-section">De fábrica</p>
+            <ul className="effect-templates-list">
+              {builtins.map((template) => (
+                <li key={template.id} className="effect-template-row">
+                  <span className="effect-template-name">{template.name}</span>
+                  <span className="fine-print">
+                    {template.stack.length} efecto(s)
+                  </span>
+                  <span className="effect-template-actions">
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() => apply(template)}
+                    >
+                      Aplicar
+                    </button>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() => downloadJson(template)}
+                    >
+                      Exportar
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
         {templates.length === 0 ? (
           <p className="fine-print">
-            Todavía no hay plantillas de {kind === 'video' ? 'video' : 'audio'}. Guardá la pila
-            actual para reutilizarla en otros clips.
+            Todavía no guardaste plantillas propias de {kind === 'video' ? 'video' : 'audio'}.
+            Guardá la pila actual para reutilizarla en otros clips.
           </p>
         ) : (
-          <ul className="effect-templates-list">
-            {templates.map((template) => (
-              <li key={template.id} className="effect-template-row">
-                <span className="effect-template-name">{template.name}</span>
-                <span className="fine-print">
-                  {template.stack.length} efecto(s)
-                </span>
-                <span className="effect-template-actions">
-                  <button
-                    type="button"
-                    className="small ghost"
-                    onClick={() => apply(template)}
-                  >
-                    Aplicar
-                  </button>
-                  <button
-                    type="button"
-                    className="small ghost"
-                    onClick={() => downloadJson(template)}
-                  >
-                    Exportar
-                  </button>
-                  <button
-                    type="button"
-                    className="small ghost"
-                    aria-label={`Quitar plantilla ${template.name}`}
-                    onClick={() => remove(template.id)}
-                  >
-                    Quitar
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
+          <>
+            {builtins.length > 0 ? (
+              <p className="fine-print effect-templates-section">Propias</p>
+            ) : null}
+            <ul className="effect-templates-list">
+              {templates.map((template) => (
+                <li key={template.id} className="effect-template-row">
+                  <span className="effect-template-name">{template.name}</span>
+                  <span className="fine-print">
+                    {template.stack.length} efecto(s)
+                  </span>
+                  <span className="effect-template-actions">
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() => apply(template)}
+                    >
+                      Aplicar
+                    </button>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      onClick={() => downloadJson(template)}
+                    >
+                      Exportar
+                    </button>
+                    <button
+                      type="button"
+                      className="small ghost"
+                      aria-label={`Quitar plantilla ${template.name}`}
+                      onClick={() => remove(template.id)}
+                    >
+                      Quitar
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
         <div className="effect-templates-save">
           <input
