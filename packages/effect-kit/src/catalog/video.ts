@@ -481,6 +481,45 @@ void main() {
   },
 });
 
+// Tomás del light.leak en export: el shader calcula
+// `p = ek_centered(v_texCoord)`, `blob = ek_fbm(p*1.6 + vec2(t, t*0.4), 4)`,
+// `edge = smoothstep(0.35, 1.1, length(p))`,
+// `mask = smoothstep(0.35, 0.85, blob*0.6 + edge*0.8)` y mezcla screen
+// `1-(1-c)(1-tint*mask*amount)`. ek_fbm (4 octavas de ek_noise/hash21) no
+// entra en la gramática de geq — cada hash inlinearía ~8 KB y la expresión
+// completa pasaría el límite de línea de comandos — así que el blob se
+// aproxima con 5 senos incommensurables de frecuencia creciente (la misma
+// idea de octavas: cada término duplica ~la frecuencia del anterior),
+// renormalizado a [0,1]. Mismas envolventes smoothstep y misma mezcla
+// screen vía blend=all_mode=screen. Con PX=(X+0.5-0.5*W)/H y
+// PY=(Y+0.5-0.5*H)/H se cumple p=(PX,PY) porque aspect=W/H.
+const LEAK_PX = '(X+0.5-0.5*W)/H';
+const LEAK_PY = '(Y+0.5-0.5*H)/H';
+const LEAK_PD = `sqrt(${LEAK_PX}*${LEAK_PX}+${LEAK_PY}*${LEAK_PY})`;
+const LEAK_EDGE_T = `clip((${LEAK_PD}-0.35)/0.75,0,1)`;
+const LEAK_EDGE = `(${LEAK_EDGE_T}*${LEAK_EDGE_T}*(3-2*${LEAK_EDGE_T}))`;
+const LEAK_QX = `(${LEAK_PX}*1.6+T*{speed})`;
+const LEAK_QY = `(${LEAK_PY}*1.6+T*{speed}*0.4)`;
+const leakWave = (fx: number, fy: number, amp: number, phase: number) =>
+  `${amp}*sin(${LEAK_QX}*${fx}+${LEAK_QY}*${fy}+${phase})`;
+const LEAK_N =
+  leakWave(4.3, 2.6, 0.3, 0) +
+  '+' + leakWave(-7.1, 5.9, 0.24, 1.7) +
+  '+' + leakWave(12.5, -9.2, 0.18, 3.9) +
+  '+' + leakWave(-23.6, 19.4, 0.12, 0.6) +
+  '+' + leakWave(46.7, -41.6, 0.08, 2.4);
+const LEAK_BLOB = `(0.5+0.55*(${LEAK_N}))`;
+const LEAK_MT = `clip((${LEAK_BLOB}*0.6+${LEAK_EDGE}*0.8-0.35)/0.5,0,1)`;
+const LEAK_MASK = `(${LEAK_MT}*${LEAK_MT}*(3-2*${LEAK_MT}))`;
+const leakChannel = (axis: 'r' | 'g' | 'b') =>
+  `clip({tint.${axis}}*${LEAK_MASK}*{amount}*255,0,255)`;
+const leakGraph =
+  'split=2[%A%b][%A%l];' +
+  '[%A%b]format=gbrp[%A%base];' +
+  '[%A%l]format=gbrp,geq=' +
+  `r='${leakChannel('r')}':g='${leakChannel('g')}':b='${leakChannel('b')}'[%A%ov];` +
+  '[%A%base][%A%ov]blend=all_mode=screen';
+
 const leak = v({
   id: 'light.leak',
   name: 'Fuga de luz',
@@ -508,6 +547,11 @@ void main() {
   fragColor = vec4(1.0 - (1.0 - c) * (1.0 - light), 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: leakGraph,
+    fidelity: 'approximate',
+    note: 'geq repite por píxel la envolvente del shader (edge radial + mask smoothstep) sobre un blob de 5 senos incommensurables que aproximan ek_fbm — el value-noise de 4 octavas no entra en la gramática de geq — y blend=all_mode=screen reproduce la mezcla; el eje Y puede venir espejado respecto a v_texCoord y el coste es alto en cuadros grandes.',
+  },
 });
 
 // Tomás del light.flare en export: el shader calcula

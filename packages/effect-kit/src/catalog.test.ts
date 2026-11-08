@@ -237,9 +237,32 @@ describe('compilación a FFmpeg', () => {
     ];
     const compiled = compileStack(effectRegistry, stack);
     expect(compiled.effects).toBe(3);
-    expect(compiled.fidelity).toBe('preview-only');
-    expect(compiled.previewOnly).toEqual(['light.leak']);
+    expect(compiled.fidelity).toBe('approximate');
+    expect(compiled.previewOnly).toEqual([]);
     expect(compiled.steps.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('light.leak exporta con geq de manchas + blend screen y parámetros resueltos', () => {
+    const manifest = effectRegistry.get('light.leak');
+    expect(manifest).toBeTruthy();
+    if (!manifest) return;
+    const compiled = compileInstance(
+      effectRegistry,
+      createInstance(manifest, {
+        params: { amount: 0.6, tint: '#ff7a3d', speed: 0.5 },
+      }),
+    );
+    const graph = compiled.steps.find((step) => step.kind === 'graph');
+    expect(graph?.kind).toBe('graph');
+    if (graph?.kind !== 'graph') return;
+    expect(compiled.fidelity).toBe('approximate');
+    expect(graph.template).toContain('split=2[%A%b][%A%l]');
+    expect(graph.template).toContain('format=gbrp,geq=');
+    expect(graph.template).toContain('sin(');
+    expect(graph.template).toContain('T*0.5');
+    expect(graph.template).toContain('*0.6*255,0,255)');
+    expect(graph.template).toContain('blend=all_mode=screen');
+    expect(graph.template).not.toMatch(/\{[a-zA-Z0-9_]/);
   });
 
   it('un efecto apagado no llega al render', () => {

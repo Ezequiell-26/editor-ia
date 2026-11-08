@@ -98,6 +98,6 @@ describe('estudio de efectos', () => {
   it('muestra el resumen de export del stack', () => {
     render(<Harness />);
     addEffect(/^Destello de lente/);
-    expect(screen.getAllByText(/Sólo preview/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Export aproximado/i).length).toBeGreaterThan(0);
   });
 });

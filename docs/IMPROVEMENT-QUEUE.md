@@ -4,6 +4,61 @@ Actualizado: 2026-11-11. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Receta FFmpeg para `light.leak` (2026-11-07)** — el último efecto
+  «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en una pasada del
+  protocolo del loop (Devin CLI). Con esto **los 48 efectos de video
+  exportan**: no queda ninguno con etiqueta «Sólo preview».
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; las manchas cálidas se
+    veían en el preview GPU pero el MP4 salía sin ellas.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `split=2` — base `format=gbrp` + overlay `format=gbrp,geq` que repite la
+    envolvente del shader por píxel: `edge = smoothstep(0.35,1.1,length(p))`
+    y `mask = smoothstep(0.35,0.85, blob*0.6 + edge*0.8)` (smoothstep
+    cúbico escrito a mano), salida `clip(tint·mask·amount·255,0,255)` y
+    `blend=all_mode=screen` que reproduce `1-(1-c)(1-light)`.
+  - **Decisión honesta**: `blob = ek_fbm(p·1.6+(t,0.4t),4)` NO se pudo
+    portar literal — 4 octavas × 4 hashes `ek_hash21` inlineados superan el
+    límite de línea de comandos de Windows (~100 KB estimados). Se aproximó
+    con **5 senos incommensurables** de frecuencia/phase crecientes
+    (0.30/0.24/0.18/0.12/0.08, la idea de octavas del fbm) renormalizados a
+    [0,1]. La cola ya lo anticipaba («aproximar con senos»).
+  - **Verificación con FFmpeg real** (n9.0 empaquetado, `testsrc2` 320×180,
+    50 frames): diff media por canal en frame 25 — esquina sup-izq **80**,
+    sup-der **59**, calidez R−B **+70/+166**, centro **+0,8**; frame 10 vs 40
+    en la esquina **11,2** (las manchas se mueven con `T·speed`). Scripts en
+    `.tmp-leak/` (ignorado).
+  - **Fidelidad honesta**: `approximate` — el blob es un sumando de senos,
+    no value-noise fbm (patrón orgánico similar, no idéntico); el eje Y
+    puede venir espejado respecto a `v_texCoord`; `format=gbrp` descarta
+    alfa; coste alto por píxel (5 senos ×3 canales).
+  - **Extra**: `EffectStudio.test.tsx` quedó verde de nuevo — el test
+    «muestra el resumen de export del stack» esperaba «Sólo preview» tras
+    agregar `light.flare`, aserción stale desde que flare ganó receta
+    (2026-11-08); ahora espera «Export aproximado», que es lo que el producto
+    muestra. `EffectTemplates.test.tsx` pasó en la re-corrida (su fallo
+    anterior era flaky de jsdom/navigation).
+  - **Verificación repo**: `npm run effects:codegen` → **78 recetas**;
+    vitest effect-kit **48 passed / 3 skipped** (live; +1 test nuevo en
+    `catalog.test.ts`, stack test actualizado) · vitest vfx desktop
+    **25 passed / 1 failed** (único fallo el conocido y ajeno de
+    `EffectTemplates.test.tsx` — importación JSON, flaky de jsdom; pasó en
+    la corrida aislada de 2 archivos) · `cargo check -p editor-ia-desktop`
+    limpio · Rust `cargo test --lib effect_stack` **11/11** con test nuevo
+    `effect_stack_expands_leak_graph_with_filled_params` · `tsc --noEmit`
+    desktop reporta **1 error preexistente** del WIP del usuario en
+    `PreviewTransformBox.tsx:248` · `tsc` effect-kit reporta los **4 errores
+    preexistentes** documentados de `engine.test.ts`.
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `packages/effect-kit/src/catalog.test.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test),
+    `apps/desktop/src/features/vfx/EffectStudio.test.tsx`,
+    `docs/DRIFT-PARITY.md`, `memory/2026-11-07-light-leak-export.md`.
+  - **Pendiente honesto**: la fidelidad visual del blob vs `ek_fbm` no está
+    medida contra el preview GPU (no hay harness de comparación
+    shader↔FFmpeg); si se quiere más parecido habría que generar el noise en
+    un paso previo (p.ej. `geq` a 8 bit por octava) o un source sintético.
+
 - `[done]` **Receta FFmpeg para `light.flare` (2026-11-08)** — uno de los 2
   efectos «sólo preview» que quedaban (`docs/DRIFT-PARITY.md` §5) en una
   pasada del protocolo del loop (Devin CLI), mismo patrón `geq`+`blend`

@@ -5835,6 +5835,32 @@ mod tests {
         assert!(chain.ends_with("[v0]"));
     }
 
+    #[test]
+    fn effect_stack_expands_leak_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "light.leak",
+                    "enabled": true,
+                    "params": { "amount": 0.6, "tint": "#ff7a3d", "speed": 0.5 }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{amount}"));
+        assert!(!chain.contains("{tint"));
+        assert!(!chain.contains("{speed}"));
+        assert!(chain.contains("split=2[v0_0b][v0_0l]"));
+        assert!(chain.contains("format=gbrp,geq="));
+        assert!(chain.contains("sin("));
+        assert!(chain.contains("T*0.5"));
+        assert!(chain.contains("*0.6*255,0,255)"));
+        assert!(chain.contains("blend=all_mode=screen"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
     fn keyframed_exposure(value_start: f64, value_end: f64) -> serde_json::Value {
         serde_json::json!({
             "stack": [
