@@ -4,6 +4,33 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Limpieza de warnings Rust del lib (2026-11-08)** — pasada
+  del protocolo del loop (Devin CLI): `cargo check` reportaba 10 warnings
+  en el target lib y 21 en lib-test, casi todos `unused_imports` dejados
+  por el refactor hexagonal.
+  - **`cargo fix --lib`** aplicó 9 fixes seguros (imports muertos en
+  `ffmpeg.rs`, `assistant.rs`, `pipeline.rs`, `timeline_import.rs`) pero
+  **rompió lib-test con 86 errores**: los tests (`ffmpeg/tests.rs`,
+  `encoder_tests.rs`, `assistant.tests.rs`) consumen la superficie de
+  re-export de `ffmpeg.rs` vía `use super::*`. Reparado moviendo los
+  nombres sólo-usados-por-tests a bloques `#[cfg(test)] pub(super)/pub(crate)
+  use` — el lib queda en **0 warnings** sin perder cobertura.
+  - **Doc comment huérfano** en `background.rs:37` (`///` sobre un
+  `include!`): degradado a `//` — el contenido se conserva.
+  - **Verificación**: `cargo check --all-targets` compila · `cargo test
+    --lib` **698/698** (los 52 ignored son los live con flag) ·
+    `cargo fmt --check` limpio tras `cargo fmt`.
+  - **Archivos**: `render/ffmpeg.rs`, `ai/assistant.rs`,
+    `downloader/pipeline.rs`, `media/timeline_import.rs`,
+    `system/background.rs`, esta entrada,
+    `memory/2026-11-08-rust-warnings-cleanup.md`.
+  - **Pendiente honesto**: quedan ~15 warnings `dead_code` en lib-test
+    (`lib.rs`: statics/funciones de single-instance, splash y tray;
+    `registry.rs::register`) — son código del arranque que el target de
+    test no ejerce (`run()` no corre en tests); no son imports muertos
+    y tocarlos exige decidir si se anotan `#[allow]` o se reorganiza el
+    arranque. Los warnings del lib de producción quedaron en **cero**.
+
 - `[done]` **Certificación build + cargo post-sincronización (2026-11-08)**
   — pasada del protocolo del loop (Devin CLI) que cierra la matriz de
   verificación del worktree tras la reconciliación 12 y el fix del css-audit.
