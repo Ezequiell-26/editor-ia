@@ -62,6 +62,36 @@ reconstruye el instalador salvo que el ítem lo pida.
     «ORGANIZACIÓN VISUAL» (~2.2k líneas: refinamientos globales
     editor+shell). Ambas requieren splitter por selector.
 
+- `[done]` **CSS splitting fase 2 · slice 3: Fábrica + Descargador +
+  Convertidor/Zona-de-soltar al entry de contenido (2026-11-08)** —
+  extracción por sub-bloques contiguos dentro de «FÁBRICA DE CONTENIDO».
+  - **Cambio**: tres rangos verbatim de `app.css` →
+    `styles/content-tools.css` (nuevo): vista Fábrica (7182-7364),
+    Descargador social (7530-7782) y Convertidor + Zona de soltar de
+    Medios (8092-8206). Importado en `entries/content.css` después de
+    `director-convert.css` para conservar el orden relativo original
+    (director < fábrica < descarga < conversor).
+  - **Lo que NO se movió** (sigue en critical): inspector por pestañas,
+    media organization (`.rail-fav`, `.asset-fav` — selectores de rail
+    del editor), timeline markers/snapping/I-O, motion graphics, Lottie,
+    mezclador, VFX, editor inmersivo y monitor de loudness — todos
+    belong a vistas editor o son compartidos.
+  - **Cascada**: overlaps resueltos — `.factory-image:has()` queda en
+    app.css con mayor especificidad; `.assets-view{position:relative}`
+    no comparte props con la regla que queda; overlaps con
+    home/views.css son selectores `.app-shell`-scoped o `!important`.
+  - **Verificación**: `postcss.parse` OK (app.css 1.585 reglas,
+    content-tools.css 78) · límites de sección revisados · sin medición
+    visual (pendiente honesta, igual que slice 2).
+  - **Archivos**: `styles/app.css` (−551 líneas), `styles/content-tools.css`,
+    `styles/entries/content.css`, esta entrada,
+    `memory/2026-11-08-css-fase2-content-tools.md`.
+  - **Estado acumulado fase 2**: app.css 13.830 → 11.190 líneas
+    (−19,1 %). Queda: media organization parcial, bloques editor de
+    FÁBRICA (→ editor.css entry) y ORGANIZACIÓN VISUAL (refinamientos
+    globales — evaluar si corresponde moverlos enteros al final del
+    critical path o repartirlos por vista).
+
 - `[done]` **Rampa de velocidad del shuttle `L`/`J` (2026-11-08)** — cierra el
   pendiente 2 de `docs/ATAJOS-PRO.md` («repetir `L`/`J` no cambia la
   velocidad»), portado desde `main` (`43f03d0`) en la reconciliación 4 del

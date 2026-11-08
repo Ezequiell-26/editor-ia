@@ -14,5 +14,8 @@
    critical path (app.css) a este entry. Va ÚLTIMO para conservar la cascada
    original (app.css -> home -> views -> tools). */
 @import '../director-convert.css';
+/* Fábrica + Descargador social + Convertidor/Zona de soltar: mismo criterio,
+   va después de director-convert para conservar el orden original. */
+@import '../content-tools.css';
 /* La capa visual Filmora se carga una sola vez desde `main.tsx`; ver la
    explicación y la medición en `entries/editor.css`. */
