@@ -11,7 +11,7 @@
 
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;

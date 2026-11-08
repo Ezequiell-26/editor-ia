@@ -34,8 +34,8 @@ const OUTPUT_SHAPE: [i64; 4] = [1, 1, 320, 320];
 /// El entorno de ONNX Runtime se crea una sola vez y vive para siempre.
 static ENVIRONMENT: OnceLock<ort::environment::Environment> = OnceLock::new();
 
-/// ¿Se puede correr la inferencia en esta máquina? Medido: el DLL tiene que
-/// estar junto al ejecutable (o en `ORT_DYLIB_PATH`).
+// ¿Se puede correr la inferencia en esta máquina? Medido: el DLL tiene que
+// estar junto al ejecutable (o en `ORT_DYLIB_PATH`).
 include!("background/runtime.rs");
 include!("background/image.rs");
 include!("background/video.rs");
