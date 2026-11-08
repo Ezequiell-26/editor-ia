@@ -10,7 +10,7 @@
 /// La regla es conservadora: cualquier duda sobre una feature que produzca o
 /// consuma alfa fuerza `rgba`. Un falso positivo sólo pierde la optimización;
 /// un falso negativo rompería la transparencia.
-
+///
 /// `true` cuando la composición necesita un plano alfa real.
 pub(crate) fn composition_needs_alpha(
     visual_clips: &[&Value],

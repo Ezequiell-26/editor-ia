@@ -67,7 +67,7 @@ fn render_frame_produces_non_empty_image() {
     );
     assert_eq!(rgb.len(), 320 * 180 * 3);
     // El fondo domina; debe haber píxeles claros del cuerpo.
-    let light = rgb.chunks_exact(3).filter(|p| p[0] > 200).count();
+    let light = rgb.as_chunks::<3>().0.iter().filter(|p| p[0] > 200).count();
     assert!(
         light > 500,
         "el stickman debe dibujar muchos píxeles claros, hay {light}"

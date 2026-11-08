@@ -7853,7 +7853,8 @@ fn opaque_cuts_compose_in_yuv420p_without_rgba() {
 
 #[test]
 fn alpha_features_keep_the_rgba_composition() {
-    let cases: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
+    type AlphaCase = (&'static str, Box<dyn Fn(&mut Value)>);
+    let cases: Vec<AlphaCase> = vec![
         (
             "opacidad",
             Box::new(|c| c["transform"] = serde_json::json!({"opacity": 0.5})),

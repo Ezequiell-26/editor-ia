@@ -674,8 +674,8 @@ pub fn validate_assignments(
     Ok(assignments)
 }
 
-/// Empareja frases de la narración con imágenes usando el proveedor configurado.
-/// El frontend valida de nuevo y cae al orden de archivos si esto falla.
+// Empareja frases de la narración con imágenes usando el proveedor configurado.
+// El frontend valida de nuevo y cae al orden de archivos si esto falla.
 
 // --- Streaming SSE del asistente ------------------------------------------
 

@@ -45,8 +45,10 @@ pub struct AudioScopeData {
 
 fn decode_f32_le(bytes: &[u8]) -> Vec<f32> {
     bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|chunk| f32::from_le_bytes(*chunk))
         .collect()
 }
 
@@ -141,13 +143,13 @@ pub fn analyze_pcm(samples: &[f32], sample_rate: u32) -> AudioScopeData {
             mags.iter().map(|mag| mag[src]).collect()
         })
         .collect();
-    let cols = windows.len().min(SPECTROGRAM_MAX_COLS).max(1);
+    let cols = windows.len().clamp(1, SPECTROGRAM_MAX_COLS);
     let col_step = windows.len() as f64 / cols as f64;
     let mut spectrogram = Vec::with_capacity(cols * SPECTROGRAM_ROWS);
     for col in 0..cols {
         let src = ((col as f64 * col_step) as usize).min(windows.len() - 1);
-        for row in 0..SPECTROGRAM_ROWS {
-            spectrogram.push(to_db(freq_rows[row][src]));
+        for freq_row in &freq_rows {
+            spectrogram.push(to_db(freq_row[src]));
         }
     }
 

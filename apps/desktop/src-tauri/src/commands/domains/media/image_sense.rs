@@ -202,7 +202,9 @@ fn sky_bias_of(gray: &GrayImage) -> f64 {
 /// colores de los cubos más poblados. Barato y suficiente para la interfaz.
 fn palette_of(rgb: &RgbImage) -> Vec<String> {
     use std::collections::HashMap;
-    let mut buckets: HashMap<(u8, u8, u8), (u64, u64, u64, u64)> = HashMap::new();
+    type BucketKey = (u8, u8, u8);
+    type BucketSums = (u64, u64, u64, u64);
+    let mut buckets: HashMap<BucketKey, BucketSums> = HashMap::new();
     for pixel in rgb.pixels() {
         let key = (pixel[0] >> 5, pixel[1] >> 5, pixel[2] >> 5);
         let entry = buckets.entry(key).or_insert((0, 0, 0, 0));
@@ -211,8 +213,8 @@ fn palette_of(rgb: &RgbImage) -> Vec<String> {
         entry.2 += pixel[2] as u64;
         entry.3 += 1;
     }
-    let mut ranked: Vec<((u8, u8, u8), (u64, u64, u64, u64))> = buckets.into_iter().collect();
-    ranked.sort_by(|a, b| b.1 .3.cmp(&a.1 .3));
+    let mut ranked: Vec<(BucketKey, BucketSums)> = buckets.into_iter().collect();
+    ranked.sort_by_key(|entry| std::cmp::Reverse(entry.1 .3));
     ranked
         .into_iter()
         .take(PALETTE_COLORS)

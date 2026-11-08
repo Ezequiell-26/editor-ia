@@ -167,7 +167,7 @@ fn analyze_comments(comments: &[RawComment], comment_video_titles: &[String]) ->
             video_title: comment_video_titles.get(index).cloned().unwrap_or_default(),
         })
         .collect();
-    top.sort_by(|a, b| b.likes.cmp(&a.likes));
+    top.sort_by_key(|comment| std::cmp::Reverse(comment.likes));
     top.truncate(5);
     CommentAnalysis {
         analyzed: comments.len() as u32,

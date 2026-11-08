@@ -326,9 +326,9 @@ mod tests {
         // El worker emite MP4/MOV H.264/H.265 + AAC y WebM VP9/AV1 + Opus.
         assert_eq!(matrix.video_codecs["h264"].software, vec!["libopenh264"]);
         assert_eq!(matrix.video_codecs["h264"].hardware, vec!["h264_nvenc"]);
-        assert!(matrix.video_codecs.get("h265").is_none());
+        assert!(!matrix.video_codecs.contains_key("h265"));
         // Sin libsvtav1/libaom-av1 ni hardware AV1, AV1 no se ofrece.
-        assert!(matrix.video_codecs.get("av1").is_none());
+        assert!(!matrix.video_codecs.contains_key("av1"));
         assert_eq!(matrix.video_codecs["vp9"].software, vec!["libvpx-vp9"]);
         assert_eq!(matrix.audio_codecs, vec!["aac", "opus"]);
         let containers: Vec<&str> = matrix

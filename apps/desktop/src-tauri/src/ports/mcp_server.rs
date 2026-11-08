@@ -3,7 +3,7 @@
 //! clientes de IA externos.
 
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -51,7 +51,7 @@ pub trait AiClientConfigs {
     /// Escribe la entrada `olyvia` preservando el resto del archivo.
     fn write_olyvia_entry(
         &self,
-        path: &PathBuf,
+        path: &Path,
         info: &McpServerInfo,
     ) -> Result<AutoconnectResult, ProjectError>;
 }

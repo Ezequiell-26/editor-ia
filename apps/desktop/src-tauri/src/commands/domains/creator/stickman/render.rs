@@ -9,7 +9,7 @@ fn render_frame(
     fps: u32,
 ) -> Vec<u8> {
     let mut buf = vec![0u8; width * height * 3];
-    for px in buf.chunks_exact_mut(3) {
+    for px in buf.as_chunks_mut::<3>().0.iter_mut() {
         px.copy_from_slice(&bg_color);
     }
     let sk = solve_skeleton(pose, width as f64, height as f64);

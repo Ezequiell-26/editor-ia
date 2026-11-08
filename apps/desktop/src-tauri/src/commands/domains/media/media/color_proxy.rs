@@ -74,7 +74,7 @@ pub async fn sample_asset_color(
         ));
     }
     let mut sums = [0u64; 3];
-    for pixel in output.stdout.chunks_exact(3).take(8 * 8) {
+    for pixel in output.stdout.as_chunks::<3>().0.iter().take(8 * 8) {
         sums[0] += pixel[0] as u64;
         sums[1] += pixel[1] as u64;
         sums[2] += pixel[2] as u64;

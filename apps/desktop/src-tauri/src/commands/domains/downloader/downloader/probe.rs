@@ -306,7 +306,7 @@ fn qualities_from_formats(
         .into_values()
         .map(|(quality, _)| quality)
         .collect();
-    qualities.sort_by(|a, b| b.height.cmp(&a.height));
+    qualities.sort_by_key(|quality| std::cmp::Reverse(quality.height));
     let max_height = qualities.first().map(|quality| quality.height);
     (qualities, max_height)
 }
@@ -322,7 +322,7 @@ fn merge_gallery_qualities(entries: &[Value]) -> (Vec<DownloadQuality>, Option<u
         }
     }
     let mut qualities: Vec<DownloadQuality> = heights.into_values().collect();
-    qualities.sort_by(|a, b| b.height.cmp(&a.height));
+    qualities.sort_by_key(|quality| std::cmp::Reverse(quality.height));
     let max_height = qualities.first().map(|quality| quality.height);
     (qualities, max_height)
 }

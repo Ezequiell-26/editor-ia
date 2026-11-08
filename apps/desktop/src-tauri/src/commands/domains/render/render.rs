@@ -5,7 +5,7 @@
 //! launcher, verifier); los DTOs de eventos en `render::lifecycle` y el
 //! worker FFmpeg en `infrastructure::render_jobs`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -34,7 +34,7 @@ fn deps<'a>(
     dialogs: &'a TauriRenderDialogs,
     encoder: &'a SystemRenderEncoder,
     launcher: &'a StdioRenderLauncher,
-    cache_dir: &'a PathBuf,
+    cache_dir: &'a Path,
 ) -> RenderDeps<'a> {
     RenderDeps {
         session,
@@ -46,7 +46,7 @@ fn deps<'a>(
         dialogs,
         encoder,
         launcher,
-        cache_dir: cache_dir.clone(),
+        cache_dir: cache_dir.to_path_buf(),
     }
 }
 

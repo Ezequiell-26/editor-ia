@@ -344,8 +344,9 @@ impl ProjectAssetRecovery for LocalProjectAssetRecovery {
     }
 
     fn duplicate_groups(&self, project: &Value, root: &Path) -> Vec<DuplicateAssetGroup> {
-        let mut groups: HashMap<(String, u64), Vec<(String, String, String, Vec<String>)>> =
-            HashMap::new();
+        type GroupKey = (String, u64);
+        type GroupItem = (String, String, String, Vec<String>);
+        let mut groups: HashMap<GroupKey, Vec<GroupItem>> = HashMap::new();
         for (asset_id, label, _kind, relative) in asset_paths(project) {
             let Ok(resolved) = resolve_inside_root(root, &relative) else {
                 continue;

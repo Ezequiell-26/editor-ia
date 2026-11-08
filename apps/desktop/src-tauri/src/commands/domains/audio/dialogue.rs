@@ -261,7 +261,7 @@ fn process_audio<F: FnMut(f64, &str)>(
     let frames = decoded.stdout.len() / (CHANNELS * 4);
     let mut left = Vec::with_capacity(frames);
     let mut right = Vec::with_capacity(frames);
-    for frame in decoded.stdout.chunks_exact(CHANNELS * 4) {
+    for frame in decoded.stdout.as_chunks::<{ CHANNELS * 4 }>().0 {
         left.push(f32::from_le_bytes([frame[0], frame[1], frame[2], frame[3]]));
         right.push(f32::from_le_bytes([frame[4], frame[5], frame[6], frame[7]]));
     }

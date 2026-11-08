@@ -27,7 +27,7 @@ fn thumbnail_from_bytes(bytes: &[u8]) -> Option<ThumbnailStats> {
         .sum::<f64>()
         / count;
     let mut palette_items: Vec<((u8, u8, u8), u32)> = palette.into_iter().collect();
-    palette_items.sort_by(|a, b| b.1.cmp(&a.1));
+    palette_items.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     let palette = palette_items
         .into_iter()
         .take(3)

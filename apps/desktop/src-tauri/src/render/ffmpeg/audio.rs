@@ -12,7 +12,6 @@ use super::*;
 /// Bézier pre-muestreadas con Newton). Devuelve los filtros inline y, si el
 /// paneo es animado, las ganancias por canal que el caller convierte en
 /// grafos extra.
-
 pub(crate) fn track_audio_filters(
     track: &Value,
     start_seconds: f64,

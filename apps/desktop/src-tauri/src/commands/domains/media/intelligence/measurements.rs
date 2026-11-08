@@ -92,11 +92,9 @@ fn measure_media(
                 .warnings
                 .push("No se pudieron medir negros o frames congelados.".to_string()),
         }
-        if let Some(joined) = luma_pass {
-            if let Ok((luma, saturation)) = joined {
-                result.luma = luma;
-                result.saturation = saturation;
-            }
+        if let Some(Ok((luma, saturation))) = luma_pass {
+            result.luma = luma;
+            result.saturation = saturation;
         }
     }
 

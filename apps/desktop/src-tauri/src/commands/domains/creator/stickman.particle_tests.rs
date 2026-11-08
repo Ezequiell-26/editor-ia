@@ -45,7 +45,9 @@ fn bounce_kind_renders_pixels() {
         24,
     );
     let gold = rgb
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .filter(|p| p[0] > 200 && p[1] > 150)
         .count();
     assert!(gold > 30, "bounce debe dibujar partículas, hay {gold}");
@@ -101,7 +103,9 @@ fn each_particle_kind_renders_pixels() {
             24,
         );
         let gold = rgb
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .filter(|p| p[0] > 200 && p[1] > 150)
             .count();
         assert!(

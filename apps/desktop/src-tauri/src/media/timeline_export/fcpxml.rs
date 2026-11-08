@@ -290,9 +290,8 @@ pub fn build_xml(project: &Value) -> (String, usize, Vec<String>) {
     // 1/30s. Al revés, una NLE leería 30 segundos por cuadro.
     let frame_duration = format!("{den:.0}/{num:.0}s");
     let xml = format!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE fcpxml>\n<fcpxml version=\"1.11\">\n<resources>\n<format id=\"r1\" name=\"FFVideoFormat{custom}\" frameDuration=\"{frame_duration}\" width=\"{width}\" height=\"{height}\"/>\n{resources}</resources>\n<library><event name=\"{name}\"><project name=\"{name}\"><sequence format=\"r1\" duration=\"{}\" tcStart=\"0s\" tcFormat=\"NDF\"><spine>\n{spine_xml}</spine></sequence></project></event></library>\n</fcpxml>\n",
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE fcpxml>\n<fcpxml version=\"1.11\">\n<resources>\n<format id=\"r1\" name=\"FFVideoFormat{width}x{height}\" frameDuration=\"{frame_duration}\" width=\"{width}\" height=\"{height}\"/>\n{resources}</resources>\n<library><event name=\"{name}\"><project name=\"{name}\"><sequence format=\"r1\" duration=\"{}\" tcStart=\"0s\" tcFormat=\"NDF\"><spine>\n{spine_xml}</spine></sequence></project></event></library>\n</fcpxml>\n",
         seconds(total, fps),
-        custom = format!("{width}x{height}"),
     );
     warnings.extend(OmittedClips::from_project(project, true).warnings("al FCPXML"));
     (xml, written, warnings)

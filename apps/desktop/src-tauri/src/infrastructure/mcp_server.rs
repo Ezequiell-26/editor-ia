@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -245,7 +245,7 @@ impl AiClientConfigs for EnvAiClientConfigs {
     /// agrega o reemplaza la entrada "olyvia".
     fn write_olyvia_entry(
         &self,
-        path: &PathBuf,
+        path: &Path,
         info: &McpServerInfo,
     ) -> Result<AutoconnectResult, ProjectError> {
         let client = if path.to_string_lossy().contains("claude_desktop_config") {

@@ -572,9 +572,7 @@ pub(crate) fn apply_effect_stack_animated(
         return None;
     }
     let output = format!("[{label}]");
-    let Some(prefix) = chain.strip_suffix(&output).map(str::to_owned) else {
-        return None;
-    };
+    let prefix = chain.strip_suffix(&output).map(str::to_owned)?;
 
     let rate = fps.max(1.0);
     let lead_frames = (lead_seconds.max(0.0) * rate).round() as i64;
@@ -665,7 +663,7 @@ pub(crate) fn apply_effect_stack_animated(
         ));
     }
 
-    graph.push_str(";");
+    graph.push(';');
     for index in 0..segment_count {
         graph.push_str(&format!("[seg{index}]"));
     }

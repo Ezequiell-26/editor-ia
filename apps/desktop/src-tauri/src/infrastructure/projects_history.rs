@@ -102,7 +102,7 @@ fn list_versions_of(project_path: &Path) -> Vec<ProjectVersionInfo> {
         })
         .map(|path| version_info(project_path, &path))
         .collect();
-    versions.sort_by(|a, b| b.saved_at_ms.cmp(&a.saved_at_ms));
+    versions.sort_by_key(|version| std::cmp::Reverse(version.saved_at_ms));
     versions
 }
 
@@ -132,7 +132,7 @@ fn prune_history(root: &Path) {
     if versions.len() <= HISTORY_LIMIT {
         return;
     }
-    versions.sort_by(|a, b| b.0.cmp(&a.0));
+    versions.sort_by_key(|version| std::cmp::Reverse(version.0));
     for (_, path) in versions.into_iter().skip(HISTORY_LIMIT) {
         let _ = fs::remove_file(path);
     }
