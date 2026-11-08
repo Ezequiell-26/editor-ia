@@ -184,8 +184,35 @@ fn validate_plan(plan: &Value, clip_id: &str) -> Result<(), ProjectError> {
                             | "pentagon"
                             | "hexagon"
                             | "arrow"
+                            | "custom"
                     ) {
                         return Err(fail(format!("{label}: forma inválida")));
+                    }
+                    if shape == "custom" {
+                        let valid =
+                            layer
+                                .get("points")
+                                .and_then(Value::as_array)
+                                .is_some_and(|points| {
+                                    (3..=16).contains(&points.len())
+                                        && points.iter().all(|point| {
+                                            let x = point.get("x").and_then(Value::as_f64);
+                                            let y = point.get("y").and_then(Value::as_f64);
+                                            matches!(
+                                                (x, y),
+                                                (Some(x), Some(y))
+                                                    if x.is_finite()
+                                                        && y.is_finite()
+                                                        && (0.0..=1.0).contains(&x)
+                                                        && (0.0..=1.0).contains(&y)
+                                            )
+                                        })
+                                });
+                        if !valid {
+                            return Err(fail(format!(
+                                "{label}: la forma personalizada necesita 3-16 puntos con x/y entre 0 y 1"
+                            )));
+                        }
                     }
                 }
                 let Some(opacity) = number(layer, "opacity") else {
@@ -267,6 +294,47 @@ fn animation_tags(
     tags
 }
 
+/// Vértices `points` (0..1 dentro de la caja de la capa) de una forma
+/// `custom`. La validación ya corrió en `validate_plan`; acá se relee de
+/// forma tolerante y un plan inválido cae al rectángulo en vez de romper
+/// el render.
+fn custom_shape_vertices(layer: &Value, width: f64, height: f64) -> Option<Vec<(f64, f64)>> {
+    let points = layer.get("points")?.as_array()?;
+    if points.len() < 3 || points.len() > 16 {
+        return None;
+    }
+    let mut vertices = Vec::with_capacity(points.len());
+    for point in points {
+        let x = point.get("x").and_then(Value::as_f64)?;
+        let y = point.get("y").and_then(Value::as_f64)?;
+        if !(x.is_finite() && y.is_finite() && (0.0..=1.0).contains(&x) && (0.0..=1.0).contains(&y))
+        {
+            return None;
+        }
+        vertices.push((x * width, y * height));
+    }
+    Some(vertices)
+}
+
+fn drawing_commands(vertices: &[(f64, f64)]) -> String {
+    let mut drawing = String::new();
+    for (index, (px, py)) in vertices.iter().enumerate() {
+        if index == 0 {
+            drawing.push_str(&format!("m {px:.1} {py:.1}"));
+        } else {
+            drawing.push_str(&format!(" l {px:.1} {py:.1}"));
+        }
+    }
+    if let Some((fx, fy)) = vertices.first() {
+        drawing.push_str(&format!(" l {fx:.1} {fy:.1}{{\\p0}}"));
+    }
+    drawing
+}
+
+fn rect_drawing(width: f64, height: f64) -> String {
+    format!("m 0 0 l {width:.1} 0 {width:.1} {height:.1} 0 {height:.1} l 0 0{{\\p0}}")
+}
+
 /// Dibujo `\p1` de las formas del titler. ASS no tiene curvas: la elipse se
 /// aproxima con 32 lados y triángulo/rombo son polúgonos regulares inscriptos
 /// en el rectángulo de la capa — las mismas coordenadas que el `clip-path`
@@ -325,18 +393,7 @@ fn polygon_drawing(shape: &str, width: f64, height: f64) -> String {
                 .collect()
         }
     };
-    let mut drawing = String::new();
-    for (index, (px, py)) in vertices.iter().enumerate() {
-        if index == 0 {
-            drawing.push_str(&format!("m {px:.1} {py:.1}"));
-        } else {
-            drawing.push_str(&format!(" l {px:.1} {py:.1}"));
-        }
-    }
-    if let Some((fx, fy)) = vertices.first() {
-        drawing.push_str(&format!(" l {fx:.1} {fy:.1}{{\\p0}}"));
-    }
-    drawing
+    drawing_commands(&vertices)
 }
 
 fn graphic_clips<'a>(project: &'a Value) -> Vec<&'a Value> {
@@ -505,9 +562,10 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                         width,
                         height,
                     ),
-                    _ => format!(
-                        "m 0 0 l {width:.1} 0 {width:.1} {height:.1} 0 {height:.1} l 0 0{{\\p0}}"
-                    ),
+                    Some("custom") => custom_shape_vertices(&layer, width, height)
+                        .map(|vertices| drawing_commands(&vertices))
+                        .unwrap_or_else(|| rect_drawing(width, height)),
+                    _ => rect_drawing(width, height),
                 };
                 format!(
                     "{{\\an7\\pos({x:.1},{y:.1})\\p1\\c{color}\\alpha&H{alpha:02X}&{tags}}}{drawing}"
@@ -682,6 +740,49 @@ mod tests {
         plan["clip-g"]["layers"][0]["shape"] = json!("circle");
         let error = build_motion_ass(input(&project, &plan)).expect_err("error");
         assert!(error.message.contains("forma"));
+    }
+
+    #[test]
+    fn custom_shape_draws_its_own_points() {
+        let project = project_with_graphic();
+        let mut plan = plans();
+        // Capa rect: x=0.1,y=0.7,w=0.5,h=0.15 de 1920x1080 → 960x162 px.
+        plan["clip-g"]["layers"][0]["shape"] = json!("custom");
+        plan["clip-g"]["layers"][0]["points"] = json!([
+            { "x": 0.0, "y": 0.0 },
+            { "x": 1.0, "y": 0.0 },
+            { "x": 0.5, "y": 1.0 }
+        ]);
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
+        // 3 vértices + cierre al primero.
+        assert_eq!(drawing.matches(" l ").count(), 3);
+        assert!(drawing.contains("}m 0.0 0.0 l 960.0 0.0 l 480.0 162.0 l 0.0 0.0"));
+    }
+
+    #[test]
+    fn custom_shape_requires_valid_points() {
+        let project = project_with_graphic();
+        for points in [
+            json!([]),
+            json!([{ "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 }]),
+            json!([{ "x": -0.1, "y": 0.0 }, { "x": 1.0, "y": 0.0 }, { "x": 0.5, "y": 1.0 }]),
+            json!([{ "x": 0.0 }, { "x": 1.0, "y": 0.0 }, { "x": 0.5, "y": 1.0 }]),
+        ] {
+            let mut plan = plans();
+            plan["clip-g"]["layers"][0]["shape"] = json!("custom");
+            plan["clip-g"]["layers"][0]["points"] = points;
+            let error = build_motion_ass(input(&project, &plan)).expect_err("error");
+            assert!(error.message.contains("puntos"), "{}", error.message);
+        }
+        // Sin points directamente también falla.
+        let mut plan = plans();
+        plan["clip-g"]["layers"][0]["shape"] = json!("custom");
+        let error = build_motion_ass(input(&project, &plan)).expect_err("error");
+        assert!(error.message.contains("puntos"));
     }
 
     #[test]

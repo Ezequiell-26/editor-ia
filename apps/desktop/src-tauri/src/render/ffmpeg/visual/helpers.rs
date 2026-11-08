@@ -29,18 +29,28 @@ pub(crate) fn hex_rgb01(raw: &str) -> Option<(f64, f64, f64)> {
 /// durante el lead (port Kdenlive wipe). `geq` modula el alfa por píxel:
 /// progreso `p = min(1, N/lead_frames)` y cada dirección conserva el alfa
 /// original sólo del lado ya barrido. El clip saliente queda intacto
-/// debajo, igual que en Kdenlive.
+/// debajo, igual que en Kdenlive. `wipe-*`/`iris`: el clip entrante se
+/// revela por una máscara que crece durante el lead.
 pub(crate) fn wipe_alpha_expr(kind: &str, p: &str) -> String {
     let alpha = |condition: &str| format!("if({condition},alpha(X,Y),0)");
     match kind {
         // El barrido viaja hacia la izquierda: lo nuevo crece desde el
         // borde derecho (X > W*(1-p)), igual que slide-left entra desde
-        // la derecha.
-        "wipe-left" => alpha(&format!("gt(X,W*(1-({p})))")),
+        // la derecha. `gte` (no `gt`) porque en p=1 el borde opuesto debe
+        // quedar abierto: con `gt(X,0)` la columna X=0 quedaba transparente
+        // para siempre.
+        "wipe-left" => alpha(&format!("gte(X,W*(1-({p})))")),
         "wipe-right" => alpha(&format!("lt(X,W*({p}))")),
         // Hacia arriba: desde abajo (Y > H*(1-p)); hacia abajo: desde arriba.
-        "wipe-up" => alpha(&format!("gt(Y,H*(1-({p})))")),
+        "wipe-up" => alpha(&format!("gte(Y,H*(1-({p})))")),
         "wipe-down" => alpha(&format!("lt(Y,H*({p}))")),
+        // Iris circular: el entrante se revela desde el centro en un óvalo
+        // que crece hasta cubrir el cuadro (elipse inscrita en el frame).
+        // `gt(p,0.999)` abre el borde exacto al cerrar el lead, donde los
+        // cuatro vértices quedan a distancia² = R² y `lt` los excluiría.
+        "iris" => format!(
+            "if(gt(({p}),0.999),alpha(X,Y),if(lt((X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2),({p})*({p})*((W/2)*(W/2)+(H/2)*(H/2))),alpha(X,Y),0))"
+        ),
         _ => "alpha(X,Y)".to_owned(),
     }
 }

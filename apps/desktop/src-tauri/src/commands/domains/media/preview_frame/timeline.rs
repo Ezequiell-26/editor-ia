@@ -374,6 +374,8 @@ fn freezable_transition(kind: &str) -> bool {
             | "wipe-right"
             | "wipe-up"
             | "wipe-down"
+            | "iris"
+            | "luma-wipe"
     )
 }
 
@@ -521,7 +523,7 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                     "slide-up" if remaining > 0.0005 => Some(serde_json::json!({
                         "x": 0.0, "y": frame_height * remaining
                     })),
-                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down")
+                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris")
                         if remaining > 0.0005 =>
                     {
                         Some(serde_json::json!({
@@ -551,7 +553,19 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                         "x": 0.0, "y": -frame_height * remaining,
                         "mode": "slide3d", "axis": "y", "progress": transition_progress
                     })),
-                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down")
+                    // Luma wipe: la máscara es el frame del mate en el
+                    // playhead; el clip mate queda en la ventana como clip
+                    // normal y `luma_mate` la lee por `mateClipId`.
+                    "luma-wipe" if remaining > 0.0005 => {
+                        let mate = clip["transitionIn"]["mateClipId"]
+                            .as_str()
+                            .unwrap_or("");
+                        Some(serde_json::json!({
+                            "mode": "luma",
+                            "mateClipId": mate
+                        }))
+                    }
+                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris")
                         if remaining > 0.0005 =>
                     {
                         Some(serde_json::json!({

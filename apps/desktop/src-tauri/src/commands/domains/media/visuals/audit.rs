@@ -77,12 +77,28 @@ pub(crate) fn audit_project(
                 "wipe-right",
                 "wipe-up",
                 "wipe-down",
+                "iris",
+                "luma-wipe",
             ];
             if !allowed.contains(&kind) {
                 findings.push(finding(
                     "error",
                     "transition-unknown",
                     format!("Transición desconocida: {kind}."),
+                    clip_id,
+                    label,
+                ));
+            }
+            if kind == "luma-wipe"
+                && transition["mateClipId"]
+                    .as_str()
+                    .map_or(true, |mate| mate.is_empty())
+            {
+                findings.push(finding(
+                    "error",
+                    "transition-luma-mate",
+                    "El barrido por luminancia necesita un clip mate asignado en el Inspector."
+                        .to_owned(),
                     clip_id,
                     label,
                 ));

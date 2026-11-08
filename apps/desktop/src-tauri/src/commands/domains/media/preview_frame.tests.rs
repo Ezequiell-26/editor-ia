@@ -714,6 +714,41 @@ fn window_freezes_fades_and_transition_leads() {
     assert!((later["transitionFrozen"]["alpha"].as_f64().unwrap() - 0.5).abs() < 1e-6);
     assert!(window_project(&preview_copy(&dip), 22).is_ok());
 
+    let mut iris = preview_project();
+    iris["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
+    iris["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
+        "type": "iris", "frames": 12
+    });
+    let window = window_project(&preview_copy(&iris), 16).expect("iris en lead");
+    let later = later_clip(&window);
+    assert_eq!(later["transitionFrozen"]["mode"], "wipe");
+    assert_eq!(later["transitionFrozen"]["kind"], "iris");
+    assert!(
+        (later["transitionFrozen"]["progress"].as_f64().unwrap() - 0.5).abs() < 1e-6,
+        "progreso {}",
+        later["transitionFrozen"]["progress"]
+    );
+    assert!(window_project(&preview_copy(&iris), 22).is_ok());
+
+    // Luma wipe: el mate ("main", activo en el frame 16) queda en la
+    // ventana como clip normal y el entrante congela `mode: luma` con su
+    // id para que el render tome su frame como máscara.
+    let mut luma = preview_project();
+    luma["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
+    luma["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
+        "type": "luma-wipe", "frames": 12, "mateClipId": "main"
+    });
+    let window = window_project(&preview_copy(&luma), 16).expect("luma-wipe en lead");
+    let later = later_clip(&window);
+    assert_eq!(later["transitionFrozen"]["mode"], "luma");
+    assert_eq!(later["transitionFrozen"]["mateClipId"], "main");
+    let clips = window["timeline"]["clips"].as_array().expect("clips");
+    assert!(
+        clips.iter().any(|clip| clip["id"] == "main"),
+        "el mate debe seguir en la ventana como clip visible"
+    );
+    assert!(window_project(&preview_copy(&luma), 22).is_ok());
+
     let mut motion = preview_project();
     motion["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
     motion["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({

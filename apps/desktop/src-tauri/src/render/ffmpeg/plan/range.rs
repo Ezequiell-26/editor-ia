@@ -365,6 +365,46 @@ pub(crate) fn build_plan_range(
             } else {
                 None
             };
+        // `luma-wipe`: el mate es una entrada extra que sólo alimenta la
+        // máscara de luminancia; nunca se compone como capa visible.
+        let luma = luma_mate(
+            &clips,
+            &asset_by_id,
+            input.root,
+            clip,
+            project_fps,
+            clip_seconds,
+            lead_seconds,
+            start_seconds,
+        )?;
+        let luma_index = if let Some(mate) = luma {
+            let mate_index = inputs;
+            inputs += 1;
+            if mate.is_image {
+                args.extend([
+                    "-loop".into(),
+                    "1".into(),
+                    "-framerate".into(),
+                    profile.fps_arg(),
+                    "-t".into(),
+                    seconds(mate.source_seconds),
+                    "-i".into(),
+                    mate.path.to_string_lossy().into_owned(),
+                ]);
+            } else {
+                args.extend([
+                    "-ss".into(),
+                    seconds(mate.seek_seconds),
+                    "-t".into(),
+                    seconds(mate.source_seconds),
+                    "-i".into(),
+                    mate.path.to_string_lossy().into_owned(),
+                ]);
+            }
+            Some((mate_index, mate.frozen))
+        } else {
+            None
+        };
         filters.push(visual_filter(
             index,
             clip,
@@ -403,6 +443,25 @@ pub(crate) fn build_plan_range(
             profile.fps(),
         )
         .unwrap_or_else(|| apply_effect_stack(chain, &format!("v{index}"), &clip["effects"]));
+        // El wipe por luminancia se aplica después de toda la cadena del clip
+        // (máscara, keyframes, LUT, glow): el alfa que escriba `alphamerge`
+        // reemplaza al de la entrada durante el lead.
+        let mut overlay_source = format!("v{index}");
+        if let Some((mate_index, mate_frozen)) = luma_index {
+            if mate_frozen {
+                filters.push(luma_frozen_graph(index, mate_index, &profile.fps_arg()));
+            } else {
+                filters.push(luma_wipe_graph(
+                    index,
+                    mate_index,
+                    profile.fps(),
+                    &profile.fps_arg(),
+                    lead_seconds,
+                    (start_seconds - lead_seconds).max(0.0),
+                ));
+            }
+            overlay_source = format!("v{index}out");
+        }
         let transform = &clip["transform"];
         let offset_x = offset_expression(clip, "offsetX", start_seconds, project_fps)
             .unwrap_or_else(|| {
@@ -457,7 +516,7 @@ pub(crate) fn build_plan_range(
                 "[{layer}:v]format=rgba,setpts=PTS-STARTPTS[layer{index}]"
             ));
             filters.push(format!(
-                "[layer{index}][v{index}]overlay=x='{overlay_x}':y='{overlay_y}':enable='between(t,{:.6},{:.6})':eof_action=pass:shortest=0[blended{index}]",
+                "[layer{index}][{overlay_source}]overlay=x='{overlay_x}':y='{overlay_y}':enable='between(t,{:.6},{:.6})':eof_action=pass:shortest=0[blended{index}]",
                 (start_seconds - lead_seconds).max(0.0),
                 start_seconds + clip_seconds
             ));
@@ -468,7 +527,7 @@ pub(crate) fn build_plan_range(
             ));
         } else {
             filters.push(format!(
-                "[{base_label}][v{index}]overlay=x='{overlay_x}':y='{overlay_y}':enable='between(t,{:.6},{:.6})':eof_action=pass:shortest=0[{next_label}]",
+                "[{base_label}][{overlay_source}]overlay=x='{overlay_x}':y='{overlay_y}':enable='between(t,{:.6},{:.6})':eof_action=pass:shortest=0[{next_label}]",
                 (start_seconds - lead_seconds).max(0.0),
                 start_seconds + clip_seconds
             ));

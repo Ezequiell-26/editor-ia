@@ -491,7 +491,7 @@ pub(crate) fn visual_filter(
                     .unwrap_or_else(|| "0x000000".to_owned());
                 filters.push(format!("fade=t=in:st=0:d={lead:.3}:color={color}"));
             }
-            wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down") => {
+            wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down" | "iris") => {
                 filters.push(wipe_transition_filter(wipe, lead, fps));
             }
             slide3d @ ("slide-3d-left" | "slide-3d-right" | "slide-3d-up" | "slide-3d-down") => {

@@ -143,7 +143,14 @@ mod tests {
                 "slide-3d-left",
                 "slide-3d-right",
                 "slide-3d-up",
-                "slide-3d-down"
+                "slide-3d-down",
+                "wipe-left",
+                "wipe-right",
+                "wipe-up",
+                "wipe-down",
+                "iris",
+                "dip-color",
+                "luma-wipe"
             ]
         );
         for list in [effects.len(), presets.len(), transitions.len()] {

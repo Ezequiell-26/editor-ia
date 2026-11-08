@@ -320,5 +320,59 @@ fn catalog_transitions() -> Vec<TransitionSpec> {
             15,
             true,
         ),
+        transition(
+            "wipe-left",
+            "Barrido hacia la izquierda",
+            "El clip entrante se revela barriendo desde la derecha.",
+            15,
+            true,
+        ),
+        transition(
+            "wipe-right",
+            "Barrido hacia la derecha",
+            "El clip entrante se revela barriendo desde la izquierda.",
+            15,
+            true,
+        ),
+        transition(
+            "wipe-up",
+            "Barrido hacia arriba",
+            "El clip entrante se revela barriendo desde abajo.",
+            15,
+            true,
+        ),
+        transition(
+            "wipe-down",
+            "Barrido hacia abajo",
+            "El clip entrante se revela barriendo desde arriba.",
+            15,
+            true,
+        ),
+        transition(
+            "iris",
+            "Iris circular",
+            "El clip entrante abre desde el centro en círculo.",
+            15,
+            true,
+        ),
+        transition(
+            "dip-color",
+            "Fundido a color",
+            "El clip entra fundiéndose desde un color; color general para todos, personalizable por clip.",
+            12,
+            false,
+        ),
+        transition(
+            "luma-wipe",
+            "Barrido por luminancia",
+            "El clip entrante se revela por la luminancia de un clip mate elegido por clip.",
+            15,
+            true,
+        ),
+        // `dip-color` y `luma-wipe` sí están en el catálogo por lote: la vista
+        // ofrece el selector de color general con override por clip y un
+        // selector de mate por clip (los candidatos salen de `luma-mate.ts`,
+        // la misma regla que valida el render). Los clips sin mate válido se
+        // saltan y se avisan.
     ]
 }

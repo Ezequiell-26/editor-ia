@@ -2712,10 +2712,13 @@ fn extra_transitions_change_the_filter_chain() {
     assert!(dip_plain_filter.contains("color=0x000000"));
 
     // Wipe: máscara geq progresiva por frame sobre el clip entrante.
+    // `wipe-left`/`wipe-up` usan `gte` para que el borde opuesto quede
+    // abierto al llegar a p=1 (con `gt` la columna/fila X=0/Y=0 quedaba
+    // transparente para siempre).
     for (kind, needle) in [
-        ("wipe-left", "gt(X,W*(1-("),
+        ("wipe-left", "gte(X,W*(1-("),
         ("wipe-right", "lt(X,W*("),
-        ("wipe-up", "gt(Y,H*(1-("),
+        ("wipe-up", "gte(Y,H*(1-("),
         ("wipe-down", "lt(Y,H*("),
     ] {
         let wipe = serde_json::json!({
@@ -2738,6 +2741,53 @@ fn extra_transitions_change_the_filter_chain() {
             "{kind} debería emitir su máscara geq, filtro: {wipe_filter}"
         );
     }
+
+    // Iris: óvalo que crece desde el centro; el guard `gt(p,0.999)`
+    // abre los vértices exactos al cerrar el lead.
+    let iris = serde_json::json!({
+        "transitionIn": { "type": "iris", "frames": 6 }
+    });
+    let iris_filter = visual_filter(
+        0,
+        &iris,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        iris_filter.contains("geq=r='r(X,Y)'")
+            && iris_filter.contains("gt((if(lt(N,")
+            && iris_filter.contains("(X-W/2)*(X-W/2)+(Y-H/2)*(Y-H/2)"),
+        "iris debería emitir su máscara geq radial: {iris_filter}"
+    );
+
+    // Iris congelado: progreso constante, sin `in`/`n`.
+    let iris_frozen = serde_json::json!({
+        "transitionFrozen": { "mode": "wipe", "kind": "iris", "progress": 0.5 }
+    });
+    let iris_frozen_filter = visual_filter(
+        0,
+        &iris_frozen,
+        &serde_json::json!({}),
+        &profile(),
+        2.0,
+        0.2,
+        0.0,
+        1,
+        1,
+        true,
+    );
+    assert!(
+        iris_frozen_filter.contains("geq=r='r(X,Y)'")
+            && iris_frozen_filter.contains("(0.500000)*(0.500000)")
+            && !iris_frozen_filter.contains("N/"),
+        "iris congelado debería usar progreso constante: {iris_frozen_filter}"
+    );
 
     // Slide 3D: desplazamiento del overlay igual que slide-* más un
     // `perspective` eval=frame que comprime el eje perpendicular al lead.
@@ -2830,6 +2880,280 @@ fn extra_transitions_change_the_filter_chain() {
             && !frozen_filter.contains("in/"),
         "slide3d congelado debería usar progreso constante: {frozen_filter}"
     );
+}
+
+#[test]
+fn luma_wipe_wires_the_mate_as_a_mask_input() {
+    let root = std::env::temp_dir().join(format!("editor-ia-luma-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("video.mp4"), b"x").unwrap();
+    std::fs::write(media.join("mate.mp4"), b"x").unwrap();
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let project = || {
+        serde_json::json!({
+            "video": { "width": 1920, "height": 1080, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                    { "id": "v2", "kind": "video", "order": 1, "hidden": false, "muted": false }
+                ],
+                "clips": [
+                    { "id": "c2", "trackId": "v1", "kind": "video", "startFrame": 30, "durationFrames": 60,
+                      "source": { "type": "asset", "assetId": "asset1", "inFrame": 0, "outFrame": 60 },
+                      "transitionIn": { "type": "luma-wipe", "frames": 12, "mateClipId": "c1" } },
+                    { "id": "c1", "trackId": "v2", "kind": "video", "startFrame": 0, "durationFrames": 60,
+                      "source": { "type": "asset", "assetId": "asset3", "inFrame": 0, "outFrame": 60 } }
+                ]
+            },
+            "assets": [
+                { "id": "asset1", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/video.mp4" } },
+                { "id": "asset3", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/mate.mp4" } }
+            ],
+            "captions": { "styles": [], "cues": [] },
+            "audio": { "master": { "gainDb": 0 } }
+        })
+    };
+    let plan_for = |project: &Value| {
+        build_plan(BuildPlanInput {
+            audio_only: false,
+            project,
+            root: &root,
+            profile: &profile(),
+            output_path: &root.join("salida.mp4"),
+            include_captions: false,
+            temp_dir: &temp,
+            ffprobe: Path::new("ffprobe"),
+            motion_ass: None,
+        })
+    };
+    let plan = plan_for(&project()).expect("el plan del luma wipe debería construirse");
+    let graph = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("alphamerge"))
+        .cloned()
+        .unwrap_or_else(|| plan.args.join(" "));
+    assert!(
+        graph.contains("alphamerge")
+            && graph.contains("scale2ref")
+            && graph.contains("concat=n=2:v=1:a=0"),
+        "falta el grafo de máscara del mate: {graph}"
+    );
+    assert!(
+        graph.contains("format=gray"),
+        "la máscara debe ser luminancia: {graph}"
+    );
+    // c2 es el primer clip visual (v1 order 0): su cadena es v1 y el
+    // overlay consume la salida ya mascarada, no la original.
+    assert!(
+        graph.contains("[base0][v1out]overlay"),
+        "el overlay debería usar la salida del wipe: {graph}"
+    );
+    // El mate es el clip c1 (asset3): su ventana de fuente arranca en el
+    // inicio del solape (frame 18 = 0.6 s) y dura el lead (0.4 s + margen).
+    let mate_uses = plan
+        .args
+        .iter()
+        .zip(plan.args.iter().skip(1))
+        .filter(|(flag, value)| flag.as_str() == "-i" && value.contains("mate.mp4"))
+        .count();
+    assert_eq!(
+        mate_uses, 2,
+        "el mate entra como clip y como máscara: {:?}",
+        plan.args
+    );
+    let seek_at = plan
+        .args
+        .iter()
+        .position(|arg| arg == "0.600000")
+        .expect("seek del mate");
+    assert_eq!(plan.args[seek_at - 1], "-ss");
+
+    // Sin mate el documento no puede renderizar: error honesto.
+    let mut broken = project();
+    broken["timeline"]["clips"][0]["transitionIn"]
+        .as_object_mut()
+        .unwrap()
+        .remove("mateClipId");
+    assert!(
+        plan_for(&broken).is_err(),
+        "luma-wipe sin mate debería fallar"
+    );
+
+    // Un mate que no cubre el solape también falla.
+    let mut uncovered = project();
+    uncovered["timeline"]["clips"][1]["durationFrames"] = serde_json::json!(10);
+    assert!(
+        plan_for(&uncovered).is_err(),
+        "mate sin cobertura debería fallar"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Render real del luma wipe: la luminancia del mate decide qué clip se
+/// ve durante el solape. Mate mitad negra/mitad blanca → durante el lead
+/// la mitad izquierda muestra el clip de abajo (rojo) y la derecha el
+/// entrante (azul); terminado el lead el cuadro queda azul parejo.
+#[test]
+#[ignore]
+fn render_luma_wipe_uses_the_mate_luminance() {
+    if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+        eprintln!("render_luma_wipe omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+        return;
+    }
+    use crate::commands::system::find_executable;
+    let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+    let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+    let root = std::env::temp_dir().join(format!("editor-ia-luma-render-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    for (name, color) in [("base.mp4", "red"), ("wipe.mp4", "blue")] {
+        let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                &format!("color=c={color}:s=320x180:d=2:r=30"),
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                "-y",
+            ])
+            .arg(media.join(name))
+            .status()
+            .expect("generar el clip de color");
+        assert!(status.success());
+    }
+    // Mate estático: mitad izquierda negra, mitad derecha blanca.
+    let status = Command::new(&ffmpeg)
+            .args([
+                "-hide_banner",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=c=black:s=320x180:d=2:r=30,drawbox=x=160:y=0:w=160:h=180:c=white:t=fill,format=yuv420p",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-an",
+                "-y",
+            ])
+            .arg(media.join("mate.mp4"))
+            .status()
+            .expect("generar el mate de luminancia");
+    assert!(status.success());
+
+    let asset = |id: &str, file: &str| {
+        serde_json::json!({
+            "id": id, "status": "ready",
+            "rights": { "license": { "commercialUse": "allowed" } },
+            "source": { "path": format!("media/{file}") },
+            "media": { "width": 320, "height": 180, "durationFrames": 60,
+                       "frameRate": { "num": 30, "den": 1 } }
+        })
+    };
+    let clip = |id: &str, track: &str, start: u64, asset_id: &str| {
+        serde_json::json!({
+            "id": id, "trackId": track, "kind": "video",
+            "startFrame": start, "durationFrames": 60,
+            "source": { "type": "asset", "assetId": asset_id, "inFrame": 0, "outFrame": 60 }
+        })
+    };
+    let mut wipe = clip("wipe", "v2", 30, "asset-wipe");
+    wipe["transitionIn"] = serde_json::json!({
+        "type": "luma-wipe", "frames": 12, "mateClipId": "mask"
+    });
+    let project = serde_json::json!({
+        "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+        "timeline": {
+            "tracks": [
+                { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                { "id": "v2", "kind": "video", "order": 1, "hidden": false, "muted": false },
+                { "id": "v3", "kind": "video", "order": 2, "hidden": true, "muted": false }
+            ],
+            "clips": [
+                clip("base", "v1", 0, "asset-base"),
+                wipe,
+                clip("mask", "v3", 0, "asset-mate")
+            ]
+        },
+        "assets": [
+            asset("asset-base", "base.mp4"),
+            asset("asset-wipe", "wipe.mp4"),
+            asset("asset-mate", "mate.mp4")
+        ],
+        "captions": { "styles": [], "cues": [] },
+        "audio": { "master": { "gainDb": 0 } }
+    });
+    let profile = Profile {
+        id: "p".into(),
+        name: "Test luma 320x180".into(),
+        width: 320,
+        height: 180,
+        fps_num: 30,
+        fps_den: 1,
+        crf: Some(27),
+        target_bps: None,
+        video_preset: "faster".into(),
+        fit: "contain".into(),
+        audio_bps: 96_000,
+        video_codec: "h264".into(),
+        audio_codec: "aac".into(),
+        container: "mp4".into(),
+        audio_rate: 48_000,
+        audio_channels: 2,
+        min_output_bytes: 1_000,
+        duration_tolerance_frames: 10,
+        hardware_encoder: None,
+        pixel_format: "yuv420p".into(),
+    };
+    let output = root.join("luma-out.mp4");
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let plan = build_plan(BuildPlanInput {
+        audio_only: false,
+        project: &project,
+        root: &root,
+        profile: &profile,
+        output_path: &output,
+        include_captions: false,
+        temp_dir: &temp,
+        ffprobe: &ffprobe,
+        motion_ass: None,
+    })
+    .expect("el plan del luma wipe debería construirse");
+    execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+        .expect("el render del luma wipe debería verificarse");
+
+    // t=0.8 s está dentro del lead (0.6–1.0 s): mitad roja / mitad azul.
+    let left = region_luma(&ffmpeg, &output, 0.8, 0, 0, 160, 180);
+    let right = region_luma(&ffmpeg, &output, 0.8, 160, 0, 160, 180);
+    eprintln!("luma wipe a mitad del lead: izq={left:.2} der={right:.2}");
+    assert!(
+        left > right + 15.0,
+        "la máscara no reveló el clip de abajo a la izquierda: {left:.2} vs {right:.2}"
+    );
+    // t=1.5 s ya pasó el lead: cuadro parejo del clip entrante.
+    let left_after = region_luma(&ffmpeg, &output, 1.5, 0, 0, 160, 180);
+    let right_after = region_luma(&ffmpeg, &output, 1.5, 160, 0, 160, 180);
+    eprintln!("luma wipe después del lead: izq={left_after:.2} der={right_after:.2}");
+    assert!(
+        (left_after - right_after).abs() < 8.0,
+        "terminado el lead el cuadro no quedó parejo: {left_after:.2} vs {right_after:.2}"
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -6775,6 +7099,34 @@ fn average_luma(ffmpeg: &Path, path: &Path, seconds: f64) -> f64 {
         ])
         .output()
         .expect("ffmpeg debería medir la luminancia");
+    let stdout = String::from_utf8_lossy(&probe.stdout);
+    stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("lavfi.signalstats.YAVG="))
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .expect("ffmpeg debería reportar lavfi.signalstats.YAVG")
+}
+
+fn region_luma(ffmpeg: &Path, path: &Path, seconds: f64, x: u32, y: u32, w: u32, h: u32) -> f64 {
+    let probe = Command::new(ffmpeg)
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            &format!("{seconds:.3}"),
+            "-i",
+            &path_to_string(path),
+            "-frames:v",
+            "1",
+            "-vf",
+            &format!("crop={w}:{h}:{x}:{y},signalstats,metadata=print:file=-"),
+            "-f",
+            "null",
+            "-",
+        ])
+        .output()
+        .expect("ffmpeg debería medir la luminancia regional");
     let stdout = String::from_utf8_lossy(&probe.stdout);
     stdout
         .lines()
