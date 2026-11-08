@@ -142,4 +142,31 @@ describe('buildProductionPlanFromProject', () => {
     expect(plan.requirements.every((req) => req.kind !== 'music')).toBe(true);
     expect(plan.music.enabled).toBe(false);
   });
+
+  it('con tarjeta de título antepone una escena portada con requisito image title:', () => {
+    const { project } = projectWithClip();
+    const plan = buildProductionPlanFromProject(project, 'Lanzamiento Beta', NOW, {
+      titleCard: true,
+    });
+    const coverReq = plan.requirements.find((req) => req.id === 'req-portada');
+    expect(coverReq).toMatchObject({
+      kind: 'image',
+      query: 'title:Lanzamiento Beta',
+    });
+    expect(plan.scenes[0]).toMatchObject({
+      id: 'portada',
+      order: 0,
+      requirementIds: ['req-portada'],
+    });
+    expect(plan.scenes.map((scene) => scene.order)).toEqual(
+      plan.scenes.map((_, index) => index),
+    );
+  });
+
+  it('sin tarjeta de título no hay escena portada', () => {
+    const { project } = projectWithClip();
+    const plan = buildProductionPlanFromProject(project, 'Sin portada', NOW);
+    expect(plan.requirements.every((req) => req.id !== 'req-portada')).toBe(true);
+    expect(plan.scenes.every((scene) => scene.id !== 'portada')).toBe(true);
+  });
 });

@@ -58,6 +58,7 @@ export function AutonomousRunsPanel() {
   const [voices, setVoices] = useState<readonly VoiceInfo[]>([]);
   const [voiceId, setVoiceId] = useState('');
   const [musicBed, setMusicBed] = useState(false);
+  const [titleCard, setTitleCard] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -112,6 +113,7 @@ export function AutonomousRunsPanel() {
     const plan = buildProductionPlanFromProject(project, objective, undefined, {
       ...(voiceId ? { voice: voiceId } : {}),
       ...(musicBed ? { music: true } : {}),
+      ...(titleCard ? { titleCard: true } : {}),
     });
     await act('new', () =>
       store.service.productionCreate(plan, { maxCostCents: plan.maxCostCents }),
@@ -188,6 +190,13 @@ export function AutonomousRunsPanel() {
             <select value={musicBed ? 'ambient' : ''} onChange={(event) => setMusicBed(event.target.value === 'ambient')}>
               <option value="">Sin cama musical</option>
               <option value="ambient">Ambiental generada (local, ffmpeg)</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Tarjeta de título</span>
+            <select value={titleCard ? 'card' : ''} onChange={(event) => setTitleCard(event.target.value === 'card')}>
+              <option value="">Sin portada generada</option>
+              <option value="card">Portada con el objetivo (local, ffmpeg)</option>
             </select>
           </label>
           <div className="actions compact">

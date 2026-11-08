@@ -24,6 +24,9 @@ export interface BuildPlanOptions {
    *  requisito `music` con la convención `music:` y habilita
    *  `plan.music` para que `edit` la monte en "Producción Música". */
   music?: boolean;
+  /** Tarjeta de título inicial generada localmente (ffmpeg drawtext).
+   *  Antepone una escena `portada` con un requisito `image`/`title:`. */
+  titleCard?: boolean;
 }
 
 export function buildProductionPlanFromProject(
@@ -136,6 +139,33 @@ export function buildProductionPlanFromProject(
   // Cama musical ambiental: un requisito `music` con la convención
   // `music:` (lo satisface el generador local ffmpeg) y `plan.music`
   // habilitado con la misma query para que `edit` lo resuelva por tags.
+  // Tarjeta de título: una escena `portada` inicial que monta un PNG
+  // generado por el provider `title:` (mismo mecanismo que las escenas
+  // de voz: una escena del plan resuelve UN solo asset).
+  if (options.titleCard) {
+    const reqId = 'req-portada';
+    const titleText = (objective.trim() || project.name).slice(0, 80);
+    requirements.set(reqId, {
+      id: reqId,
+      kind: 'image',
+      query: `title:${titleText}`,
+      maxCount: 1,
+      minCommercialUse: 'unknown',
+      preferLocal: true,
+      optional: false,
+    });
+    planScenes.unshift({
+      id: 'portada',
+      order: -1,
+      title: titleText,
+      intent: 'explainer',
+      requirementIds: [reqId],
+    });
+    planScenes.forEach((scene, index) => {
+      scene.order = index;
+    });
+  }
+
   const MUSIC_QUERY = 'music:ambient';
   if (options.music) {
     requirements.set('req-musica', {
