@@ -323,6 +323,61 @@ impl ProjectStageExecutor {
         Ok(format!(".olyvia/thumbs/{name}"))
     }
 
+    /// Detecta cortes de escena de un video con ffmpeg
+    /// (`select=gt(scene,0.35),showinfo`) y devuelve los `pts_time` en
+    /// segundos. Un asset problemático devuelve Err y analyze sigue.
+    fn detect_scene_cuts(
+        &self,
+        ctx: &StageContext,
+        entry: &crate::ports::studio::CatalogEntry,
+    ) -> Result<Vec<f64>, ProjectError> {
+        let ffmpeg = self
+            .ffmpeg
+            .clone()
+            .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, "ffmpeg no disponible"))?;
+        let abs = crate::media::resolve_inside_root(&ctx.project_root, &entry.reference)?;
+        let output = std::process::Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "info",
+                "-i",
+                &abs.to_string_lossy(),
+                "-vf",
+                "select='gt(scene,0.35)',showinfo",
+                "-f",
+                "null",
+                "-",
+            ])
+            .output()
+            .map_err(|e| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("ffmpeg no se pudo ejecutar: {e}"),
+                )
+            })?;
+        if !output.status.success() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "ffmpeg falló en la detección de escenas",
+            ));
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mut cuts = Vec::new();
+        for line in stderr.lines() {
+            let Some((_, rest)) = line.split_once("pts_time:") else {
+                continue;
+            };
+            let numeric: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+                .collect();
+            if let Ok(t) = numeric.parse::<f64>() {
+                cuts.push(t);
+            }
+        }
+        Ok(cuts)
+    }
+
     /// Genera la narración pedida por un requisito `voice` con el
     /// `ContentGenerator` local (SAPI) y registra cada WAV como asset
     /// `audio` del proyecto. Devuelve las entradas `resources` del output.
@@ -652,6 +707,32 @@ impl ProjectStageExecutor {
                 }
             }
         }
+        // Scene detection: cortes por contenido (cambio de plano) vía el
+        // filtro `select=gt(scene,...)` de ffmpeg, persistidos en el campo
+        // `analysis` del índice. Una pasada por asset; si ya tiene scenes
+        // detectadas se salta (idempotente entre corridas de analyze).
+        let mut scene_analyses = 0u32;
+        if self.ffmpeg.is_some() {
+            for entry in &entries {
+                if entry.kind != StudioResourceKind::Video {
+                    continue;
+                }
+                let already = entry
+                    .analysis
+                    .as_ref()
+                    .and_then(|a| a.get("scenes"))
+                    .is_some();
+                if already {
+                    continue;
+                }
+                if let Ok(cuts) = self.detect_scene_cuts(ctx, entry) {
+                    let mut enriched = entry.clone();
+                    enriched.analysis = Some(json!({ "scenes": cuts }));
+                    let _ = catalog.upsert(&enriched);
+                    scene_analyses += 1;
+                }
+            }
+        }
         // Registra el índice en el catálogo: queda disponible para las
         // etapas siguientes y para el IPC `catalog_search`.
         let _ = catalog.prune_missing();
@@ -664,6 +745,7 @@ impl ProjectStageExecutor {
                 "byKind": by_kind,
                 "thumbnails": thumbnails,
                 "thumbnailFailures": thumbnail_failures,
+                "sceneAnalyses": scene_analyses,
                 "catalog": "local-project",
             })),
             error: None,
@@ -1064,6 +1146,100 @@ mod tests {
         let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
         let entry = catalog.get("v1").unwrap().expect("asset en catálogo");
         assert_eq!(entry.thumbnail.as_deref(), Some(".olyvia/thumbs/v1.jpg"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `analyze` detecta cortes de escena reales: un video con un cambio
+    /// de plano duro (rojo→azul) produce una marca temporal en `analysis`.
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test analyze_detects -- --ignored`
+    #[test]
+    #[ignore]
+    fn analyze_detects_scene_cuts() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("scene detection omitida: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        let ffmpeg = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned()),
+        );
+        let ffprobe = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFPROBE").unwrap_or_else(|_| "ffprobe".to_owned()),
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "exec-analyze-cuts-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(dir.join("media")).unwrap();
+        // Dos planos de 1,5 s concatenados: el corte está en ~1,5 s.
+        let status = std::process::Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=red:size=320x180:rate=30:duration=1.5",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=blue:size=320x180:rate=30:duration=1.5",
+                "-filter_complex",
+                "[0:v][1:v]concat=n=2:v=1[v]",
+                "-map",
+                "[v]",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(dir.join("media/cortes.mp4"))
+            .status()
+            .unwrap();
+        assert!(status.success(), "ffmpeg no generó el video de cortes");
+        fs::write(
+            dir.join("project.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "video": { "frameRate": { "num": 30, "den": 1 } },
+                "assets": [{
+                    "id": "c1", "label": "Cortes", "kind": "video", "status": "ready",
+                    "source": { "type": "local", "path": "media/cortes.mp4" },
+                    "rights": {
+                        "license": { "id": "user-declared", "commercialUse": "allowed" },
+                        "provenance": { "origin": "user-imported", "acquiredAt": "2026-01-01T00:00:00Z" }
+                    },
+                    "media": { "width": 320, "height": 180, "durationFrames": 90,
+                               "frameRate": { "num": 30, "den": 1 } }
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let executor = ProjectStageExecutor::new(Some(ffprobe)).with_ffmpeg(Some(ffmpeg));
+        let outcome = executor
+            .execute(StudioStage::Analyze, &ctx(&plan(0), &dir))
+            .unwrap();
+        assert!(outcome.completed, "{:?}", outcome.error);
+        assert_eq!(outcome.output.unwrap()["sceneAnalyses"], 1);
+
+        let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
+        let entry = catalog.get("c1").unwrap().expect("asset en catálogo");
+        let scenes = entry
+            .analysis
+            .as_ref()
+            .and_then(|a| a["scenes"].as_array())
+            .expect("analysis.scenes persistido");
+        assert_eq!(scenes.len(), 1, "debía haber un solo corte: {scenes:?}");
+        let cut = scenes[0].as_f64().unwrap();
+        assert!(
+            (1.2..=1.8).contains(&cut),
+            "el corte debería estar cerca de 1,5 s, llegó {cut}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
