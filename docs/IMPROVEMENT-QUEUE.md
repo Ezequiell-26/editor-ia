@@ -5358,9 +5358,22 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
     verifican la escala logarítmica/dB (`10^(dB/20)`), idéntica interpolación
     Bézier al export Rust, clamp de extremos y coexistencia de fader + paneo.
     14/14 tests verdes en LiveMeters y 144/144 en la suite editor/mixer.
-22. **Lottie: `.lottie` y prueba IPC nativa** — abrir el ZIP `.lottie` con
-    `fflate` (ya es dependencia) y ejercitar la conversión completa en la app
-    nativa, IPC incluido, midiendo el WebM resultante.
+22. **Lottie: `.lottie` y prueba IPC nativa** `[done]` — la mitad
+    `.lottie` (ZIP con `fflate`) ya estaba implementada y testeada
+    (`extractLottieZip` + `LottiePanel`, vitest 21/21). Lo que faltaba
+    era ejercitar la conversión completa del lado nativo: se extrajo
+    `alpha_frames_to_asset_impl(&AppState, …)` del comando Tauri (que
+    queda como wrapper fino sobre `State`) y se agregó el test live
+    `converts_written_frames_into_an_imported_webm_asset`, que corre el
+    flujo real: `write_alpha_frames` por lotes → sesión → `resolve_tools`
+    → `encode_sequence` (libvpx-vp9 `yuva420p`) → `build_asset` +
+    `import_file` → verificación del WebM importado con ffprobe
+    (`alpha_mode=1`, 64×64, `nb_read_frames=6`) y limpieza de temporales.
+    `cargo test --lib lottie` con `EDITOR_IA_RUN_RENDER_TESTS=1`:
+    **5/5** (los 2 live + 3 unitarios). `cargo check --tests` 0 errores,
+    `cargo fmt` limpio. Límite honesto: el transporte serde del comando
+    Tauri (`State<>` → JSON) sigue sin ejercitarse — requiere la app
+    corriendo; todo lo que hay detrás del wrapper quedó cubierto.
 
 ## Color completamente configurable (2026-11-03)
 

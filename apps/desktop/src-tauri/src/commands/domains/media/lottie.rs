@@ -243,11 +243,11 @@ fn build_asset(
     Ok(asset)
 }
 
-/// Codifica los frames escritos para `token` y devuelve el asset ya importado.
-/// La carpeta temporal y el WebM intermedio se borran siempre.
-#[tauri::command]
-pub async fn alpha_frames_to_asset(
-    state: State<'_, AppState>,
+/// Lógica de conversión sin el wrapper `State` de Tauri, para que los tests
+/// ejerciten el flujo completo (sesión → herramientas → codificación → asset)
+/// sin levantar una app.
+async fn alpha_frames_to_asset_impl(
+    state: &AppState,
     token: String,
     label: String,
     width: u32,
@@ -296,6 +296,32 @@ pub async fn alpha_frames_to_asset(
     let _ = fs::remove_dir_all(&dir);
     let _ = fs::remove_file(&webm);
     result
+}
+
+/// Codifica los frames escritos para `token` y devuelve el asset ya importado.
+/// La carpeta temporal y el WebM intermedio se borran siempre.
+#[tauri::command]
+pub async fn alpha_frames_to_asset(
+    state: State<'_, AppState>,
+    token: String,
+    label: String,
+    width: u32,
+    height: u32,
+    frame_count: u32,
+    fps_num: u32,
+    fps_den: u32,
+) -> Result<Value, ProjectError> {
+    alpha_frames_to_asset_impl(
+        &state,
+        token,
+        label,
+        width,
+        height,
+        frame_count,
+        fps_num,
+        fps_den,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -421,6 +447,116 @@ mod tests {
         assert_eq!(asset["media"]["width"], 64);
         assert_eq!(asset["rights"]["provenance"]["origin"], "generated-locally");
         assert!(media_root.join("media").is_dir());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// Flujo completo de la feature: `write_alpha_frames` por lotes (el
+    /// comando IPC real) → `alpha_frames_to_asset_impl` (sesión, herramientas,
+    /// codificación VP9+alfa e importación) → verificación del WebM en disco
+    /// con ffprobe. Sólo falta el transporte serde de Tauri.
+    #[tokio::test]
+    async fn converts_written_frames_into_an_imported_webm_asset() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("conversión Lottie completa omitida: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        use crate::commands::system::find_executable;
+        use crate::state::{AppState, Session, Settings};
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+
+        let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+
+        let root = std::env::temp_dir().join(format!("olyvia-lottie-e2e-{}", uuid::Uuid::new_v4()));
+        let project_dir = root.join("proyecto");
+        fs::create_dir_all(&project_dir).unwrap();
+        let state = AppState {
+            session: Mutex::new(Some(Session::new(
+                project_dir.join("sesion.olyvia"),
+                "proyecto-e2e".to_owned(),
+            ))),
+            settings: Mutex::new(Settings::default()),
+            config_dir: root.join("config"),
+            cache_dir: root.join("cache"),
+            render_jobs: Arc::new(Mutex::new(HashMap::new())),
+            thumbnails: Mutex::new(HashMap::new()),
+            analysis_cache: Mutex::new(HashMap::new()),
+            downloader_bridge: Mutex::new(None),
+        };
+
+        let token = uuid::Uuid::new_v4().to_string();
+        let payload = STANDARD.encode(first_frame_png());
+        // Dos lotes, como hace el frontend al rasterizar por tandas.
+        write_alpha_frames(
+            token.clone(),
+            0,
+            vec![payload.clone(), payload.clone(), payload.clone()],
+        )
+        .await
+        .unwrap();
+        write_alpha_frames(
+            token.clone(),
+            3,
+            vec![payload.clone(), payload.clone(), payload.clone()],
+        )
+        .await
+        .unwrap();
+
+        let asset = alpha_frames_to_asset_impl(
+            &state,
+            token.clone(),
+            "Badge Lottie".to_owned(),
+            64,
+            64,
+            6,
+            30,
+            1,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(asset["kind"], "video");
+        assert_eq!(asset["label"], "Badge Lottie");
+        assert_eq!(asset["media"]["alpha"], true);
+        assert_eq!(asset["media"]["durationFrames"], 6);
+        assert_eq!(asset["media"]["width"], 64);
+        assert_eq!(asset["rights"]["provenance"]["origin"], "generated-locally");
+
+        let relative = asset["source"]["path"].as_str().unwrap().to_owned();
+        let imported = project_dir.join(&relative);
+        assert!(
+            imported.is_file(),
+            "el WebM importado debe existir: {relative}"
+        );
+
+        let probe = Command::new(&ffprobe)
+            .args([
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-count_frames",
+                "-show_entries",
+                "stream=width,height,nb_read_frames:stream_tags=alpha_mode",
+                "-of",
+                "default=nw=1",
+            ])
+            .arg(&imported)
+            .output()
+            .unwrap();
+        let text = String::from_utf8_lossy(&probe.stdout).into_owned();
+        assert!(text.contains("alpha_mode=1"), "sin marca de alfa: {text}");
+        assert!(
+            text.contains("width=64") && text.contains("height=64"),
+            "tamaño: {text}"
+        );
+        assert!(text.contains("nb_read_frames=6"), "frames: {text}");
+
+        // La secuencia temporal y el WebM intermedio se limpiaron siempre.
+        assert!(!sequence_dir(&token).unwrap().exists());
+        assert!(!std::env::temp_dir()
+            .join(format!("olyvia-lottie-{token}.webm"))
+            .exists());
         let _ = fs::remove_dir_all(&root);
     }
 
