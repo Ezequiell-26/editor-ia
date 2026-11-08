@@ -1006,4 +1006,178 @@ mod e2e_tests {
         );
         let _ = fs::remove_dir_all(&root);
     }
+
+    /// Pipeline completo con montaje POR CONTENIDO: el asset de video es un
+    /// MP4 real con un corte duro a los 2 s (rojo→azul). `analyze` lo
+    /// detecta, `scenes` lo transporta y `edit` monta un clip por plano —
+    /// la escena de 120 frames queda en 2 clips (0-60, 60-120) y la de
+    /// 90 frames en 2 clips (0-60, 60-90).
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test production_e2e_content_aware -- --ignored`
+    #[test]
+    #[ignore = "requiere ffmpeg/ffprobe reales; correr con EDITOR_IA_RUN_RENDER_TESTS=1"]
+    fn production_e2e_content_aware_runs_all_stages() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("e2e por contenido omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        let (root, doc_path) = fixture_project("content");
+        // Reemplaza demo.mp4 por un video de 10 s con corte duro a los 2 s
+        // (rojo→azul, frame 60 de 300): las fichas del fixture (300 frames)
+        // siguen siendo válidas y el corte cae dentro de ambas escenas.
+        let status = std::process::Command::new(ffmpeg())
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=red:size=640x360:rate=30:duration=2",
+                "-f",
+                "lavfi",
+                "-i",
+                "color=blue:size=640x360:rate=30:duration=8",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=10:sample_rate=48000",
+                "-filter_complex",
+                "[0:v][1:v]concat=n=2:v=1[v]",
+                "-map",
+                "[v]",
+                "-map",
+                "2:a",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                "-c:a",
+                "aac",
+                "-shortest",
+            ])
+            .arg(root.join("media/demo.mp4").to_string_lossy().as_ref())
+            .status()
+            .expect("ffmpeg disponible");
+        assert!(status.success(), "ffmpeg no generó el video con corte");
+        // El render verifica integrity.bytes contra el archivo real.
+        let mut doc: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&doc_path).unwrap()).unwrap();
+        let bytes = fs::metadata(root.join("media/demo.mp4")).unwrap().len();
+        for asset in doc["assets"].as_array_mut().unwrap() {
+            if asset["source"]["path"].as_str() == Some("media/demo.mp4") {
+                asset["integrity"]["bytes"] = serde_json::json!(bytes);
+            }
+        }
+        fs::write(&doc_path, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+
+        let config = root.join("config");
+        let store = LocalProductionStore::new(&config);
+        let plan = e2e_plan();
+        production::create_run(&store, &plan, "e2e-content-run", None).unwrap();
+
+        let session = FixtureSession {
+            info: ProjectSessionInfo {
+                path: doc_path.clone(),
+                root: root.clone(),
+                project_id: "e2e-content".to_owned(),
+            },
+        };
+        let documents = crate::infrastructure::projects::LocalProjectDocuments;
+        let tools = FixtureTools {
+            ffmpeg: ffmpeg(),
+            ffprobe: ffprobe(),
+        };
+        let jobs: crate::state::SharedRenderJobs =
+            Arc::new(Mutex::new(HashMap::<String, Arc<dyn RenderProcess>>::new()));
+        let runtime_impl = SharedRenderRuntime::new(jobs);
+        let runtime_dyn: Arc<dyn RenderRuntime> = Arc::new(runtime_impl);
+        let events_dyn: Arc<dyn RenderEvents> = Arc::new(NoopEvents);
+        let files_dyn: Arc<dyn crate::ports::render::RenderFiles> = Arc::new(LocalRenderFiles);
+        let verifier_impl = SystemRenderVerifier;
+        let verifier_dyn: Arc<dyn crate::ports::render::RenderVerifier> = Arc::new(verifier_impl);
+        let launcher = StdioRenderLauncher::new(
+            runtime_dyn.clone(),
+            events_dyn.clone(),
+            files_dyn.clone(),
+            verifier_dyn.clone(),
+        );
+        let dialogs = NoopDialogs;
+        let encoder = SystemRenderEncoder;
+        let render_deps = RenderDeps {
+            session: &session,
+            documents: &documents,
+            tools: &tools,
+            runtime: runtime_dyn.as_ref(),
+            events: events_dyn.as_ref(),
+            files: files_dyn.as_ref(),
+            dialogs: &dialogs,
+            encoder: &encoder,
+            launcher: &launcher,
+            cache_dir: root.join("cache"),
+        };
+        let tail = RenderReviewDeliverExecutor::new(render_deps, verifier_dyn.as_ref());
+        // ffmpeg habilita thumbnails/cortes/silencios en `analyze`;
+        // ffprobe el registro de assets y la verificación del render.
+        let executor = CompositeStageExecutor::new(Some(ffprobe()))
+            .with_ffmpeg(Some(ffmpeg()))
+            .with_extra(&tail);
+
+        let mut run = store.load("e2e-content-run").unwrap().unwrap();
+        for _ in 0..240 {
+            run = production::advance(&store, &executor, "e2e-content-run", &root, &doc_path)
+                .unwrap();
+            if matches!(run.status, RunStatus::Done | RunStatus::Failed) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        assert_eq!(
+            run.status,
+            RunStatus::Done,
+            "la corrida por contenido no llegó a done: {:?} — {}",
+            run.status,
+            run.last_error.unwrap_or_default()
+        );
+
+        // `analyze` debió detectar el corte y `edit` debió montar 2 clips
+        // por escena (uno por plano).
+        let analyze = run
+            .stages
+            .iter()
+            .find(|s| s.stage == crate::studio::plan::StudioStage::Analyze)
+            .unwrap();
+        assert_eq!(analyze.output.as_ref().unwrap()["sceneAnalyses"], 1);
+
+        let doc: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&doc_path).unwrap()).unwrap();
+        let clips = doc["timeline"]["clips"].as_array().unwrap();
+        let scene1: Vec<&serde_json::Value> = clips
+            .iter()
+            .filter(|c| c["label"] == "Escena E2E")
+            .collect();
+        let scene2: Vec<&serde_json::Value> = clips
+            .iter()
+            .filter(|c| c["label"] == "Escena E2E 2")
+            .collect();
+        assert_eq!(scene1.len(), 2, "escena 1 debía tener 2 planos: {scene1:?}");
+        assert_eq!(scene2.len(), 2, "escena 2 debía tener 2 planos: {scene2:?}");
+        assert_eq!(scene1[0]["source"]["inFrame"], 0);
+        assert_eq!(scene1[0]["source"]["outFrame"], 60);
+        assert_eq!(scene1[1]["source"]["inFrame"], 60);
+        assert_eq!(scene1[1]["source"]["outFrame"], 120);
+        assert_eq!(scene2[1]["source"]["outFrame"], 90);
+
+        let videos: Vec<PathBuf> = fs::read_dir(root.join("deliverables"))
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("mp4"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(videos.len(), 1, "debía haber un MP4 entregado");
+        assert!(videos[0].metadata().unwrap().len() > 10_000);
+        eprintln!("E2E por contenido OK: MP4 {}", videos[0].display());
+        let _ = fs::remove_dir_all(&root);
+    }
 }
