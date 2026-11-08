@@ -147,6 +147,29 @@ reconstruye el instalador salvo que el ítem lo pida.
     globales — evaluar si corresponde moverlos enteros al final del
     critical path o repartirlos por vista).
 
+- `[done]` **CSS splitting fase 2 · slice 5: media organization
+  partida por dueño de vista (2026-11-08)** — primer split a nivel
+  selector dentro de un bloque mezclado.
+  - **Cambio**: la sección «media organization» de `app.css` (105
+    líneas) se dividió por vista dueña: `.asset-fav`/`.library-fav`/
+    `.asset-meta-form` (AssetsPanel, vista content) → `content-tools.css`;
+    `.rail-fav`/`.rail-fav-filter`/`.rail-tags` (EditorAssets, rail
+    del editor) → `editor-tools.css`. Grupos mezclados (`.asset-fav,
+    .rail-fav {…}`) divididos por selector — misma especificidad y
+    declaraciones por elemento, cascada preservada.
+  - **Verificación**: script de verificación regla-por-regla — los
+    selectores+declaraciones del bloque borrado existen en los destinos
+    (**0 problemas**); `postcss.parse` OK (app.css 1.549, content 88,
+    editor 32 reglas); ownership confirmado en el código
+    (AssetsPanel.tsx vs EditorAssets.tsx).
+  - **Estado acumulado fase 2**: app.css 13.830 → **10.922 líneas
+    (−21,0 %)**.
+  - **Sigue vivo**: bloques editor restantes de FÁBRICA (~1.7k líneas:
+    timeline markers/snapping/I-O, motion, Lottie, mixer, VFX, inmersivo,
+    loudness) + ORGANIZACIÓN VISUAL (~2.2k) — requieren mover cada bloque
+    junto con sus refinamientos de ORGANIZACIÓN VISUAL (mismo patrón que
+    este slice, a mayor escala).
+
 - `[done]` **CSS splitting fase 2 · slice 4: inspector por pestañas al
   editor entry + reconciliación 5 (2026-11-08)** — dos piezas en la
   misma pasada.

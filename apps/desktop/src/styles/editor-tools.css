@@ -170,3 +170,81 @@
 .subtitle-io .notice {
   margin: 0;
 }
+
+/* ---------------- media organization · rail (editor) ----------------
+ * Split por dueño desde la sección media organization de app.css:
+ * .rail-fav/.rail-fav-filter/.rail-tags son de EditorAssets (rail del
+ * editor); los .asset-fav/.library-fav/.asset-meta-form quedaron en
+ * content-tools.css. Grupos mixtos divididos por selector. */
+
+.rail-fav {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(4, 8, 12, 0.78);
+  color: #93a7bb;
+  cursor: pointer;
+}
+
+.rail-fav {
+  left: 2px;
+  bottom: 2px;
+  width: 16px;
+  height: 16px;
+  border: 0;
+  background: rgba(4, 8, 12, 0.7);
+}
+
+.rail-fav:hover,
+.rail-fav.active {
+  color: #f3b56b;
+}
+
+.rail-fav.active {
+  border-color: rgba(243, 181, 107, 0.6);
+}
+
+.rail-fav.active svg,
+.rail-fav-filter.active svg {
+  fill: currentColor;
+}
+
+.rail-tags {
+  overflow: hidden;
+  color: #7f93a8;
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-fav-filter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #22303e;
+  border-radius: 6px;
+  background: #151618;
+  color: #8193a7;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.rail-fav-filter {
+  width: 100%;
+}
+
+.rail-fav-filter.active {
+  border-color: color-mix(in srgb, var(--color-warning) 50%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  color: var(--color-warning);
+}
