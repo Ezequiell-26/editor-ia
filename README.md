@@ -55,6 +55,7 @@ La IA es opcional: podés trabajar con herramientas locales y conectar proveedor
 | **Guion y producción** | Organización por escenas, generación asistida de guiones, asignación de medios y montaje automatizado. |
 | **Subtítulos e idiomas** | Importación y exportación SRT/VTT/ASS, transcripción, traducción, doblaje y subtítulos animados. |
 | **Contenido para redes** | Shorts, reencuadre vertical, formatos de exportación, miniaturas y comprobaciones previas por plataforma. |
+| **Motion graphics** | Stickman riggeado con física, títulos, plantillas de efectos animadas y **Lottie** en `.json` y `.lottie` (ZIP): se rasteriza por canvas a WebM VP9 con alfa real. Sin expresiones de After Effects ni edición de la animación en sí. |
 | **Herramientas multimedia** | Conversión y compresión, procesamiento por lotes, upscale, eliminación de fondo y análisis de archivos. |
 | **IA e integraciones** | Proveedores OpenAI-compatible, modelos locales, gestor de servidores MCP e integración con Google Flow mediante MCP. |
 | **Automatización** | Flujos de producción, generación de variantes, colas de trabajo y exportaciones verificadas. |

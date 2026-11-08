@@ -5278,9 +5278,19 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
 11. **Medios faltantes** `[done]` — fallback y Reintentar, más “Reconectar
     archivo…” en Medios: reimporta, conserva id/nombre/licencia/etiquetas y
     rechaza tipo distinto o archivo más corto que un clip.
-12. **Documentación honesta** — README con hashes/counts actuales, Lottie
-    documentado con sus límites (`.json`, sin expresiones) y 3D marcado como
-    pendiente, no como hecho.
+12. **Documentación honesta** `[done]` — README ahora tiene fila propia de
+    **Motion graphics** que documenta Lottie con sus límites reales:
+    acepta `.json` y `.lottie` (ZIP vía `fflate`), rasteriza por canvas a
+    WebM VP9 con alfa y **no** soporta expresiones de After Effects ni
+    edición de la animación. Sobre «3D marcado como pendiente»: las
+    transiciones `slide-3d` ya están implementadas y verificadas (port
+    `ac27a5a`), así que no quedaba una función 3D ficticia que corregir;
+    la física 2D del stickman sigue declarada pendiente en
+    CAPABILITY-MATRIX §7. «Hashes/counts actuales»: los SHA-256 viven en
+    `docs/RELEASE.md` y corresponden a la release 0.2.0 — se actualizan
+    con cada release, no por pasada de documentación. Verificado:
+    `diff` README main↔worktree era idéntico antes del cambio; sólo se
+    agregó la fila (docs, sin tests).
 13. **Face tracking con inFrame>0** `[done]` — `maskFromFaceTrack(result,
     fps)` usa tiempos relativos; test 5/5.
 14. **Factory permisos y warnings** `[done]` — consentimiento explícito de
