@@ -40,6 +40,8 @@ apps/desktop/src-tauri/resources/onnxruntime/
 target-loop/
 .worktrees/
 target-build/
+.target-architecture/
+.cargo-home-architecture/
 
 # Claves privadas de firma: nunca dentro del árbol de build.
 *.pem

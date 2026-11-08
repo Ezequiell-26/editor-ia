@@ -62,7 +62,7 @@ implementado · ⛔ bloqueado por licencia/dependencia/entorno.
 | faster-whisper con detección honesta | faster-whisper, whisper.cpp | ✅ | `transcribe.rs`: sólo `EDITORIA_WHISPER_PYTHON` o python verificado con `import faster_whisper`; estado honesto en Ajustes |
 | Subtítulos SRT/ASS/VTT, estilos, animación, highlight | pysubs2 | ✅ | `subtitles.rs`, `captions`, `caption_style_update` MCP |
 | Subtítulos automáticos desde audio | — | ✅ | flujo transcribe→captions |
-| Traducción/subtítulos multilingües | — | 🟡 | `localization.rs` existe; cobertura de idiomas por verificar |
+| Traducción/subtítulos multilingües | — | 🟡 | `localization.rs` existe; `translate_subtitles` acepta 12 idiomas (es,en,zh,hi,ar,pt,bn,ru,fr,de,it,ja) y Descargar ya no ofrece destinos que el backend rechaza; cobertura no exhaustiva |
 
 ## 5. IA y automatización
 

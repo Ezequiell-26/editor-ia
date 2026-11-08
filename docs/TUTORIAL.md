@@ -743,7 +743,7 @@ aplica al instante y la paleta de comandos muestra el atajo nuevo. Reglas:
 
 - En **Localización** elegí un archivo **SRT, VTT, ASS o SSA** en UTF-8. La app
   muestra cuántos subtítulos detectó y avisa si algún bloque no tiene tiempos.
-- Marcá uno o varios de los **ocho idiomas** de destino, elegí **SRT** o **VTT**
+- Marcá uno o varios de los **doce idiomas** de destino, elegí **SRT** o **VTT**
   y, si hace falta, escribí un **glosario** con marcas o nombres que no se deben
   traducir (separalos con comas).
 - La traducción usa el proveedor de **Ajustes → Inteligencia artificial**. Si es

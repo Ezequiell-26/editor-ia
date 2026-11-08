@@ -1,8 +1,453 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-11. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+- `[done]` **Localización Studio unificada con los idiomas reales de cada
+  backend (2026-11-08)** — cierra el «pendiente honesto» de la pasada de
+  idiomas de traducción (2026-11-08): «Localización Studio sigue con su lista
+  curada de ocho idiomas; si se quiere una sola lista hay que unificar
+  `LOCALIZATION_LANGUAGES` con el backend y revisar doblaje/clonación por
+  idioma», en una pasada del protocolo del loop (Devin CLI).
+  - **Brecha medida**: `translate_subtitles` aceptaba 12 idiomas pero la UI
+    sólo ofrecía 8 (sin `fr`/`de`/`it`/`ja`, que Descargar ya traducía); el
+    doblaje SAPI acepta 11 (sin `ja`) y la clonación de voz 16 —de los 12 de
+    la lista, todos menos `bn`, que el motor local rechaza— pero la UI
+    ofrecía los 8 para todo sin distinguir capacidad.
+  - **Cambio** (`features/localization/localization.ts`):
+    `LocalizationLanguageCode` y `LOCALIZATION_LANGUAGES` pasan a los 12 del
+    backend (fr Français, de Deutsch, it Italiano, ja 日本語). Sets nuevos
+    `DUBBING_LANGUAGE_CODES` (11, sin `ja`, espejo de
+    `dubbing.rs::normalize_language`) y `CLONE_LANGUAGE_CODES` (11, sin `bn`,
+    espejo de `voice_clone.rs::CLONE_LANGUAGES`) con sus arrays filtrados
+    `DUBBING_LANGUAGES`/`CLONE_LANGUAGES` y `isDubbingLanguage`.
+  - **UI** (`LocalizationView.tsx`): el selector de idioma del doblaje sólo
+    lista idiomas traducidos que el doblaje acepta, y avisa «Sin doblaje
+    SAPI por ahora: …» cuando hay traducciones en idiomas no doblables (hoy
+    sólo `ja`). El selector de clonación usa `CLONE_LANGUAGES` (sin `bn`,
+    antes ofrecido y rechazado por el backend) con nota honesta; un efecto
+    corrige la selección si el idioma guardado no es clonable. Copy
+    «ocho idiomas» → «doce» en el encabezado y en el hint de navegación;
+    `App.test.tsx` actualizado.
+  - **Verificación**: vitest `features/localization/` +
+    `app/navigation.test.ts` **18/18** · `App.test.tsx -t Localización`
+    **1/1** · `npx tsc --noEmit -p apps/desktop/tsconfig.json` → **0
+    errores**. No se tocó Rust: los backends ya aceptaban estos idiomas.
+  - **Archivos**: `features/localization/localization.ts` (+test),
+    `features/localization/LocalizationView.tsx`, `app/navigation.ts`,
+    `App.test.tsx`, `docs/APP-FEATURE-AUDIT.md`, `docs/ROADMAP.md`,
+    `docs/TUTORIAL.md`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-08-idiomas-localizacion-unificados.md`.
+  - **Pendiente honesto**: doblaje de `ja` requiere una voz SAPI/engine que
+    el backend no tiene mapeada; `bn` en clonación depende de que el motor
+    local (GPT-SoVITS/XTTS) lo soporte — la lista `CLONE_LANGUAGES` de Rust
+    admite más idiomas (ko/tr/pl/nl/cs) que la UI no ofrece porque la
+    traducción de subtítulos no los cubre.
+
+- `[done]` **Traducción de subtítulos: backend alineado con los idiomas que
+  ya ofrece Descargar (2026-11-08)** — en una pasada del protocolo del loop
+  (Devin CLI).
+  - **Brecha medida**: `DownloadView` ofrece traducir subtítulos a `fr`,
+    `de`, `it` y `ja`, pero `translate_subtitles`
+    (`commands/providers.rs`) sólo aceptaba ocho códigos y devolvía «el
+    idioma de destino no está entre los ocho soportados»; esos destinos
+    siempre fallaban con un warning por subtítulo.
+  - **Cambio**: `language_name` suma `fr`/`de`/`it`/`ja` con el nombre que va
+    al prompt; el error deja de fijar el conteo («no está soportado»). Tests:
+    el caso de idiomas ahora recorre los 12 soportados y el rechazo usa `tl`.
+  - **Verificación**: `node scripts/rust-env.mjs -- cargo test -p
+    editor-ia-desktop --lib providers` → **29/29** · `npx tsc --noEmit -p
+    apps/desktop/tsconfig.json` → **0** · `rustfmt --edition 2021 --check
+    providers.rs` limpio. `cargo fmt --all -- --check` falla por diffs
+    preexistentes ajenos en `background.rs`, `upscale.rs` y `render/motion.rs`
+    (no tocados).
+  - **Archivos**: `apps/desktop/src-tauri/src/commands/providers.rs`,
+    `docs/CAPABILITY-MATRIX.md`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-08-idiomas-traduccion-descarga.md`.
+  - **Resuelto el mismo día**: Localización Studio quedó unificada con los
+    12 idiomas del backend y con filtros por capacidad de doblaje/clonación
+    (entrada siguiente de esta cola).
+
+- `[done]` **Reproductor del material compartido en el editor automático
+  (2026-11-08)** — cierra el «pendiente honesto» de la pasada del scrub del
+  metraje (2026-11-08): «cada variante monta su propia copia del `<video>`
+  por fuente (hasta 4×6 en el peor caso); si el coste se nota, la mejora
+  es compartir un único reproductor por fuente fuera de las tarjetas», en
+  una pasada del protocolo del loop (Devin CLI).
+  - **`AutoEditView.tsx`**: `SourceUsageRow` ya no monta `<video>`: la
+  barra temporal llama `onPreviewSeek(assetId, segundos)` y debajo queda
+  un aviso honesto («El metraje se reproduce una vez por video, en
+  «Reproductor del material»»). Nueva sección `Reproductor del material`
+  fuera de las tarjetas con **un `<video controls preload="metadata">`
+  por fuente que aporta cortes** a alguna variante (`previewSources` =
+  unión de `cuts[].assetId` de `finalVariants` ∩ `sources`): hasta 24
+  elementos `<video>` en el peor caso → máximo 6. `seekPreviewSource`
+  busca el segundo en el reproductor compartido, hace
+  `scrollIntoView({block:'nearest'})` (con guarda para jsdom/WebViews
+  sin implementar) y reproduce; la política de autoplay sigue cubierta
+  por el try/catch. Sin URL reproducible la sección no se monta y las
+  filas conservan sus avisos (`assetMissing` / «disponible en la app de
+  escritorio»).
+  - **CSS** (`styles/app.css`): `.auto-src-player` (grid), `.auto-src-player-item`,
+    `.auto-src-player-name`, `.auto-src-shared-hint`.
+  - **Test** (`AutoEditView.test.tsx`): el test del preview ahora exige
+    **exactamente 1** `.auto-src-video` dentro de `Reproductor del
+    material` con 4 mapas montados, **0** `.auto-src-video` dentro de
+    `.auto-src-map`, y verifica que el clic al 50 % de la barra de 10 s
+    deja `currentTime ≈ 5` y llama a `play()` sobre el reproductor
+    compartido.
+  - **Verificación**: vitest `features/autoedit/` **43/43** ·
+    `npx tsc --noEmit -p apps/desktop/tsconfig.json` → **0 errores**. No
+    se tocó Rust ni el contrato del servicio.
+  - **Archivos**: `features/autoedit/AutoEditView.tsx`,
+    `features/autoedit/AutoEditView.test.tsx`, `styles/app.css`,
+    `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-08-reproductor-material-autoedit.md`.
+
+- `[done]` **Scrub del metraje real en el mapa del material del editor
+  automático (2026-11-08)** — cierra el «pendiente honesto» de la pasada del
+  preview por material (2026-11-07): «un scrub de preview por corte queda
+  como mejora futura si se quiere ver el footage real», en una pasada del
+  protocolo del loop (Devin CLI).
+  - **UI** (`AutoEditView.tsx`): la fila de cada fuente dentro de «Mapa del
+    material por video» pasó a `SourceUsageRow`: la barra temporal es ahora
+    un `<button>` que busca el segundo clicado (`clientX` sobre el ancho de
+    la pista × duración medida) y reproduce; debajo va un `<video
+    controls preload="metadata" playsInline>` con la URL real del asset —
+    mismo criterio que el monitor (`proxy.path ?? source.path` vía
+    `service.mediaUrl(root, …)`). Sin sesión raíz o con `mediaUrl` vacío
+    (modo navegador) la fila avisa «disponible en la app de escritorio»; si
+    el asset ya no está en el proyecto, «El medio ya no está en el
+    proyecto». Nada simulado: sin archivo reproducible no hay `<video>`.
+  - **CSS** (`styles/app.css`): `.auto-src-map-track` como botón (reset,
+    hover con acento, `:focus-visible` con outline), `.auto-src-video`
+    acotado a 140 px de alto, `.auto-src-no-preview`.
+  - **Tests** (`AutoEditView.test.tsx`): el test del mapa se actualizó al
+    contrato nuevo (la pista es `button`, no `img`) y hay un test nuevo que
+    verifica el `<video>` con `src` del fake, que el clic al 50 % de una
+    barra de 10 s deja `currentTime ≈ 5` y que llama a `play()`.
+  - **Verificación**: vitest `features/autoedit/` **43/43** (13 en la
+    vista: el test del mapa actualizado al nuevo rol + 1 nuevo de preview) ·
+    `npx tsc --noEmit -p apps/desktop/tsconfig.json` → **0 errores**. No se
+    tocó Rust ni el contrato del servicio.
+  - **Archivos**: `features/autoedit/AutoEditView.tsx`,
+    `features/autoedit/AutoEditView.test.tsx`, `styles/app.css`,
+    `docs/IMPROVEMENT-QUEUE.md`, `memory/2026-11-08-preview-material-autoedit-scrub.md`.
+  - **Pendiente honesto**: ~~cada variante monta su propia copia del
+    `<video>` por fuente~~ **resuelto el mismo día**: el reproductor ahora
+    es único por fuente, fuera de las tarjetas («Reproductor del
+    material», entrada siguiente de esta cola).
+
+- `[done]` **Preview de los cortes sobre el material antes de aplicar
+  (2026-11-07)** — cierra el último pendiente del lote «editor automático
+  sin LLM» (2026-10-27): «preview antes de aplicar», en una pasada del
+  protocolo del loop (Devin CLI). Las tarjetas ya mostraban la película del
+  montaje y la lista de cortes, pero no qué tramo de **cada video fuente**
+  sobrevivía ni dónde estaban los huecos medidos.
+  - **Motor** (`features/autoedit/auto-edit.ts`): `buildSourceUsage(sources,
+    variant, indices)` devuelve por fuente `{ kept, holes, keptSeconds,
+    durationSeconds }` — `kept` es la unión de los cortes elegidos en
+    segundos del video original y `holes` los silencios/negros/congelados
+    medidos (merge de rangos solapados, clamps a la duración).
+  - **UI** (`AutoEditView.tsx`): cada tarjeta gana un `<details>` «Mapa del
+    material por video» con una fila por fuente que aporta cortes — nombre,
+    `X s de Y s` conservados y una barra del video original con segmentos
+    verdes (entra al montaje) y marcas oscuras para los huecos. Se
+    actualiza al destildar cortes y tras reordenar con la IA. Además la
+    lista «Ver los cortes» muestra el nombre del video por fila cuando hay
+    más de una fuente (antes los tiempos eran ambiguos entre archivos).
+  - **CSS** (`styles/app.css`): `.auto-src-*` — barra con segmentos
+    posicionados por %, huecos con trama diagonal, leyenda honesta.
+  - **Verificación**: vitest `features/autoedit/` **42/42** (+3 tests de
+    `buildSourceUsage`: huecos y kept exactos, achique al destildar y fila
+    en cero para la fuente sin cortes elegidos; +1 test de UI que abre el
+    mapa y verifica pistas, segmentos y huecos del fake) ·
+    `tsc --noEmit -p apps/desktop/tsconfig.json` → **0 errores**. No se
+    tocó Rust ni el contrato del servicio.
+  - **Archivos**: `features/autoedit/auto-edit.ts`,
+    `features/autoedit/auto-edit.test.ts`,
+    `features/autoedit/AutoEditView.tsx`,
+    `features/autoedit/AutoEditView.test.tsx`,
+    `styles/app.css`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-07-preview-material-autoedit.md`.
+  - **Pendiente honesto**: la vista previa es un mapa temporal (qué tramos
+    entran), no una reproducción del video; un scrub de preview por corte
+    queda como mejora futura si se quiere ver el footage real.
+
+- `[done]` **Umbrales de escena/silencio configurables en el editor
+  automático (2026-11-07)** — cierra «umbrales de escena configurables»
+  del pendiente del lote «editor automático sin LLM» (2026-10-27), en una
+  pasada del protocolo del loop (Devin CLI). El backend ya aceptaba los
+  parámetros (`analyze_media`: `sceneThreshold`, `silenceDb`,
+  `minSilenceSeconds`, con clamp y clave de caché que los incluye); sólo
+  faltaba exponerlos.
+  - **`AutoEditView.tsx`**: tarjeta «Medición · Umbrales del análisis» con
+    tres inputs numéricos (escena 0.05–0.9, silencio −60…−10 dB, mínimo
+    0.15–3 s, mismos rangos que el backend). `analyze()` los pasa a
+    `analyzeMedia` en vez de `undefined` (defaults). Se guarda
+    `measuredParams` con los valores usados en la última medición: si los
+    umbrales cambian después, `analysisStale` muestra un aviso y
+    **bloquea** aplicar, exportar y pedir criterio IA hasta volver a
+    analizar (los cortes visibles se midieron con otros valores).
+  - **`DirectorView.tsx`**: ya tenía silencio configurable pero la escena
+    iba fija en 0.35 — se agregó el input «Umbral de escena (0–1)» al grid
+    de tuning y se pasa a `analyzeMedia`. Además los tres umbrales ahora
+    invalidan `plan`/`applied` al cambiar (antes sólo lo hacían las
+    opciones, no los umbrales).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `AutoEditView.test.tsx` **11/11** (+2 tests:
+    los umbrales llegan a `analyzeMedia` como `[0.5, -40, 0.8, false]`;
+    cambiar un umbral tras analizar muestra el aviso, deshabilita
+    «Reemplazar timeline» y se levanta al re-analizar). No se tocó Rust
+    ni el contrato del servicio.
+  - **Archivos**: `apps/desktop/src/features/autoedit/AutoEditView.tsx`,
+    `apps/desktop/src/features/autoedit/AutoEditView.test.tsx`,
+    `apps/desktop/src/features/director/DirectorView.tsx`,
+    `docs/IMPROVEMENT-QUEUE.md`, `memory/2026-11-07-umbrales-analisis.md`.
+  - **Pendiente honesto**: queda del mismo lote «preview antes de
+    aplicar» (ver los cortes elegidos sobre el material antes de escribir
+    la timeline).
+
+- `[done]` **Exportación en lote de las variantes del editor automático
+  (2026-11-07)** — cierra la parte «exportar las tres variantes a MP4
+  separados en un solo lote» del pendiente del lote «editor automático
+  sin LLM» (2026-10-27), en una pasada del protocolo del loop (Devin CLI).
+  - **Motor** (`features/autoedit/auto-edit-export.ts`, nuevo):
+    `exportAutoEditVariants` recorre las variantes y por cada una aplica
+    `applyAutoEditVariant` con `replace:true` (la variante ES la edición,
+    no se toca la timeline abierta), escribe el documento con
+    `write_project_variant` — que ya espeja los medios desde la raíz de la
+    sesión — y renderiza con `render_project_variant`, que verifica el
+    MP4 antes de publicarlo. Respeta la selección de cortes de cada
+    tarjeta (`subsetVariant`), el reorden de la IA (`finalVariants`) y
+    los títulos; el perfil sale de `chooseExportProfile`. Un fallo en una
+    variante no cancela las demás; el proyecto abierto queda intacto
+    (el apply clona).
+  - **UI** (`AutoEditView.tsx`): tarjeta «Exportar variantes» en la
+    columna de receta — carpeta de salida (default `<raíz>\variantes-auto`),
+    botón «Exportar N variantes», etapa por variante y lista de resultados
+    con ruta del MP4. Mismo copy honesto: no toca la timeline.
+  - **Verificación**: vitest `features/autoedit/` **36/36** (5 tests
+    nuevos en `auto-edit-export.test.ts`: MP4 por variante con proyecto
+    escrito y ruta de salida, timeline intacta, selección vacía = todos
+    los cortes como en la UI, fallo de render no frena la cola, progreso
+    + resumen) · `tsc --noEmit` desktop **0 errores**. No se corrió un
+    render real (los tests usan servicio fake; el camino
+    write/render_project_variant ya está verificado en folder-queue).
+  - **Archivos**: `features/autoedit/auto-edit-export.ts` (+test),
+    `features/autoedit/AutoEditView.tsx`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-07-auto-edit-export-lote.md`.
+  - **Pendiente honesto**: quedan del mismo lote «preview antes de
+    aplicar» y «umbrales de escena configurables», que son ítems
+    separados.
+
+- `[done]` **Sub-pestañas de audio «Eliminar Ruido» y «Filtros de voz»
+  habilitadas con controles reales (2026-11-07)** — en una pasada del
+  protocolo del loop (Devin CLI). Las dos sub-pestañas del inspector de
+  clip de audio estaban `pending` (deshabilitadas «por backend») aunque
+  todo su backend ya existía y estaba cableado: `denoise` (`afftdn`),
+  `gateDb`, voice isolation Demucs, `voiceEffect`, EQ de 3 bandas,
+  HP/LP, `AudioEffectStack`, compresor y de-esser. La sección monolítica
+  «Audio del clip» ya declaraba `subtab="basic noise voice"` y el CSS de
+  Filmora ya tenía reglas para `noise`/`voice`: sólo faltaba repartir.
+  - **Cambio** (`Inspector.tsx`): `SUB_TABS.audio` sin `pending` en
+    `noise`/`voice` (el `ia` de speed sigue pendiente: no hay backend de
+    rampas por IA). La sección se dividió en tres `InspectorSection`
+    reales: «Audio del clip» (`basic`: mute, separar audio, ganancia,
+    paneo, fades, transcribir, limpiar, automatización de volumen),
+    «Reducción de ruido» (`noise`: denoise %, puerta de ruido, bloque de
+    voice isolation completo con su botón Demucs, print de `afftdn`) y
+    «Filtros de voz» (`voice`: HP/LP, EQ graves/medios/agudos,
+    `voiceEffect`, `AudioEffectStack`, compresor/de-esser y presets
+    «Voz clara»/«Música», print de filtros FFmpeg). Ningún control se
+    perdió ni se simuló: es el mismo JSX repartido por `data-subtab`,
+    que es el contrato que la capa Filmora ya usa para mostrar/ocultar.
+    En temas sin la capa Filmora todas las secciones siguen montadas
+    (la ocultación por sub-pestaña es sólo visual vía CSS).
+  - **Test nuevo** (`App.test.tsx`): siembra un clip de audio, lo
+    selecciona y verifica que ambas pestañas existen **habilitadas**
+    (`role="tab"`, `disabled === false`), que `data-subtab` del
+    `.clip-inspector` cambia a `noise`/`voice` al clickear y que las
+    secciones `[data-subtab~=…]` contienen sus controles reales.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · `vitest run src/App.test.tsx` → **77/77** (antes
+    76 + el nuevo) · `vitest run AudioEffectStack render-cost` →
+    **7/7**. No se corrió la suite serial completa ni e2e (cambio
+    acotado a una vista con cobertura propia).
+  - **Archivos**: `apps/desktop/src/features/editor/Inspector.tsx`,
+    `apps/desktop/src/App.test.tsx`,
+    `memory/2026-11-07-subtabs-audio-reales.md`.
+  - **Pendiente honesto**: «Rampas de IA» (speed) sigue `pending` — no
+    existe backend de detección de rampas; las sub-pestañas de color
+    HSL/Curvas/Ruedas/HDR ya tienen secciones reales propias.
+
+- `[done]` **Limpieza automática de proxies huérfanos al cerrar/cambiar de
+  proyecto (2026-11-07)** — cierra el pendiente de `FOLLOW-UPS.md` §6.1
+  («limpieza automática de proxies huérfanos al cerrar proyecto; hoy
+  `cleanup_proxies` es manual»), en una pasada del protocolo del loop
+  (Devin CLI). Además `cleanupProxies` no tenía ninguna UI que lo llamara.
+  - **Backend** (`commands/proxies.rs`): `proxy_asset_id` parsea el id del
+    asset desde `proxy-<assetId>-<quality>-<mtime>-<bytes>.mp4` (el assetId
+    puede tener guiones: UUID). `cleanup_orphan_proxies(root, project)`
+    borra sólo los proxies cuyo asset ya **no existe como `kind:"video"`**
+    en el documento — conservador a propósito: un proxy de asset presente
+    con huella vieja se conserva (lo regenera `ensure_proxy`; borrarlo
+    podría tirar trabajo válido si el origen está inaccesible). Devuelve
+    `ProxyCleanupResult { removed, bytes_freed }`.
+    `cleanup_session_orphans(state)` es el wrapper best-effort: lee la
+    sesión, abre el proyecto del disco y limpia; **nunca devuelve error**
+    (el cache no puede tumbar un cierre).
+  - **Gancho** (`commands/projects.rs`): `close_project` la invoca antes de
+    `set_session(None)`; `adopt` la invoca antes de `set_session` sólo
+    cuando la ruta del proyecto que entra difiere de la sesión anterior
+    (re-adoptar el mismo proyecto no limpia nada). Son los únicos dos
+    puntos donde cambia la sesión nativa.
+  - **Límite honesto**: la referencia es el documento **en disco** — si el
+    usuario borró un asset en memoria sin guardar, su proxy se conserva
+    hasta el próximo guardado+cierre. Los proxies de assets presentes con
+    huella desactualizada tampoco se borran acá (quedan como caché
+    regenerable; `proxy_status` ya los marca `upToDate:false`).
+  - **Verificación**: `cargo test -p editor-ia-desktop --lib proxies`
+    **6/6** (3 tests nuevos: parseo del assetId con/sin guiones y nombres
+    rotos, limpieza que sólo borra ausentes — asset de video conservado,
+    asset borrado y asset-audio eliminados, archivos ajenos intactos,
+    `bytes_freed` exacto; carpeta inexistente y proyecto sin assets) ·
+    `cargo test --lib commands::projects` **7/7** · `rustfmt --check`
+    limpio en ambos archivos. No se tocó TypeScript.
+  - **Archivos**: `apps/desktop/src-tauri/src/commands/proxies.rs`,
+    `apps/desktop/src-tauri/src/commands/projects.rs`,
+    `docs/FOLLOW-UPS.md`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-07-proxies-huerfanos-cierre.md`.
+
+- `[done]` **Fix `PreviewTransformBox`: crash sin clip + typecheck verde
+  (2026-11-07)** — el `tsc --noEmit` del desktop arrastraba **1 error
+  preexistente** desde el lote grande (`PreviewTransformBox.tsx:248`,
+  `'clip' is possibly 'undefined'`), documentado como WIP en pasadas
+  anteriores y commiteado después en `a7cff32`.
+  - **Brecha**: `clip` es opcional en las props (la caja también se usa
+    para cues con `transformOverride`/`onApply`/`labelOverride`), pero el
+    `aria-label` leía `clip.label` sin guarda → `TypeError` en render.
+    Además un clip sin `label` imprimía «Encuadre de undefined».
+  - **Fix**: `aria-label` usa `labelOverride ?? clip?.label ?? 'capa'` —
+    mismo texto que antes para clips con nombre; fallback honesto para el
+    resto.
+  - **Test primero**: caso nuevo en `PreviewTransformBox.test.tsx` que
+    renderiza la vía cue (sin `clip`, con `labelOverride`/`onApply`) —
+    **falló con el TypeError real** antes del fix y pasa después; además
+    verifica que el arrastre escribe por `onApply` y no toca el store.
+  - **Verificación**: vitest `PreviewTransformBox.test.tsx` **8/8** ·
+    `npx tsc --noEmit -p apps/desktop/tsconfig.json` → **0 errores**
+    (antes 1). No se corrió la suite serial completa (cambio de una
+    línea en un componente con cobertura propia).
+  - **Archivos**: `apps/desktop/src/features/editor/PreviewTransformBox.tsx`,
+    `apps/desktop/src/features/editor/PreviewTransformBox.test.tsx`,
+    `memory/2026-11-07-preview-transform-box-clip-opcional.md`.
+
+- `[done]` **Receta FFmpeg para `light.leak` (2026-11-07)** — el último efecto
+  «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en una pasada del
+  protocolo del loop (Devin CLI). Con esto **los 48 efectos de video
+  exportan**: no queda ninguno con etiqueta «Sólo preview».
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; las manchas cálidas se
+    veían en el preview GPU pero el MP4 salía sin ellas.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `split=2` — base `format=gbrp` + overlay `format=gbrp,geq` que repite la
+    envolvente del shader por píxel: `edge = smoothstep(0.35,1.1,length(p))`
+    y `mask = smoothstep(0.35,0.85, blob*0.6 + edge*0.8)` (smoothstep
+    cúbico escrito a mano), salida `clip(tint·mask·amount·255,0,255)` y
+    `blend=all_mode=screen` que reproduce `1-(1-c)(1-light)`.
+  - **Decisión honesta**: `blob = ek_fbm(p·1.6+(t,0.4t),4)` NO se pudo
+    portar literal — 4 octavas × 4 hashes `ek_hash21` inlineados superan el
+    límite de línea de comandos de Windows (~100 KB estimados). Se aproximó
+    con **5 senos incommensurables** de frecuencia/phase crecientes
+    (0.30/0.24/0.18/0.12/0.08, la idea de octavas del fbm) renormalizados a
+    [0,1]. La cola ya lo anticipaba («aproximar con senos»).
+  - **Verificación con FFmpeg real** (n9.0 empaquetado, `testsrc2` 320×180,
+    50 frames): diff media por canal en frame 25 — esquina sup-izq **80**,
+    sup-der **59**, calidez R−B **+70/+166**, centro **+0,8**; frame 10 vs 40
+    en la esquina **11,2** (las manchas se mueven con `T·speed`). Scripts en
+    `.tmp-leak/` (ignorado).
+  - **Fidelidad honesta**: `approximate` — el blob es un sumando de senos,
+    no value-noise fbm (patrón orgánico similar, no idéntico); el eje Y
+    puede venir espejado respecto a `v_texCoord`; `format=gbrp` descarta
+    alfa; coste alto por píxel (5 senos ×3 canales).
+  - **Extra**: `EffectStudio.test.tsx` quedó verde de nuevo — el test
+    «muestra el resumen de export del stack» esperaba «Sólo preview» tras
+    agregar `light.flare`, aserción stale desde que flare ganó receta
+    (2026-11-08); ahora espera «Export aproximado», que es lo que el producto
+    muestra. `EffectTemplates.test.tsx` pasó en la re-corrida (su fallo
+    anterior era flaky de jsdom/navigation).
+  - **Verificación repo**: `npm run effects:codegen` → **78 recetas**;
+    vitest effect-kit **48 passed / 3 skipped** (live; +1 test nuevo en
+    `catalog.test.ts`, stack test actualizado) · vitest vfx desktop
+    **25 passed / 1 failed** (único fallo el conocido y ajeno de
+    `EffectTemplates.test.tsx` — importación JSON, flaky de jsdom; pasó en
+    la corrida aislada de 2 archivos) · `cargo check -p editor-ia-desktop`
+    limpio · Rust `cargo test --lib effect_stack` **11/11** con test nuevo
+    `effect_stack_expands_leak_graph_with_filled_params` · `tsc --noEmit`
+    desktop reporta **1 error preexistente** del WIP del usuario en
+    `PreviewTransformBox.tsx:248` · `tsc` effect-kit reporta los **4 errores
+    preexistentes** documentados de `engine.test.ts`.
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `packages/effect-kit/src/catalog.test.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test),
+    `apps/desktop/src/features/vfx/EffectStudio.test.tsx`,
+    `docs/DRIFT-PARITY.md`, `memory/2026-11-07-light-leak-export.md`.
+  - **Pendiente honesto**: la fidelidad visual del blob vs `ek_fbm` no está
+    medida contra el preview GPU (no hay harness de comparación
+    shader↔FFmpeg); si se quiere más parecido habría que generar el noise en
+    un paso previo (p.ej. `geq` a 8 bit por octava) o un source sintético.
+
+- `[done]` **Receta FFmpeg para `light.flare` (2026-11-08)** — uno de los 2
+  efectos «sólo preview» que quedaban (`docs/DRIFT-PARITY.md` §5) en una
+  pasada del protocolo del loop (Devin CLI), mismo patrón `geq`+`blend`
+  que las recetas anteriores.
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; los ghosts
+    especulares se veían en el preview GPU pero el MP4 salía sin ellos.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `split=2` — una rama es la base (`format=gbrp`) y la otra genera el
+    flare por `geq` píxel a píxel: `core = smoothstep(size,0,d)`,
+    `ring = smoothstep(size*1.4,size,|d-size*0.9|)*0.5` y
+    `ghost = smoothstep(size*0.6,0,|mirror|)*0.6` (espejo en `1-position`),
+    todo por `tint*intensity`, con los smoothstep cúbicos escritos a mano
+    (`t*t*(3-2*t)` sobre `clip`). `p=(DX,DY)/H` con
+    `DX=X+0.5-position.x*W`, `DY=Y+0.5-position.y*H` (mismo truco que
+    `twirl`, porque `aspect=W/H`). El overlay negro se mezcla con la base
+    vía `blend=all_mode=screen`, que reproduce el `1-(1-c)(1-light)` del
+    shader.
+  - **Verificación con FFmpeg real** (n9.0.2 empaquetado): el grafo
+    completo corre sobre `testsrc2` 320×180 sin error. YAVG de crops:
+    zona del core (x≈230, y≈50) **+48,4** vs el frame sin filtrar;
+    ghost (x≈90, y≈130) **+4,6**; esquina **+0,0**. Verificación
+    numérica del overlay solo: píxel (230,50) mide RGB **(152,130,96)**
+    contra **(153,130,96)** calculado a mano con la fórmula del shader
+    (diff ≤1 por redondeo); píxel (10,10) = (0,0,0).
+  - **Fidelidad honesta**: `approximate` — el smoothstep es la misma
+    cuenta pero escrito a mano en la gramática de `geq`; el eje Y puede
+    venir espejado respecto a `v_texCoord` (la posición vertical se
+    invierte, clase de efecto idéntica); `format=gbrp` descarta alfa;
+    coste alto por píxel en cuadros grandes.
+  - **Verificación repo**: `npm run effects:codegen` → 77 recetas;
+    vitest effect-kit **47 passed / 3 skipped** (live) · vitest vfx
+    desktop **25 passed / 1 failed** (fallo ajeno y previo en
+    `EffectTemplates.test.tsx`, importación de JSON — sin relación con el
+    catálogo) · `tsc --noEmit` desktop reporta **1 error preexistente**
+    del WIP del usuario en `PreviewTransformBox.tsx:248` y effect-kit
+    los **4 errores preexistentes** documentados de `engine.test.ts` ·
+    Rust `cargo test --lib effect_stack_expands_flare` **bloqueado** por
+    `os error 32` (archivo en uso por otro proceso durante el build
+    script, ajeno al cambio — mismo bloqueo documentado en pasadas
+    anteriores; dos intentos).
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `packages/effect-kit/src/catalog.test.ts` (test nuevo + stack test
+    `flare`→`leak`), `apps/desktop/src-tauri/src/render/effect_recipes.rs`
+    (codegen), `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test,
+    **sin commitear** por WIP del usuario en el mismo archivo),
+    `docs/DRIFT-PARITY.md`, `memory/2026-11-08-light-flare-export.md`.
+  - **Pendiente honesto**: queda 1 efecto preview-only (`light.leak`,
+    usa `ek_fbm` de 4 octavas — no hay ruido por píxel en `geq`; habría
+    que aproximar con senos o añadir un generador de ruido FFmpeg).
 
 - `[done]` **Monitor de vídeo: fotograma completo, centrado y marco verde (2026-11-07)** —
   pedido con captura: «arregles donde se ve el video tiene que [verse]
@@ -3397,8 +3842,17 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
   firma válida. Instalado 56.823.776 B, SHA
   `C701599261193431742CC67FF73011DCFD63DBE39EFC428D690A4A6276173CD0`,
   firma válida, app abierta (PID 9208).
-- Pendiente: exportar las tres variantes a MP4 separados en un solo lote,
-  preview antes de aplicar, y umbrales de escena configurables.
+- ~~Pendiente: exportar las tres variantes a MP4 separados en un solo lote~~
+  **resuelto (2026-11-07)**: tarjeta «Exportar variantes» en
+  `AutoEditView` + `features/autoedit/auto-edit-export.ts`
+  (`write_project_variant` + `render_project_variant`, MP4 verificado por
+  variante, timeline intacta). ~~Siguen pendientes del mismo lote: preview
+  antes de aplicar y umbrales de escena configurables~~ **umbrales
+  resueltos (2026-11-07)**: tarjeta «Umbrales del análisis» en
+  `AutoEditView` + umbral de escena en `DirectorView`. ~~Sigue pendiente:
+  preview antes de aplicar.~~ **preview resuelto (2026-11-07)**: «Mapa del
+  material por video» en cada tarjeta (`buildSourceUsage`), con tramos
+  conservados y huecos medidos por fuente. Con esto el lote queda cerrado.
 
 ## Lote chroma con y sin pantalla verde (2026-10-27)
 
@@ -3915,3 +4369,113 @@ en preview del monitor (el scope bajo playhead quedó hecho el 2026-11-08).
   Tests: playwright `theme.spec`/`settings.spec` (4/4: acento en vivo,
   panel repinta shell+preview, paleta persiste, apariencia en vivo) ·
   `tsc --noEmit` 0 errores · vitest `effect-kit/engine.test.ts` 18/18.
+
+- `[done]` **Verificación de los fallos de UI preexistentes (2026-11-08)** —
+  pasada del protocolo del loop (Devin CLI). El `[next]` del lote de
+  rendimiento del 2026-11-04 pedía «corregir esos 4 archivos de UI (roles
+  ARIA, `<main>` único, filtro por carpeta) y repetir la suite»; la suite
+  serial de esa fecha reportaba **13 fallos previos** del trabajo no
+  confirmado del usuario (EffectStudio 5, AudioEffectStack 4, App 1,
+  AssetsPanel 3, LottiePanel 1) más 4 specs e2e desfasadas.
+  - **Medición de hoy** (mismos archivos, sin tocar código):
+    `vitest run` → `EffectStudio.test.tsx` **6/6** · `AssetsPanel.test.tsx`
+    **7/7** · `AudioEffectStack.test.tsx` **6/6** · `LottiePanel.test.tsx`
+    **3/3** · `App.test.tsx` **77/77**. Los 13 fallos ya no existen: los
+    cerraron los lotes posteriores (thumbnails SVG del catálogo, tokens
+    `--color-*` bajo la capa Filmora, specs e2e actualizadas a
+    `ColorSwatch`/`ColorWheel`).
+  - **`<main>` único confirmado en código**: sólo `AppShell.tsx:378` monta
+    `<main>` dentro del shell; el de `StartScreen.tsx:780` pertenece a la
+    pantalla de arranque, fuera del shell de la app.
+  - **Sin cambios de código**: es una pasada de verificación + cierre de
+    cola. Los dos sub-ítems que siguen vivos de ese `[next]` quedan
+    explícitos como pendientes separados: **segunda fase de CSS
+    splitting** (el CSS crítico ya bajó 19,7 % en la ola anterior; la fase
+    2 no tiene spec propia) y **microbenchmark de un comando Rust
+    CPU-bound** para cuantificar la ganancia del perfil release con LTO
+    (el arranque no mejoró de forma medible; falta el número nativo).
+  - **Archivos**: `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-08-fallos-ui-preexistentes-verificados.md`.
+  - **Verificación**: los 5 archivos de test citados arriba, corridos en
+    esta sesión (5 archivos de test, 99 tests, 0 fallos). No se corrió la
+    suite serial completa ni `tsc` (no hubo cambios de código).
+
+- `[done]` **Transiciones `slide-3d-*` con perspectiva real (2026-11-08)** —
+  cierra el pendiente «slide 3D» del port Kdenlive
+  (`docs/KDENLIVE-REFERENCE.md` §4), en una pasada del protocolo del loop
+  (Devin CLI). El ledger estaba cerrado (`loop:preflight` → `idle`); el
+  ítem salió de la brecha declarada en la matriz/referencia.
+  - **Schema** (`project-schema/timeline.ts`): `slide-3d-left|right|up|
+    down` en `ClipTransitionSchema`; JSON Schema regenerado con
+    `npm run schema:generate` (tests `timeline` + `schema-artifacts`
+    57/57).
+  - **Export** (`render/ffmpeg.rs`): los 4 tipos reusan el desplazamiento
+    del overlay de `slide-*` (`slide_axis` ahora reconoce ambos grupos) y
+    suman `slide3d_perspective` — filtro `perspective` con
+    `sense=destination:eval=frame` que lleva las esquinas del fuente a un
+    quad comprimido simétrico sobre el centro
+    (`extent = 0.15 + 0.85·min(max(in/lead_frames,0),1)`), con
+    `enable='lt(n,lead_frames)'` para no pagar el remapeo fuera del lead.
+    Eje perpendicular al viaje: laterales comprimen X (giro sobre eje
+    vertical), verticales comprimen Y. Variante congelada
+    `slide3d_frozen_filter` con progreso constante para el preview.
+  - **Preview** (`commands/preview_frame.rs`): `freezable_transition`
+    acepta los 4 tipos y emite `transitionFrozen {mode:"slide3d", axis,
+    progress, x, y}` — mismo contrato que wipe/dip-color.
+  - **Catálogo/auditoría** (`commands/visuals.rs`): los 4 tipos entran al
+    catálogo (overlap, 15 frames por defecto) **y se corrige la whitelist
+    stale de la auditoría**, que no reconocía `dip-color` ni `wipe-*`
+    (los habría marcado «transición desconocida» en proyectos válidos).
+  - **UI**: 4 opciones en Inspector («Deslizar 3D desde …»), 4 presets en
+    `EditorAssets` (pestaña «Deslizamiento») y labels en `Timeline`.
+  - **Verificación**: `cargo test` — `extra_transitions_change_the_filter_chain`
+    (asserts de `perspective`/`eval=frame`/`enable` por dirección +
+    variante congelada sin `in/`) ok ·
+    `window_freezes_fades_and_transition_leads` (mode/axis/progress/x/y
+    congelados) ok · `visuals::` 6/6 ok · smoke real de FFmpeg con la
+    cadena `perspective` exacta emitida (8 frames, sin errores) ·
+    `tsc --noEmit` desktop **0 errores** · vitest `EditorAssets` 9/9
+    (conteo 12→16 tarjetas), `Timeline` 20/20, `project-actions` 108/108,
+    `visuals`/`motion`/`caption-motion` ok; schema 57/57.
+  - **Límite honesto**: es una aproximación — el quad se comprime
+    simétrico sobre el centro del frame, no una puerta 3D anclada a un
+    borde como el slide 3D de MLT/Kdenlive; no hay iluminación ni
+    deformación de perspectiva real por cara. Suficiente para el gesto
+    «entra rotando», no para paridad geométrica exacta.
+  - **Archivos**: `packages/project-schema/src/timeline.ts` + schema
+    regenerado, `render/ffmpeg.rs`, `commands/preview_frame.rs`,
+    `commands/visuals.rs`, `Inspector.tsx`, `EditorAssets.tsx`,
+    `Timeline.tsx`, `docs/KDENLIVE-REFERENCE.md`, esta entrada,
+    `memory/2026-11-08-slide-3d-transitions.md`.
+  - **Pendiente**: luma wipe con clip mate (siguiente gap Kdenlive).
+
+- `[done]` **Microbenchmark LTO vs sin-LTO en `analyze_pcm` (2026-11-08)** —
+  cierra el pendiente «microbenchmark de un comando Rust CPU-bound para
+  cuantificar el LTO del perfil release» del cierre de la ola de
+  rendimiento, en una pasada del protocolo del loop (Devin CLI). El código
+  ya estaba escrito por una pasada anterior sin commitear (perfil
+  `[profile.release-nolto]` en `Cargo.toml` + test ignorado
+  `bench_analyze_pcm_throughput` en `audio_scopes.rs`); esta pasada lo
+  compiló en ambos perfiles y midió.
+  - **Medición** (30 s de PCM sintético, 1.440.000 muestras, 3 iteraciones
+    por corrida tras warmup, 4 corridas por perfil alternadas):
+    `release` (lto thin, codegen-units=4) → 443,4 / 455,2 / 440,4 / 457,8
+    × tiempo real; `release-nolto` → 451,3 / 455,8 / 453,0 / 457,7 ×.
+    Medias ~449× vs ~454×: **solapadas, sin ganancia medible de LTO**
+    (~1 % a favor de no-LTO, dentro del ruido).
+  - **Conclusión honesta**: el coste de LTO (+0,57 % exe, +~3 min de build)
+    no compra rendimiento en este DSP; coherente con la medición CDP
+    previa (arranque sin mejora). No buscar ganancia en `lto="fat"`;
+    caminos reales: codegen-units=1 o el algoritmo/SIMD.
+  - **Verificación**: `cargo test --release -p editor-ia-desktop --lib
+    audio_scopes -- --ignored --nocapture` ok · mismo comando con
+    `--profile release-nolto` ok · tests no-ignorados del módulo **8/8**
+    en ambos perfiles · compilación completa de la crate en release y
+    release-nolto (~6–7 min cada una, deps cacheadas).
+  - **Archivos**: `Cargo.toml`, `apps/desktop/src-tauri/src/commands/
+    audio_scopes.rs`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-08-bench-lto-audio-scopes.md`.
+  - **Sigue vivo del mismo `[next]`**: segunda fase de CSS splitting (sin
+    spec propia). Pendientes externos sin cambio: firma OV/EV + updater,
+    Ola CapCut P1 (sólo si el usuario la pide), luma wipe con clip mate,
+    scopes del audio ya mezclado, física 2D del stickman, transiciones OBS.

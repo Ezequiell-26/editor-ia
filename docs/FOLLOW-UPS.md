@@ -228,8 +228,12 @@ sigue quedó **fuera** de este incremento y la UI no debe ofrecerlo todavía.
   (invalidación por huella del origen), verificación FFprobe y cancelación real.
 - El proxy se persiste en `asset.proxy` con `apply_proxy_to_asset` (valida
   `exists && upToDate` y guarda; devuelve `Asset | null`).
-- **Pendiente:** UI de proxies (task-17, views); limpieza automática de proxies
-  huérfanos al cerrar proyecto (hoy `cleanup_proxies` es manual).
+- ~~**Pendiente:** limpieza automática de proxies huérfanos~~ **HECHO
+  (2026-11-07)**: `cleanup_orphan_proxies` + `cleanup_session_orphans` en
+  `commands/proxies.rs` borran los `proxy-*.mp4` cuyo asset ya no existe como
+  video en el proyecto; se invocan best-effort desde `close_project` y desde
+  `adopt` cuando cambia la ruta de sesión. La UI de proxies ya existe
+  (`ProxyToolsPanel`); `cleanup_proxies` manual sigue disponible por IPC.
 
 ### 6.2 Export avanzado (parcial)
 - Hecho: `export_capabilities` (matriz real del FFmpeg empaquetado intersectada

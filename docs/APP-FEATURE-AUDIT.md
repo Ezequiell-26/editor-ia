@@ -122,7 +122,7 @@ Estados: **FUNCIONA** (cadena completa, no ejecutada en esta sesión), **MOCK HO
 | Guion por brief | `generate_script` | FUNCIONA | Guion, Fábrica, orquestador MCP | `providers.rs:414-576`; `ScriptView.tsx:364`; `batch-factory.ts:139` | Valida 1..30 escenas y JSON; mock entrega plantillas |
 | Efecto visual por prompt | `generate_video_effect` | FUNCIONA | Inspector | `providers.rs:630-759`; `Inspector.tsx:1118-1128` | Parámetros clampeados; `simulated` se muestra |
 | Motion por prompt | `generate_motion` | FUNCIONA | Motion | `motion_ai.rs:194-353`; `MotionView.tsx:74-92` | Mock honesto y rotulado en UI |
-| Traducción de subtítulos (8 idiomas) | `translate_subtitles` | FUNCIONA | Localización, Descargar | `providers.rs:928-1066`; `LocalizationView.tsx:330`; `DownloadView.tsx:1046` | Exige misma cantidad de cues; bloquea export simulado (`LocalizationView.tsx:387-392`) |
+| Traducción de subtítulos (12 idiomas) | `translate_subtitles` | FUNCIONA | Localización, Descargar | `providers.rs:928-1066`; `LocalizationView.tsx:330`; `DownloadView.tsx:1046` | Exige misma cantidad de cues; bloquea export simulado (`LocalizationView.tsx:387-392`) |
 | Emparejar frases ↔ imágenes | `match_media_plan` | FUNCIONA (sin mock) | Asistente (`media_folder`) | `assistant.rs:738-830`; `AssistantDock.tsx:419` | Rechaza mock explícitamente (`assistant.rs:774-779`) |
 | Análisis de imágenes | `analyze_images` | FUNCIONA (nativo) | Asistente | `image_sense.rs` (registrado en `lib.rs:349`); `AssistantDock.tsx:396` | Métricas reales (luz, color, rostros) |
 | Análisis de cuadros de video | `analyze_media_frames` | **BACKEND SIN UI** | Ninguna | `lib.rs:350`; `project-service.ts:1757, 2104`; sin call sites | El doc-comment promete que el asistente "ve" los clips; no ocurre |

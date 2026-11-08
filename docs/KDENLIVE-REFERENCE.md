@@ -21,7 +21,7 @@ Clone local de referencia: `D:\DevCache\kdenlive-ref` (shallow).
 | `effects/effectstack` | Pila de efectos con keyframes por parámetro | **Hecho**: keyframes por parámetro con ◆ en EffectStudio (preview GPU ya los muestreaba) + export segmentado `split/trim/concat` en video **y audio** (`atrim` por samples + `concat`, parámetros muestreados por tramo medio, tope 32) + **Bézier por parámetro** (schema `bezier`, `cubicBezierProgress` en preview y export) | — (UI ◆ en ambos stacks; Bézier por datos/MCP) |
 | `renderpresets` | Perfiles de render con nombres/params | Hecho: perfiles + presets de compresión + cola durable | — |
 | `titler` | Editor de títulos | Parcial→mejorado: 11 plantillas + **formas** (`shape:'rect'\|'ellipse'\|'triangle'\|'diamond'\|'star'` en capas rect → polígono `\p1` en ASS y `clip-path` en preview) | Forma custom (puntos libres), editor visual de titler |
-| `transitions` | Transiciones con geometría | Hecho: catálogo + **dip-color** (color elegible) + **wipe-\*** direccional (máscara `geq` progresiva, preview congelado) | slide 3D, luma wipe con mate |
+| `transitions` | Transiciones con geometría | Hecho: catálogo + **dip-color** (color elegible) + **wipe-\*** direccional (máscara `geq` progresiva, preview congelado) + **slide-3d-\*** (desplazamiento + `perspective` eval=frame, preview congelado) | luma wipe con mate |
 | `bin` | Media pool, proxies, thumbnails | Hecho: assets + proxies + thumbnails | — |
 | `monitor` | Preview con scopes y transport | Hecho: preview + scopes de color **en vivo** (muestreo canvas cada ~180 ms) + scopes de audio del bus master | — |
 | `utils/gentime`, `timecode` | Timecode/drop-frame, conversión frames↔tc | **Hecho**: DF en export EDL (`edl.rs`) y sync multicam (`multicam-timecode.ts`) | — (display DF ya en `formatTimecode`) |
@@ -65,8 +65,18 @@ Clone local de referencia: `D:\DevCache\kdenlive-ref` (shallow).
    debajo. Verificado con FFmpeg real (alpha_avg 0→99→227 en el barrido).
    Preview: `transitionFrozen {mode:"wipe",kind,progress}` →
    `wipe_frozen_filter` con `p` constante. UI: 4 opciones en Inspector,
-   pestaña «Barrido» + 4 presets en EditorAssets. Pendiente: slide 3D
-   y luma wipe con clip mate.
+   pestaña «Barrido» + 4 presets en EditorAssets.
+   **Slide 3D (2026-11-08)**: `slide-3d-left|right|up|down` en el enum;
+   mismo desplazamiento del overlay que `slide-*` más
+   `slide3d_perspective` — `perspective` con `eval=frame` y
+   `sense=destination` comprime el eje perpendicular al viaje
+   (`extent = 0.15+0.85·progreso`, `enable` sólo durante el lead) para
+   el gesto de giro. Preview: `transitionFrozen {mode:"slide3d",axis,
+   progress,x,y}` → `slide3d_frozen_filter`. Aproximación declarada:
+   quad simétrico sobre el centro, no puerta anclada a borde. UI: 4
+   opciones en Inspector + 4 presets + labels. Además se corrigió la
+   whitelist de auditoría de `visuals.rs`, que no reconocía `dip-color`
+   ni `wipe-*`. Pendiente: luma wipe con clip mate.
 5. **Titler**: formas y plantillas — **avanzado**: `MotionRectLayer.shape`
    (`rect`|`ellipse`|`triangle`|`diamond`|`star`|`pentagon`|`hexagon`|
    `arrow`) con plantilla `badge` (selector Forma); `polygon_drawing` en

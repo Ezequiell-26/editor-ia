@@ -114,7 +114,7 @@ validado y re-encodeado en Rust con publicación atómica. Sin variantes A/B ni
 detección de rostro todavía.
 
 **Hecho (2026-10-22): Localization Studio.** Importación SRT/VTT/ASS/SSA,
-traducción por lotes a los ocho idiomas con proveedor OpenAI-compatible,
+traducción por lotes a los doce idiomas con proveedor OpenAI-compatible,
 glosario, autorización de cuota y export SRT/VTT validado. El proveedor simulado
 no traduce y bloquea la exportación. **Doblaje SAPI** conectado en la vista Localización:
 elige video/idioma/voz, ajusta duración, mezcla con cama original opcional y

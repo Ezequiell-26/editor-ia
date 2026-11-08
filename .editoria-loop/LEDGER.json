@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T23:05:27.846Z"
+    "lastPassAt": "2026-11-08T02:40:06.669Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -409,6 +409,54 @@
   ],
   "passes": [
     {
+      "at": "2026-11-08T02:40:06.669Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): preview de los cortes sobre el material antes de aplicar — buildSourceUsage (kept/holes por fuente) + details 'Mapa del material por video' por tarjeta + nombre de video en la lista de cortes multi-fuente; cierra el ultimo pendiente del lote editor automatico 2026-10-27; vitest features/autoedit 42/42 (+3 puros +1 UI), tsc desktop 0 errores; commit b738bc7",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
+      "at": "2026-11-08T02:24:09.485Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): umbrales de escena/silencio configurables en editor automatico — tarjeta Medicion en AutoEditView (sceneThreshold/silenceDb/minSilence pasados a analyzeMedia) + measuredParams/analysisStale que bloquea aplicar/exportar/IA si cambian tras analizar + umbral de escena en DirectorView (escena fija 0.35 -> input) e invalidacion de plan/applied al tocar umbrales; vitest AutoEditView 11/11 (+2 tests), tsc desktop 0 errores; sin cambios Rust",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
+      "at": "2026-11-08T02:19:38.503Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): exportacion en lote de las variantes del editor automatico a MP4 — auto-edit-export.ts (applyAutoEditVariant replace + write_project_variant + render_project_variant verificado) + tarjeta Exportar variantes en AutoEditView; cierra el pendiente del lote 2026-10-27; vitest features/autoedit 36/36 (5 tests nuevos), tsc desktop 0 errores; sin render real (camino ya cubierto por folder-queue)",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
+      "at": "2026-11-08T01:46:23.235Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE/FOLLOW-UPS: limpieza automatica de proxies huerfanos al cerrar o cambiar de proyecto (cleanup_orphan_proxies + cleanup_session_orphans en commands/proxies.rs, gancho en close_project y adopt de commands/projects.rs); 3 tests Rust nuevos; cargo test proxies 6/6, projects 7/7, rustfmt limpio; sin cambios TS",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
+      "at": "2026-11-08T01:12:08.129Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): receta FFmpeg approximate para light.leak (ultimo efecto solo-preview; graph split+geq con envolvente smoothstep edge/mask + blob de 5 senos incommensurables que aproxima ek_fbm + blend=all_mode=screen) + codegen 78 recetas + tests TS/Rust + docs; verificado con FFmpeg real en testsrc2 (diff 80/59 esquinas, centro +0.8, manchas se mueven); vitest effect-kit 48/48 (3 live skipped), vfx 25/26 (1 fallo ajeno preexistente EffectTemplates flaky), cargo check limpio, cargo test effect_stack 11/11, tsc con errores preexistentes WIP; ademas fix asercion stale en EffectStudio.test.tsx (esperaba 'Solo preview' tras flare que ya exporta)",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
+      "at": "2026-11-08T00:34:38.632Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): receta FFmpeg approximate para light.flare (split + geq overlay especular core/anillo/ghost + blend=all_mode=screen) + codegen 77 recetas + tests TS + docs; verificado con FFmpeg real (YAVG +48.4 en zona core, +0 esquina; pixel centro 152,130,96 vs 153,130,96 calculado); vitest effect-kit 47/47 (3 live skipped), vfx 25/26 (1 fallo ajeno preexistente EffectTemplates), tsc con errores preexistentes WIP, cargo test bloqueado por os error 32; commit a7cff32 (codigo, del usuario) + 441ffd5 (docs)",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
       "at": "2026-11-07T23:05:27.846Z",
       "taskId": null,
       "status": "noop",
@@ -668,54 +716,6 @@
       "note": "Borde de proyecto tipado entre la UI y el almacenamiento. project-service.ts: interfaz ProjectService (available, unavailableReason, createProject, openProject, saveProject), maquina de estados ProjectFlowState con transition() pura (idle|loading|dirty|saving|saved|failed) y describeFlow() que da UNA frase por estado. Reglas duras: un failed de save conserva hasUnsavedChanges=true y jamas dice Guardado; un failed de open no inventa cambios; openProject devuelve null para cancelacion y eso vuelve a idle sin mostrar error. safeDisplayLabel y sanitizeForUi recortan cualquier ruta absoluta (prefijo de unidad Windows o path POSIX con dos o mas segmentos) al nombre del archivo y cortan a 200 chars, asi Rust puede citar la ruta que fallo sin que la pantalla imprima el home del usuario. createNativeProjectService(invoke) valida lo que devuelve el comando con parseProject del paquete de esquema y fija los nombres create_project, open_project y save_project como contrato para la tarea 4; createProjectService() detecta window.__TAURI_INTERNALS__ y, si no hay runtime nativo, devuelve un servicio unavailable. Prueba primero: ProjectHome.test.tsx dio RED por 'Failed to resolve import ../../services/project-service' y quedo 17/17. Mutation check de las dos reglas del acceptance: forzar hasUnsavedChanges=false en failed y vaciar sanitizeForUi -> fallaron exactamente 4 tests (2 por estado sucio, 2 por filtracion de ruta), revertido. Un fake del propio test estaba mal y se corrigio: los overrides pisaban el contador de llamadas, por eso dos aserciones de calls daban 0 mientras el flujo funcionaba. Verificacion en navegador real (build de produccion en vite preview, chrome-devtools, viewport 1280x637): sin desborde horizontal, status 'Sin proyecto abierto.', los 3 botones con disabled=true, input deshabilitado con label 'Nombre del proyecto', aviso visible 'Crear y abrir no estan disponibles en esta ventana: los comandos nativos llegan con la tarea 4', y clickear los botones inhabilitados deja el status sin cambios (cero errores en consola). Ese mismo recorrido destapo un defecto mio: .notice usaba --color-empty (#6b7684) sobre el fondo, medido 4,04:1, debajo de AA para texto real. Se agrego primero la comprobacion en App.test.tsx (fallo contra el CSS actual, nombrando .notice), se paso .notice a --color-text-muted y se remidio en el navegador: 8,86:1; el unico uso restante de --color-empty es en reglas :disabled (3,47:1), que es texto incidental exento. tsc strict agarro ademas un 'Object is possibly undefined' en el test nuevo que Vitest no ve, corregido. App.test.tsx de la tarea 3 tenia '0 botones en main' para las 4 vistas: se dividio en dos guardas, Editor/Assets/Settings siguen exigiendo 0 controles, y Projects ahora exige que TODO boton este inhabilitado mientras el borde nativo no exista (un boton habilitado que no hace nada rompe el test). README actualizado porque su linea 'el shell no tiene botones' quedo falsa. npm run verify: 293 tests (228 esquema + 12 docs + 6 rust + 9 shell + 17 flujo) y typecheck estricto de los tres proyectos. Queda: los comandos nativos reales (tarea 4) y que el editor se inicialice con el proyecto abierto.",
       "remedy": null,
       "verifyRan": true
-    },
-    {
-      "at": "2026-10-18T23:12:36.342Z",
-      "taskId": "5",
-      "status": "done",
-      "note": "Workspace npm @editor-ia/render-worker con el contrato del worker y descubrimiento honesto, sin implementar render. protocol.ts: RenderRequest (uuid v4, protocolVersion literal editor-ia.render/1 con codigo propio UNSUPPORTED_PROTOCOL_VERSION como hace parseProject, perfil de una allowlist de 3, y projectPath/outputPath validados con ProjectRelativePathSchema del paquete de esquema: absolutas, con '..', backslash, drive o ~ se rechazan; .strict() deja afuera cualquier clave extra, incluida una credencial, sin reproducir el valor). RenderResult con invariante estructural: completed exige verification (passed literal true, outputPath coincidente, outputBytes positivo) y no puede llevar code; failed|cancelled|unsupported no pueden llevar outputPath ni verification y exigen un codigo seguro de una enum cerrada. La unica puerta a completed es verifyRenderedOutput(exists,size,minOutputBytes) inyectado, y buildRenderResult devuelve VERIFICATION_REQUIRED si intentan fabricarlo. capabilities.ts: getRendererCapabilities(resolveExecutable inyectado) sin importar FFmpeg ni Remotion; remotion queda RENDERER_LICENSE_UNVERIFIED aunque el binario exista (REMOTION_LICENSE_VERIFIED=false) y requestRender responde RENDERER_UNIMPLEMENTED con renderizador disponible: canRender es false siempre por RENDERING_IMPLEMENTED=false. index.ts: CLI con --capabilities y pedido por stdin, resolucion de ejecutables pisando PATH con existsSync (no se spawnea nada ni se arma un comando con texto del pedido), codigos de salida 0 completed / 2 malformado / 3 unsupported / 4 failed / 5 cancelled. Test primero: protocol.test.ts dio RED por 'Failed to load url ./protocol.ts' y despues 21/21. Mutation check de las dos invariantes del acceptance: RENDERING_IMPLEMENTED=true y quitar el addIssue de verification en completed -> fallaron exactamente 'con ffmpeg disponible sigue sin claimar...' y 'no permite completed sin verificacion' (19/21), revertido. Ese mutation destapo un hueco real del test: canRender no estaba assertionado con renderizador presente y se agrego. Un test propio tambien estaba mal y se corrigio: el CLI contra proyecto inexistente responde PROJECT_FILE_MISSING/exit 4, no unsupported; se separo en dos casos y el segundo crea un proyecto real en dist/cli-probe (gitignored, rmSync en finally) para ver unsupported/exit 3. Evidencia ejecutada: npm --workspace @editor-ia/render-worker run build (tsc --noEmit) limpio; node --experimental-strip-types apps/render-worker/src/index.ts --capabilities en esta maquina -> ffmpeg available true en C:\\ProgramData\\chocolatey\\bin\\ffmpeg.exe, remotion RENDERER_UNAVAILABLE, usableRenderer ffmpeg y canRender FALSE; npm run verify -> 274 tests (228 esquema + 12 docs + 6 rust + 7 shell + 21 worker) y typecheck estricto de los tres proyectos. README actualizado: decia 'no hay worker' y ahora el contrato existe; se mantiene la linea de que el render real no esta.",
-      "remedy": null,
-      "verifyRan": true
-    },
-    {
-      "at": "2026-10-18T23:00:22.388Z",
-      "taskId": "3",
-      "status": "done",
-      "note": "Shell React 19 del workspace @editor-ia/desktop con 4 vistas navegables y estados vacios honestos. Test primero: App.test.tsx (7) dio RED por 'Failed to resolve import ./App' y GREEN tras implementar. Se mutaron tokens.css (--color-text-muted a #333a44) y app.css (min-width 1440px) para comprobar que los 2 tests de contrato CSS muerden: fallaron los 2 y se revirtio. Evidencia real: npm run typecheck (tsc estricto sobre project-schema + desktop) limpio; npm --workspace @editor-ia/desktop run build -> vite 5.4.21, 42 modulos, dist con index.html + css 3.73 kB + js 226.89 kB; npm run verify -> 253 tests (228 esquema + 12 docs + 6 rust + 7 shell). Verificacion en navegador real (chrome-devtools, build de produccion servido por vite preview en :4173): viewport 1280x637 (mas estricto que 720 por el chrome de ventana), scrollWidth 1280 == clientWidth 1280 sin overflow horizontal en las 4 vistas, sidebar 200px por el media query <=1280, paneles Editor medidos (Preview 600x168, Inspector 428x168, Timeline 1040x140, todos dentro del viewport), 0 botones y 0 campos de formulario dentro de main en las 4 vistas, fuente 14px/1.55 Segoe UI. Doble espacio sospechado en 'archivo .editoria.json' se midio en el DOM: no existe, es el advance de la fuente mono. README actualizado porque el cambio dejaba falsa su linea 'no hay shell React'; se mantienen verdes los 12 tests de docs. Queda: nada de esto edita, guarda ni renderiza (tareas 4, 5, 6).",
-      "remedy": null,
-      "verifyRan": true
-    },
-    {
-      "at": "2026-10-18T22:41:26.032Z",
-      "taskId": "doc",
-      "status": "done",
-      "note": "README dice que existe hoy (esquema v1 con 12 entidades y 11 reglas, workspace Cargo con un miembro sin dependencias, loop con ledger) y que no (UI, comandos nativos, render, IA, CI, almacen de credenciales). Solo se documentan los 7 comandos que existen en package.json; el test lo comprueba recorriendo el README y esa asercion falla si alguien promete npm run dev/build/tauri:*. LICENSE MIT declarada con titular 'the Editor IA authors' (el nombre legal del maintainer queda por confirmar antes de publicar) y con descargo explicito de que no alcanza a terceros, stock ni Remotion. SECURITY.md cubre el almacen de credenciales (SO store, nunca localStorage ni archivo de proyecto; lista de 12 campos que el validador rechaza, medida en project.ts:55) y el gate de licencias (enum commercialUse, invariante 1 que impide status ready con unknown, provenance); dice como reportar, prohibe adjuntar credenciales y declara que el canal del maintainer aun no esta publicado. Test primero: scripts/repo-docs.test.mjs fallo por ENOENT de README.md y despues 11/11; durante el camino dos aserciones atraparon fallos reales (helper de TOML que pasaba en falso en la 1b y 'Credential Manager' partido por un salto de linea). npm run verify: 245 tests (228 esquema + 6 rust + 11 docs) y tsc limpio. .gitattributes fija text=auto eol=lf y binarios de video/imagen/audio/fuente; verificado con git check-attr (README.md -> eol: lf) y sin modificaciones fantasma en git status.",
-      "remedy": null,
-      "verifyRan": true
-    },
-    {
-      "at": "2026-10-18T22:34:30.740Z",
-      "taskId": null,
-      "status": "noop",
-      "note": "verificacion del guardia activePass",
-      "remedy": null,
-      "verifyRan": false
-    },
-    {
-      "at": "2026-10-18T22:33:56.032Z",
-      "taskId": "1b",
-      "status": "done",
-      "note": "Workspace Cargo virtual (resolver 2, miembro unico apps/desktop/src-tauri), rust-toolchain.toml con channel stable, crate editor-ia-desktop sin dependencias (ninguna descarga de red) y main.rs stub vacio. Test primero en scripts/rust-workspace.test.mjs: 6/6. Evidencia real: node scripts/rust-env.mjs -- cargo metadata --no-deps --format-version 1 (1 miembro, resuelve el manifiesto), cargo check 1.54s exit 0, cargo build 2.66s exit 0 (linkea de verdad). npm run verify: 234 tests (228 esquema + 6 nuevos) y tsc limpio. Cargo.lock y target/ quedan generados; target/ ignorado por git (verificado con git check-ignore).",
-      "remedy": null,
-      "verifyRan": true
-    },
-    {
-      "at": "2026-10-18T22:29:29.692Z",
-      "taskId": null,
-      "status": "noop",
-      "note": "arranque del loop",
-      "remedy": null,
-      "verifyRan": false
     }
   ]
 }
