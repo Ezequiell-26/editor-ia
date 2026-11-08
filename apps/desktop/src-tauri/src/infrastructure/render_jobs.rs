@@ -202,7 +202,7 @@ impl RenderFiles for LocalRenderFiles {
     }
 
     fn prune_cache(&self, cache_dir: &Path) -> u64 {
-        let mut removed = 0u64;
+        let mut removed_count = 0u64;
         if let Ok(entries) = std::fs::read_dir(cache_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -210,13 +210,20 @@ impl RenderFiles for LocalRenderFiles {
                     .file_name()
                     .map(|name| name.to_string_lossy().starts_with("render-"))
                     .unwrap_or(false)
-                    && std::fs::remove_dir_all(&path).is_ok()
                 {
-                    removed += 1;
+                    // Temporales son directorios; los `render-*.log` de fallo son archivos.
+                    let removed = if path.is_dir() {
+                        std::fs::remove_dir_all(&path).is_ok()
+                    } else {
+                        std::fs::remove_file(&path).is_ok()
+                    };
+                    if removed {
+                        removed_count += 1;
+                    }
                 }
             }
         }
-        removed
+        removed_count
     }
 }
 
@@ -525,6 +532,11 @@ fn run_render_job(
         return;
     }
     if !exit_success {
+        persist_render_log(
+            &temp_render_dir,
+            "ffmpeg no pudo completar el render",
+            &detail,
+        );
         files.remove_dir(&temp_render_dir);
         events.finished(&finished_failed(
             &job_id,
@@ -573,28 +585,61 @@ fn run_render_job(
                 verification: report,
             });
         }
-        Err(error) => events.finished(&RenderFinishedEvent {
-            job_id,
-            status: "failed".to_owned(),
-            code: Some(error.code.name().to_owned()),
-            message: Some(error.message),
-            detail: None,
-            output_path: None,
-            output_bytes: None,
-            duration_seconds: None,
-            width: None,
-            height: None,
-            elapsed_ms: started.elapsed().as_millis() as u64,
-            verification: None,
-        }),
+        Err(error) => {
+            persist_render_log(&temp_render_dir, &error.message, "");
+            events.finished(&RenderFinishedEvent {
+                job_id,
+                status: "failed".to_owned(),
+                code: Some(error.code.name().to_owned()),
+                message: Some(error.message),
+                detail: None,
+                output_path: None,
+                output_bytes: None,
+                duration_seconds: None,
+                width: None,
+                height: None,
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                verification: None,
+            });
+        }
     }
     files.remove_dir(&temp_render_dir);
+}
+
+/// Deja el motivo del fallo en `<cache>/render-<job>.log` para que el
+/// consumidor del job (p.ej. el estudio autónomo, que sondea por archivo)
+/// pueda reportar la causa real en vez de "terminó sin publicar".
+fn persist_render_log(temp_dir: &Path, message: &str, detail: &str) {
+    let body = if detail.trim().is_empty() {
+        message.to_owned()
+    } else {
+        format!("{message}\n{}", detail.trim())
+    };
+    let _ = std::fs::write(temp_dir.with_extension("log"), body);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::application::render_lifecycle::ensure_output_is_safe;
+
+    #[test]
+    fn render_log_lands_next_to_the_temp_dir_with_the_job_name() {
+        let base =
+            std::env::temp_dir().join(format!("editor-ia-renderlog-{}", uuid::Uuid::new_v4()));
+        let temp_dir = base.join("render-job-123");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        persist_render_log(&temp_dir, "ffmpeg falló", "Error at tail");
+        let log = base.join("render-job-123.log");
+        let body = std::fs::read_to_string(&log).unwrap();
+        assert!(body.contains("ffmpeg falló"));
+        assert!(body.contains("Error at tail"));
+        // Sin detalle: sólo el mensaje.
+        persist_render_log(&temp_dir, "verificación falló", "  ");
+        let body = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(body, "verificación falló");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn publishing_moves_the_verified_temp_file_to_the_final_path() {

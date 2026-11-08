@@ -87,14 +87,24 @@ impl<'a> RenderReviewDeliverExecutor<'a> {
                     fatal: false,
                     in_progress: true,
                 }),
-                _ => Ok(StageOutcome {
-                    completed: false,
-                    cost_cents: None,
-                    output: Some(prev.clone()),
-                    error: Some("el render terminó sin publicar el archivo de salida".to_owned()),
-                    fatal: true,
-                    in_progress: false,
-                }),
+                _ => {
+                    let detail = self.render_failure_detail(&job_id);
+                    Ok(StageOutcome {
+                        completed: false,
+                        cost_cents: None,
+                        output: Some(prev.clone()),
+                        error: Some(match detail {
+                            Some(detail) => format!(
+                                "el render terminó sin publicar el archivo de salida: {detail}"
+                            ),
+                            None => {
+                                "el render terminó sin publicar el archivo de salida".to_owned()
+                            }
+                        }),
+                        fatal: true,
+                        in_progress: false,
+                    })
+                }
             };
         }
 
@@ -141,6 +151,24 @@ impl<'a> RenderReviewDeliverExecutor<'a> {
             fatal: false,
             in_progress: true,
         })
+    }
+
+    /// Último motivo de fallo del render `job_id`, persistido por el worker
+    /// en `<cache>/render-<job>.log` (stderr saneado de ffmpeg o el error
+    /// de verificación/publicación). Se recorta a los últimos ~800 chars.
+    fn render_failure_detail(&self, job_id: &str) -> Option<String> {
+        let log = self.deps.cache_dir.join(format!("render-{job_id}.log"));
+        let body = fs::read_to_string(log).ok()?;
+        let tail: String = body
+            .chars()
+            .rev()
+            .take(800)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        let tail = tail.trim().to_owned();
+        (!tail.is_empty()).then_some(tail)
     }
 
     fn review_stage(&self, _ctx: &StageContext) -> Result<StageOutcome, ProjectError> {
