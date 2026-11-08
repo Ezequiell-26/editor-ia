@@ -375,6 +375,83 @@ describe('solicitud de exportación', () => {
   });
 });
 
+function ShuttleHarness() {
+  const store = useProjectStore();
+  const rate = useProjectPlaybackRate();
+  const direction = useProjectPlaybackDirection();
+  const playing = useProjectPlaying();
+  return (
+    <div>
+      <button type="button" onClick={() => store.shuttlePress(1)}>shuttle adelante</button>
+      <button type="button" onClick={() => store.shuttlePress(-1)}>shuttle atras</button>
+      <button type="button" onClick={() => store.setPlaying(true)}>reproducir</button>
+      <button type="button" onClick={() => store.setPlaying(false)}>pausar</button>
+      <button type="button" onClick={() => store.setPlaybackRate(2)}>velocidad manual</button>
+      <span data-testid="rate">{String(rate)}</span>
+      <span data-testid="direction">{String(direction)}</span>
+      <span data-testid="playing">{String(playing)}</span>
+    </div>
+  );
+}
+
+describe('rampa del shuttle en el store', () => {
+  function renderShuttle() {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('Shuttle', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'shuttle.editoria.json',
+      path: 'C:\\tmp\\shuttle.editoria.json',
+      root: 'C:\\tmp',
+    };
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <ShuttleHarness />
+      </ProjectProvider>,
+    );
+  }
+
+  it('sube la rampa, fija dirección y reproduce; pausar la devuelve a 1×', async () => {
+    renderShuttle();
+    expect(screen.getByTestId('rate').textContent).toBe('1');
+    // Dos pulsaciones dentro de la ventana: 1× → 2×.
+    fireEvent.click(screen.getByRole('button', { name: 'shuttle adelante' }));
+    fireEvent.click(screen.getByRole('button', { name: 'shuttle adelante' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('2');
+    });
+    expect(screen.getByTestId('playing').textContent).toBe('true');
+    expect(screen.getByTestId('direction').textContent).toBe('1');
+    // La pausa por cualquier vía (botón, scrub, atajo) corta la rampa.
+    fireEvent.click(screen.getByRole('button', { name: 'pausar' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('1');
+    });
+    expect(screen.getByTestId('playing').textContent).toBe('false');
+  });
+
+  it('la dirección inversa queda en el contexto', async () => {
+    renderShuttle();
+    fireEvent.click(screen.getByRole('button', { name: 'shuttle atras' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('direction').textContent).toBe('-1');
+    });
+    expect(screen.getByTestId('playing').textContent).toBe('true');
+  });
+
+  it('pausar no toca una velocidad elegida a mano en el selector', async () => {
+    renderShuttle();
+    fireEvent.click(screen.getByRole('button', { name: 'velocidad manual' }));
+    fireEvent.click(screen.getByRole('button', { name: 'reproducir' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('2');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'pausar' }));
+    // Sin rampa activa la velocidad manual sobrevive a la pausa.
+    expect(screen.getByTestId('rate').textContent).toBe('2');
+  });
+});
+
 function IoHarness() {
   const store = useProjectStore();
   return (

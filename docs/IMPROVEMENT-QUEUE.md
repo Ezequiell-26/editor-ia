@@ -4,6 +4,44 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Rampa del shuttle cortada por cualquier pausa, no sólo por los
+  atajos (2026-11-08)** — cierra el «Pendiente honesto» de la entrada rampa
+  de velocidad («pausar desde la UI del transporte (botón, scrub) no pasa por
+  `endShuttleRamp` — la rampa queda tibia hasta que venza la ventana»), en
+  una pasada del protocolo del loop (Devin CLI); portado al worktree en la reconciliación 6 (provider spliteado). El estado de la rampa vivía
+  en un `shuttleRef` local de `App.tsx`: sólo el dispatcher de teclado lo
+  veía, así que el botón play/pausa y el scrub del `Transport` pausaban sin
+  devolver la velocidad a 1× (y al reanudar con Espacio se seguía a la
+  velocidad rampada).
+  - **Cambio**: la rampa se mudó al store — `shuttleRef` interno +
+    `shuttlePress(direction)` y `endShuttleRamp()` en `ProjectStoreValue`
+    (`state/shuttle.ts` sigue siendo el módulo puro de la rampa). En este
+    worktree el cambio vive en `project-store-provider.tsx` +
+    `project-store-types.ts` (provider spliteado) y el dispatcher en
+    `app/Shell.tsx`. `setPlaying(false)` corta la rampa de forma
+    automática cuando `active` —antes del early-return— y una velocidad
+    manual del selector no se toca. Los casos `playback.shuttleForward`/
+    `Reverse` llaman `store.shuttlePress` y las pausas quedan cubiertas
+    por `setPlaying`. `Transport.tsx` no necesitó cambios: su botón y su scrub
+    ya pasan por `setPlaying(false)`. `shortcuts-pro.test.ts` actualiza la
+    evidencia de ambos atajos a `store.shuttlePress`.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `project-store.test.tsx` **12/12** (+3 tests de
+    regresión: la rampa sube y `setPlaying(false)` vuelve a 1×, la dirección
+    inversa queda en su contexto, la velocidad manual sobrevive a la pausa)
+    · `shuttle.test.ts` **8/8** · `shortcuts-pro.test.ts` **5/5** ·
+    `Transport.test.tsx` **4/4** · `App.test.tsx` **77/77**. No se tocó Rust
+    ni el contrato del documento.
+  - **Archivos**: `state/project-store-provider.tsx` + types (+test),
+    `state/shortcuts-pro.test.ts`, `app/Shell.tsx`, `docs/ATAJOS-PRO.md`, esta
+    entrada, `memory/2026-11-08-shuttle-rampa-store.md`.
+  - **Pendiente honesto**: la rampa sigue siendo por pulsaciones (la
+    auto-repetición del SO también escala); `endShuttleRamp` queda expuesto
+    para una pausa futura que necesite cortar la rampa sin tocar `playing`
+    (hoy `setPlaying(false)` lo cubre); el estado sigue siendo de sesión —
+    no persiste ni va al documento, igual que la velocidad, y `adopt`/
+    `closeProject` no lo resetean (la ventana de 1,5 s lo expira sola).
+
 - `[done]` **`stateRef` del project-store sincronizado de forma eager en
   todos los mutadores del documento (2026-11-08)** — cierra el follow-up
   «`runGraph` llama `store.update` + `saveNow` en el mismo tick; `saveNow`

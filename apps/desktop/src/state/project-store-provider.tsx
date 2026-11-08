@@ -6,6 +6,7 @@ import { useEditorPreferences } from './useEditorPreferences';
 import { ioRangeFromDocument, projectWithIoRange, type IoRange } from './io-range';
 import { ProjectActionError, cloneProject, totalFrames } from './project-actions';
 import { clearRecoverySnapshot, createRecoveryWriter, readRecoverySnapshot, shouldOfferRecovery, type RecoveryWriter } from './recovery';
+import { IDLE_SHUTTLE, resetShuttle, shuttleRate, shuttleStep, type ShuttleState } from './shuttle';
 import type { Selection, ProjectPhase, StoreState, CreateProjectInput, ProjectStoreValue, ProjectProviderProps } from './project-store-types';
 import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext, PlaybackDirectionContext } from './project-store-context';
 
@@ -88,6 +89,10 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const [playbackRate, setPlaybackRateState] = useState(1);
   const [playbackDirection, setPlaybackDirectionState] = useState<1 | -1>(1);
   const playbackRef = useRef({ frame: 0, playing: false, rate: 1, direction: 1 as 1 | -1 });
+  // Rampa del shuttle L/J: estado de sesión de la tecla (no del documento).
+  // Vive acá y no en el shell para que `setPlaying(false)` —que usan el botón
+  // del transporte, el scrub y los atajos— corte la rampa en todos los casos.
+  const shuttleRef = useRef<ShuttleState>(IDLE_SHUTTLE);
   /**
    * `totalFrames` recorre todos los clips y cues. Antes se ejecutaba una vez
    * por render del provider (es decir, en cada frame de reproducci├│n) y otra
@@ -606,6 +611,12 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     setPlaybackRateState(next);
   }, []);
 
+  const endShuttleRamp = useCallback(() => {
+    if (!shuttleRef.current.active) return;
+    shuttleRef.current = resetShuttle(shuttleRef.current);
+    setPlaybackRate(1);
+  }, [setPlaybackRate]);
+
   const setPlayhead = useCallback(
     (frame: number) => {
       const duration = durationOf(stateRef.current.project);
@@ -619,13 +630,34 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     [durationOf],
   );
 
-  const setPlaying = useCallback((next: boolean) => {
-    if (playbackRef.current.playing === next) {
-      return;
-    }
-    playbackRef.current = { ...playbackRef.current, playing: next };
-    setPlayingState(next);
-  }, []);
+  const setPlaying = useCallback(
+    (next: boolean) => {
+      // Pausar corta la rampa del shuttle (vuelve a 1×) sólo si la velocidad
+      // vigente la fijó la rampa; una velocidad manual del selector queda.
+      // Va antes del early-return: aunque ya esté en pausa, una rampa activa
+      // residual también se limpia.
+      if (!next) {
+        endShuttleRamp();
+      }
+      if (playbackRef.current.playing === next) {
+        return;
+      }
+      playbackRef.current = { ...playbackRef.current, playing: next };
+      setPlayingState(next);
+    },
+    [endShuttleRamp],
+  );
+
+  const shuttlePress = useCallback(
+    (direction: 1 | -1) => {
+      const next = shuttleStep(shuttleRef.current, direction, performance.now());
+      shuttleRef.current = next;
+      setPlaybackDirection(next.direction);
+      setPlaybackRate(shuttleRate(next));
+      setPlaying(true);
+    },
+    [setPlaybackDirection, setPlaybackRate, setPlaying],
+  );
 
   const closeProject = useCallback(() => {
     editVersionRef.current = 0;
@@ -712,6 +744,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setPlaying,
       setPlaybackDirection,
       setPlaybackRate,
+      shuttlePress,
+      endShuttleRamp,
       getPlayhead,
       getPlaying,
       getPlaybackDirection,
@@ -750,6 +784,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setPlaying,
       setPlaybackDirection,
       setPlaybackRate,
+      shuttlePress,
+      endShuttleRamp,
       setSelection,
       requestExport,
       consumeExportRequest,

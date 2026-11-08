@@ -122,9 +122,11 @@ Sin cambios en la semántica global de `Espacio`/flechas.
    `state/shuttle.ts` — cada pulsación de `L`/`J` dentro de una ventana de
    1,5 s sube un escalón `SHUTTLE_RATES` 1→2→4→8× (tope = clamp del store);
    fuera de ventana vuelve a 1× y alternar teclas invierte el sentido
-   conservando la velocidad. Pausar (`K`, Espacio, frame a frame, inicio/fin)
-   corta la rampa sólo si la velocidad la fijó el shuttle (`active`): una
-   velocidad manual del selector no se toca. El selector del transporte gana
+   conservando la velocidad. Pausar por cualquier vía (`K`, Espacio, frame a
+   frame, inicio/fin, botón play/pausa y scrub del transporte — desde el
+   2026-11-08 `setPlaying(false)` corta la rampa en el store) devuelve la
+   velocidad a 1× sólo si la fijó el shuttle (`active`): una velocidad manual
+   del selector no se toca. El selector del transporte gana
    la opción 8× para reflejar la rampa.
 3. **`Ctrl+D` eliminación con ripple**: no se registró. `Ctrl+D` ya es
    «Duplicar clip» (`edit.duplicateClip`) y reasignar atajos existentes estaba

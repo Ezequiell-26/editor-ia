@@ -95,6 +95,17 @@ export interface ProjectStoreValue {
   setPlaybackDirection(direction: 1 | -1): void;
   /** Multiplicador de la velocidad de reproducción (0.1–8). */
   setPlaybackRate(rate: number): void;
+  /**
+   * Pulsación del shuttle `L`/`J`: avanza la rampa, fija la dirección y
+   * reproduce. Vive en el store (no en `App`) para que cualquier pausa —
+   * atajo, botón del transporte o scrub— corte la rampa igual.
+   */
+  shuttlePress(direction: 1 | -1): void;
+  /**
+   * Si la velocidad vigente la fijó la rampa del shuttle, la devuelve a 1×.
+   * Una velocidad manual del selector no se toca.
+   */
+  endShuttleRamp(): void;
   /** Playhead actual sin suscribir el componente (siempre fresco). */
   getPlayhead(): number;
   /** Estado de reproducciâ”œâ”‚n actual sin suscribir el componente. */
