@@ -199,7 +199,9 @@ impl ProjectStageExecutor {
                 // Ventana amplia: muchos ítems de archive.org no declaran
                 // licencia o no tienen derivado descargable; hace falta
                 // margen para encontrar uno que cumpla ambas condiciones.
-                limit: (req.max_count.max(1) * 10).min(50),
+                // Piso de 25: con max_count=1 la ventana efectiva era 10 y
+                // los resultados válidos (licencia + derivado) quedaban fuera.
+                limit: (req.max_count.max(1) * 10).clamp(25, 50),
                 min_commercial_use: req.min_commercial_use,
             };
             let mut found = 0u32;
