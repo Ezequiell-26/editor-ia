@@ -19,9 +19,13 @@ por E2E que reporta "flaky" si pasa al segundo intento.
   salida" ocurre de forma intermitente (~1 de cada 4 corridas del E2E de
   contenido) en tests que pasan consistentemente individuales. No es un
   bug determinista del pipeline: cada E2E pasó solo tras fallar en
-  suite. Causa probable: presión de recursos ffmpeg en Windows tras
-  renders/descargas encadenados. Queda como deuda: capturar stderr del
-  render en el stage para diagnosticar la causa raíz.
+  suite. Causa probable: `verify_output`/publish corre justo tras salir
+  ffmpeg y en Windows el archivo puede estar aún bloqueado/flusheándose.
+- **Diagnóstico ya cableado** (commit posterior): el worker persiste
+  `<cache>/render-<job>.log` con el stderr saneado o el error de
+  verificación/publicación, y la etapa `render` del estudio incluye la
+  cola del log en el error fatal. La próxima vez que flakee, el mensaje
+  de la corrida dirá la causa real en vez del genérico.
 
 ## Comandos
 
