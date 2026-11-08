@@ -4,6 +4,53 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Plantillas de fábrica animadas con keyframes
+  (2026-11-08)** — cierra el «las recetas son stacks estáticos (sin
+  keyframes); un preset animado (p. ej. zoom-punch con curve) queda como
+  mejora si se pide» del «Pendiente honesto» de la entrada catálogo curado
+  de plantillas, en una pasada del protocolo del loop (Devin CLI).
+  `stackFromTemplate` ya preservaba `instance.keyframes` (las plantillas
+  del usuario podían ser animadas); sólo faltaba que las de fábrica las
+  declararan.
+  - **Cambio** (`state/builtin-effect-templates.ts`): `BuiltinEffectSpec`
+    gana `keyframes?: Record<paramId, {frame,value,easing?}[]>` y la
+    función exportada `sanitizeBuiltinKeyframes` las normaliza contra el
+    manifiesto al resolver — sólo specs `float`/`int` existentes,
+    frames enteros ≥ 0 (redondeados), valores coercionados al dominio
+    (step/min/max), easing validado contra el set del schema, dedupe por
+    frame y mínimo 2 claves por pista (la invariante de
+    `toggleParamKeyframe`); lo inválido se descarta, no rompe la
+    plantilla. Tres recetas nuevas: **«Golpe que se apaga»**
+    (`impact.shake`, `amount` 14→8→0 en frames 0/10/28 con ease-out —
+    sacudida que decae), **«Punch de entrada»** (`impact.zoom_pulse`,
+    `amount` 0→0.22→0.08 en 0/8/20 — el punch entra y se asienta) y
+    **«Tensión que crece»** (`audio.tremolo`, `depth` 0→0.7 en 0/24 con
+    ease-in-out). Las keyframes viven en el documento del clip, así que
+    preview GPU/Web Audio y el render segmentado de FFmpeg las aplican
+    igual que a las editadas a mano.
+  - **UI** (`EffectTemplates.tsx`): las filas de plantilla (de fábrica y
+    propias) muestran «· animada» cuando algún efecto del stack tiene
+    pistas de keyframes.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `builtin-effect-templates.test.ts` **8/8**
+    (+4: keyframes llegan sanitizadas al stack aplicado en video y
+    audio, el resto sigue estático; sanitizer descarta params ajenos/
+    pistas de 1 clave, coerciona al dominio y limpia easing inválido,
+    undefined sin pistas) · vitest `EffectTemplates.test.tsx` **7/7**
+    (+1: «Golpe que se apaga» muestra «· animada» y Aplicar entrega la
+    pista `amount` con 3 claves y easing) · regresión `features/vfx` +
+    `effect-templates` **36/36**. No se tocó Rust ni el contrato del
+    documento (los keyframes de efecto ya existían en el schema).
+  - **Archivos**: `state/builtin-effect-templates.ts` (+test),
+    `features/vfx/EffectTemplates.tsx` (+test), esta entrada,
+    `memory/2026-11-08-plantillas-fabrica-animadas.md`.
+  - **Pendiente honesto**: los keyframes son locales al clip (frames
+    0…N desde el inicio del clip, no del timeline) y las recetas no
+    admiten presets de curva Bézier propia (sólo easing); una plantilla
+    animada sigue siendo un punto de partida editable, no una animación
+    ligada a la duración del clip (un clip más corto de 28 frames muestra
+    el valor clampeado del último tramo).
+
 - `[done]` **Isolate bidi en subtítulos RTL al exportar SRT/VTT
   (2026-11-08)** — cierra el «el árabe se guarda como SRT UTF-8 sin marca
   de dirección» del «Pendiente honesto» de la entrada de los 12 idiomas,

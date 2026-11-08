@@ -19,6 +19,12 @@ export interface EffectTemplatesProps {
   readonly onApply: (next: EffectStack, skipped: number) => void;
 }
 
+function hasAnimatedKeys(template: EffectTemplate): boolean {
+  return template.stack.some(
+    (instance) => instance.keyframes && Object.keys(instance.keyframes).length > 0,
+  );
+}
+
 function downloadJson(template: EffectTemplate): void {
   const blob = new Blob([serializeEffectTemplate(template)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -114,6 +120,7 @@ export function EffectTemplates({ kind, stack, onApply }: EffectTemplatesProps) 
                   <span className="effect-template-name">{template.name}</span>
                   <span className="fine-print">
                     {template.stack.length} efecto(s)
+                    {hasAnimatedKeys(template) ? ' · animada' : ''}
                   </span>
                   <span className="effect-template-actions">
                     <button
@@ -152,6 +159,7 @@ export function EffectTemplates({ kind, stack, onApply }: EffectTemplatesProps) 
                   <span className="effect-template-name">{template.name}</span>
                   <span className="fine-print">
                     {template.stack.length} efecto(s)
+                    {hasAnimatedKeys(template) ? ' · animada' : ''}
                   </span>
                   <span className="effect-template-actions">
                     <button

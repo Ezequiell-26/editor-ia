@@ -1,7 +1,11 @@
 import {
+  coerceParam,
   createInstance,
   effectRegistry,
+  MAX_PARAM_KEYFRAMES,
   type EffectInstance,
+  type EffectKeyframe,
+  type EffectManifest,
   type EffectStack,
 } from '@editor-ia/effect-kit';
 import type { EffectTemplate, EffectTemplateKind } from './effect-templates';
@@ -19,9 +23,22 @@ import type { EffectTemplate, EffectTemplateKind } from './effect-templates';
  * omite en vez de aplicarse a medias: una receta a medias no es la receta.
  */
 
+interface BuiltinKeyframe {
+  readonly frame: number;
+  readonly value: number;
+  readonly easing?: EffectKeyframe['easing'];
+}
+
 interface BuiltinEffectSpec {
   readonly effectId: string;
   readonly params?: Readonly<Record<string, unknown>>;
+  /**
+   * Claves por `paramId` (sólo parámetros numéricos). Se sanitizan contra el
+   * manifiesto al resolver: ids ajenos, specs no numéricos, frames
+   * negativos y pistas de menos de 2 claves se descartan — la misma
+   * invariante que `toggleParamKeyframe` mantiene en la UI.
+   */
+  readonly keyframes?: Readonly<Record<string, readonly BuiltinKeyframe[]>>;
 }
 
 interface BuiltinTemplateDef {
@@ -134,6 +151,42 @@ const VIDEO_TEMPLATES: readonly BuiltinTemplateDef[] = [
     effects: [
       { effectId: 'stylize.pixelate', params: { size: 14 } },
       { effectId: 'retro.super8', params: { amount: 0.4 } },
+    ],
+  },
+  {
+    id: 'golpe-que-se-apaga',
+    name: 'Golpe que se apaga',
+    kind: 'video',
+    effects: [
+      {
+        effectId: 'impact.shake',
+        params: { speed: 9 },
+        keyframes: {
+          amount: [
+            { frame: 0, value: 14 },
+            { frame: 10, value: 8, easing: 'ease-out' },
+            { frame: 28, value: 0 },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    id: 'punch-de-entrada',
+    name: 'Punch de entrada',
+    kind: 'video',
+    effects: [
+      {
+        effectId: 'impact.zoom_pulse',
+        params: { rate: 2 },
+        keyframes: {
+          amount: [
+            { frame: 0, value: 0 },
+            { frame: 8, value: 0.22, easing: 'ease-out' },
+            { frame: 20, value: 0.08 },
+          ],
+        },
+      },
     ],
   },
 ];
@@ -266,6 +319,23 @@ const AUDIO_TEMPLATES: readonly BuiltinTemplateDef[] = [
     kind: 'audio',
     effects: [{ effectId: 'audio.voice_robot' }],
   },
+  {
+    id: 'tension-que-crece',
+    name: 'Tensión que crece',
+    kind: 'audio',
+    effects: [
+      {
+        effectId: 'audio.tremolo',
+        params: { rate: 6 },
+        keyframes: {
+          depth: [
+            { frame: 0, value: 0 },
+            { frame: 24, value: 0.7, easing: 'ease-in-out' },
+          ],
+        },
+      },
+    ],
+  },
 ];
 
 const ALL_BUILTINS: readonly BuiltinTemplateDef[] = [
@@ -273,17 +343,63 @@ const ALL_BUILTINS: readonly BuiltinTemplateDef[] = [
   ...AUDIO_TEMPLATES,
 ];
 
+const EASING_VALUES = new Set<NonNullable<EffectKeyframe['easing']>>([
+  'linear',
+  'hold',
+  'ease-in',
+  'ease-out',
+  'ease-in-out',
+]);
+
+/**
+ * Normaliza las claves declaradas por una receta contra el manifiesto real:
+ * sólo parámetros `float`/`int` existentes, frames enteros ≥ 0, valores
+ * coercionados al dominio del spec (step/min/max) y al menos 2 claves por
+ * pista — el mínimo que el schema del documento acepta. Devuelve
+ * `undefined` cuando no queda ninguna pista válida.
+ */
+export function sanitizeBuiltinKeyframes(
+  manifest: EffectManifest,
+  raw: Readonly<Record<string, readonly BuiltinKeyframe[]>> | undefined,
+): EffectInstance['keyframes'] {
+  if (!raw) return undefined;
+  const tracks: Record<string, EffectKeyframe[]> = {};
+  for (const [paramId, entries] of Object.entries(raw)) {
+    const spec = manifest.params.find((param) => param.id === paramId);
+    if (!spec || (spec.type !== 'float' && spec.type !== 'int')) continue;
+    const byFrame = new Map<number, EffectKeyframe>();
+    for (const entry of entries) {
+      const frame = Math.round(entry.frame);
+      if (!Number.isFinite(frame) || frame < 0) continue;
+      const value = coerceParam(spec, entry.value);
+      if (typeof value !== 'number') continue;
+      const easing =
+        entry.easing && EASING_VALUES.has(entry.easing) ? entry.easing : undefined;
+      byFrame.set(frame, {
+        frame,
+        value,
+        ...(easing ? { easing } : {}),
+      });
+    }
+    const track = [...byFrame.values()]
+      .sort((a, b) => a.frame - b.frame)
+      .slice(0, MAX_PARAM_KEYFRAMES);
+    if (track.length >= 2) tracks[paramId] = track;
+  }
+  return Object.keys(tracks).length > 0 ? tracks : undefined;
+}
+
 function buildTemplate(def: BuiltinTemplateDef): EffectTemplate | null {
   const stack: EffectInstance[] = [];
   for (const spec of def.effects) {
     const manifest = effectRegistry.get(spec.effectId);
     if (!manifest) return null;
-    stack.push(
-      createInstance(
-        manifest,
-        spec.params ? { params: spec.params } : undefined,
-      ),
+    const instance = createInstance(
+      manifest,
+      spec.params ? { params: spec.params } : undefined,
     );
+    const keyframes = sanitizeBuiltinKeyframes(manifest, spec.keyframes);
+    stack.push(keyframes ? { ...instance, keyframes } : instance);
   }
   const result: EffectStack = stack;
   return {

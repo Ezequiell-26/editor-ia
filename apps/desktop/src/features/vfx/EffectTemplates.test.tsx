@@ -85,6 +85,19 @@ describe('plantillas de efectos en la UI', () => {
     expect(applied[3]?.params.angle).toBeCloseTo(0.55);
   });
 
+  it('aplica una plantilla de fábrica animada con sus keyframes', () => {
+    const onApply = renderPanel();
+    fireEvent.click(screen.getByText(/^Plantillas \(/));
+    const row = screen.getByText('Golpe que se apaga').closest('li') as HTMLElement;
+    expect(within(row).getByText(/· animada/)).toBeTruthy();
+    fireEvent.click(within(row).getByRole('button', { name: 'Aplicar' }));
+    const applied = onApply.mock.calls[0]?.[0] as EffectStack;
+    const track = applied[0]?.keyframes?.amount;
+    expect(track).toHaveLength(3);
+    expect(track?.map((key) => key.frame)).toEqual([0, 10, 28]);
+    expect(track?.[1]?.easing).toBe('ease-out');
+  });
+
   it('lista las plantillas de fábrica separadas de las propias', () => {
     renderPanel();
     fireEvent.click(screen.getByText(/^Plantillas \(/));
