@@ -92,3 +92,21 @@ editor entry; lo de herramientas content en `content-tools.css` +
   real). Navegación por todas las vistas + repaint tema + ajustes +
   paleta + contraste AA — las hojas extraídas renderizan correcto.
 - Pendiente honesto: SSIM pixel-a-pixel vs build pre-split.
+
+## Verificación pixel A/B + fix de cascada (cierre de la fase)
+
+- Auditoría: snapshots Playwright de las 13 vistas navegables contra
+  baseline 3a22c73 (app.css monolítico), umbral 0 px de diff.
+- Regresión real encontrada y corregida: `.download-notes` y
+  `.download-url` movidas a content-tools.css pasaron a ganar empates
+  de especificidad contra commercial.css (que en baseline cargaba
+  DESPUÉS de app.css). Fix: ambas reglas devueltas a app.css.
+- Lección clave: los entries lazy cargan después de TODAS las hojas
+  estáticas (commercial, chrome, premium/*, filmora/*) — cualquier
+  regla movida que empates en especificidad con esas capas invierte la
+  cascada. Verificar con auditoría DOM (clase→área + co-ocurrencia)
+  antes de seguir extrayendo.
+- Resultado: 13/13 vistas pixel-perfect vs baseline. AI Hub es
+  no-determinista (contenido vivo). Sub-vistas editor sin proyecto no
+  auditables en navegador.
+- Spec de regresión conservado: e2e/css-audit.spec.ts.

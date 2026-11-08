@@ -4943,3 +4943,24 @@ textarea::placeholder {
 .app-shell .timeline .ruler-corner {
   z-index: 15;
 }
+
+/* Reglas devueltas al critical path: commercial.css (capa de overrides
+   que carga después de app.css) define .download-notes-compact y
+   .download-url con display:flex — si estas reglas vivieran en el entry
+   lazy ganarían la cascada y romperían el layout compacto. */
+.download-engine,
+.download-source,
+.download-options,
+.download-run,
+.download-notes {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.download-url {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+}

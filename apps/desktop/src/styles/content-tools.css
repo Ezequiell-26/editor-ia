@@ -216,15 +216,6 @@
   min-width: 0;
 }
 
-.download-engine,
-.download-source,
-.download-options,
-.download-run,
-.download-notes {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
 
 .download-engine-badge {
   align-self: start;
@@ -239,12 +230,6 @@
   text-transform: uppercase;
 }
 
-.download-url {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 7px;
-  align-items: center;
-}
 
 .download-url input {
   min-width: 0;

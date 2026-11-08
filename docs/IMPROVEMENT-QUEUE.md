@@ -208,10 +208,22 @@ reconstruye el instalador salvo que el ítem lo pida.
     real). Cubre navegación por TODAS las vistas, repaint de tema en
     shell+preview, paneles de ajustes, paleta de comandos y chequeo de
     contraste AA. Las hojas extraídas cargan y renderizan correcto.
-  - **Sigue vivo**: comparación SSIM pixel-a-pixel contra la versión
-    pre-split (requiere servir ambos builds); evaluar si las ~360
-    reglas STUDIO UI que quedaron (uso mixto/compartido) tienen
-    sub-grupos separables con más evidencia.
+  - **Verificación pixel real (2026-11-08)**: auditoría A/B con
+    Playwright `toHaveScreenshot` — snapshots de las 13 vistas
+    navegables contra baseline `3a22c73` (app.css monolítico),
+    `maxDiffPixelRatio: 0`. Resultado final: **13/13 pixel-perfect**.
+    La auditoría encontró y se corrigió 1 regresión real:
+    `.download-notes`/`.download-url` en `content-tools.css` ganaban
+    empates de especificidad a `commercial.css` (capa de overrides que
+    en baseline cargaba después de app.css) → reglas devueltas a
+    app.css. AI Hub resultó no-determinista (contenido vivo), no CSS.
+    Spec conservado en `e2e/css-audit.spec.ts` (regenera snapshots al
+    primer run). Limitación: sub-vistas del editor (Mezcla/VFX/Motion…)
+    requieren proyecto/backend — no auditadas en navegador.
+  - **Sigue vivo**: auditoría equivalente dentro del workspace del
+    editor cuando haya proyecto de prueba; evaluar si las ~360 reglas
+    STUDIO UI que quedaron (uso mixto/compartido) tienen sub-grupos
+    separables.
 
 - `[done]` **CSS splitting fase 2 · slice 8: ORGANIZACIÓN VISUAL
   clasificada por uso real de selectores (2026-11-08)** — cierre del
