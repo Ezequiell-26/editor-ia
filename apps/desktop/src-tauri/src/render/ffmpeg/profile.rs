@@ -362,12 +362,8 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
     if let Some(encoder) = hardware_encoder.as_deref() {
         validate_hardware_encoder(&video_codec, encoder, width as u32, height as u32)?;
     }
-    let pixel_format = pixel_format_for(
-        &value,
-        &container,
-        &video_codec,
-        hardware_encoder.as_deref(),
-    )?;
+    let pixel_format =
+        pixel_format_for(value, &container, &video_codec, hardware_encoder.as_deref())?;
     Ok(Profile {
         id: text(value, "id").unwrap_or_default().to_owned(),
         name: text(value, "name").unwrap_or("Render").to_owned(),

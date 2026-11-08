@@ -92,7 +92,7 @@ pub(crate) fn audit_project(
             if kind == "luma-wipe"
                 && transition["mateClipId"]
                     .as_str()
-                    .map_or(true, |mate| mate.is_empty())
+                    .is_none_or(|mate| mate.is_empty())
             {
                 findings.push(finding(
                     "error",

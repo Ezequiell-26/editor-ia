@@ -136,7 +136,7 @@ pub fn build_otio(project: &Value) -> Result<(String, usize, usize, Vec<String>)
         {
             continue;
         }
-        let (children, count, mut notes) = track_clips(&project, &track, fps);
+        let (children, count, mut notes) = track_clips(project, &track, fps);
         warnings.append(&mut notes);
         clip_count += count;
         track_count += 1;
@@ -147,7 +147,7 @@ pub fn build_otio(project: &Value) -> Result<(String, usize, usize, Vec<String>)
             "children": children
         }));
     }
-    warnings.extend(OmittedClips::from_project(&project, true).warnings("a OTIO"));
+    warnings.extend(OmittedClips::from_project(project, true).warnings("a OTIO"));
     let timeline = json!({
         "OTIO_SCHEMA": "Timeline.1",
         "name": project["name"].as_str().unwrap_or("Timeline"),

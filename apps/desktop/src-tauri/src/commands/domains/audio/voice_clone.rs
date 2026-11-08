@@ -380,9 +380,8 @@ pub async fn clone_voice(
             format!("no se pudo guardar el audio clonado: {error}").as_str(),
         )
     })?;
-    let measure = probe_file(&ffprobe, &temp, MediaKind::Audio).map_err(|error| {
+    let measure = probe_file(&ffprobe, &temp, MediaKind::Audio).inspect_err(|_error| {
         let _ = std::fs::remove_file(&temp);
-        error
     })?;
     let duration = measure.duration_seconds.unwrap_or(0.0);
     if !(0.05..=MAX_OUTPUT_SECONDS).contains(&duration) {

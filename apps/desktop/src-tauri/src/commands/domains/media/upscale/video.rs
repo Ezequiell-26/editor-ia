@@ -287,7 +287,7 @@ fn upscale_video_blocking(
             }
         }
         written += 1;
-        if written == 1 || written % progress_every == 0 || written == estimated_frames {
+        if written == 1 || written.is_multiple_of(progress_every) || written == estimated_frames {
             let _ = app.emit(
                 "upscale-progress",
                 json!({

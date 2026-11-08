@@ -665,7 +665,7 @@ pub(crate) fn apply_effect_stack_animated(
         ));
     }
 
-    graph.push_str(&format!(";"));
+    graph.push_str(";");
     for index in 0..segment_count {
         graph.push_str(&format!("[seg{index}]"));
     }

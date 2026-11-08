@@ -382,7 +382,7 @@ fn hook_audio_filter(has_audio: bool, gain: f64, duration: f64) -> String {
         "[1:a]highpass=f=260,lowpass=f=6200,afade=t=in:st=0:d=0.7,afade=t=out:st=1.1:d=1.9,volume={gain:.3}[whoosh]"
     );
     if has_audio {
-        format!("[0:a]anull[main];[main][whoosh]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]")
+        "[0:a]anull[main];[main][whoosh]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]".to_string()
     } else {
         format!("{whoosh};[whoosh]apad,atrim=0:{duration:.3},asetpts=N/SR/TB[a]")
     }

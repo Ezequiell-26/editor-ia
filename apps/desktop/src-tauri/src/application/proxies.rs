@@ -177,7 +177,7 @@ pub fn ensure_proxy(
         state: "queued".to_owned(),
         quality: Some(quality.clone()),
         path: Some(normalized(
-            &target.strip_prefix(&asset.root).unwrap_or(&target),
+            target.strip_prefix(&asset.root).unwrap_or(&target),
         )),
         exists: false,
         up_to_date: false,

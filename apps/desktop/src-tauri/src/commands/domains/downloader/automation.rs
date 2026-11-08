@@ -121,12 +121,10 @@ fn checksum_from_headers(headers: &reqwest::header::HeaderMap) -> SourceChecksum
                 if sha256.is_some() {
                     source = "Digest".to_owned();
                 }
-            } else if lower.starts_with("md5=") {
-                if md5.is_none() {
-                    md5 = base64_to_hex(&trimmed[4..], 16);
-                    if md5.is_some() {
-                        source = "Digest".to_owned();
-                    }
+            } else if lower.starts_with("md5=") && md5.is_none() {
+                md5 = base64_to_hex(&trimmed[4..], 16);
+                if md5.is_some() {
+                    source = "Digest".to_owned();
                 }
             }
         }

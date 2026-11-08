@@ -81,6 +81,7 @@ impl DenoiseMode {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct DenoiseRequest {
     pub input_path: String,
     pub output_dir: Option<String>,
@@ -89,20 +90,6 @@ pub struct DenoiseRequest {
     pub strength: Option<u8>,
     pub temporal: Option<bool>,
     pub preserve_detail: Option<bool>,
-}
-
-impl Default for DenoiseRequest {
-    fn default() -> Self {
-        Self {
-            input_path: String::new(),
-            output_dir: None,
-            mode: None,
-            preset: None,
-            strength: None,
-            temporal: None,
-            preserve_detail: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -103,7 +103,7 @@ pub fn collect_media_folder_files(directory: &std::path::Path) -> Vec<MediaFolde
             });
         }
     }
-    files.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    files.sort_by_key(|left| left.name.to_lowercase());
     files
 }
 

@@ -198,10 +198,8 @@ pub async fn save_audio_provider(
     let model_id = validate_model_id(&model_id)?;
     let external_url = validate_external_url(&external_url)?;
 
-    if kind == "elevenlabs" {
-        if !voice_id.is_empty() {
-            validate_voice_id(&voice_id)?;
-        }
+    if kind == "elevenlabs" && !voice_id.is_empty() {
+        validate_voice_id(&voice_id)?;
     }
     if kind == "windows-sapi" && voice_id.chars().count() > 200 {
         return Err(ProjectError::message(

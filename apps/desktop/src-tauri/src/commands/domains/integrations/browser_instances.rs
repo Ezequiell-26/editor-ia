@@ -521,7 +521,7 @@ mod tests {
     fn stealth_js_overrides_webdriver() {
         assert!(STEALTH_JS.contains("navigator, 'webdriver'"));
         assert!(STEALTH_JS.contains("UNMASKED_VENDOR_WEBGL"));
-        assert!(STEALTH_JS.contains("addScriptToEvaluateOnNewDocument") == false);
+        assert!(!STEALTH_JS.contains("addScriptToEvaluateOnNewDocument"));
     }
 
     #[test]

@@ -24,7 +24,7 @@ fn live_channel_analysis_optional() {
     .expect("el canal debería analizarse");
     assert!(!report.channel_name.is_empty());
     assert!(!report.best_video_id.is_empty());
-    assert!(report.videos.len() >= 1);
+    assert!(!report.videos.is_empty());
     assert!(report.videos.iter().any(|video| video.thumbnail.is_some()));
     assert!(report.insights.comments.is_some());
     eprintln!(

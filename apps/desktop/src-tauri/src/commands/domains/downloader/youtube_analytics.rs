@@ -30,24 +30,13 @@ const MAX_COMMENTS_PER_VIDEO: u32 = 40;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct ChannelAnalysisRequest {
     pub channel_url: String,
     pub max_videos: Option<u32>,
     pub detail_count: Option<u32>,
     pub include_comments: Option<bool>,
     pub comment_videos: Option<u32>,
-}
-
-impl Default for ChannelAnalysisRequest {
-    fn default() -> Self {
-        Self {
-            channel_url: String::new(),
-            max_videos: None,
-            detail_count: None,
-            include_comments: None,
-            comment_videos: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]

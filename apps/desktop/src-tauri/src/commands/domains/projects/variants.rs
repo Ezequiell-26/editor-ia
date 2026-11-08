@@ -41,10 +41,10 @@ fn safe_stem(name: &str) -> String {
     for character in name.trim().chars() {
         if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
             stem.push(character.to_ascii_lowercase());
-        } else if character.is_whitespace() || matches!(character, '.' | '/' | '\\') {
-            if !stem.ends_with('-') {
-                stem.push('-');
-            }
+        } else if (character.is_whitespace() || matches!(character, '.' | '/' | '\\'))
+            && !stem.ends_with('-')
+        {
+            stem.push('-');
         }
     }
     let trimmed = stem.trim_matches('-').to_owned();
@@ -307,11 +307,10 @@ pub async fn render_project_variant(
             "la variante necesita una ruta de salida",
         ));
     }
-    if final_output
+    if !final_output
         .extension()
         .map(|value| value.eq_ignore_ascii_case("mp4"))
         .unwrap_or(false)
-        != true
     {
         final_output.set_extension("mp4");
     }

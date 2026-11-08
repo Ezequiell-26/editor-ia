@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct SharpenRequest {
     pub input_path: String,
     pub output_dir: Option<String>,
@@ -16,24 +17,6 @@ pub struct SharpenRequest {
     pub preset: Option<String>,
 }
 
-impl Default for SharpenRequest {
-    fn default() -> Self {
-        Self {
-            input_path: String::new(),
-            output_dir: None,
-            mode: None,
-            denoise: None,
-            deblock: None,
-            target_height: None,
-            high_precision: None,
-            unsharp_amount: None,
-            unsharp_size: None,
-            curve: None,
-            grain: None,
-            preset: None,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

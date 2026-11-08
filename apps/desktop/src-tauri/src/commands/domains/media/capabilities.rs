@@ -73,8 +73,11 @@ pub fn list_capabilities(state: State<'_, AppState>) -> Vec<CapabilityInfo> {
                 } else {
                     Some(format!(
                         "Falta descargar el modelo ({} MB). Está en Ajustes → Capacidades.",
-                        (spec.files.iter().map(|file| file.bytes).sum::<u64>() + 1_048_575)
-                            / 1_048_576
+                        spec.files
+                            .iter()
+                            .map(|file| file.bytes)
+                            .sum::<u64>()
+                            .div_ceil(1_048_576)
                     ))
                 },
             )],

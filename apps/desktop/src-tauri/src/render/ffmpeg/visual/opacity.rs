@@ -97,10 +97,10 @@ pub(crate) fn even_fit(width: u64, height: u64, max_width: u64, max_height: u64)
         .max(0.0001);
     let mut out_w = ((width * scale).round() as u64).max(2);
     let mut out_h = ((height * scale).round() as u64).max(2);
-    if out_w % 2 != 0 {
+    if !out_w.is_multiple_of(2) {
         out_w -= 1;
     }
-    if out_h % 2 != 0 {
+    if !out_h.is_multiple_of(2) {
         out_h -= 1;
     }
     (out_w.max(2) as u32, out_h.max(2) as u32)

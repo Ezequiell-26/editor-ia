@@ -7,6 +7,12 @@ use crate::projects::service::{ProjectError, ProjectErrorCode};
 
 pub struct SchtasksWatchdog;
 
+impl Default for SchtasksWatchdog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SchtasksWatchdog {
     pub fn new() -> Self {
         Self

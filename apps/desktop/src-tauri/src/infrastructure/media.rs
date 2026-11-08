@@ -168,6 +168,12 @@ impl crate::ports::media::SubtitleFiles for LocalSubtitleFiles {
 /// histórico.
 pub struct LocalLocalizedSubtitleFiles;
 
+impl Default for LocalLocalizedSubtitleFiles {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LocalLocalizedSubtitleFiles {
     pub fn new() -> Self {
         Self

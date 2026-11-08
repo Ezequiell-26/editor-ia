@@ -124,8 +124,8 @@ pub fn upscale_image(
     )
     .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "no se pudo guardar el upscale"))?;
 
-    let tiles = ((width as u64 + TILE as u64 - 1) / TILE as u64)
-        * ((height as u64 + TILE as u64 - 1) / TILE as u64);
+    let tiles = (width as u64).div_ceil(TILE as u64)
+        * (height as u64).div_ceil(TILE as u64);
     Ok(UpscaleResult {
         path: destination.to_string_lossy().into_owned(),
         input_width: width,

@@ -396,7 +396,7 @@ fn polygon_drawing(shape: &str, width: f64, height: f64) -> String {
     drawing_commands(&vertices)
 }
 
-fn graphic_clips<'a>(project: &'a Value) -> Vec<&'a Value> {
+fn graphic_clips(project: &Value) -> Vec<&Value> {
     let tracks = project["timeline"]["tracks"]
         .as_array()
         .cloned()

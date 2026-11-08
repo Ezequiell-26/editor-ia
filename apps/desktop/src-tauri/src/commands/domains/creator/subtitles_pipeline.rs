@@ -71,7 +71,7 @@ fn cues_to_ass(cues: &[(f64, f64, String)], width: u32, height: u32) -> String {
     out.push_str("Style: Default,Segoe UI,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,40,40,30,1\n\n");
     out.push_str("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n");
     for (start, end, text) in cues {
-        let safe = text.replace('\n', "\\N").replace('{', "").replace('}', "");
+        let safe = text.replace('\n', "\\N").replace(['{', '}'], "");
         out.push_str(&format!(
             "Dialogue: 0,{},{},Default,,0,0,0,,{}\n",
             ass_time(*start),

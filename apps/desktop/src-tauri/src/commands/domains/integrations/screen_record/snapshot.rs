@@ -134,8 +134,7 @@ pub async fn screen_record_snapshot(
                     return if status.success() && out_path.exists() {
                         Ok(())
                     } else {
-                        Err(std::io::Error::new(
-                            std::io::ErrorKind::Other,
+                        Err(std::io::Error::other(
                             format!("ffmpeg salió con {status} sin generar el frame"),
                         ))
                     };

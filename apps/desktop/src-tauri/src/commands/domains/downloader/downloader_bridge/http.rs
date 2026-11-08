@@ -70,7 +70,7 @@ fn respond(mut stream: TcpStream, status: u16, body: String) {
     };
     let headers = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: content-type, x-editoria-token\r\nAccess-Control-Max-Age: 600\r\nConnection: close\r\n\r\n",
-        body.as_bytes().len()
+        body.len()
     );
     let _ = stream.write_all(headers.as_bytes());
     if status != 204 {

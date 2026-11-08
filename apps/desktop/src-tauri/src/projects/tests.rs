@@ -94,8 +94,7 @@ fn issue_paths(error: &ProjectError) -> Vec<String> {
 fn rejection(project: &Value) -> ProjectError {
     let dir = TempDir::new("reject");
     save_project(&dir.file("obra.editoria.json"), project)
-        .err()
-        .expect("el documento deberia rechazarse")
+        .expect_err("el documento deberia rechazarse")
 }
 
 fn rejected_with(project: &Value, needle: &str) -> ProjectError {
@@ -148,9 +147,7 @@ fn rechaza_una_version_desconocida_con_el_numero_real_y_sin_cien_errores() {
     project["schemaVersion"] = json!(99);
     let dir = TempDir::new("version");
     let path = dir.file("obra.editoria.json");
-    let error = save_project(&path, &project)
-        .err()
-        .expect("una version futura debe rechazarse");
+    let error = save_project(&path, &project).expect_err("una version futura debe rechazarse");
     assert_eq!(error.code, ProjectErrorCode::UnsupportedSchemaVersion);
     assert!(
         error.message.contains("99"),
@@ -227,8 +224,7 @@ fn crear_no_pisa_un_archivo_existente() {
     fs::write(&path, b"contenido del usuario").unwrap();
 
     let error = create_project(&path, "Obra nueva")
-        .err()
-        .expect("crear sobre un archivo existente debe rechazarse");
+        .expect_err("crear sobre un archivo existente debe rechazarse");
     assert_eq!(error.code, ProjectErrorCode::AlreadyExists);
     assert_eq!(fs::read(&path).unwrap(), b"contenido del usuario");
 }
@@ -266,9 +262,7 @@ fn un_guardado_que_falla_deja_el_archivo_original_intacto() {
 
     let mut broken = valid_project();
     broken["assets"] = json!([]);
-    let error = save_project(&path, &broken)
-        .err()
-        .expect("debe rechazar el clip huerfano");
+    let error = save_project(&path, &broken).expect_err("debe rechazar el clip huerfano");
     assert_eq!(error.code, ProjectErrorCode::InvalidProject);
     assert_eq!(
         fs::read(&path).unwrap(),
@@ -375,17 +369,15 @@ fn ids_invalidos_duplicados_y_repetidos_entre_colecciones() {
 
     let mut slug = valid_project();
     slug["id"] = json!("mi-obra");
-    let error = save_project(&dir.file("obra.editoria.json"), &slug)
-        .err()
-        .expect("un slug no es un id");
+    let error =
+        save_project(&dir.file("obra.editoria.json"), &slug).expect_err("un slug no es un id");
     assert_eq!(error.code, ProjectErrorCode::InvalidProject);
 
     let mut duplicated = valid_project();
     let first_id = duplicated["timeline"]["tracks"][0]["id"].clone();
     duplicated["timeline"]["tracks"][1]["id"] = first_id;
     let error = save_project(&dir.file("dup.editoria.json"), &duplicated)
-        .err()
-        .expect("ids repetidos dentro de la coleccion deben rechazarse");
+        .expect_err("ids repetidos dentro de la coleccion deben rechazarse");
     assert!(
         issue_paths(&error)
             .iter()
@@ -418,8 +410,7 @@ fn claves_desconocidas_en_el_nivel_raiz_solo_bajo_prefijo_x() {
     let mut stray = valid_project();
     stray["otraCosa"] = json!(1);
     let error = save_project(&dir.file("obra.editoria.json"), &stray)
-        .err()
-        .expect("una clave raiz nueva debe rechazarse");
+        .expect_err("una clave raiz nueva debe rechazarse");
     assert_eq!(error.code, ProjectErrorCode::InvalidProject);
 
     let mut namespaced = valid_project();
@@ -510,8 +501,7 @@ fn la_identidad_de_timing_se_exige_con_enteros_exactos() {
     let mut drifted = valid_project();
     drifted["timeline"]["clips"][0]["durationFrames"] = json!(299);
     let error = save_project(&dir.file("obra.editoria.json"), &drifted)
-        .err()
-        .expect("un clip que no cierra la identidad debe rechazarse");
+        .expect_err("un clip que no cierra la identidad debe rechazarse");
     assert!(
         issue_paths(&error)
             .iter()
@@ -583,9 +573,7 @@ fn rechaza_un_archivo_mas_grande_que_el_tope() {
 fn los_mensajes_no_filtran_el_directorio_del_usuario() {
     let dir = TempDir::new("leak");
     let path = dir.file("faltante.editoria.json");
-    let error = open_project(&path)
-        .err()
-        .expect("abrir un archivo inexistente debe fallar");
+    let error = open_project(&path).expect_err("abrir un archivo inexistente debe fallar");
     assert_eq!(error.code, ProjectErrorCode::NotFound);
     let text = format!("{} {:?}", error.message, issue_paths(&error));
     assert!(

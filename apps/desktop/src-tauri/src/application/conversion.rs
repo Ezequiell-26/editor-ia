@@ -77,8 +77,8 @@ fn resolve_asset_input(
 }
 
 /// Herramientas externas: ffmpeg obligatorio, ffprobe opcional.
-fn resolve_tools<'a>(
-    deps: &'a ConversionDeps<'_>,
+fn resolve_tools(
+    deps: &ConversionDeps<'_>,
     missing: &str,
 ) -> Result<(PathBuf, Option<PathBuf>), ProjectError> {
     let ffmpeg = deps
@@ -425,11 +425,7 @@ pub(crate) fn compress_input(
             "ya existe un archivo con ese nombre en la carpeta de destino",
         ));
     }
-    let temp_path = temp_output_path(
-        &output_root,
-        ".editoria-compress",
-        params.target.extension(),
-    );
+    let temp_path = temp_output_path(output_root, ".editoria-compress", params.target.extension());
     let (args, encoder_used) = build_args(
         &input.path,
         &temp_path,

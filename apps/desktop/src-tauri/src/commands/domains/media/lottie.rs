@@ -64,7 +64,7 @@ fn validate_sequence(
             "las dimensiones de la secuencia están fuera de rango",
         ));
     }
-    if width % 2 != 0 || height % 2 != 0 {
+    if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
         return Err(invalid("las dimensiones de la secuencia deben ser pares"));
     }
     if frame_count == 0 || frame_count > MAX_FRAMES {

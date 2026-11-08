@@ -18,7 +18,7 @@ fn draw_particles(
     let count = spec.count.clamp(1, 2000) as u64;
     for i in 0..count {
         // Semilla determinista por partícula.
-        let seed = (i as u64).wrapping_mul(2654435761) % 1000;
+        let seed = i.wrapping_mul(2654435761) % 1000;
         let fx = (seed % 100) as f64 / 100.0;
         let phase = ((seed / 100) % 100) as f64 / 100.0;
         let (x, y, size) = match spec.kind.as_str() {
@@ -75,7 +75,7 @@ const PHYS_MAX_STEPS: u64 = 7200;
 /// velocidad casi nula), así clips largos no pagan el costo de simular
 /// partículas quietas en el piso.
 fn bounce_pos(i: u64, t: f64, w: f64, h: f64, spec: &ParticleSpec) -> (f64, f64, f64) {
-    let seed = (i as u64).wrapping_mul(2654435761) % 1000;
+    let seed = i.wrapping_mul(2654435761) % 1000;
     let fx = (seed % 100) as f64 / 100.0;
     let phase = ((seed / 100) % 100) as f64 / 100.0;
     let gravity = spec.gravity.unwrap_or(900.0).clamp(0.0, 5000.0);

@@ -204,7 +204,7 @@ fn parse_timecode(value: &str, fps: u32, drop_frame: bool) -> Option<u64> {
     let dropped = if nominal >= 60 { 4 } else { 2 };
     // En drop-frame no existen los frames 0..dropped al inicio de cada
     // minuto, salvo cada 10 minutos; ese timecode está fuera de norma.
-    if seconds == 0 && frames < dropped && total_minutes % 10 != 0 {
+    if seconds == 0 && frames < dropped && !total_minutes.is_multiple_of(10) {
         return None;
     }
     Some(base - dropped * (total_minutes - total_minutes / 10))

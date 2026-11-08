@@ -241,9 +241,9 @@ pub async fn flow_generate_image(
         loop {
             match child.try_wait()? {
                 Some(_) => {
-                    return child.wait_with_output().map_err(|e| {
-                        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-                    });
+                    return child
+                        .wait_with_output()
+                        .map_err(|e| std::io::Error::other(e.to_string()));
                 }
                 None if Instant::now() >= deadline => {
                     let _ = child.kill();

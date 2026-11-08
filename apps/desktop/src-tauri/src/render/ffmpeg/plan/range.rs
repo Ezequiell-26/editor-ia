@@ -290,7 +290,7 @@ pub(crate) fn build_plan_range(
         // Con curva, la velocidad constante que usan el audio, el seek y la
         // ventana de origen es la media de la curva; el video se retima por
         // frame con el `setpts` por tramos.
-        let (speed_num, speed_den) = match parse_speed_curve(&clip) {
+        let (speed_num, speed_den) = match parse_speed_curve(clip) {
             Some(points) => {
                 let den = 1_000u32;
                 let num = (curve_mean(&points) * den as f64)
@@ -969,16 +969,16 @@ pub(crate) fn build_plan_range(
         "-map".into(),
         "[aout]".into(),
     ]);
-    if let Some(mut hardware) = hardware_encoder_args(&profile) {
+    if let Some(mut hardware) = hardware_encoder_args(profile) {
         args.append(&mut hardware);
     } else {
-        let encoder = software_encoder_for(input.ffprobe, &profile)?;
-        args.extend(software_video_args(&encoder, &profile));
+        let encoder = software_encoder_for(input.ffprobe, profile)?;
+        args.extend(software_video_args(&encoder, profile));
     }
     if profile.video_codec == "h265" {
         args.extend(["-tag:v".into(), "hvc1".into()]);
     }
-    let (audio_encoder, audio_rate) = audio_encoder_for(&profile);
+    let (audio_encoder, audio_rate) = audio_encoder_for(profile);
     args.extend([
         "-pix_fmt".into(),
         profile.pixel_format.clone(),

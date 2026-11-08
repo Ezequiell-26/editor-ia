@@ -58,5 +58,5 @@ fn civil_from_days_conoce_epoch() {
     assert_eq!(civil_from_days(0), (1970, 1, 1));
     // 2026-11-06 aprox (verificar contra date real no hace falta: sanity)
     let (y, m, _) = civil_from_days(20_735);
-    assert!(y >= 2026 && m >= 1 && m <= 12);
+    assert!(y >= 2026 && (1..=12).contains(&m));
 }

@@ -63,10 +63,10 @@ pub(crate) fn safe_file_stem(name: &str) -> String {
     for character in name.trim().chars() {
         if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
             stem.push(character.to_ascii_lowercase());
-        } else if character.is_whitespace() || matches!(character, '.' | '/' | '\\') {
-            if !stem.ends_with('-') {
-                stem.push('-');
-            }
+        } else if (character.is_whitespace() || matches!(character, '.' | '/' | '\\'))
+            && !stem.ends_with('-')
+        {
+            stem.push('-');
         }
     }
     let trimmed = stem.trim_matches('-').to_owned();

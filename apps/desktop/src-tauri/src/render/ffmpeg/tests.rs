@@ -1100,8 +1100,7 @@ fn compound_audio_is_muted_by_its_outer_track_in_the_plan() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|c| c["audio"]["muted"].as_bool().unwrap_or(false))
-        .all(|muted| muted);
+        .all(|c| c["audio"]["muted"].as_bool().unwrap_or(false));
     assert!(muted_args, "todos los clips internos deben estar muteados");
 
     project["timeline"]["tracks"][0]["muted"] = serde_json::json!(false);
@@ -5496,7 +5495,7 @@ fn render_live_ducking_keeps_the_bed_and_lowers_it_under_the_voice() {
         let text = String::from_utf8_lossy(&output.stderr);
         text.lines()
             .find_map(|line| line.split("mean_volume:").nth(1))
-            .and_then(|value| value.trim().split_whitespace().next())
+            .and_then(|value| value.split_whitespace().next())
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| panic!("volumedetect no informó mean_volume: {text}"))
     };
@@ -6216,7 +6215,7 @@ fn render_live_compound_audio_follows_the_host_track_gain() {
         let text = String::from_utf8_lossy(&output.stderr);
         text.lines()
             .find_map(|line| line.split("mean_volume:").nth(1))
-            .and_then(|value| value.trim().split_whitespace().next())
+            .and_then(|value| value.split_whitespace().next())
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| panic!("volumedetect no informó mean_volume: {text}"))
     };
@@ -6486,7 +6485,7 @@ fn render_live_clip_pan_separates_channels() {
         let text = String::from_utf8_lossy(&output.stderr);
         text.lines()
             .find_map(|line| line.split("mean_volume:").nth(1))
-            .and_then(|value| value.trim().split_whitespace().next())
+            .and_then(|value| value.split_whitespace().next())
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| panic!("volumedetect no informó mean_volume: {text}"))
     };
@@ -6755,8 +6754,8 @@ fn render_live_5s_pan_astats_and_bezier_opacity_match_preview() {
         let text = String::from_utf8_lossy(&probe.stderr);
         text.lines()
             .filter_map(|line| line.split("RMS level dB:").nth(1))
-            .last()
-            .and_then(|value| value.trim().split_whitespace().next())
+            .next_back()
+            .and_then(|value| value.split_whitespace().next())
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| panic!("astats no informó RMS: {text}"))
     };
@@ -6964,8 +6963,8 @@ fn render_live_5s_animated_track_pan_astats_matches_preview() {
         let text = String::from_utf8_lossy(&probe.stderr);
         text.lines()
             .filter_map(|line| line.split("RMS level dB:").nth(1))
-            .last()
-            .and_then(|value| value.trim().split_whitespace().next())
+            .next_back()
+            .and_then(|value| value.split_whitespace().next())
             .and_then(|value| value.parse().ok())
             .unwrap_or_else(|| panic!("astats no informó RMS: {text}"))
     };

@@ -49,8 +49,8 @@ fn score_frame(path: &Path) -> Result<(f64, u32, u32), ProjectError> {
     let mut sum = 0.0f64;
     let mut sum_squares = 0.0f64;
     let mut gradient = 0.0f64;
-    for y in 1..height as u32 - 1 {
-        for x in 1..width as u32 - 1 {
+    for y in 1..height - 1 {
+        for x in 1..width - 1 {
             let value = luma.get_pixel(x, y)[0] as f64;
             sum += value;
             sum_squares += value * value;

@@ -197,8 +197,7 @@ pub fn web_sessions_status(app: AppHandle) -> WebSessionsStatus {
         .filter_map(|label| {
             label
                 .strip_prefix("web-")
-                .map(|slot| session_info(&app, slot.to_owned()))
-                .flatten()
+                .and_then(|slot| session_info(&app, slot.to_owned()))
         })
         .collect();
     sessions.sort_by(|a, b| a.name.cmp(&b.name));

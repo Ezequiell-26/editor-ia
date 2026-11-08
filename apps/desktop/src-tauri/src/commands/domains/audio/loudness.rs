@@ -308,9 +308,8 @@ pub async fn analyze_mix_loudness(
     let progress_app = app.clone();
     let handle =
         tauri::async_runtime::spawn_blocking(move || -> Result<MixLoudnessReport, ProjectError> {
-            let mut child = crate::render::ffmpeg::spawn(&ffmpeg, &plan).map_err(|error| {
+            let mut child = crate::render::ffmpeg::spawn(&ffmpeg, &plan).inspect_err(|_error| {
                 let _ = std::fs::remove_dir_all(&working_dir);
-                error
             })?;
             let stdout = child.stdout.take();
             let stderr_tail = Arc::new(Mutex::new(String::new()));
