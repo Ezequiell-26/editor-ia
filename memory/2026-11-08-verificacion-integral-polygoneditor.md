@@ -42,7 +42,10 @@ siguen verdes — no se tocaron.
 Cualquier test que ejercite gestos de puntero con coordenadas debe
 despachar `MouseEvent` con el type `pointer*` o mockear las coords.
 
-## Pendiente honesto
+## Pendiente honesto — RESUELTO el mismo día
 
-`npm run verify` completo (con `test:extension` y `test:web-tts`) no se
-corrió; la suite serial cubrió los paquetes del workspace.
+`npm run verify` completo corrido después de la reconciliación 11:
+`test:extension` **31/31** y `test:web-tts` **10/10**. Con typecheck 0
+errores, suite serial 2400/2404 (3 skipped) y PolygonEditor 7/7, el
+`npm run verify` del workspace queda **completo en verde** por primera
+vez desde que se divide el registro de pasadas.

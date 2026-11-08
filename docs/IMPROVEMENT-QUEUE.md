@@ -75,11 +75,11 @@ reconstruye el instalador salvo que el ítem lo pida.
     y siguen verdes.
   - **Archivos**: `features/motion/PolygonEditor.test.tsx`, esta entrada,
     `memory/2026-11-08-verificacion-integral-polygoneditor.md`.
-  - **Pendiente honesto**: `npm run verify` completo (incluye
-    `test:extension` y `test:web-tts`) no se corrió en esta pasada — la
-    suite serial cubrió los paquetes del workspace; los tests de las
-    extensiones quedan para la próxima. El fallo era sólo de test, no de
-    producto: en navegador real `PointerEvent.clientX` existe.
+  - **Pendiente honesto**: ~~`npm run verify` completo no se corrió~~
+    **resuelto el mismo día**: `test:extension` 31/31 y `test:web-tts`
+    10/10 — `npm run verify` queda en verde completo. El fallo era sólo
+    de test, no de producto: en navegador real `PointerEvent.clientX`
+    existe.
 
 - `[done]` **Curvas Bézier por parámetro en las plantillas de fábrica +
   fix de la curva inerte de «Tensión que crece» (2026-11-08)** — cierra el
