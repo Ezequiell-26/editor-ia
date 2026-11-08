@@ -4,6 +4,37 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **CSS splitting fase 2 · slice 1: dedup del bloque premium
+  duplicado (2026-11-08)** — primer corte de la segunda fase de CSS
+  splitting (pendiente sin spec: se definió el alcance como «sacar del
+  critical path lo que no es shell ni tokens»).
+  - **Hallazgo**: `styles/app.css` tenía el sistema de componentes
+    «PREMIUM * SYSTEM» (button/card/input/modal/dropdown/tooltip/tabs/
+    progress/badge/alert/avatar/showcase) **dos veces** — líneas
+    483-1855 y 1968-3173 — más un segundo «OLD OVERRIDES» duplicado
+    (3174-3188 ⊂ 1855-1967). ~1.221 líneas redundantes en el CSS crítico.
+  - **Prueba de redundancia** (no fue borrado a ciegas): las 168 reglas
+    del bloque B son texto idéntico a reglas del bloque A; los 7 @-rules
+    (2 @media + 5 @keyframes, incl. `shimmer` definido dos veces) son
+    idénticos; análisis de cascada por selector compuesto no encontró
+    ninguna regla con mismas propiedades y distinta declaración entre el
+    original y la copia; verificación empírica final: los 170 chunks de
+    regla del rango borrado existen verbatim en el archivo resultante.
+  - **Cambio**: `app.css` 13.830 → 12.609 líneas (−8,8 %). Sin cambios de
+    selectores ni declaraciones: el CSS computado es idéntico por
+    construcción.
+  - **Verificación**: `postcss.parse` OK (1.789 reglas, 35 @media, 9
+    @keyframes, llaves balanceadas) · prueba de presencia de chunks
+    170/170 · `git diff` revisado.
+  - **Archivos**: `apps/desktop/src/styles/app.css`, esta entrada,
+    `memory/2026-11-08-css-dedup-premium.md`.
+  - **Sigue vivo**: el grueso de la fase 2 — las secciones «STUDIO UI»,
+    «DIRECTOR AUTOMÁTICO + CONVERTIDOR», «FÁBRICA DE CONTENIDO» y
+    «ORGANIZACIÓN VISUAL» (líneas ~6078-13830 originales) mezclan CSS de
+    vistas de contenido con selectores editor/críticos (`.transport`,
+    `.timeline-toolbar`, `.app-shell`, `.rail-*`). Requiere extracción a
+    nivel selector con clasificación por vista, no por bloque contiguo.
+
 - `[done]` **Rampa de velocidad del shuttle `L`/`J` (2026-11-08)** — cierra el
   pendiente 2 de `docs/ATAJOS-PRO.md` («repetir `L`/`J` no cambia la
   velocidad»), portado desde `main` (`43f03d0`) en la reconciliación 4 del
