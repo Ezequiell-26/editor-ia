@@ -99,7 +99,8 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'edit.rippleDelete': [rippleDeleteClip, store.update],
     'edit.deselect': [store.setSelection],
     'playback.playPause': [store.setPlaying],
-    'playback.shuttleForward': [store.setPlaying],
+    'playback.shuttleForward': [store.setPlaybackDirection, store.setPlaying],
+    'playback.shuttleReverse': [store.setPlaybackDirection, store.setPlaying],
     'playback.shuttlePause': [store.setPlaying],
     'playback.framePrev': [store.setPlayhead],
     'playback.frameNext': [store.setPlayhead],
@@ -218,6 +219,7 @@ describe('atajos pro (registro de teclado)', () => {
   it('los atajos pro están registrados con la tecla acordada', () => {
     const esperados: readonly (readonly [ShortcutId, string])[] = [
       ['playback.shuttleForward', 'L'],
+      ['playback.shuttleReverse', 'J'],
       ['playback.shuttlePause', 'K'],
       ['playback.framePrev', ','],
       ['playback.frameNext', '.'],
@@ -234,9 +236,8 @@ describe('atajos pro (registro de teclado)', () => {
     for (const [id, tecla] of esperados) {
       expect(DEFAULT_SHORTCUTS[id], `falta el atajo pro "${id}"`).toBe(tecla);
     }
-    // J no se registra: el motor de reproducción no soporta ir hacia atrás
-    // (usePlayback sólo avanza). Pendiente en docs/ATAJOS-PRO.md.
-    expect(Object.values(DEFAULT_SHORTCUTS)).not.toContain('J');
+    // J (shuttle inverso) se registró el 2026-11-08 junto con la dirección
+    // en el motor de reproducción (usePlayback + Preview con rate con signo).
   });
 
   it('no reasigna atajos existentes: Ctrl+D sigue siendo duplicar y el ripple mantiene su tecla', () => {

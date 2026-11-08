@@ -7,7 +7,7 @@ import { ioRangeFromDocument, projectWithIoRange, type IoRange } from './io-rang
 import { ProjectActionError, cloneProject, totalFrames } from './project-actions';
 import { clearRecoverySnapshot, createRecoveryWriter, readRecoverySnapshot, shouldOfferRecovery, type RecoveryWriter } from './recovery';
 import type { Selection, ProjectPhase, StoreState, CreateProjectInput, ProjectStoreValue, ProjectProviderProps } from './project-store-types';
-import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext } from './project-store-context';
+import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext, PlaybackDirectionContext } from './project-store-context';
 
 
 
@@ -80,7 +80,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const [playheadFrame, setPlayheadFrame] = useState(0);
   const [playing, setPlayingState] = useState(false);
   const [playbackRate, setPlaybackRateState] = useState(1);
-  const playbackRef = useRef({ frame: 0, playing: false, rate: 1 });
+  const [playbackDirection, setPlaybackDirectionState] = useState<1 | -1>(1);
+  const playbackRef = useRef({ frame: 0, playing: false, rate: 1, direction: 1 as 1 | -1 });
   /**
    * `totalFrames` recorre todos los clips y cues. Antes se ejecutaba una vez
    * por render del provider (es decir, en cada frame de reproducci├│n) y otra
@@ -133,9 +134,10 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     // Un proyecto reci├®n abierto desde disco invalida cualquier instant├ínea
     // previa: el registro de recuperaci├│n solo cubre trabajo sin persistir.
     clearRecoverySnapshot();
-    playbackRef.current = { ...playbackRef.current, frame: 0, playing: false };
+    playbackRef.current = { ...playbackRef.current, frame: 0, playing: false, direction: 1 };
     setPlayheadFrame(0);
     setPlayingState(false);
+    setPlaybackDirectionState(1);
     setState({
       ...INITIAL,
       project: opened.project,
@@ -530,6 +532,15 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const getPlayhead = useCallback((): number => playbackRef.current.frame, []);
   const getPlaying = useCallback((): boolean => playbackRef.current.playing, []);
   const getPlaybackRate = useCallback((): number => playbackRef.current.rate, []);
+  const getPlaybackDirection = useCallback((): 1 | -1 => playbackRef.current.direction, []);
+
+  const setPlaybackDirection = useCallback((direction: 1 | -1) => {
+    if (playbackRef.current.direction === direction) {
+      return;
+    }
+    playbackRef.current = { ...playbackRef.current, direction };
+    setPlaybackDirectionState(direction);
+  }, []);
 
   const setPlaybackRate = useCallback((rate: number) => {
     if (!Number.isFinite(rate)) return;
@@ -567,9 +578,10 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     persistedVersionRef.current = 0;
     // Cierre voluntario: la instant├ínea deja de representar trabajo pendiente.
     clearRecoverySnapshot();
-    playbackRef.current = { ...playbackRef.current, frame: 0, playing: false };
+    playbackRef.current = { ...playbackRef.current, frame: 0, playing: false, direction: 1 };
     setPlayheadFrame(0);
     setPlayingState(false);
+    setPlaybackDirectionState(1);
     setState(INITIAL);
   }, []);
 
@@ -643,9 +655,11 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       clearIoRange,
       setPlayhead,
       setPlaying,
+      setPlaybackDirection,
       setPlaybackRate,
       getPlayhead,
       getPlaying,
+      getPlaybackDirection,
       getPlaybackRate,
       requestExport,
       consumeExportRequest,
@@ -666,6 +680,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       openProject,
       getPlayhead,
       getPlaying,
+      getPlaybackDirection,
       getPlaybackRate,
       openProjectAt,
       packageProject,
@@ -678,6 +693,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       setNotice,
       setPlayhead,
       setPlaying,
+      setPlaybackDirection,
       setPlaybackRate,
       setSelection,
       requestExport,
@@ -693,7 +709,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     <PlayheadContext.Provider value={playheadFrame}>
       <PlayingContext.Provider value={playing}>
         <PlaybackRateContext.Provider value={playbackRate}>
-          <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
+          <PlaybackDirectionContext.Provider value={playbackDirection}>
+            <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>
+          </PlaybackDirectionContext.Provider>
         </PlaybackRateContext.Provider>
       </PlayingContext.Provider>
     </PlayheadContext.Provider>

@@ -512,6 +512,13 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
         case 'playback.shuttleForward':
           if (!store.state.project) return;
           event.preventDefault();
+          store.setPlaybackDirection(1);
+          store.setPlaying(true);
+          return;
+        case 'playback.shuttleReverse':
+          if (!store.state.project) return;
+          event.preventDefault();
+          store.setPlaybackDirection(-1);
           store.setPlaying(true);
           return;
         case 'playback.shuttlePause':

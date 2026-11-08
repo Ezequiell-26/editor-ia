@@ -518,9 +518,13 @@ function VideoLayer({
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'video' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
   // El elemento tiene que avanzar sourceSeconds por segundo de reloj: la
-  // velocidad del clip por la velocidad de la reproducción. preservesPitch
-  // mantiene el tono del audio como hace el export (atempo).
-  const elementRate = Math.min(8, Math.max(0.1, speed * playbackRate));
+  // velocidad del clip por la velocidad de la reproducción con signo
+  // (negativo en el shuttle inverso J). preservesPitch mantiene el tono
+  // del audio como hace el export (atempo); en reversa el motor puede
+  // ignorarlo — es una revisión rápida, no una referencia de audio.
+  const signedRate = speed * playbackRate;
+  const elementRate =
+    (signedRate < 0 ? -1 : 1) * Math.min(8, Math.max(0.1, Math.abs(signedRate)));
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
@@ -823,8 +827,12 @@ function AudioLayer({
   const source = windowed ? clip.source : null;
   const speed = clip.kind === 'audio' ? (clip.speed?.num ?? 1) / (clip.speed?.den ?? 1) : 1;
   // Igual que en VideoLayer: el elemento avanza a speed × velocidad de
-  // reproducción y preservesPitch conserva el tono como el export.
-  const elementRate = Math.min(8, Math.max(0.1, speed * playbackRate));
+  // reproducción con signo (negativo en el shuttle inverso) y
+  // preservesPitch conserva el tono como el export cuando el motor lo
+  // permite (en reversa puede no aplicar).
+  const signedRate = speed * playbackRate;
+  const elementRate =
+    (signedRate < 0 ? -1 : 1) * Math.min(8, Math.max(0.1, Math.abs(signedRate)));
   const sourceSeconds = source
     ? (source.inFrame + Math.max(0, playheadFrame - clip.startFrame) * speed) / fps
     : 0;
@@ -1581,7 +1589,7 @@ export const Preview = memo(function Preview() {
                   project={project}
                   playheadFrame={playhead}
                   playing={playing}
-                  playbackRate={playback.rate}
+                  playbackRate={playback.rate * playback.direction}
                   muted={!track || !isTrackAudible(track, project.timeline.tracks)}
                   trackId={track ? track.id : ''}
                   trackGain={track ? trackGainDb(track) : 0}
@@ -1625,7 +1633,7 @@ export const Preview = memo(function Preview() {
               project={project}
               playheadFrame={playhead}
               playing={playing}
-              playbackRate={playback.rate}
+              playbackRate={playback.rate * playback.direction}
               trackId={track ? track.id : ''}
               trackGain={track ? trackGainDb(track) : 0}
             />

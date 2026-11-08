@@ -22,7 +22,8 @@ Leyenda de estado:
 
 | Tecla | Acción (etiqueta en Ajustes) | Acción existente que ejecuta | Estado |
 | --- | --- | --- | --- |
-| `L` | Shuttle: reproducir hacia adelante | `setPlaying(true)`; cableado en el dispatcher global de `App.tsx` | ✅ |
+| `L` | Shuttle: reproducir hacia adelante | `setPlaybackDirection(1)` + `setPlaying(true)`; cableado en `App.tsx` | ✅ |
+| `J` | Shuttle: reproducir hacia atrás | `setPlaybackDirection(-1)` + `setPlaying(true)`; el motor avanza con signo (`usePlayback`) y la preview fija `playbackRate` negativo en los elementos | ✅ |
 | `K` | Shuttle: pausar | `setPlaying(false)`; cableado en `App.tsx` | ✅ |
 | `,` | Frame anterior | `setPlayhead(frame − 1)` pausando la reproducción; cableado en `App.tsx` | ✅ |
 | `.` | Frame siguiente | `setPlayhead(frame + 1)` pausando la reproducción; cableado en `App.tsx` | ✅ |
@@ -104,15 +105,22 @@ Sin cambios en la semántica global de `Espacio`/flechas.
 
 ## Pendientes
 
-1. **`J` (shuttle hacia atrás)**: no se registró. El motor de reproducción
-   (`usePlayback.ts`) sólo avanza (`frame += deltaSeconds * fps`) y `playing`
-   es booleano: no existe reproducción inversa. Requiere dirección en el motor.
+1. ~~**`J` (shuttle hacia atrás)**~~ ✅ resuelto (2026-11-08): el store ganó
+   `playback.direction` (`setPlaybackDirection`/`getPlaybackDirection`,
+   contexto propio como la velocidad), `usePlayback` multiplica el avance por
+   la dirección y envuelve al último frame con bucle o frena en el frame 0,
+   y `Preview` pasa `rate × direction` a los elementos (rate negativo).
+   La dirección queda activa hasta el próximo shuttle: Espacio reanuda en la
+   última elegida. Límite honesto: la reversa depende de `playbackRate`
+   negativo del elemento HTML (Chromium lo soporta; si el motor lo ignorara,
+   el playhead retrocede pero el medio no — la corrección de deriva lo
+   reconduce por `sourceSeconds`) y `preservesPitch` puede no aplicar en
+   reversa. No hay rampa de velocidad (sigue siendo ×1 salvo el selector).
 2. **Rampa de velocidad de shuttle** (repetir `L`/`J` acelera, como CapCut):
-   ~~no existe control de velocidad de reproducción~~ **parcial (2026-11-08)**:
    el transporte tiene selector 0.25/0.5/1/2/4× (`setPlaybackRate` en
    `project-store`, `usePlayback` multiplica el avance y la preview fija
    `playbackRate`/`preservesPitch` en los elementos). Sigue pendiente la
-   rampa por teclas repetidas y la dirección inversa (`J`).
+   rampa por teclas repetidas: hoy repetir `L`/`J` no cambia la velocidad.
 3. **`Ctrl+D` eliminación con ripple**: no se registró. `Ctrl+D` ya es
    «Duplicar clip» (`edit.duplicateClip`) y reasignar atajos existentes estaba
    prohibido. La acción ripple existe y ya está registrada como

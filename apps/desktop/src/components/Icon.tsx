@@ -17,6 +17,7 @@ export type IconName =
   | 'save'
   | 'export'
   | 'play'
+  | 'playReverse'
   | 'pause'
   | 'skipBack'
   | 'skipForward'
@@ -237,6 +238,7 @@ const paths: Record<IconName, ReactNode> = {
     </>
   ),
   play: <path d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="none" />,
+  playReverse: <path d="M16 5.5v13L6 12z" fill="currentColor" stroke="none" />,
   pause: (
     <>
       <rect x="7" y="5" width="3.5" height="14" rx="1" fill="currentColor" stroke="none" />

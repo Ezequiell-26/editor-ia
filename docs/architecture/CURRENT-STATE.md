@@ -819,6 +819,23 @@ el contrato común es la forma del port, no el motor.
 Validado: `cargo check --tests` 0 errores · tests `application::conversion`
 18/18 · `cargo fmt` limpio · `git diff --check` limpio.
 
+### Reconciliación 3 con main (delta 34cefcb..f10fadb)
+
+- **Shuttle inverso J** (`713ebc5`): `playbackDirection` (1/-1) en el
+  project-store — portado a los 4 módulos del split
+  (`PlaybackDirectionContext`, `useProjectPlaybackDirection`,
+  `useProjectPlayback().direction`) y el caso `playback.shuttleReverse`
+  + `setPlaybackDirection` en `app/Shell.tsx` (el shortcut handler vive
+  ahí tras el refactor, no en App.tsx).
+- 11 archivos copiados desde `git show HEAD:` (Preview, Transport,
+  usePlayback, shortcuts, Icon `playReverse`, tests, docs, memoria).
+- **NO portado (WIP sin commitear en main)**: `state/shuttle.ts` +
+  `shuttle.test.ts` + cambios en App.tsx/Transport.tsx — rampa de
+  velocidad del shuttle en curso; se porta cuando se commitee.
+- **Verificación**: typecheck raíz verde · vitest 16/16 en las áreas
+  tocadas (project-store direction, Transport, shortcuts-pro) ·
+  diff --check limpio.
+
 ### Reconciliación 2 con main (delta 73fabb6..34cefcb)
 
 Segundo delta auditado y portado (30 commits nuevos en main):

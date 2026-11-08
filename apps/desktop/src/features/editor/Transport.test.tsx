@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
-import { ProjectProvider } from '../../state/project-store';
+import { ProjectProvider, useProjectStore } from '../../state/project-store';
 import { createFakeService } from '../../test/fake-service';
 import {
   loadEditorPreferences,
@@ -55,5 +55,36 @@ describe('Transport · botón Bucle', () => {
     fireEvent.click(loopButton());
     expect(loadEditorPreferences().loopPlayback).toBe(false);
     expect(loopButton().className).not.toContain('active');
+  });
+});
+
+describe('Transport · sentido del shuttle', () => {
+  it('en reversa el botón de play/pausa lo indica en título e icono', () => {
+    function ShuttleBack() {
+      const store = useProjectStore();
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            store.setPlaybackDirection(-1);
+            store.setPlaying(true);
+          }}
+        >
+          shuttle atras
+        </button>
+      );
+    }
+    const project = createEmptyProject('Reversa', NOW);
+    render(
+      <ProjectProvider service={createFakeService()} initial={{ project }}>
+        <Transport />
+        <ShuttleBack />
+      </ProjectProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'shuttle atras' }));
+    const play = screen.getByRole('button', { name: 'Pausar' });
+    expect(play.title).toContain('hacia atrás');
+    // El icono es playReverse (triángulo a la izquierda), no pause.
+    expect(play.querySelector('svg path')?.getAttribute('d')).toContain('M16');
   });
 });

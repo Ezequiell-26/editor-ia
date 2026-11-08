@@ -11,7 +11,7 @@ export function usePlayback(): void {
   const playing = playback.playing;
   const project = store.state.project;
   const loop = useEditorPreferences().loopPlayback;
-  const { setPlayhead, setPlaying, durationFrames, getPlaybackRate } = store;
+  const { setPlayhead, setPlaying, durationFrames, getPlaybackRate, getPlaybackDirection } = store;
   const playheadRef = useRef(playback.frame);
   playheadRef.current = playback.frame;
 
@@ -30,7 +30,16 @@ export function usePlayback(): void {
       setPlaying(false);
       return;
     }
-    let frame = playheadRef.current >= total - 0.5 ? 0 : playheadRef.current;
+    // Simétrico al forward, que al llegar al final vuelve a 0: el shuttle
+    // inverso parado en el frame 0 arranca desde el último frame.
+    let frame =
+      getPlaybackDirection() > 0
+        ? playheadRef.current >= total - 0.5
+          ? 0
+          : playheadRef.current
+        : playheadRef.current <= 0.5
+          ? total - 1
+          : playheadRef.current;
     let last = performance.now();
     // El store redondea y descarta los valores repetidos, pero igualmente
     // encolaba un setState por cada rAF (60/s en monitores de 60 Hz para un
@@ -41,10 +50,11 @@ export function usePlayback(): void {
     const tick = (now: number) => {
       const deltaSeconds = Math.min(0.1, (now - last) / 1000);
       last = now;
-      // La velocidad se lee del ref en cada tick: cambiarla a mitad de la
-      // reproducción no reinicia el bucle rAF ni corta el audio.
-      frame += deltaSeconds * fps * getPlaybackRate();
-      if (frame >= total) {
+      // La velocidad y la dirección se leen de refs en cada tick: cambiarlas
+      // a mitad de la reproducción no reinicia el bucle rAF ni corta el audio.
+      const direction = getPlaybackDirection();
+      frame += deltaSeconds * fps * getPlaybackRate() * direction;
+      if (direction > 0 && frame >= total) {
         if (loop) {
           // Bucle: vuelve al inicio sin cortar la reproducción.
           frame = 0;
@@ -57,6 +67,19 @@ export function usePlayback(): void {
         setPlaying(false);
         return;
       }
+      if (direction < 0 && frame <= 0) {
+        if (loop) {
+          // Bucle inverso: salta al último frame y sigue hacia atrás.
+          frame = total - 1;
+          emitted = Math.round(frame);
+          setPlayhead(emitted);
+          handle = requestAnimationFrame(tick);
+          return;
+        }
+        setPlayhead(0);
+        setPlaying(false);
+        return;
+      }
       const rounded = Math.round(frame);
       if (rounded !== emitted) {
         emitted = rounded;
@@ -66,5 +89,5 @@ export function usePlayback(): void {
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [playing, hasProject, fps, setPlayhead, setPlaying, durationFrames, loop, getPlaybackRate]);
+  }, [playing, hasProject, fps, setPlayhead, setPlaying, durationFrames, loop, getPlaybackRate, getPlaybackDirection]);
 }

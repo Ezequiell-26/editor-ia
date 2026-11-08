@@ -38,6 +38,7 @@ export type ShortcutId =
   // existen en la app. Detalle por área, estado de cableado y pendientes en
   // docs/ATAJOS-PRO.md.
   | 'playback.shuttleForward'
+  | 'playback.shuttleReverse'
   | 'playback.shuttlePause'
   | 'playback.framePrev'
   | 'playback.frameNext'
@@ -99,6 +100,7 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'edit.deselect': 'Deseleccionar todo',
   'playback.playPause': 'Reproducir / Pausar',
   'playback.shuttleForward': 'Shuttle: reproducir hacia adelante',
+  'playback.shuttleReverse': 'Shuttle: reproducir hacia atrás',
   'playback.shuttlePause': 'Shuttle: pausar',
   'playback.framePrev': 'Frame anterior',
   'playback.frameNext': 'Frame siguiente',
@@ -156,6 +158,7 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'edit.deselect': 'Editar',
   'playback.playPause': 'Reproducción',
   'playback.shuttleForward': 'Reproducción',
+  'playback.shuttleReverse': 'Reproducción',
   'playback.shuttlePause': 'Reproducción',
   'playback.framePrev': 'Reproducción',
   'playback.frameNext': 'Reproducción',
@@ -212,9 +215,11 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   'edit.rippleDelete': 'Ctrl+Shift+Delete',
   'edit.deselect': 'Escape',
   'playback.playPause': 'Space',
-  // Shuttle: L reproduce (setPlaying(true)), K pausa (setPlaying(false)).
-  // J no se registra: el motor de reproducción no soporta ir hacia atrás.
+  // Shuttle: L reproduce hacia adelante, J hacia atrás (dirección en el
+  // motor desde 2026-11-08), K pausa. La dirección queda activa hasta el
+  // próximo shuttle: Espacio reanuda en la última dirección elegida.
   'playback.shuttleForward': 'L',
+  'playback.shuttleReverse': 'J',
   'playback.shuttlePause': 'K',
   'playback.framePrev': ',',
   'playback.frameNext': '.',

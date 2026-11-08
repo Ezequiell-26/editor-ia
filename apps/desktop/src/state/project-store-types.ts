@@ -91,12 +91,16 @@ export interface ProjectStoreValue {
   clearIoRange(): void;
   setPlayhead(frame: number): void;
   setPlaying(playing: boolean): void;
+  /** Sentido del shuttle: 1 hacia adelante, -1 hacia atrás. */
+  setPlaybackDirection(direction: 1 | -1): void;
   /** Multiplicador de la velocidad de reproducción (0.1–8). */
   setPlaybackRate(rate: number): void;
   /** Playhead actual sin suscribir el componente (siempre fresco). */
   getPlayhead(): number;
   /** Estado de reproducciâ”œâ”‚n actual sin suscribir el componente. */
   getPlaying(): boolean;
+  /** Sentido actual sin suscribir el componente. */
+  getPlaybackDirection(): 1 | -1;
   /** Velocidad actual sin suscribir el componente. */
   getPlaybackRate(): number;
   requestExport(): void;

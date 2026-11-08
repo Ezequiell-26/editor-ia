@@ -21,6 +21,7 @@ export function Transport() {
   const playhead = playback.frame;
   const total = store.durationFrames;
   const playing = playback.playing;
+  const reverse = playback.direction < 0;
   const progress = total > 0 ? Math.max(0, Math.min(100, (playhead / total) * 100)) : 0;
 
   function scrub(next: number): void {
@@ -98,10 +99,18 @@ export function Transport() {
           type="button"
           className="transport-button primary-transport"
           aria-label={playing ? 'Pausar' : 'Reproducir'}
-          title={playing ? 'Pausar (Espacio)' : 'Reproducir (Espacio)'}
+          title={
+            playing
+              ? reverse
+                ? 'Pausar (Espacio) · reproduciendo hacia atrás (J)'
+                : 'Pausar (Espacio)'
+              : reverse
+                ? 'Reanudar hacia atrás (Espacio) · L vuelve a adelante'
+                : 'Reproducir (Espacio)'
+          }
           onClick={() => store.setPlaying(!playing)}
         >
-          <Icon name={playing ? 'pause' : 'play'} size={17} />
+          <Icon name={playing ? (reverse ? 'playReverse' : 'pause') : 'play'} size={17} />
         </button>
         <button
           type="button"

@@ -4,6 +4,53 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Shuttle inverso `J` con dirección real en el motor de
+  reproducción (2026-11-08)** — cierra el pendiente 1 de
+  `docs/ATAJOS-PRO.md` («`J` no se registró: el motor sólo avanza y
+  `playing` es booleano»), en una pasada del protocolo del loop (Devin CLI).
+  - **Brecha**: el playhead sólo avanzaba (`frame += delta·fps·rate`) y los
+    elementos HTML sólo reproducían a `playbackRate` positivo; no existía
+    reproducción hacia atrás ni forma de pedirla.
+  - **Cambio**: `playback.direction` (`1 | -1`) en `project-store` con
+    contexto propio (`PlaybackDirectionContext`,
+    `useProjectPlaybackDirection`, `useProjectPlayback().direction`,
+    `setPlaybackDirection`/`getPlaybackDirection` por ref — mismo patrón
+    que la velocidad; `adopt`/`closeProject` la reinician a `1`).
+    `usePlayback` lee la dirección por tick (cambiarla a mitad de la
+    reproducción no reinicia el rAF): el avance es `delta·fps·rate·dir` y
+    los bordes son simétricos — hacia atrás frena en el frame 0 o, con
+    bucle, salta a `total−1` y sigue; parado en el frame 0 arranca desde
+    el último (igual que el forward saltaba a 0 al final). `App.tsx`
+    despacha `playback.shuttleForward` (`L` → dirección `1`) y el nuevo
+    `playback.shuttleReverse` (`J` → `-1`); `K` y Espacio sólo pausan /
+    reanudan y **conservan** la última dirección. `Preview` pasa
+    `rate × direction` a `VideoLayer`/`AudioLayer` y el clamp de
+    `elementRate` preserva el signo (magnitud 0.1–8 igual que antes).
+    `shortcuts.ts` registra `playback.shuttleReverse` con default `J`;
+    `Icon` gana `playReverse` y el botón play/pausa del transporte muestra
+    el triángulo invertido y un título que declara el sentido.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `project-store.test.tsx` **7/7** (+1: dirección
+    en contexto propio sin renders del store) · `shortcuts-pro.test.ts`
+    **5/5** (evidencia y default `J` actualizados) · `Transport.test.tsx`
+    **4/4** (+1: en reversa el botón muestra icono `playReverse` y título
+    «hacia atrás») · regresión `App.test.tsx` **77/77** + `render-cost`
+    1/1 + `PreviewAudioScopes` 3/3 = **81/81**. No se tocó Rust ni el
+    contrato del render (la reversa es sólo de preview).
+  - **Archivos**: `state/project-store.tsx` (+test),
+    `state/shortcuts.ts` (+test), `App.tsx`,
+    `features/editor/{usePlayback.ts,Preview.tsx,Transport.tsx}`
+    (+tests), `components/Icon.tsx`, `docs/ATAJOS-PRO.md`, esta entrada,
+    `memory/2026-11-08-shuttle-inverso-j.md`.
+  - **Pendiente honesto**: la reversa depende de `playbackRate` negativo
+    del elemento HTML (Chromium/WebView2 lo soporta; en un motor que lo
+    ignore el playhead retrocede pero el medio no — la corrección de
+    deriva por `sourceSeconds` lo reconduce); `preservesPitch` puede no
+    aplicar en reversa y el audio invertido no es una referencia (es
+    revisión visual); no hay rampa de velocidad por teclas repetidas
+    (pendiente 2 de ATAJOS-PRO); el bucle inverso envuelve al último
+    frame, decisión tomada acá para mantener la simetría con el forward.
+
 - `[done]` **Lista de keyframes por parámetro en el editor de curva de
   efectos (2026-11-08)** — cierra el «Pendiente honesto» de la pasada del
   selector `easing` (2026-11-08): «el easing se edita por tramo dentro del

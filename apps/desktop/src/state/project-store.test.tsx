@@ -10,6 +10,7 @@ import { projectWithIoRange } from './io-range';
 import {
   ProjectProvider,
   usePlayheadFrame,
+  useProjectPlaybackDirection,
   useProjectPlaybackRate,
   useProjectPlaying,
   useProjectStore,
@@ -209,6 +210,56 @@ describe('playback fuera del store principal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'velocidad fuera de rango' }));
     await waitFor(() => {
       expect(screen.getByTestId('rate').textContent).toBe('8');
+    });
+  });
+
+  it('setPlaybackDirection actualiza el contexto sin tocar el store', async () => {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('Sentido', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'sentido.editoria.json',
+      path: 'C:\\tmp\\sentido.editoria.json',
+      root: 'C:\\tmp',
+    };
+    let storeProbeRenders = 0;
+    function StoreProbe() {
+      useProjectStore();
+      storeProbeRenders += 1;
+      return null;
+    }
+    function DirectionProbe() {
+      const direction = useProjectPlaybackDirection();
+      const store = useProjectStore();
+      return (
+        <div>
+          <span data-testid="direction">{String(direction)}</span>
+          <button type="button" onClick={() => store.setPlaybackDirection(-1)}>
+            sentido atras
+          </button>
+          <button type="button" onClick={() => store.setPlaybackDirection(1)}>
+            sentido adelante
+          </button>
+        </div>
+      );
+    }
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <DirectionProbe />
+        <StoreProbe />
+      </ProjectProvider>,
+    );
+    expect(screen.getByTestId('direction').textContent).toBe('1');
+    const before = storeProbeRenders;
+    fireEvent.click(screen.getByRole('button', { name: 'sentido atras' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('direction').textContent).toBe('-1');
+    });
+    // La dirección vive en su propio contexto: el store no se re-renderiza.
+    expect(storeProbeRenders).toBe(before);
+    fireEvent.click(screen.getByRole('button', { name: 'sentido adelante' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('direction').textContent).toBe('1');
     });
   });
 });

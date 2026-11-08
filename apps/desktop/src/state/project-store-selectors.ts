@@ -1,7 +1,7 @@
 import { useContext, useMemo } from 'react';
 import type { ProjectDocument } from '@editor-ia/project-schema';
 import { formatTimecode } from './project-actions';
-import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext } from './project-store-context';
+import { ProjectContext, PlayheadContext, PlayingContext, PlaybackRateContext, PlaybackDirectionContext } from './project-store-context';
 import type { ProjectStoreValue } from './project-store-types';
 
 
@@ -38,16 +38,27 @@ export function useProjectPlaybackRate(): number {
 }
 
 
+/** Sentido del shuttle (1 adelante / -1 atrás): cambia sólo al cambiarlo. */
+export function useProjectPlaybackDirection(): 1 | -1 {
+  return useContext(PlaybackDirectionContext);
+}
+
+
 /** Atajo para quien necesita ambos (preview, transport, loop de playback). */
 export function useProjectPlayback(): {
   readonly frame: number;
   readonly playing: boolean;
   readonly rate: number;
+  readonly direction: 1 | -1;
 } {
   const frame = usePlayheadFrame();
   const playing = useProjectPlaying();
   const rate = useProjectPlaybackRate();
-  return useMemo(() => ({ frame, playing, rate }), [frame, playing, rate]);
+  const direction = useProjectPlaybackDirection();
+  return useMemo(
+    () => ({ frame, playing, rate, direction }),
+    [frame, playing, rate, direction],
+  );
 }
 
 

@@ -18,3 +18,5 @@ export const PlayheadContext = createContext<number>(0);
 export const PlayingContext = createContext<boolean>(false);
 
 export const PlaybackRateContext = createContext<number>(1);
+
+export const PlaybackDirectionContext = createContext<1 | -1>(1);
