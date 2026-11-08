@@ -75,6 +75,10 @@ struct SceneResolution {
     /// Texto de narración declarado por la escena (para subtítulos).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     narration_text: Option<String>,
+    /// Cortes de escena detectados por `analyze` en el asset elegido
+    /// (segundos); base para edición por contenido.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    scene_cuts: Vec<f64>,
     warnings: Vec<String>,
 }
 
@@ -251,8 +255,16 @@ impl AssemblyStageExecutor {
             );
             let chosen = candidates.first();
             let mut warnings = Vec::new();
+            let mut scene_cuts: Vec<f64> = Vec::new();
             let (asset_id, asset_kind, media_frames) = match chosen {
                 Some(entry) => {
+                    scene_cuts = entry
+                        .analysis
+                        .as_ref()
+                        .and_then(|a| a.get("scenes"))
+                        .and_then(|s| s.as_array())
+                        .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+                        .unwrap_or_default();
                     let kind = format!("{:?}", entry.kind).to_lowercase();
                     let media = entry.duration_frames;
                     // Video/audio sin duración declarada no se puede windowear.
@@ -286,6 +298,7 @@ impl AssemblyStageExecutor {
                 duration_frames: duration,
                 media_frames,
                 narration_text: scene.narration_text.clone(),
+                scene_cuts,
                 warnings,
             });
         }
@@ -307,6 +320,7 @@ impl AssemblyStageExecutor {
                 "scenes": resolutions.len(),
                 "resolved": resolved,
                 "unresolved": unresolved,
+                "sceneCuts": resolutions.iter().map(|r| r.scene_cuts.len()).sum::<usize>(),
                 "artifact": path.file_name().map(|n| n.to_string_lossy().to_string()),
             })),
             error: None,
@@ -857,6 +871,31 @@ mod tests {
         let track_id = clip["trackId"].as_str().unwrap();
         let tracks = doc["timeline"]["tracks"].as_array().unwrap();
         assert!(tracks.iter().any(|t| t["id"] == track_id));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Los cortes detectados por `analyze` viajan en la resolución de la
+    /// escena hasta el artefacto `scenes.json` (base para auto-edición).
+    #[test]
+    fn scenes_resolution_carries_detected_scene_cuts() {
+        let dir = fixture("cuts");
+        let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
+        let mut entry = catalog.get("a1").unwrap().expect("a1 en catálogo");
+        entry.analysis = Some(json!({ "scenes": [1.5, 3.0] }));
+        catalog.upsert(&entry).unwrap();
+
+        let executor = AssemblyStageExecutor::new();
+        let plan = plan_with_scene("");
+        let ctx = ctx(&plan, &dir);
+        let scenes = executor.execute(StudioStage::Scenes, &ctx).unwrap();
+        assert!(scenes.completed, "scenes falló: {:?}", scenes.error);
+        assert_eq!(scenes.output.as_ref().unwrap()["sceneCuts"], 2);
+
+        let artifact: Value = serde_json::from_str(
+            &fs::read_to_string(dir.join(".olyvia/production/plan-asm.scenes.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(artifact["scenes"][0]["sceneCuts"], json!([1.5, 3.0]));
         let _ = fs::remove_dir_all(&dir);
     }
 
