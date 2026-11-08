@@ -31,6 +31,15 @@ impl<'a> CompositeStageExecutor<'a> {
         }
     }
 
+    /// Propaga ffmpeg al ejecutor de proyecto (thumbnails en `analyze`).
+    pub fn with_ffmpeg(self, ffmpeg: Option<std::path::PathBuf>) -> Self {
+        Self {
+            project: self.project.with_ffmpeg(ffmpeg),
+            assembly: self.assembly,
+            extra: self.extra,
+        }
+    }
+
     /// Agrega un ejecutor extra (se consulta después de los built-in).
     /// El lifetime del resultado es el más corto entre el del composite y
     /// el del extra prestado.

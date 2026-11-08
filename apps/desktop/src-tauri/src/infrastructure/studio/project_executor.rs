@@ -34,11 +34,22 @@ pub struct ProjectStageExecutor {
     /// externas y registrarlos como assets del proyecto. `None` ⇒ la
     /// adquisición remota no puede producir assets válidos y se omite.
     ffprobe: Option<std::path::PathBuf>,
+    /// ffmpeg para la etapa `analyze`: extrae un thumbnail por asset de
+    /// video. `None` ⇒ analyze indexa sin thumbnails (se reporta).
+    ffmpeg: Option<std::path::PathBuf>,
 }
 
 impl ProjectStageExecutor {
     pub fn new(ffprobe: Option<std::path::PathBuf>) -> Self {
-        Self { ffprobe }
+        Self {
+            ffprobe,
+            ffmpeg: None,
+        }
+    }
+
+    pub fn with_ffmpeg(mut self, ffmpeg: Option<std::path::PathBuf>) -> Self {
+        self.ffmpeg = ffmpeg;
+        self
     }
 }
 
@@ -251,6 +262,65 @@ impl ProjectStageExecutor {
             fatal: false,
             in_progress: false,
         })
+    }
+
+    /// Extrae un frame del punto medio del video a `.olyvia/thumbs/<id>.jpg`
+    /// y devuelve la ruta relativa al root. Requiere ffmpeg+ffprobe.
+    fn extract_thumbnail(
+        &self,
+        ctx: &StageContext,
+        entry: &crate::ports::studio::CatalogEntry,
+        dir: &std::path::Path,
+    ) -> Result<String, ProjectError> {
+        let ffmpeg = self
+            .ffmpeg
+            .clone()
+            .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, "ffmpeg no disponible"))?;
+        let ffprobe = self
+            .ffprobe
+            .clone()
+            .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, "ffprobe no disponible"))?;
+        let abs = crate::media::resolve_inside_root(&ctx.project_root, &entry.reference)?;
+        let measure = crate::media::probe_file(&ffprobe, &abs, crate::media::MediaKind::Video)?;
+        let duration = measure.duration_seconds.unwrap_or(0.0);
+        let seek = if duration > 0.4 { duration / 2.0 } else { 0.0 };
+        std::fs::create_dir_all(dir).map_err(|e| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo crear el directorio de thumbnails: {e}"),
+            )
+        })?;
+        let name = format!("{}.jpg", entry.id);
+        let out = dir.join(&name);
+        let status = std::process::Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-ss",
+                &format!("{seek:.2}"),
+                "-i",
+                &abs.to_string_lossy(),
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+            ])
+            .arg(&out)
+            .status()
+            .map_err(|e| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("ffmpeg no se pudo ejecutar: {e}"),
+                )
+            })?;
+        if !status.success() || !out.is_file() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "ffmpeg no produjo el thumbnail",
+            ));
+        }
+        Ok(format!(".olyvia/thumbs/{name}"))
     }
 
     /// Genera la narración pedida por un requisito `voice` con el
@@ -559,6 +629,29 @@ impl ProjectStageExecutor {
                 missing += 1;
             }
         }
+        // Thumbnails: un frame real por asset de video vía ffmpeg, guardado
+        // en `.olyvia/thumbs/` y persistido en el índice del catálogo.
+        // Idempotente (se salta los que ya tienen thumbnail) y tolerante:
+        // un asset que ffmpeg no puede procesar no tumba la etapa.
+        let mut thumbnails = 0u32;
+        let mut thumbnail_failures = 0u32;
+        if self.ffmpeg.is_some() && self.ffprobe.is_some() {
+            let thumbs_dir = ctx.project_root.join(".olyvia").join("thumbs");
+            for entry in &entries {
+                if entry.kind != StudioResourceKind::Video || entry.thumbnail.is_some() {
+                    continue;
+                }
+                match self.extract_thumbnail(ctx, entry, &thumbs_dir) {
+                    Ok(rel) => {
+                        let mut enriched = entry.clone();
+                        enriched.thumbnail = Some(rel);
+                        let _ = catalog.upsert(&enriched);
+                        thumbnails += 1;
+                    }
+                    Err(_) => thumbnail_failures += 1,
+                }
+            }
+        }
         // Registra el índice en el catálogo: queda disponible para las
         // etapas siguientes y para el IPC `catalog_search`.
         let _ = catalog.prune_missing();
@@ -569,6 +662,8 @@ impl ProjectStageExecutor {
                 "indexedAssets": entries.len(),
                 "missingFiles": missing,
                 "byKind": by_kind,
+                "thumbnails": thumbnails,
+                "thumbnailFailures": thumbnail_failures,
                 "catalog": "local-project",
             })),
             error: None,
@@ -879,6 +974,96 @@ mod tests {
         let entry = catalog.get(&asset_id).unwrap().expect("asset en catálogo");
         assert_eq!(entry.kind, StudioResourceKind::Audio);
         assert!(entry.duration_frames.unwrap_or(0) > 0);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `analyze` extrae thumbnails REALES con ffmpeg: un frame del punto
+    /// medio por asset de video, persistido en el índice del catálogo.
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test analyze_extracts -- --ignored`
+    #[test]
+    #[ignore]
+    fn analyze_extracts_video_thumbnails() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("thumbnails omitidos: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        let ffmpeg = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned()),
+        );
+        let ffprobe = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFPROBE").unwrap_or_else(|_| "ffprobe".to_owned()),
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "exec-analyze-thumb-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(dir.join("media")).unwrap();
+        // Video real de 2 s vía lavfi.
+        let status = std::process::Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=2:size=320x180:rate=30",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ])
+            .arg(dir.join("media/demo.mp4"))
+            .status()
+            .unwrap();
+        assert!(status.success(), "ffmpeg no generó el video de prueba");
+        fs::write(
+            dir.join("project.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "video": { "frameRate": { "num": 30, "den": 1 } },
+                "assets": [{
+                    "id": "v1", "label": "Demo", "kind": "video", "status": "ready",
+                    "source": { "type": "local", "path": "media/demo.mp4" },
+                    "rights": {
+                        "license": { "id": "user-declared", "commercialUse": "allowed" },
+                        "provenance": { "origin": "user-imported", "acquiredAt": "2026-01-01T00:00:00Z" }
+                    },
+                    "media": { "width": 320, "height": 180, "durationFrames": 60,
+                               "frameRate": { "num": 30, "den": 1 } }
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let executor = ProjectStageExecutor::new(Some(ffprobe.clone())).with_ffmpeg(Some(ffmpeg));
+        let outcome = executor
+            .execute(StudioStage::Analyze, &ctx(&plan(0), &dir))
+            .unwrap();
+        assert!(outcome.completed, "{:?}", outcome.error);
+        let output = outcome.output.unwrap();
+        assert_eq!(output["thumbnails"], 1, "{output}");
+        assert_eq!(output["thumbnailFailures"], 0);
+
+        let thumb = dir.join(".olyvia/thumbs/v1.jpg");
+        assert!(thumb.is_file(), "el thumbnail no existe");
+        let bytes = fs::read(&thumb).unwrap();
+        assert_eq!(&bytes[0..2], &[0xFF, 0xD8], "no es un JPEG");
+
+        // Idempotente: una segunda pasada no regenera thumbnails.
+        let again = executor
+            .execute(StudioStage::Analyze, &ctx(&plan(0), &dir))
+            .unwrap();
+        assert_eq!(again.output.unwrap()["thumbnails"], 0);
+
+        // El catálogo devuelve el thumbnail persistido.
+        let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
+        let entry = catalog.get("v1").unwrap().expect("asset en catálogo");
+        assert_eq!(entry.thumbnail.as_deref(), Some(".olyvia/thumbs/v1.jpg"));
         let _ = fs::remove_dir_all(&dir);
     }
 

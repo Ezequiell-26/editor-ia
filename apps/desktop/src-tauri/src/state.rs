@@ -416,6 +416,7 @@ impl AppState {
         crate::infrastructure::studio::composite::CompositeStageExecutor::new(
             self.media_tools().ffprobe_path(),
         )
+        .with_ffmpeg(self.media_tools().ffmpeg_path())
     }
     /// Catálogo de medios del proyecto abierto (assets + índice local).
     pub fn project_catalog(
