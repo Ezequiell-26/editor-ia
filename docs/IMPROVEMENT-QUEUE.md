@@ -4,6 +4,34 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Segunda pasada de clippy — fixes manuales (2026-11-08)** —
+  continuación de la higiene clippy en una pasada del protocolo del loop
+  (Devin CLI). Tras el `clippy --fix` automático quedaban ~50 warnings no
+  auto-fixables; se aplicaron a mano los que son seguros:
+  - **`sort_by_key` + `Reverse`** (7 sitios): downloader `probe.rs` (×2),
+    `image_sense.rs`, youtube_analytics `analysis.rs`/`thumbnails.rs`,
+    `projects_history.rs` (×2).
+  - **`chunks_exact` → `as_chunks::<N>()`** (8 sitios, Rust 1.98):
+    `decode_f32_le` en `audio_scopes.rs`/`loudness.rs`, `dialogue.rs`
+    (`::<{ CHANNELS * 4 }>` con llaves), `color_proxy.rs`,
+    `stickman/render.rs` (`as_chunks_mut`), tests de stickman (×3).
+  - **`type_complexity` → type aliases** (4): `BucketKey`/`BucketSums` en
+    `image_sense.rs`, `GroupKey`/`GroupItem` en `projects_recovery.rs`,
+    `AlphaCase` en `ffmpeg/tests.rs`.
+  - **Triviales**: `&PathBuf`→`&Path` (render.rs, `mcp_server` trait +
+    impl), `get().is_none()`→`!contains_key` (export_tools),
+    `let...else`→`?` (effects.rs), `push_str(";")`→`push(';')`,
+    `format!` anidado inline en fcpxml, `if let` colapsado
+    (measurements.rs), `clamp` (audio_scopes), loop var→iter
+    (audio_scopes), doc comments huérfanos (assistant.rs → `//`,
+    audio.rs/alpha.rs → doc re-adjacente a su fn).
+  - **Verificación**: clippy `--all-targets` queda en **28 warnings, todos
+    `too_many_arguments`** (funciones del pipeline con 8-16 params —
+    refactor con struct de entrada, no cosmético); `cargo test --lib`
+    **698/698**; `cargo fmt --check` limpio.
+  - **Archivos**: 24 archivos de `src-tauri/src`, esta entrada,
+    `memory/2026-11-08-clippy-fix-pasada2.md`.
+
 - `[done]` **Primera pasada de `cargo clippy --fix` (2026-11-08)** —
   higiene de lints del crate, en una pasada del protocolo del loop
   (Devin CLI). `cargo check` estaba en 0 warnings pero clippy reportaba
