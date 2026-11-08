@@ -29,11 +29,38 @@ reconstruye el instalador salvo que el ítem lo pida.
   - **Archivos**: `apps/desktop/src/styles/app.css`, esta entrada,
     `memory/2026-11-08-css-dedup-premium.md`.
   - **Sigue vivo**: el grueso de la fase 2 — las secciones «STUDIO UI»,
-    «DIRECTOR AUTOMÁTICO + CONVERTIDOR», «FÁBRICA DE CONTENIDO» y
-    «ORGANIZACIÓN VISUAL» (líneas ~6078-13830 originales) mezclan CSS de
-    vistas de contenido con selectores editor/críticos (`.transport`,
+    «FÁBRICA DE CONTENIDO» y «ORGANIZACIÓN VISUAL» mezclan CSS de vistas
+    de contenido con selectores editor/críticos (`.transport`,
     `.timeline-toolbar`, `.app-shell`, `.rail-*`). Requiere extracción a
     nivel selector con clasificación por vista, no por bloque contiguo.
+
+- `[done]` **CSS splitting fase 2 · slice 2: Director + Convertidor al
+  entry de contenido (2026-11-08)** — primera extracción real de CSS del
+  critical path a un entry lazy.
+  - **Cambio**: la sección «DIRECTOR AUTOMÁTICO + CONVERTIDOR» de
+    `app.css` (868 líneas, 116 selectores, 127 reglas) se movió verbatim
+    a `styles/director-convert.css`, importada ÚLTIMA en
+    `entries/content.css` (que ya existía para vistas de contenido).
+    `app.css`: 12.609 → 11.741 líneas.
+  - **Análisis de cascada previo**: único selector compartido con el
+    resto de `app.css` = `.director-cut-index` (ORGANIZACIÓN VISUAL lo
+    pisaba con `color: muted` más tarde). Solución: el override viaja al
+    final del archivo extraído, preservando el resultado exacto.
+    Overlaps con `home.css`/`premium/views.css`: sólo `.director-view`/
+    `.director-source`, sin conflicto de propiedades (views.css usa
+    `!important` y selectores más específicos).
+  - **Verificación**: `postcss.parse` OK en los 3 archivos · sin
+    selectores bare de elemento en la sección · typecheck no aplica
+    (CSS puro) · la medición CDP/SSIM de la ola 2 queda como verificación
+    pendiente cuando se corra la app.
+  - **Archivos**: `styles/app.css`, `styles/director-convert.css` (nuevo),
+    `styles/entries/content.css`, esta entrada,
+    `memory/2026-11-08-css-fase2-director.md`.
+  - **Sigue vivo**: «FÁBRICA DE CONTENIDO» (~2.4k líneas: factory,
+    descarga social, organización de medios, convert, motion graphics,
+    Lottie, mixer, VFX — mezcla vistas content Y editor) y
+    «ORGANIZACIÓN VISUAL» (~2.2k líneas: refinamientos globales
+    editor+shell). Ambas requieren splitter por selector.
 
 - `[done]` **Rampa de velocidad del shuttle `L`/`J` (2026-11-08)** — cierra el
   pendiente 2 de `docs/ATAJOS-PRO.md` («repetir `L`/`J` no cambia la

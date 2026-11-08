@@ -10,5 +10,9 @@
  */
 @import '../home.css';
 @import '../premium/views.css';
+/* Fase 2 CSS splitting: herramientas Director + Convertidor salieron del
+   critical path (app.css) a este entry. Va ÚLTIMO para conservar la cascada
+   original (app.css -> home -> views -> tools). */
+@import '../director-convert.css';
 /* La capa visual Filmora se carga una sola vez desde `main.tsx`; ver la
    explicación y la medición en `entries/editor.css`. */
