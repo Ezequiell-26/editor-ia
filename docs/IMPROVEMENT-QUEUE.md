@@ -4,6 +4,52 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **`luma-wipe` en `TRANSITION_PRESETS` del rail de Activos con
+  mate auto-elegido por corte (2026-11-08)** — cierra el «`luma-wipe` sigue
+  fuera de `TRANSITION_PRESETS` … (sólo Inspector)» del «Pendiente» de la
+  entrada iris, en una pasada del protocolo del loop (Devin CLI). El preset
+  existía en el catálogo Rust y en el lote de VisualsView, pero la pestaña
+  Transiciones de `EditorAssets` no podía ofrecerlo: el schema exige
+  `mateClipId` por clip y ni la aplicación masiva ni la de clip único sabían
+  elegirlo.
+  - **`project-actions.ts`**: `applyTransitionToCuts` gana la opción
+    `mateClipIdFor?: (clip, frames) => string | undefined` — el resolvedor
+    elige el mate de cada corte (los candidatos dependen de `frames`, que es
+    lo que se va a escribir) y los cortes sin mate se saltan contados en el
+    nuevo campo `skipped` del resultado. Sin resolvedor `luma-wipe` se
+    comporta como antes (todo se salta): el camino del brain no cambia.
+  - **`EditorAssets.tsx`**: `TRANSITION_PRESETS` suma «Barrido Luma» (18
+    tarjetas). Helper `lumaMateForCut` reutiliza `lumaMateCandidates` +
+    `lumaMatePick` de `luma-mate.ts` — misma regla que el lote de
+    VisualsView: el mate propio aún válido gana, si no el primer
+    candidato— calculados sobre la transición pendiente (probe con el
+    `transitionIn` que se va a escribir). El clip único escribe
+    `mateClipId` y avisa honesto cuando no hay mate que cubra el solape;
+    los lotes reportan «N sin clip mate válido» o el aviso de que ningún
+    corte tiene mate.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `project-actions.test.ts` **109/109** (+1:
+    luma-wipe sin resolvedor salta los 2 cortes, con resolvedor escribe
+    `mateClipId` sólo donde hay mate y `skipped` cuenta el resto;
+    `validated()` confirma que el documento pasa el schema) ·
+    `EditorAssets.test.tsx` **9/9** (conteo 17→18) · `luma-mate.test.ts`
+    17/17 · regresión `Timeline.test.tsx` + `features/visuals` +
+    `state/brain` **70/70**. No se tocó Rust ni el contrato del documento.
+  - **Archivos**: `state/project-actions.ts` (+test),
+    `features/editor/EditorAssets.tsx` (+test), esta entrada,
+    `memory/2026-11-08-luma-wipe-presets-activos.md`.
+  - **Pendiente honesto**: el mate se elige solo (propio válido > primer
+    candidato); no hay selector de mate en esta pestaña — para elegirlo a
+    mano está el Inspector o el lote de VisualsView. Un clip sin mate
+    válido queda sin transición en el lote (se cuenta en el aviso, no se
+    inventa un mate).
+
+- `[done]` **Curvas Bézier por parámetro en las plantillas de fábrica +
+  fix de la curva inerte de «Tensión que crece» (2026-11-08)** — cierra el
+  «las recetas no admiten presets de curva Bézier propia (sólo easing)»
+  del «Pendiente honesto» de la entrada plantillas animadas, en una
+  pasada del protocolo del loop (Devin CLI). Al implementarlo apareció un
+
 - `[done]` **Verificación integral post-reconciliación + fix del test de
   PolygonEditor (2026-11-08)** — pasada del protocolo del loop (Devin CLI)
   tras la reconciliación 10 (main `408300b`+`42283fe`): typecheck de

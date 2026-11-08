@@ -2017,8 +2017,12 @@ export function applyTransitionToCuts(
     frames?: number;
     color?: string | undefined;
     trackIds?: readonly string[];
+    /// `luma-wipe` exige `mateClipId` por corte (el schema lo valida): el
+    /// resolvedor elige el mate de cada clip — p. ej. el primer candidato
+    /// válido—; los cortes sin mate se saltan y se cuentan en `skipped`.
+    mateClipIdFor?: ((clip: Clip, frames: number) => string | undefined) | undefined;
   } = {},
-): { project: ProjectDocument; applied: number } {
+): { project: ProjectDocument; applied: number; skipped: number } {
   const type = options.type ?? 'dissolve';
   const frames = Math.max(1, Math.round(options.frames ?? 12));
   const color =
@@ -2027,6 +2031,7 @@ export function applyTransitionToCuts(
       : undefined;
   const next = cloneProject(project);
   let applied = 0;
+  let skipped = 0;
   for (const track of next.timeline.tracks) {
     if (track.locked) continue;
     if (options.trackIds && !options.trackIds.includes(track.id)) continue;
@@ -2054,10 +2059,24 @@ export function applyTransitionToCuts(
       // dip-color exige color válido (el schema lo requiere); sin él el
       // documento quedaría inválido, así que el corte se salta.
       if (type === 'dip-color' && color === undefined) continue;
-      // luma-wipe exige `mateClipId` (el schema lo valida); la aplicación
-      // masiva no puede elegir un mate por corte, así que se salta y se
-      // aplica desde el Inspector, donde se elige el clip mate.
-      if (type === 'luma-wipe') continue;
+      // luma-wipe exige `mateClipId` por corte; la aplicación masiva no
+      // puede elegir un mate por sí sola, así que lo resuelve
+      // `options.mateClipIdFor` y sin mate válido el corte se salta.
+      if (type === 'luma-wipe') {
+        const mateClipId = options.mateClipIdFor?.(clip, frames);
+        if (!mateClipId) {
+          skipped += 1;
+          continue;
+        }
+        const target = clip as Clip & { transitionIn?: ClipTransition };
+        target.transitionIn = {
+          type,
+          frames: Math.min(frames, clip.durationFrames),
+          mateClipId,
+        };
+        applied += 1;
+        continue;
+      }
       const target = clip as Clip & { transitionIn?: ClipTransition };
       target.transitionIn = {
         type,
@@ -2067,9 +2086,9 @@ export function applyTransitionToCuts(
       applied += 1;
     }
   }
-  if (applied === 0) return { project, applied };
+  if (applied === 0) return { project, applied: 0, skipped };
   touch(next);
-  return { project: next, applied };
+  return { project: next, applied, skipped };
 }
 
 export function closeGaps(

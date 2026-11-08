@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Asset, ClipEffects, ClipTransition } from '@editor-ia/project-schema';
+import type { Asset, Clip, ClipEffects, ClipTransition, ProjectDocument } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon, type IconName } from '../../components/Icon';
 import { useThumbnail } from '../../hooks/useThumbnail';
@@ -25,6 +25,7 @@ import { useProjectStore } from '../../state/project-store';
 import { EmojiPickerButton } from '../emoji/EmojiPicker';
 import { insertEmoji } from '../emoji/emoji';
 import { ProxyToolsPanel } from './ProxyToolsPanel';
+import { lumaMateCandidates, lumaMatePick } from './luma-mate';
 import { SPLIT_SCREEN_TEMPLATES, SplitScreenTemplates } from './FilmoraStates';
 
 type AssetFilter = AssetKindFilter;
@@ -136,6 +137,7 @@ const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'wipe-up', label: 'Barrido Arriba', description: 'El nuevo clip barre desde abajo', iconSymbol: '⇡' },
   { id: 'wipe-down', label: 'Barrido Abajo', description: 'El nuevo clip barre desde arriba', iconSymbol: '⇣' },
   { id: 'iris', label: 'Iris', description: 'El nuevo clip abre desde el centro en círculo', iconSymbol: '◉' },
+  { id: 'luma-wipe', label: 'Barrido Luma', description: 'El clip entrante se revela por la luminancia de un clip mate (se elige el mejor candidato por corte)', iconSymbol: '◑' },
 ];
 
 /* ── Árbol por módulo (capturas 100, 102–111, 114) ─────────────────────────
@@ -966,6 +968,34 @@ export function EditorAssets({
     applyPreset(preset.label, applyEffectPreset(currentEffects, preset));
   }
 
+  /// Mate de `luma-wipe` para `clip` en la aplicación por lote: los
+  /// candidatos se calculan sobre la transición pendiente (el solape
+  /// depende de `frames`) con la misma elección que el lote de VisualsView —
+  /// el mate propio aún válido gana; si no, el primer candidato.
+  function lumaMateForCut(
+    doc: ProjectDocument,
+    clip: Clip,
+    frames: number,
+  ): string | undefined {
+    const existing =
+      'transitionIn' in clip && clip.transitionIn?.type === 'luma-wipe'
+        ? clip.transitionIn
+        : undefined;
+    const probe = {
+      ...clip,
+      transitionIn: existing
+        ? { ...existing, frames }
+        : { type: 'luma-wipe' as const, frames },
+    } as Clip;
+    const candidates = lumaMateCandidates(
+      doc.timeline.clips,
+      doc.timeline.tracks,
+      probe,
+      fpsOf(doc),
+    );
+    return lumaMatePick(probe, undefined, candidates);
+  }
+
   function applyTransition(type: ClipTransition['type']): void {
     if (!selectedClip) {
       // Aplicar a todos los cortes si no hay clip individual seleccionado
@@ -974,13 +1004,44 @@ export function EditorAssets({
           type,
           frames: transitionFrames,
           color: type === 'dip-color' ? '#1b2a4a' : undefined,
+          mateClipIdFor:
+            type === 'luma-wipe'
+              ? (clip, frames) => lumaMateForCut(current, clip, frames)
+              : undefined,
         }),
       );
       if (result && result.applied > 0) {
-        store.setNotice(`Transición aplicada a ${result.applied} corte(s).`);
+        store.setNotice(
+          `Transición aplicada a ${result.applied} corte(s).` +
+            (result.skipped > 0 ? ` ${result.skipped} sin clip mate válido.` : ''),
+        );
+      } else if (result && result.skipped > 0) {
+        store.setNotice(
+          'Ningún corte tiene un clip mate válido para el barrido por luminancia.',
+        );
       } else {
         store.setNotice('Seleccioná un clip en la timeline para aplicarle la transición.');
       }
+      return;
+    }
+    if (type === 'luma-wipe') {
+      if (!project) {
+        store.setNotice('Abrí un proyecto para aplicar el barrido por luminancia.');
+        return;
+      }
+      const mateClipId = lumaMateForCut(project, selectedClip, transitionFrames);
+      if (!mateClipId) {
+        store.setNotice(
+          'No hay un clip mate que cubra el solape para el barrido por luminancia.',
+        );
+        return;
+      }
+      store.update((current) =>
+        updateClip(current, selectedClip.id, {
+          transitionIn: { type, frames: transitionFrames, mateClipId },
+        }),
+      );
+      store.setNotice(`Transición aplicada al clip seleccionado (${transitionFrames} frames).`);
       return;
     }
     store.update((current) =>
@@ -1001,10 +1062,21 @@ export function EditorAssets({
         type,
         frames: transitionFrames,
         color: type === 'dip-color' ? '#1b2a4a' : undefined,
+        mateClipIdFor:
+          type === 'luma-wipe'
+            ? (clip, frames) => lumaMateForCut(current, clip, frames)
+            : undefined,
       }),
     );
     if (result && result.applied > 0) {
-      store.setNotice(`Transición aplicada a ${result.applied} corte(s).`);
+      store.setNotice(
+        `Transición aplicada a ${result.applied} corte(s).` +
+          (result.skipped > 0 ? ` ${result.skipped} sin clip mate válido.` : ''),
+      );
+    } else if (result && result.skipped > 0) {
+      store.setNotice(
+        'No se aplicó: ningún corte tiene un clip mate válido para el barrido por luminancia.',
+      );
     } else {
       store.setNotice('No hay cortes contiguos para aplicar la transición.');
     }

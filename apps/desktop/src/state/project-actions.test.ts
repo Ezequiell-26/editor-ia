@@ -819,6 +819,47 @@ describe('transiciones en lote', () => {
     expect(bad.project).toBe(project);
   });
 
+  it('luma-wipe escribe el mate resuelto por corte y salta los que no tienen', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    for (const at of [0, 30, 60]) {
+      project = addClipFromAsset(project, asset, {
+        atFrame: at,
+        durationFrames: 30,
+      }).project;
+    }
+    const clips = project.timeline.clips
+      .filter((clip) => clip.source.type === 'asset')
+      .sort((a, b) => a.startFrame - b.startFrame);
+    const [first, second, third] = clips;
+    if (!first || !second || !third) throw new Error('se esperaban 3 clips');
+
+    // Sin resolvedor el corte se salta: el schema exige `mateClipId`.
+    const noMate = applyTransitionToCuts(project, { type: 'luma-wipe', frames: 12 });
+    expect(noMate.applied).toBe(0);
+    expect(noMate.skipped).toBe(2);
+    expect(noMate.project).toBe(project);
+
+    // Con resolvedor: el primer corte recibe el mate elegido y el segundo
+    // se salta porque el resolvedor devuelve undefined para él.
+    const result = applyTransitionToCuts(project, {
+      type: 'luma-wipe',
+      frames: 12,
+      mateClipIdFor: (clip) => (clip.id === second.id ? first.id : undefined),
+    });
+    const next = validated(result.project);
+    expect(result.applied).toBe(1);
+    expect(result.skipped).toBe(1);
+    const withMate = next.timeline.clips.find((item) => item.id === second.id);
+    expect(
+      withMate && 'transitionIn' in withMate ? withMate.transitionIn : undefined,
+    ).toEqual({ type: 'luma-wipe', frames: 12, mateClipId: first.id });
+    const without = next.timeline.clips.find((item) => item.id === third.id);
+    expect(
+      without && 'transitionIn' in without ? without.transitionIn : undefined,
+    ).toBeUndefined();
+  });
+
   it('salta pistas bloqueadas', () => {
     const asset = videoAsset(300);
     let project = addAsset(base(), asset);
