@@ -5270,9 +5270,23 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
     **PSNR 40,87 dB** con duración verificada por `execute_sync`. Suite lib
     697/697. Límite: la salida no es bit-idéntica (el pase por RGBA hace una
     conversión extra de color); el test exige >40 dB.
-19. **Playhead fuera del contexto** — hoy cada tick de reproducción
-    re-renderiza paneles; separar el playhead y memoizar mapas de clips
-    en Preview. Medir frames >16 ms en 10 s de playback.
+19. **Playhead fuera del contexto** `[done]` — la separación del playhead
+    ya estaba hecha (contextos `Playhead`/`Playing`/`PlaybackRate`/
+    `PlaybackDirection` desde el 2026-11-05); lo que quedaba era el costo
+    por tick dentro del Preview. `preview-index.ts` (nuevo) construye una
+    vez por proyecto los mapas track/asset y las tres selecciones
+    (visual ordenada por `track.order`, audio en orden de clips, ajuste
+    ordenado por `track.order`) con los mismos predicados de antes;
+    cada tick sólo filtra por rango de frames. Paridad verificada frame
+    a frame contra la lógica naive en un proyecto sintético (161 frames,
+    hidden/muted/solo/enabled=false/huérfanos/ajustes). Benchmark medido:
+    timeline de 240 clips × 300 ticks → **0,004 ms/tick indexado vs
+    0,045 ms/tick naive** (~11× más barato en la capa de selección).
+    `tsc` 0 errores; vitest preview-index 6/6 + PreviewFit/TransformBox/
+    project-store 25/25. Límite honesto: la selección nunca fue el
+    cuello (>16 ms/frame viene del render React + capas de video); la
+    medición CDP de frames reales durante playback en la app instalada
+    sigue pendiente (igual que el `[next]` del 2026-11-05).
 20. **Denoise de audio en preview** — el `afftdn` del export no se
     simula en Web Audio; evaluar un filtro aproximado o marcar la
     diferencia en la UI.

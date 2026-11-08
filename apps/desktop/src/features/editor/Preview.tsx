@@ -32,6 +32,7 @@ import { perspectiveMatrix3d, type PerspectiveViewport } from './perspective';
 import type { PreviewFrameResult } from '../../services/project-service';
 import { applyGradeProjection, compileGrade, gradeFilterId, type GradeFilterSpec } from '../color/color-engine';
 import { GradeFilterDefs } from '../color/GradeFilterDefs';
+import { activeAt, buildPreviewClipIndex, type PreviewClipEntry } from './preview-index';
 
 function previewViewport(
   asset: Asset | undefined,
@@ -461,10 +462,6 @@ function effectsToCss(source: ClipEffects | undefined, filterId?: string): CSSPr
 function effectsStyle(clip: Clip): CSSProperties {
   if (!('effects' in clip) || !clip.effects) return {};
   return effectsToCss(clip.effects, gradeFilterId(clip.id));
-}
-
-function assetById(project: ProjectDocument, id: string): Asset | undefined {
-  return project.assets.find((asset) => asset.id === id);
 }
 
 function trackById(project: ProjectDocument, id: string): Track | undefined {
@@ -1094,56 +1091,40 @@ export const Preview = memo(function Preview() {
     if (project) syncPreviewAudioAtFrame(project, playhead);
   }, [project, playhead]);
 
-  const visualClips = useMemo(() => {
-    if (!project) return [];
-    return project.timeline.clips
-      .filter((clip) => {
-        const track = trackById(project, clip.trackId);
-        if (!track || track.hidden) return false;
-        if (!['video', 'image', 'graphic'].includes(track.kind)) return false;
-        if (clip.enabled === false) return false;
-        return playhead >= clip.startFrame && playhead < clip.startFrame + clip.durationFrames;
-      })
-      .sort((a, b) => {
-        const orderA = trackById(project, a.trackId)?.order ?? 0;
-        const orderB = trackById(project, b.trackId)?.order ?? 0;
-        return orderA - orderB;
-      });
-  }, [playhead, project]);
+  // La pertenencia de cada clip a las selecciones visual/audio/ajuste y el
+  // orden por pista no cambian durante la reproducción (el documento es
+  // inmutable entre frames): `clipIndex` se construye una vez por proyecto
+  // y cada tick sólo filtra por rango de frames.
+  const clipIndex = useMemo(
+    () => (project ? buildPreviewClipIndex(project) : null),
+    [project],
+  );
 
-  const audioClips = useMemo(() => {
-    if (!project) return [];
-    return project.timeline.clips.filter((clip) => {
-      const track = trackById(project, clip.trackId);
-      if (!track || !isTrackAudible(track, project.timeline.tracks)) return false;
-      if (!['audio', 'narration'].includes(track.kind)) return false;
-      if (clip.enabled === false) return false;
-      return playhead >= clip.startFrame && playhead < clip.startFrame + clip.durationFrames;
-    });
-  }, [playhead, project]);
+  const visualClips = useMemo<PreviewClipEntry[]>(
+    () => (clipIndex ? activeAt(clipIndex.visual, playhead) : []),
+    [clipIndex, playhead],
+  );
+
+  const audioClips = useMemo<PreviewClipEntry[]>(
+    () => (clipIndex ? activeAt(clipIndex.audio, playhead) : []),
+    [clipIndex, playhead],
+  );
+
+  const adjustmentClips = useMemo<PreviewClipEntry[]>(
+    () => (clipIndex ? activeAt(clipIndex.adjustment, playhead) : []),
+    [clipIndex, playhead],
+  );
 
   const adjustmentFilter = useMemo(() => {
     if (!project || compare) return '';
-    return project.timeline.clips
-      .filter((clip): clip is Extract<Clip, { kind: 'adjustment' }> => {
-        if (clip.kind !== 'adjustment') return false;
-        if (clip.enabled === false) return false;
-        const track = trackById(project, clip.trackId);
-        if (!track || track.hidden) return false;
-        return (
-          playhead >= clip.startFrame &&
-          playhead < clip.startFrame + clip.durationFrames
-        );
+    return adjustmentClips
+      .map((entry) => {
+        const clip = entry.clip as Extract<Clip, { kind: 'adjustment' }>;
+        return effectsToCss(clip.effects, gradeFilterId(clip.id)).filter;
       })
-      .sort(
-        (a, b) =>
-          (trackById(project, a.trackId)?.order ?? 0) -
-          (trackById(project, b.trackId)?.order ?? 0),
-      )
-      .map((clip) => effectsToCss(clip.effects, gradeFilterId(clip.id)).filter)
       .filter((filter): filter is string => typeof filter === 'string' && filter.length > 0)
       .join(' ');
-  }, [compare, playhead, project]);
+  }, [adjustmentClips, compare, project]);
 
   // Defs for every grade that can be on screen. Building them here (instead of
   // inside each clip layer) keeps one <svg> per preview and lets CSS url(#id)
@@ -1170,14 +1151,14 @@ export const Preview = memo(function Preview() {
   const selection = store.state.selection;
   const selectedClip =
     selection.kind === 'clip'
-      ? (visualClips.find((clip) => clip.id === selection.id) ?? null)
+      ? (visualClips.find((entry) => entry.clip.id === selection.id)?.clip ?? null)
       : null;
 
   const usingProxy =
     project != null &&
-    visualClips.some((clip) => {
-      if (clip.source.type !== 'asset') return false;
-      const source = assetById(project, clip.source.assetId);
+    visualClips.some((entry) => {
+      if (entry.clip.source.type !== 'asset') return false;
+      const source = entry.asset;
       return Boolean(
         source && 'proxy' in source && (source as Asset & { proxy?: unknown }).proxy,
       );
@@ -1264,7 +1245,7 @@ export const Preview = memo(function Preview() {
     try {
       const result = await store.service.renderPreviewFrame({
         project,
-        clipId: target.id,
+        clipId: target.clip.id,
         frame: playhead,
         native,
       });
@@ -1577,9 +1558,8 @@ export const Preview = memo(function Preview() {
             if (id) store.setSelection({ kind: 'clip', id });
           }}
         >
-          {visualClips.map((clip) => {
-            const asset = clip.source.type === 'asset' ? assetById(project, clip.source.assetId) : undefined;
-            const track = trackById(project, clip.trackId);
+          {visualClips.map((entry) => {
+            const { clip, asset, track } = entry;
             if (clip.kind === 'video') {
               return (
                 <VideoLayer
@@ -1623,13 +1603,13 @@ export const Preview = memo(function Preview() {
             return null;
           })}
         </div>
-        {audioClips.map((clip) => {
-          const track = trackById(project, clip.trackId);
+        {audioClips.map((entry) => {
+          const { clip, asset, track } = entry;
           return (
             <AudioLayer
               key={clip.id}
               clip={clip}
-              asset={clip.source.type === 'asset' ? assetById(project, clip.source.assetId) : undefined}
+              asset={asset}
               project={project}
               playheadFrame={playhead}
               playing={playing}
