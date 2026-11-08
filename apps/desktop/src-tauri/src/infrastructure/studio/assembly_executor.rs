@@ -329,6 +329,48 @@ impl AssemblyStageExecutor {
         })
     }
 
+    /// Elige la ventana `[in, out)` de `duration` frames dentro del medio
+    /// que contiene más cortes de plano detectados (segundos → frames por
+    /// `fps`). Los candidatos son `0` y cada corte que deja entrar la
+    /// ventana completa; empates → el inicio más temprano. Sin cortes que
+    /// aporten, devuelve `(0, duration)`.
+    fn content_window(
+        scene_cuts: &[f64],
+        duration: u64,
+        media_frames: u64,
+        fps: f64,
+    ) -> (u64, u64) {
+        if scene_cuts.is_empty() || duration == 0 {
+            return (0, duration);
+        }
+        let mut cut_frames: Vec<u64> = scene_cuts
+            .iter()
+            .map(|t| (t * fps).round().max(0.0) as u64)
+            .collect();
+        cut_frames.sort_unstable();
+        cut_frames.dedup();
+        let max_start = media_frames.saturating_sub(duration);
+        let mut starts: Vec<u64> = vec![0];
+        starts.extend(cut_frames.iter().copied().filter(|c| *c <= max_start));
+        starts.sort_unstable();
+        starts.dedup();
+        let mut best: Option<(u64, usize)> = None;
+        for start in starts {
+            let end = start + duration;
+            let count = cut_frames
+                .iter()
+                .filter(|c| **c > start && **c < end)
+                .count();
+            if best.map(|(_, b)| count > b).unwrap_or(count > 0) {
+                best = Some((start, count));
+            }
+        }
+        match best {
+            Some((start, _)) if start + duration <= media_frames => (start, start + duration),
+            _ => (0, duration.min(media_frames)),
+        }
+    }
+
     fn ensure_track(doc: &mut Value, kind: &str, label: &str, next_order: &mut u64) -> String {
         let tracks = doc["timeline"]["tracks"]
             .as_array_mut()
@@ -442,6 +484,16 @@ impl AssemblyStageExecutor {
                 Self::ensure_track(&mut doc, "audio", "Producción Música", &mut next_order);
         }
 
+        let fps_num = doc["video"]["frameRate"]["num"].as_u64().unwrap_or(30) as f64;
+        let fps_den = doc["video"]["frameRate"]["den"]
+            .as_u64()
+            .unwrap_or(1)
+            .max(1) as f64;
+        let fps = if fps_den > 0.0 {
+            fps_num / fps_den
+        } else {
+            30.0
+        };
         let mut cursor = 0u64;
         let mut clip_ids = Vec::new();
         // (posición en timeline.clips, trackId, durationFrames) de clips
@@ -471,6 +523,19 @@ impl AssemblyStageExecutor {
                     .duration_frames
                     .min(scene.media_frames.unwrap_or(u64::MAX))
                     .max(1),
+            };
+            // Auto-edición por contenido: si `analyze` detectó cortes en el
+            // asset, la ventana del clip es el tramo de `duration` frames
+            // que contiene más cortes de plano (empates → el más temprano).
+            let (in_frame, out_frame) = if kind == "video" && !scene.scene_cuts.is_empty() {
+                Self::content_window(
+                    &scene.scene_cuts,
+                    duration,
+                    scene.media_frames.unwrap_or(u64::MAX),
+                    fps,
+                )
+            } else {
+                (0, duration)
             };
             let clip = match kind {
                 "image" => json!({
@@ -506,8 +571,8 @@ impl AssemblyStageExecutor {
                     "source": {
                         "type": "asset",
                         "assetId": asset_id,
-                        "inFrame": 0,
-                        "outFrame": duration
+                        "inFrame": in_frame,
+                        "outFrame": out_frame
                     }
                 }),
             };
@@ -1044,6 +1109,43 @@ mod tests {
         assert_eq!(doc2["timeline"]["clips"].as_array().unwrap().len(), 3);
         assert_eq!(doc2["captions"]["cues"].as_array().unwrap().len(), 2);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn content_window_picks_the_segment_with_most_cuts() {
+        // 30 fps, ventana de 90 frames (3 s), medio de 300 frames (10 s).
+        // Cortes en 1 s (30f), 4 s (120f), 7 s (210f), 9 s (270f).
+        // Ventana 0-90 contiene sólo el corte de 30f; ventana 120-210
+        // contiene 120f? no: (start, end) exclusivo — 120..210 contiene
+        // 210f? no. Contiene sólo... evaluemos: start=90? no es corte.
+        // Candidatos: 0 y cortes ≤ 210 (media-duration=210).
+        // start=0: cortes en (0,90) = {30} → 1
+        // start=30: (30,120) = {} → 0... 120 no es <120. → 0? también 30 excl.
+        // start=120: (120,210) = {} (210 excl) → 0? hmm 210<210 false.
+        // Mejor: start=0 con 1 corte vs empates 0 → gana (0,90)? Eso daría
+        // sólo 1 corte; start=30 da (30,120): cortes 120? no. → 0.
+        // En realidad el máximo es ambiguo; usamos un caso claro:
+        let cuts = vec![1.0, 4.0, 4.5, 7.0, 9.0];
+        // fps 30: 30f,120f,135f,210f,270f. duration=90, media=300, max_start=210.
+        // start=120: (120,210) contiene 135 → 1. start=30: (30,120)={}→0? 30 excl,120 excl → 0.
+        // start=0: (0,90)={30}→1. Empate 1 → gana el más temprano (0,90).
+        assert_eq!(
+            AssemblyStageExecutor::content_window(&cuts, 90, 300, 30.0),
+            (0, 90)
+        );
+        // Caso donde un inicio tardío gana: cortes densos al final.
+        let dense = vec![6.0, 6.5, 7.0, 7.5, 8.0];
+        // 180f,195f,210f,225f,240f; duration=90 → max_start=210.
+        // start=180: (180,270) = {195,210,225,240} → 4. start=0: (0,90)={}→0(no best).
+        assert_eq!(
+            AssemblyStageExecutor::content_window(&dense, 90, 300, 30.0),
+            (180, 270)
+        );
+        // Sin cortes útiles → default.
+        assert_eq!(
+            AssemblyStageExecutor::content_window(&[0.5], 90, 300, 30.0),
+            (0, 90)
+        );
     }
 
     /// Una escena que resuelve a un asset de AUDIO (voz generada, música)
