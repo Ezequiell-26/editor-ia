@@ -2,186 +2,162 @@
 //! functions: project persistence, media import, rendering, provider
 //! credentials and local narration.
 
-use std::process::Command;
+pub use crate::infrastructure::process::hide_console;
 
-/// Prepara un proceso externo para que **no parpadee una consola** y para que
-/// ceda CPU cuando la persona está editando o usando la IA.
-///
-/// Los hijos pesados (FFmpeg, yt-dlp, Python, PowerShell) corren en
-/// `BELOW_NORMAL_PRIORITY_CLASS`: si no hay contención usan todos los núcleos
-/// igual, pero cuando la UI o un modelo local compiten por CPU, el sistema
-/// atiende primero a la app. Toda invocación debe pasar por acá antes de
-/// `spawn()`/`output()`/`status()`.
-pub fn hide_console(command: &mut Command) {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
-        command.creation_flags(CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS);
-    }
-    #[cfg(not(windows))]
-    let _ = command;
-}
-
-/// Clips visibles que un exportador de intercambio no puede escribir.
-#[derive(Default)]
-pub(crate) struct OmittedClips {
-    pub graphic: usize,
-    pub adjustment: usize,
-    pub audio: usize,
-    pub captions: usize,
-}
-
-impl OmittedClips {
-    /// Cuenta el material visible que el exportador no escribe. `exports_audio`
-    /// distingue a OTIO, que sí incluye las pistas de audio.
-    pub(crate) fn from_project(project: &serde_json::Value, exports_audio: bool) -> Self {
-        let mut omitted = Self::default();
-        let hidden: std::collections::HashSet<&str> = project["timeline"]["tracks"]
-            .as_array()
-            .map(|tracks| {
-                tracks
-                    .iter()
-                    .filter(|track| track["hidden"].as_bool().unwrap_or(false))
-                    .filter_map(|track| track["id"].as_str())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let visible = |item: &serde_json::Value| {
-            item["enabled"].as_bool() != Some(false)
-                && !item["trackId"]
-                    .as_str()
-                    .map(|id| hidden.contains(id))
-                    .unwrap_or(false)
-        };
-        for clip in project["timeline"]["clips"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            if !visible(clip) {
-                continue;
-            }
-            match clip["kind"].as_str().unwrap_or("") {
-                "graphic" => omitted.graphic += 1,
-                "adjustment" => omitted.adjustment += 1,
-                "audio" if !exports_audio => omitted.audio += 1,
-                _ => {}
-            }
-        }
-        omitted.captions = project["captions"]["cues"]
-            .as_array()
-            .map(|cues| cues.iter().filter(|cue| visible(cue)).count())
-            .unwrap_or(0);
-        omitted
-    }
-
-    pub(crate) fn warnings(&self, target: &str) -> Vec<String> {
-        let mut warnings = Vec::new();
-        if self.graphic > 0 {
-            warnings.push(format!(
-                "{} clip(s) gráfico(s) no se exportan {target}",
-                self.graphic
-            ));
-        }
-        if self.adjustment > 0 {
-            warnings.push(format!(
-                "{} capa(s) de ajuste no se exportan {target}",
-                self.adjustment
-            ));
-        }
-        if self.captions > 0 {
-            warnings.push(format!(
-                "{} subtítulo(s) no se exportan {target}",
-                self.captions
-            ));
-        }
-        if self.audio > 0 {
-            warnings.push(format!(
-                "{} clip(s) de audio no se exportan {target}",
-                self.audio
-            ));
-        }
-        warnings
-    }
-}
-
+#[path = "domains/ai/agent.rs"]
 pub mod agent;
+#[path = "domains/media/analysis.rs"]
 pub mod analysis;
+#[path = "domains/ai/assistant.rs"]
 pub mod assistant;
+#[path = "domains/audio/audio.rs"]
 pub mod audio;
+#[path = "domains/audio/audio_providers.rs"]
 pub mod audio_providers;
+#[path = "domains/audio/audio_scopes.rs"]
 pub mod audio_scopes;
+#[path = "domains/downloader/automation.rs"]
 pub mod automation;
+#[path = "domains/system/background.rs"]
 pub mod background;
+#[path = "domains/media/best_frame.rs"]
 pub mod best_frame;
+#[path = "domains/integrations/browser_instances.rs"]
 pub mod browser_instances;
+#[path = "domains/media/capabilities.rs"]
 pub mod capabilities;
+#[path = "domains/media/color_lut.rs"]
 pub mod color_lut;
+#[path = "domains/media/convert.rs"]
 pub mod convert;
+#[path = "domains/creator/creator.rs"]
 pub mod creator;
+#[path = "domains/media/denoise.rs"]
 pub mod denoise;
+#[path = "domains/audio/dialogue.rs"]
 pub mod dialogue;
+#[path = "domains/audio/diarize.rs"]
 pub mod diarize;
+#[path = "domains/downloader/downloader.rs"]
 pub mod downloader;
+#[path = "domains/downloader/downloader_bridge.rs"]
 pub mod downloader_bridge;
+#[path = "domains/audio/dubbing.rs"]
 pub mod dubbing;
+#[path = "domains/media/edl.rs"]
 pub mod edl;
+#[path = "domains/render/export_tools.rs"]
 pub mod export_tools;
+#[path = "domains/integrations/extension.rs"]
 pub mod extension;
+#[path = "domains/media/face.rs"]
 pub mod face;
+#[path = "domains/media/fcpxml.rs"]
 pub mod fcpxml;
+#[path = "domains/projects/files.rs"]
 pub mod files;
+#[path = "domains/audio/filmcraft_scopes.rs"]
 pub mod filmcraft_scopes;
+#[path = "domains/integrations/flow_browser.rs"]
 pub mod flow_browser;
+#[path = "domains/integrations/flow_embed.rs"]
 pub mod flow_embed;
+#[path = "domains/integrations/flow_generate.rs"]
 pub mod flow_generate;
+#[path = "domains/integrations/flow_profiles.rs"]
 pub mod flow_profiles;
+#[path = "domains/media/image_sense.rs"]
 pub mod image_sense;
+#[path = "domains/media/intelligence.rs"]
 pub mod intelligence;
+#[path = "domains/audio/lip_sync.rs"]
 pub mod lip_sync;
+#[path = "domains/ai/localization.rs"]
 pub mod localization;
+#[path = "domains/render/lossless.rs"]
 pub mod lossless;
+#[path = "domains/media/lottie.rs"]
 pub mod lottie;
+#[path = "domains/audio/loudness.rs"]
 pub mod loudness;
+#[path = "domains/integrations/mcp.rs"]
 pub mod mcp;
+#[path = "domains/integrations/mcp_server.rs"]
 pub mod mcp_server;
+#[path = "domains/media/media.rs"]
 pub mod media;
+#[path = "domains/media/media_tools.rs"]
 pub mod media_tools;
+#[path = "domains/projects/memory.rs"]
 pub mod memory;
+#[path = "domains/media/models.rs"]
 pub mod models;
+#[path = "domains/ai/motion_ai.rs"]
 pub mod motion_ai;
+#[path = "domains/audio/narration.rs"]
 pub mod narration;
+#[path = "domains/integrations/obs_scenes.rs"]
 pub mod obs_scenes;
+#[path = "domains/media/otio.rs"]
 pub mod otio;
+#[path = "domains/projects/package.rs"]
 pub mod package;
+#[path = "domains/render/pipeline_profile.rs"]
 pub mod pipeline_profile;
+#[path = "domains/audio/piper.rs"]
 pub mod piper;
+#[path = "domains/integrations/plugins.rs"]
 pub mod plugins;
+#[path = "domains/media/preview_frame.rs"]
 pub mod preview_frame;
+#[path = "domains/projects/projects.rs"]
 pub mod projects;
+#[path = "domains/ai/providers.rs"]
 pub mod providers;
+#[path = "domains/media/proxies.rs"]
 pub mod proxies;
+#[path = "domains/projects/publish.rs"]
 pub mod publish;
+#[path = "domains/projects/recovery.rs"]
 pub mod recovery;
+pub mod registry;
+#[path = "domains/render/render.rs"]
 pub mod render;
+#[path = "domains/render/render_queue.rs"]
 pub mod render_queue;
+#[path = "domains/downloader/rules.rs"]
 pub mod rules;
+#[path = "domains/integrations/screen_record.rs"]
 pub mod screen_record;
+#[path = "domains/media/sharpen.rs"]
 pub mod sharpen;
+#[path = "domains/creator/shorts.rs"]
 pub mod shorts;
+#[path = "domains/creator/stickman.rs"]
 pub mod stickman;
+#[path = "domains/ai/subtitles.rs"]
 pub mod subtitles;
+#[path = "domains/creator/subtitles_pipeline.rs"]
 pub mod subtitles_pipeline;
+#[path = "domains/system/system.rs"]
 pub mod system;
+#[path = "domains/media/thumbnail.rs"]
 pub mod thumbnail;
+#[path = "domains/media/timeline_import.rs"]
 pub mod timeline_import;
+#[path = "domains/audio/transcribe.rs"]
 pub mod transcribe;
+#[path = "domains/media/upscale.rs"]
 pub mod upscale;
+#[path = "domains/projects/variants.rs"]
 pub mod variants;
+#[path = "domains/media/visuals.rs"]
 pub mod visuals;
+#[path = "domains/audio/voice_clone.rs"]
 pub mod voice_clone;
+#[path = "domains/audio/voice_isolation.rs"]
 pub mod voice_isolation;
+#[path = "domains/integrations/vpn.rs"]
 pub mod vpn;
+#[path = "domains/downloader/youtube_analytics.rs"]
 pub mod youtube_analytics;

@@ -2,6 +2,10 @@
 //! TypeScript worker remains the independently tested wire contract.
 
 pub mod effect_recipes;
+pub mod export_tools;
 pub mod ffmpeg;
+pub mod lifecycle;
+pub mod lossless;
 pub mod motion;
+pub mod queue;
 pub mod subtitles;

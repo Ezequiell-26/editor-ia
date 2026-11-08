@@ -1,0 +1,439 @@
+//! Exportación OpenTimelineIO (`.otio` JSON) — builders puros de dominio.
+
+use serde_json::{json, Value};
+
+use crate::projects::service::{ProjectError, ProjectErrorCode};
+
+use super::OmittedClips;
+
+fn time(value: u64, rate: f64) -> Value {
+    json!({ "OTIO_SCHEMA": "RationalTime.1", "rate": rate, "value": value })
+}
+
+fn range(start: u64, duration: u64, rate: f64) -> Value {
+    json!({
+        "OTIO_SCHEMA": "TimeRange.1",
+        "start_time": time(start, rate),
+        "duration": time(duration, rate)
+    })
+}
+
+fn url(path: &str) -> String {
+    format!("file:///{}", path.replace('\\', "/"))
+}
+
+fn track_clips(project: &Value, track: &Value, rate: f64) -> (Vec<Value>, usize, Vec<String>) {
+    let assets = project["assets"].as_array().cloned().unwrap_or_default();
+    let mut clips: Vec<Value> = project["timeline"]["clips"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|clip| clip["trackId"].as_str() == track["id"].as_str())
+        .filter(|clip| clip["enabled"].as_bool() != Some(false))
+        .filter(|clip| {
+            !matches!(
+                clip["kind"].as_str().unwrap_or(""),
+                "graphic" | "adjustment"
+            )
+        })
+        .collect();
+    clips.sort_by_key(|clip| clip["startFrame"].as_u64().unwrap_or(0));
+    let mut children = Vec::new();
+    let mut cursor = 0u64;
+    let mut count = 0usize;
+    let mut warnings = Vec::new();
+    for clip in clips {
+        let start = clip["startFrame"].as_u64().unwrap_or(0);
+        let duration = clip["durationFrames"].as_u64().unwrap_or(0);
+        if duration == 0 {
+            continue;
+        }
+        if start > cursor {
+            children.push(json!({
+                "OTIO_SCHEMA": "Gap.1",
+                "name": "Gap",
+                "source_range": range(0, start - cursor, rate)
+            }));
+        }
+        let asset = clip["source"]["assetId"]
+            .as_str()
+            .and_then(|id| assets.iter().find(|asset| asset["id"].as_str() == Some(id)));
+        let relative = asset
+            .and_then(|asset| asset["source"]["path"].as_str())
+            .filter(|path| !path.trim().is_empty());
+        let name = clip["label"].as_str().unwrap_or("Clip");
+        let source_in = clip["source"]["inFrame"].as_u64().unwrap_or(0);
+        // `file:///` sin ruta no lo abre ninguna app: OTIO tiene
+        // MissingReference justamente para clips cuyo medio no se resuelve.
+        let media_reference = match relative {
+            Some(relative) => json!({
+                "OTIO_SCHEMA": "ExternalReference.1",
+                "target_url": url(relative),
+                "metadata": { "editor_ia": { "relative_path": relative } }
+            }),
+            None => {
+                warnings.push(format!("{name}: no tiene asset; referencia faltante"));
+                json!({ "OTIO_SCHEMA": "MissingReference.1" })
+            }
+        };
+        let speed_num = clip["speed"]["num"].as_u64().unwrap_or(1).max(1) as u32;
+        let speed_den = clip["speed"]["den"].as_u64().unwrap_or(1).max(1) as u32;
+        let playback = speed_num as f64 / speed_den.max(1) as f64;
+        // `source_range` va en tiempo de medio: un clip a 2× consume el doble.
+        let media_duration = ((duration as f64) * playback).round().max(1.0) as u64;
+        let mut clip_json = json!({
+            "OTIO_SCHEMA": "Clip.2",
+            "name": name,
+            "source_range": range(source_in, media_duration, rate),
+            "media_reference": media_reference,
+            "metadata": { "editor_ia": { "clip_id": clip["id"] } }
+        });
+        if speed_num != speed_den {
+            // `LinearTimeWarp` es el retime estándar de OTIO y el importador
+            // propio ya lo lee: el round-trip conserva la velocidad.
+            clip_json["effects"] = json!([{
+                "OTIO_SCHEMA": "LinearTimeWarp.1",
+                "name": "Speed",
+                "effect_name": "LinearTimeWarp",
+                "time_scalar": playback
+            }]);
+            clip_json["metadata"]["editor_ia"]["speed"] = clip["speed"].clone();
+        }
+        if clip["reverse"].as_bool().unwrap_or(false) {
+            warnings.push(format!("{name}: el reverse no se exporta a OTIO"));
+        }
+        if clip.get("transitionIn").is_some() {
+            warnings.push(format!("{name}: la transición no se exporta a OTIO"));
+        }
+        children.push(clip_json);
+        cursor = start + duration;
+        count += 1;
+    }
+    (children, count, warnings)
+}
+
+pub fn build_otio(project: &Value) -> Result<(String, usize, usize, Vec<String>), ProjectError> {
+    let fps = {
+        let num = project["video"]["frameRate"]["num"]
+            .as_f64()
+            .unwrap_or(30.0);
+        let den = project["video"]["frameRate"]["den"].as_f64().unwrap_or(1.0);
+        (num / den.max(1.0)).max(1.0)
+    };
+    let mut tracks = Vec::new();
+    let mut track_count = 0usize;
+    let mut clip_count = 0usize;
+    let mut warnings = Vec::new();
+    for track in project["timeline"]["tracks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+    {
+        let kind = track["kind"].as_str().unwrap_or("video");
+        if !matches!(kind, "video" | "audio" | "narration")
+            || track["hidden"].as_bool().unwrap_or(false)
+        {
+            continue;
+        }
+        let (children, count, mut notes) = track_clips(&project, &track, fps);
+        warnings.append(&mut notes);
+        clip_count += count;
+        track_count += 1;
+        tracks.push(json!({
+            "OTIO_SCHEMA": "Track.1",
+            "name": track["name"].as_str().unwrap_or("Track"),
+            "kind": if kind == "video" { "Video" } else { "Audio" },
+            "children": children
+        }));
+    }
+    warnings.extend(OmittedClips::from_project(&project, true).warnings("a OTIO"));
+    let timeline = json!({
+        "OTIO_SCHEMA": "Timeline.1",
+        "name": project["name"].as_str().unwrap_or("Timeline"),
+        "global_start_time": time(0, fps),
+        "tracks": { "OTIO_SCHEMA": "Stack.1", "name": "tracks", "children": tracks },
+        "metadata": { "editor_ia": { "fps": fps } }
+    });
+    let text = serde_json::to_string_pretty(&timeline).map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo serializar OTIO: {error}").as_str(),
+        )
+    })?;
+    let text = format!("{text}\n");
+    Ok((text, track_count, clip_count, warnings))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::commands::otio::{export_otio, OtioRequest};
+    use uuid::Uuid;
+
+    #[test]
+    fn otio_has_timeline_track_and_gap() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [{ "id": "c", "kind": "video", "label": "Toma", "trackId": "v1",
+                    "startFrame": 30, "durationFrames": 60,
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 60 },
+                    "speed": { "num": 1, "den": 1 } }]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_otio(OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("otio");
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert!(text.contains("Timeline.1"));
+        assert!(text.contains("Gap.1"));
+        assert!(text.contains("Toma"));
+        assert_eq!(result.clips, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn otio_skips_disabled_clips() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [
+                    { "id": "off", "kind": "video", "label": "Apagado", "trackId": "v1",
+                      "enabled": false, "startFrame": 0, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                    { "id": "on", "kind": "video", "label": "Activo", "trackId": "v1",
+                      "enabled": true, "startFrame": 30, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 30, "outFrame": 60 } }
+                ]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_otio(OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("otio");
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert_eq!(result.clips, 1);
+        assert!(text.contains("Activo"), "{text}");
+        assert!(!text.contains("Apagado"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn otio_warns_about_speed_reverse_and_transitions() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [{
+                    "id": "c", "kind": "video", "label": "Rápida", "trackId": "v1",
+                    "startFrame": 0, "durationFrames": 30,
+                    "speed": { "num": 2, "den": 1 }, "reverse": true,
+                    "transitionIn": { "type": "dissolve", "frames": 6 },
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 60 }
+                }]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_otio(OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("otio");
+        assert_eq!(result.clips, 1);
+        assert_eq!(result.warnings.len(), 2, "{:?}", result.warnings);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .all(|warning| !warning.contains("velocidad")),
+            "la velocidad ya se exporta: {:?}",
+            result.warnings
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("reverse")),
+            "{:?}",
+            result.warnings
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("transición")),
+            "{:?}",
+            result.warnings
+        );
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert!(
+            text.contains("\"OTIO_SCHEMA\": \"LinearTimeWarp.1\"")
+                && text.contains("\"time_scalar\": 2.0"),
+            "falta el time warp: {text}"
+        );
+        // 30 cuadros de timeline a 2× consumen 60 cuadros de medio.
+        assert!(
+            text.contains("\"duration\": {\n            \"OTIO_SCHEMA\": \"RationalTime.1\",\n            \"rate\": 30.0,\n            \"value\": 60")
+                || text.contains("\"value\": 60"),
+            "el source_range debe ir en tiempo de medio: {text}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn otio_marks_missing_assets_as_missing_reference() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [{
+                    "id": "c", "kind": "video", "label": "Huérfana", "trackId": "v1",
+                    "startFrame": 0, "durationFrames": 30,
+                    "source": { "type": "asset", "assetId": "missing", "inFrame": 0, "outFrame": 30 }
+                }]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_otio(OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("otio");
+        assert_eq!(result.clips, 1);
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert!(text.contains("MissingReference.1"), "{text}");
+        assert!(!text.contains("file:///"), "media rota en el OTIO: {text}");
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("Huérfana") && warning.contains("asset")),
+            "{:?}",
+            result.warnings
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn otio_warns_about_graphics_and_adjustments() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "captions": { "cues": [
+                { "id": "cue1", "trackId": "c1", "startFrame": 0, "endFrame": 30, "text": "Hola" },
+                { "id": "cue2", "trackId": "g2", "startFrame": 0, "endFrame": 30, "text": "Oculto" }
+            ] },
+            "timeline": {
+                "tracks": [
+                    { "id": "v1", "name": "V1", "kind": "video", "hidden": false },
+                    { "id": "g1", "name": "G", "kind": "graphic", "hidden": false },
+                    { "id": "g2", "name": "G oculta", "kind": "graphic", "hidden": true },
+                    { "id": "c1", "name": "C", "kind": "caption", "hidden": false }
+                ],
+                "clips": [
+                    { "id": "v", "kind": "video", "label": "Toma", "trackId": "v1",
+                      "startFrame": 0, "durationFrames": 30,
+                      "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 } },
+                    { "id": "g", "kind": "graphic", "label": "Título", "trackId": "g1",
+                      "startFrame": 0, "durationFrames": 30, "source": { "type": "graphic" } },
+                    { "id": "adj", "kind": "adjustment", "label": "Look", "trackId": "v1",
+                      "startFrame": 0, "durationFrames": 30 },
+                    { "id": "ghost", "kind": "graphic", "label": "Oculto", "trackId": "g2",
+                      "startFrame": 0, "durationFrames": 30, "source": { "type": "graphic" } }
+                ]
+            }
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_otio(OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("otio");
+        assert_eq!(result.clips, 1);
+        assert_eq!(result.warnings.len(), 3, "{:?}", result.warnings);
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("1 clip(s) gráfico(s)")),
+            "{:?}",
+            result.warnings
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("1 capa(s) de ajuste")),
+            "{:?}",
+            result.warnings
+        );
+        assert!(
+            result
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("1 subtítulo(s)")),
+            "{:?}",
+            result.warnings
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn otio_expands_compound_clips() {
+        let project = serde_json::json!({
+            "name": "Demo",
+            "video": { "frameRate": { "num": 30, "den": 1 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": {
+                "tracks": [{ "id": "v1", "name": "V1", "kind": "video", "hidden": false }],
+                "clips": [{
+                    "id": "outer", "kind": "compound", "label": "Grupo", "trackId": "v1",
+                    "startFrame": 10, "durationFrames": 20,
+                    "source": { "type": "compound", "compoundId": "c1" }
+                }]
+            },
+            "compounds": [{
+                "id": "c1", "label": "Grupo", "durationFrames": 20,
+                "clips": [{
+                    "id": "inner", "kind": "video", "label": "Toma", "trackId": "v1",
+                    "startFrame": 0, "durationFrames": 20,
+                    "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 20 },
+                    "speed": { "num": 1, "den": 1 }
+                }]
+            }]
+        });
+        let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let result = export_otio(OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("otio");
+        let text = std::fs::read_to_string(&result.path).expect("leer");
+        assert_eq!(result.clips, 1);
+        assert!(text.contains("\"clip_id\": \"inner\""), "{text}");
+        assert!(text.contains("media/toma.mp4"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

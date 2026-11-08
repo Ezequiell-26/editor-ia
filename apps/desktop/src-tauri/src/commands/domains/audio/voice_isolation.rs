@@ -1,0 +1,417 @@
+//! Aislamiento de voz con Demucs v4 (modelo local de Facebook AI Research).
+//!
+//! El wrapper Python `scripts/ai-voice-isolation/demucs-wrapper.py` se embebe
+//! en el binario (`include_str!`) y se materializa en `cache_dir` al usarlo,
+//! igual que `transcribe_faster.py`: funciona en la app instalada sin depender
+//! del árbol fuente. Requiere un Python con `torch`, `torchaudio`, `demucs` y
+//! `soundfile`; el modelo (~2 GB) se descarga una vez en `~/.cache/demucs/`.
+//!
+//! Dos comandos:
+//! - `voice_isolate_media`: procesa un archivo arbitrario del disco y devuelve
+//!   la ruta del stem `vocals.wav` (uso desde MCP / herramientas).
+//! - `prepare_voice_isolation`: procesa el material de un asset del proyecto y
+//!   deja el stem en `<root>/media/isolation/<assetId>/vocals.wav`, que es la
+//!   ruta fija que consume el render cuando `clip.audio.voiceIsolation.enabled`.
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::OnceLock;
+
+use serde::Serialize;
+use tauri::State;
+
+use crate::commands::system::resolve_tools;
+use crate::media::resolve_inside_root;
+use crate::projects::service::{self, ProjectError, ProjectErrorCode};
+use crate::state::AppState;
+
+const SCRIPT: &str =
+    include_str!("../../../../../../../scripts/ai-voice-isolation/demucs-wrapper.py");
+const ISOLATION_DIR: &str = "media/isolation";
+const INSTALL_HINT: &str =
+    "instalá el motor con `python -m pip install torch torchaudio demucs soundfile` y reiniciá Olyvia";
+
+/// Estado medido del motor: `python` sólo se completa cuando el intérprete
+/// puede `import demucs` de verdad (un `python --version` no alcanza).
+#[derive(Debug, Clone, Serialize)]
+pub struct VoiceIsolationStatus {
+    pub available: bool,
+    pub python: Option<PathBuf>,
+    pub reason: Option<String>,
+}
+
+fn command_succeeds(program: &Path, args: &[&str]) -> bool {
+    Command::new(program)
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn real_probe(python: &Path) -> bool {
+    if !command_succeeds(python, &["--version"]) {
+        return false;
+    }
+    command_succeeds(python, &["-c", "import demucs, soundfile, torch"])
+}
+
+fn status() -> &'static VoiceIsolationStatus {
+    static STATUS: OnceLock<VoiceIsolationStatus> = OnceLock::new();
+    STATUS.get_or_init(|| {
+        let env_python = std::env::var_os("EDITORIA_DEMUCS_PYTHON")
+            .map(PathBuf::from)
+            .filter(|path| path.is_file());
+        let candidates: Vec<PathBuf> = ["python", "python3"].iter().map(PathBuf::from).collect();
+        let mut found = env_python;
+        if found.is_none() {
+            found = candidates.into_iter().find(|path| real_probe(path));
+        } else if let Some(path) = &found {
+            if !real_probe(path) {
+                found = None;
+            }
+        }
+        match found {
+            Some(python) => VoiceIsolationStatus {
+                available: true,
+                python: Some(python),
+                reason: None,
+            },
+            None => VoiceIsolationStatus {
+                available: false,
+                python: None,
+                reason: Some(format!("no hay un Python con demucs; {INSTALL_HINT}")),
+            },
+        }
+    })
+}
+
+/// Estado del motor para la UI: permite deshabilitar la función con el motivo.
+#[tauri::command]
+pub fn voice_isolation_status() -> VoiceIsolationStatus {
+    status().clone()
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VoiceIsolationOutcome {
+    pub vocals_path: PathBuf,
+    pub accompaniment_path: Option<PathBuf>,
+    pub duration_seconds: f64,
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub processing_time_ms: u64,
+    /// true cuando se reutilizó un stem ya generado (no corrió el modelo).
+    pub cached: bool,
+}
+
+fn invalid(message: &str) -> ProjectError {
+    ProjectError::message(ProjectErrorCode::InvalidProject, message)
+}
+
+fn unavailable(reason: Option<String>) -> ProjectError {
+    ProjectError::message(
+        ProjectErrorCode::ProviderUnavailable,
+        reason
+            .as_deref()
+            .unwrap_or("la isolación de voz no está disponible"),
+    )
+}
+
+fn validate_quality(quality: Option<&str>) -> Result<&'static str, ProjectError> {
+    match quality.unwrap_or("medium") {
+        "low" => Ok("low"),
+        "medium" => Ok("medium"),
+        "high" => Ok("high"),
+        "best" => Ok("best"),
+        _ => Err(invalid("la calidad debe ser low, medium, high o best")),
+    }
+}
+
+fn validate_model(model: Option<&str>) -> Result<String, ProjectError> {
+    let model = model.unwrap_or("htdemucs");
+    if !model
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(invalid("el nombre del modelo no es válido"));
+    }
+    Ok(model.to_owned())
+}
+
+/// Lanza el wrapper Python y parsea el JSON de resultado.
+async fn run_isolation(
+    state: &AppState,
+    input: &Path,
+    output_dir: &Path,
+    model: &str,
+    quality: &str,
+) -> Result<VoiceIsolationOutcome, ProjectError> {
+    let status = status();
+    let Some(python) = status.python.clone() else {
+        return Err(unavailable(status.reason.clone()));
+    };
+    let settings = state.settings_snapshot()?;
+    let (ffmpeg, _, _) = resolve_tools(&settings);
+    let ffmpeg_arg = ffmpeg
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "ffmpeg".to_owned());
+
+    let script = state.cache_dir.join("demucs-wrapper.py");
+    if let Err(error) = std::fs::write(&script, SCRIPT) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo preparar el script de isolación: {error}").as_str(),
+        ));
+    }
+    std::fs::create_dir_all(output_dir).map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("no se pudo crear el directorio de salida: {error}").as_str(),
+        )
+    })?;
+
+    let mut command = Command::new(&python);
+    command
+        .arg(&script)
+        .arg("--input")
+        .arg(input)
+        .arg("--output-dir")
+        .arg(output_dir)
+        .arg("--ffmpeg")
+        .arg(&ffmpeg_arg)
+        .arg("--mode")
+        .arg("isolate")
+        .arg("--model")
+        .arg(model)
+        .arg("--quality")
+        .arg(quality)
+        .arg("--device")
+        .arg("auto")
+        .arg("--stdout-json");
+
+    let output = tauri::async_runtime::spawn_blocking(move || command.output())
+        .await
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo lanzar el aislador de voz: {error}").as_str(),
+            )
+        })?
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo ejecutar el aislador de voz: {error}").as_str(),
+            )
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: String = stderr
+            .lines()
+            .rev()
+            .take(8)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderRejected,
+            format!("el aislador de voz falló: {}", tail.trim()).as_str(),
+        ));
+    }
+
+    let json_str = String::from_utf8(output.stdout).map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            format!("salida inválida del aislador: {error}").as_str(),
+        )
+    })?;
+    let raw: serde_json::Value = serde_json::from_str(&json_str).map_err(|error| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            format!("JSON inválido del aislador: {error}").as_str(),
+        )
+    })?;
+    if let Some(error) = raw.get("error").and_then(|value| value.as_str()) {
+        return Err(ProjectError::message(
+            ProjectErrorCode::ProviderRejected,
+            error,
+        ));
+    }
+    let files = raw
+        .get("output_files")
+        .ok_or_else(|| invalid("la respuesta del aislador no trae output_files"))?;
+    let vocals = files
+        .get("vocals")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| invalid("la respuesta del aislador no trae el stem vocals"))?;
+    let accompaniment = files
+        .get("accompaniment")
+        .and_then(|value| value.as_str())
+        .map(PathBuf::from);
+
+    Ok(VoiceIsolationOutcome {
+        vocals_path: PathBuf::from(vocals),
+        accompaniment_path: accompaniment,
+        duration_seconds: raw
+            .get("duration_seconds")
+            .and_then(|value| value.as_f64())
+            .unwrap_or(0.0),
+        sample_rate: raw
+            .get("sample_rate")
+            .and_then(|value| value.as_u64())
+            .map(|value| value as u32)
+            .unwrap_or(44_100),
+        channels: raw
+            .get("channels")
+            .and_then(|value| value.as_u64())
+            .map(|value| value as u32)
+            .unwrap_or(1),
+        processing_time_ms: raw
+            .get("processing_time_ms")
+            .and_then(|value| value.as_u64())
+            .unwrap_or(0),
+        cached: false,
+    })
+}
+
+/// Aísla la voz de un archivo de audio/video en disco y devuelve la ruta del
+/// stem `vocals.wav` más los metadatos del procesamiento.
+#[tauri::command]
+pub async fn voice_isolate_media(
+    state: State<'_, AppState>,
+    input_path: String,
+    model: Option<String>,
+    quality: Option<String>,
+) -> Result<VoiceIsolationOutcome, ProjectError> {
+    let input = PathBuf::from(&input_path);
+    if !input.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el archivo de audio no está en disco",
+        ));
+    }
+    let quality = validate_quality(quality.as_deref())?;
+    let model = validate_model(model.as_deref())?;
+    let output_dir = state
+        .cache_dir
+        .join("voice-isolation")
+        .join(uuid::Uuid::new_v4().to_string());
+    run_isolation(&state, &input, &output_dir, &model, quality).await
+}
+
+/// Resuelve el asset del proyecto abierto y devuelve (root, source path).
+fn resolve_project_asset(
+    state: &AppState,
+    asset_id: &str,
+) -> Result<(PathBuf, PathBuf), ProjectError> {
+    let session = state.require_session()?;
+    let opened = service::open_project(&session.path)?;
+    let asset = opened.project["assets"]
+        .as_array()
+        .and_then(|assets| {
+            assets
+                .iter()
+                .find(|asset| asset["id"].as_str() == Some(asset_id))
+        })
+        .ok_or_else(|| {
+            ProjectError::message(
+                ProjectErrorCode::NotFound,
+                "el medio no está en el proyecto",
+            )
+        })?;
+    let kind = asset["kind"].as_str().unwrap_or("");
+    if kind != "video" && kind != "audio" {
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "la isolación de voz sólo aplica a materiales de audio o video",
+        ));
+    }
+    let relative = asset["source"]["path"].as_str().unwrap_or("");
+    let source = resolve_inside_root(&session.root, relative)?;
+    if !source.is_file() {
+        return Err(ProjectError::message(
+            ProjectErrorCode::NotFound,
+            "el material del proyecto no está en disco",
+        ));
+    }
+    Ok((session.root, source))
+}
+
+/// Stem cacheado de un asset: `<root>/media/isolation/<assetId>/vocals.wav`.
+/// Es la ruta fija que el render consulta cuando el clip tiene
+/// `audio.voiceIsolation.enabled`.
+pub fn isolation_stem_path(root: &Path, asset_id: &str) -> PathBuf {
+    root.join(ISOLATION_DIR.replace('/', "\\"))
+        .join(asset_id)
+        .join("vocals.wav")
+}
+
+/// Genera (o reutiliza) el stem de voz de un asset del proyecto en la ruta
+/// fija que consume el render. Con `force` regenera aunque ya exista.
+#[tauri::command]
+pub async fn prepare_voice_isolation(
+    state: State<'_, AppState>,
+    asset_id: String,
+    quality: Option<String>,
+    force: Option<bool>,
+) -> Result<VoiceIsolationOutcome, ProjectError> {
+    if asset_id.is_empty()
+        || !asset_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Err(invalid("el id del material no es válido"));
+    }
+    let (root, source) = resolve_project_asset(&state, &asset_id)?;
+    let output_dir = isolation_stem_path(&root, &asset_id)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.join(ISOLATION_DIR.replace('/', "\\")).join(&asset_id));
+    let vocals = isolation_stem_path(&root, &asset_id);
+    if force != Some(true) && vocals.is_file() {
+        return Ok(VoiceIsolationOutcome {
+            vocals_path: vocals,
+            accompaniment_path: output_dir.join("accompaniment.wav").into(),
+            duration_seconds: 0.0,
+            sample_rate: 44_100,
+            channels: 2,
+            processing_time_ms: 0,
+            cached: true,
+        });
+    }
+    let quality = validate_quality(quality.as_deref())?;
+    let model = "htdemucs".to_owned();
+    let mut outcome = run_isolation(&state, &source, &output_dir, &model, quality).await?;
+    outcome.vocals_path = vocals;
+    outcome.accompaniment_path = Some(output_dir.join("accompaniment.wav"));
+    Ok(outcome)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_reports_unavailable_without_demucs() {
+        // En CI no hay demucs: el estado debe ser false con motivo, nunca panic.
+        let status = status();
+        assert!(!status.available || status.python.is_some());
+    }
+
+    #[test]
+    fn isolation_stem_path_is_deterministic() {
+        let root = Path::new("D:\\proyecto");
+        let stem = isolation_stem_path(root, "asset-123");
+        assert!(stem.ends_with("media\\isolation\\asset-123\\vocals.wav"));
+    }
+
+    #[test]
+    fn validate_quality_rejects_unknown() {
+        assert!(validate_quality(Some("ultra")).is_err());
+        assert_eq!(validate_quality(None).unwrap(), "medium");
+        assert_eq!(validate_quality(Some("best")).unwrap(), "best");
+    }
+}

@@ -19,6 +19,15 @@ use uuid::Uuid;
 
 use crate::projects::service::{now_rfc3339, ProjectError, ProjectErrorCode};
 
+pub mod analysis;
+pub mod conversion;
+pub mod folder;
+pub mod localized_subtitle;
+pub mod proxy;
+pub mod subtitle_file;
+pub mod timeline_export;
+pub mod timeline_import;
+
 pub const MAX_IMPORT_FILES: usize = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

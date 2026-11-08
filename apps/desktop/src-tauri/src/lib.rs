@@ -7,8 +7,13 @@
 
 use tauri::{Emitter, Listener, Manager};
 
+pub mod ai;
+pub mod application;
 pub mod commands;
+pub mod infrastructure;
+pub mod mcp;
 pub mod media;
+pub mod ports;
 pub mod projects;
 pub mod render;
 pub mod state;
@@ -219,354 +224,119 @@ pub fn run() {
     if !claim_single_instance() {
         return;
     }
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
-        .on_page_load(|window, _payload| {
-            maybe_reveal_after_page_load(window.label());
-        })
-        .on_window_event(|window, event| {
-            if window.label() != "main" {
-                return;
-            }
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if !QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
-                    api.prevent_close();
-                    let _ = window.hide();
+    let app = crate::commands::registry::register(
+        tauri::Builder::default()
+            .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_notification::init())
+            .on_page_load(|window, _payload| {
+                maybe_reveal_after_page_load(window.label());
+            })
+            .on_window_event(|window, event| {
+                if window.label() != "main" {
+                    return;
                 }
-            }
-        })
-        .setup(|app| {
-            let handle = app.handle().clone();
-            setup_tray(app)?;
-            if BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
-                hide_splash_for_background(app);
-            }
-
-            // Cargar estado central (sincrónico para dependencias)
-            let state = state::AppState::load(app.handle());
-            app.manage(state);
-
-            if std::env::args().any(|arg| arg == "--test-notification") {
-                use tauri_plugin_notification::NotificationExt;
-                let result = app
-                    .notification()
-                    .builder()
-                    .title("Olyvia")
-                    .body("Notificación de prueba desde el descargador.")
-                    .show();
-                let marker = std::env::temp_dir().join("olyvia-notification-test.txt");
-                let _ = std::fs::write(marker, if result.is_ok() { "ok" } else { "error" });
-            }
-
-            // Iniciar puente de descarga si está disponible
-            if let Some(runtime) = commands::downloader_bridge::start(handle.clone()) {
-                if let Ok(mut slot) = app.state::<state::AppState>().downloader_bridge.lock() {
-                    *slot = Some(runtime);
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    if !QUIT_REQUESTED.load(std::sync::atomic::Ordering::SeqCst) {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
                 }
-            }
-
-            // Hilo de progreso del splash: avance realista y visible estilo DaVinci NLE
-            // durante la ventana de arranque (MIN_SPLASH_MS = 4000ms)
-            let splash_handle = handle.clone();
-            std::thread::spawn(move || {
-                let steps: [(&str, u32, u64); 6] = [
-                    ("Inicializando subsistemas del motor de video…", 15, 220),
-                    (
-                        "Detectando aceleración de hardware y decodificadores GPU…",
-                        32,
-                        520,
-                    ),
-                    (
-                        "Cargando preferencias, atajos y configuración NLE…",
-                        52,
-                        560,
-                    ),
-                    (
-                        "Iniciando puente de descarga y servicios en segundo plano…",
-                        70,
-                        560,
-                    ),
-                    (
-                        "Comprobando catálogo de proyectos y medios locales…",
-                        88,
-                        560,
-                    ),
-                    ("Estudio de edición listo.", 100, 480),
-                ];
-
-                for (idx, (msg, pct, delay)) in steps.iter().enumerate() {
-                    std::thread::sleep(std::time::Duration::from_millis(*delay));
-                    emit_splash_progress(
-                        &splash_handle,
-                        (idx + 1) as u32,
-                        steps.len() as u32,
-                        msg,
-                        *pct,
-                    );
+            })
+            .setup(|app| {
+                let handle = app.handle().clone();
+                setup_tray(app)?;
+                if BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
+                    hide_splash_for_background(app);
                 }
-            });
 
-            reveal_after_ready(&handle);
+                // Cargar estado central (sincrónico para dependencias)
+                let state = state::AppState::load(app.handle());
+                app.manage(state);
 
-            // Hook de verificación: EDITORIA_OPEN_EMBED=1 abre el navegador
-            // embebido al arrancar (testing manual/automatizado, no UI).
-            if std::env::var("EDITORIA_OPEN_EMBED").is_ok() {
-                let embed_handle = handle.clone();
+                if std::env::args().any(|arg| arg == "--test-notification") {
+                    use tauri_plugin_notification::NotificationExt;
+                    let result = app
+                        .notification()
+                        .builder()
+                        .title("Olyvia")
+                        .body("Notificación de prueba desde el descargador.")
+                        .show();
+                    let marker = std::env::temp_dir().join("olyvia-notification-test.txt");
+                    let _ = std::fs::write(marker, if result.is_ok() { "ok" } else { "error" });
+                }
+
+                // Iniciar puente de descarga si está disponible
+                if let Some(runtime) = commands::downloader_bridge::start(handle.clone()) {
+                    if let Ok(mut slot) = app.state::<state::AppState>().downloader_bridge.lock() {
+                        *slot = Some(runtime);
+                    }
+                }
+
+                // Hilo de progreso del splash: avance realista y visible estilo DaVinci NLE
+                // durante la ventana de arranque (MIN_SPLASH_MS = 4000ms)
+                let splash_handle = handle.clone();
                 std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_secs(3));
-                    let url = std::env::var("EDITORIA_OPEN_EMBED_URL").ok();
-                    // Las ventanas WebView2 sólo se crean en el hilo principal.
-                    let inner = embed_handle.clone();
-                    let marker = std::env::temp_dir().join("olyvia-embed-test.txt");
-                    let _ = embed_handle.run_on_main_thread(move || {
-                        let result = commands::flow_embed::flow_embed_open(inner, url);
-                        let _ = std::fs::write(&marker, format!("{result:?}"));
-                    });
+                    let steps: [(&str, u32, u64); 6] = [
+                        ("Inicializando subsistemas del motor de video…", 15, 220),
+                        (
+                            "Detectando aceleración de hardware y decodificadores GPU…",
+                            32,
+                            520,
+                        ),
+                        (
+                            "Cargando preferencias, atajos y configuración NLE…",
+                            52,
+                            560,
+                        ),
+                        (
+                            "Iniciando puente de descarga y servicios en segundo plano…",
+                            70,
+                            560,
+                        ),
+                        (
+                            "Comprobando catálogo de proyectos y medios locales…",
+                            88,
+                            560,
+                        ),
+                        ("Estudio de edición listo.", 100, 480),
+                    ];
+
+                    for (idx, (msg, pct, delay)) in steps.iter().enumerate() {
+                        std::thread::sleep(std::time::Duration::from_millis(*delay));
+                        emit_splash_progress(
+                            &splash_handle,
+                            (idx + 1) as u32,
+                            steps.len() as u32,
+                            msg,
+                            *pct,
+                        );
+                    }
                 });
-            }
-            Ok(())
-        })
-        .invoke_handler(tauri::generate_handler![
-            commands::projects::create_project,
-            commands::projects::open_project,
-            commands::projects::open_project_at,
-            commands::projects::adopt_project,
-            commands::projects::save_project,
-            commands::projects::save_project_as,
-            commands::projects::close_project,
-            commands::projects::recent_project_thumbnail,
-            commands::media::import_assets,
-            commands::media::import_media_paths,
-            commands::media::list_media_folder,
-            commands::media::import_lut,
-            commands::subtitles_pipeline::subtitles_pipeline,
-            commands::subtitles::choose_subtitle_file,
-            commands::media::extract_freeze_frame,
-            commands::media::create_video_proxy,
-            commands::media::sample_asset_color,
-            commands::media::media_thumbnail,
-            commands::media::check_asset_files,
-            commands::media::choose_image_file,
-            commands::media::choose_video_file,
-            commands::media::choose_audio_file,
-            commands::models::list_models,
-            commands::models::download_model,
-            commands::models::delete_model,
-            commands::capabilities::list_capabilities,
-            commands::background::remove_background,
-            commands::background::remove_background_asset,
-            commands::lottie::write_alpha_frames,
-            commands::lottie::alpha_frames_to_asset,
-            commands::lottie::discard_alpha_frames,
-            commands::upscale::upscale_image,
-            commands::upscale::upscale_video,
-            commands::analysis::detect_scenes,
-            commands::analysis::analyze_stabilization,
-            commands::intelligence::analyze_media,
-            commands::image_sense::analyze_images,
-            commands::image_sense::analyze_media_frames,
-            commands::convert::convert_media,
-            commands::convert::convert_media_batch,
-            commands::convert::compress_media,
-            commands::convert::compress_any_file,
-            commands::convert::probe_any_file,
-            commands::denoise::denoise_media,
-            commands::sharpen::sharpen_media,
-            commands::providers::generate_video_effect,
-            commands::motion_ai::generate_motion,
-            commands::fcpxml::export_fcpxml,
-            commands::otio::export_otio,
-            commands::edl::export_edl,
-            commands::timeline_import::choose_timeline_file,
-            commands::timeline_import::import_timeline,
-            commands::color_lut::export_look_lut,
-            commands::filmcraft_scopes::analyze_scopes_frame,
-            commands::preview_frame::render_preview_frame,
-            commands::best_frame::pick_thumbnail_frames,
-            commands::dialogue::enhance_dialogue,
-            commands::thumbnail::save_thumbnail,
-            commands::convert::measure_vmaf,
-            commands::media_tools::merge_videos,
-            commands::media_tools::trim_video,
-            commands::media_tools::watermark_video,
-            commands::media_tools::set_metadata,
-            commands::media_tools::extract_subtitles,
-            commands::audio::audio_peaks,
-            commands::audio::audio_peaks_path,
-            commands::loudness::analyze_mix_loudness,
-            commands::loudness::measure_file_loudness,
-            commands::diarize::get_diarize_provider,
-            commands::diarize::save_diarize_provider,
-            commands::diarize::diarize_audio,
-            background_start_mode,
-            commands::mcp_server::start_mcp_server,
-            commands::mcp_server::mcp_server_status,
-            commands::mcp_server::mcp_respond,
-            commands::mcp_server::mcp_detect_clients,
-            commands::mcp_server::mcp_server_autoconnect,
-            commands::system::set_tool_paths,
-            commands::flow_profiles::get_flow_proxies,
-            commands::flow_profiles::set_flow_proxy,
-            commands::plugins::list_plugins,
-            commands::plugins::install_plugin,
-            commands::plugins::remove_plugin,
-            commands::plugins::set_plugin_enabled,
-            commands::lossless::export_lossless,
-            commands::lossless::remux,
-            commands::lossless::write_chapters,
-            commands::lossless::extract_audio,
-            commands::audio::hardware_encoders,
-            commands::downloader::downloader_status,
-            commands::youtube_analytics::analyze_youtube_channel,
-            commands::downloader::install_downloader,
-            commands::downloader::update_downloader,
-            commands::downloader::pause_download,
-            commands::downloader::resume_download,
-            commands::downloader::cancel_download,
-            commands::downloader::probe_download,
-            commands::downloader::sponsorblock_preview,
-            commands::downloader::notify_user,
-            commands::downloader::list_playlist_entries,
-            commands::downloader::list_audio_tracks,
-            commands::automation::scan_watch_folder,
-            commands::automation::fetch_rss_feed,
-            commands::automation::test_proxy,
-            commands::automation::probe_source_checksum,
-            commands::agent::install_watchdog,
-            commands::agent::remove_watchdog,
-            commands::agent::watchdog_status,
-            commands::downloader::download_disk_space,
-            commands::downloader::choose_cookies_file,
-            commands::downloader::download_media,
-            commands::downloader::cleanup_download,
-            commands::creator::creator_inject_hook,
-            commands::creator::creator_export_multi_aspect,
-            commands::creator::creator_inject_cta,
-            commands::creator::creator_interleave_broll,
-            commands::creator::creator_split_chapters,
-            commands::creator::creator_burn_subtitles,
-            commands::downloader::choose_download_directory,
-            commands::extension::extension_status,
-            commands::extension::prepare_extension,
-            commands::downloader_bridge::downloader_bridge_info,
-            commands::rules::fetch_platform_rules,
-            commands::mcp::list_mcp_servers,
-            commands::mcp::save_mcp_server,
-            commands::mcp::delete_mcp_server,
-            commands::mcp::probe_mcp_server,
-            commands::mcp::call_mcp_tool,
-            commands::mcp::close_mcp_session,
-            commands::mcp::mcp_session_status,
-            commands::memory::load_director_memory,
-            commands::memory::save_director_memory,
-            commands::transcribe::transcribe_asset,
-            commands::variants::write_project_variant,
-            commands::variants::render_project_variant,
-            commands::variants::copy_media_into,
-            commands::variants::write_project_file,
-            commands::system::system_info,
-            commands::system::choose_tool,
-            commands::system::reveal_output,
-            commands::system::open_external_url,
-            commands::providers::get_provider,
-            commands::providers::save_provider,
-            commands::providers::clear_provider_key,
-            commands::providers::test_provider,
-            commands::providers::generate_script,
-            commands::assistant::assistant_chat,
-            commands::assistant::assistant_chat_stream,
-            commands::assistant::cancel_assistant_stream,
-            commands::assistant::match_media_plan,
-            commands::providers::translate_subtitles,
-            commands::localization::save_localized_subtitle,
-            commands::shorts::export_short,
-            commands::shorts::analyze_face_track,
-            commands::dubbing::synthesize_dub,
-            commands::voice_clone::clone_voice,
-            commands::visuals::list_visual_catalog,
-            commands::visuals::audit_visuals,
-            commands::lip_sync::lip_sync,
-            commands::voice_isolation::voice_isolation_status,
-            commands::voice_isolation::voice_isolate_media,
-            commands::voice_isolation::prepare_voice_isolation,
-            commands::vpn::vpn_list,
-            commands::audio_scopes::audio_scope_analyze,
-            commands::audio_scopes::audio_scope_analyze_asset,
-            commands::vpn::vpn_connect,
-            commands::vpn::vpn_disconnect,
-            commands::vpn::vpn_wireguard,
-            commands::vpn::vpn_wireguard_open,
-            commands::flow_browser::flow_browser_status,
-            commands::flow_browser::flow_browser_launch,
-            commands::flow_browser::flow_browser_stop,
-            commands::flow_embed::flow_embed_status,
-            commands::flow_embed::flow_embed_open,
-            commands::flow_embed::flow_embed_close,
-            commands::flow_embed::flow_embed_nav,
-            commands::flow_embed::flow_embed_eval,
-            commands::flow_embed::web_sessions_status,
-            commands::flow_embed::web_session_open,
-            commands::flow_embed::web_session_close,
-            commands::flow_embed::web_session_nav,
-            commands::flow_embed::web_session_eval,
-            commands::flow_generate::flow_generate_image,
-            commands::screen_record::screen_record_status,
-            commands::screen_record::screen_record_devices,
-            commands::browser_instances::browser_instance_launch,
-            commands::browser_instances::browser_instance_close,
-            commands::browser_instances::browser_instance_list,
-            commands::browser_instances::browser_instance_navigate,
-            commands::browser_instances::browser_instance_eval,
-            commands::obs_scenes::obs_scene_list,
-            commands::obs_scenes::obs_scene_save,
-            commands::obs_scenes::obs_scene_delete,
-            commands::obs_scenes::obs_scene_start,
-            commands::obs_scenes::obs_scene_preview,
-            commands::screen_record::screen_record_start,
-            commands::stickman::stickman_render,
-            commands::screen_record::screen_record_snapshot,
-            commands::screen_record::screen_record_stop,
-            commands::audio_providers::get_audio_provider,
-            commands::audio_providers::save_audio_provider,
-            commands::audio_providers::clear_audio_provider_key,
-            commands::narration::list_voices,
-            commands::narration::synthesize_narration,
-            commands::render::start_render,
-            commands::render::start_render_to,
-            commands::render::choose_export_directory,
-            commands::render::cancel_render,
-            commands::render::active_render,
-            commands::render::prune_render_cache,
-            commands::render_queue::render_queue_load,
-            commands::render_queue::render_queue_save,
-            commands::render_queue::render_queue_clear_finished,
-            commands::publish::save_publication_manifest,
-            commands::package::save_delivery_package,
-            commands::proxies::proxy_status,
-            commands::proxies::ensure_proxy,
-            commands::proxies::cancel_proxy,
-            commands::proxies::apply_proxy_to_asset,
-            commands::proxies::cleanup_proxies,
-            commands::export_tools::export_capabilities,
-            commands::export_tools::verify_export,
-            commands::recovery::choose_media_folder,
-            commands::recovery::find_missing_assets,
-            commands::recovery::relink_asset,
-            commands::recovery::relink_assets_from_folder,
-            commands::recovery::list_project_versions,
-            commands::recovery::restore_project_version,
-            commands::recovery::find_duplicate_assets,
-            commands::files::fs_list,
-            commands::files::fs_read,
-            commands::files::fs_write,
-            commands::files::fs_mkdir,
-            commands::files::fs_delete,
-            commands::files::fs_move,
-        ])
-        .build(tauri::generate_context!())
-        .expect("Editor IA no pudo iniciar la ventana nativa");
+
+                reveal_after_ready(&handle);
+
+                // Hook de verificación: EDITORIA_OPEN_EMBED=1 abre el navegador
+                // embebido al arrancar (testing manual/automatizado, no UI).
+                if std::env::var("EDITORIA_OPEN_EMBED").is_ok() {
+                    let embed_handle = handle.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        let url = std::env::var("EDITORIA_OPEN_EMBED_URL").ok();
+                        // Las ventanas WebView2 sólo se crean en el hilo principal.
+                        let inner = embed_handle.clone();
+                        let marker = std::env::temp_dir().join("olyvia-embed-test.txt");
+                        let _ = embed_handle.run_on_main_thread(move || {
+                            let result = commands::flow_embed::flow_embed_open(inner, url);
+                            let _ = std::fs::write(&marker, format!("{result:?}"));
+                        });
+                    });
+                }
+                Ok(())
+            }),
+    )
+    .build(tauri::generate_context!())
+    .expect("Editor IA no pudo iniciar la ventana nativa");
 
     // A render is a real child process. If the window closes mid-render, kill
     // every child and remove its temporary directory before the process exits;

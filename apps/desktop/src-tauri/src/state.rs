@@ -7,8 +7,6 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Child;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -126,12 +124,11 @@ impl Settings {
     }
 }
 
-pub struct RenderJob {
-    pub child: Child,
-    pub cancelled: Arc<AtomicBool>,
-}
-
-pub type SharedRenderJobs = Arc<Mutex<HashMap<String, Arc<Mutex<RenderJob>>>>>;
+/// Registro de renders activos: `job_id → proceso FFmpeg` (el handle vive
+/// detrás del port `RenderProcess`; la infraestructura es
+/// `ChildRenderProcess`).
+pub type SharedRenderJobs =
+    Arc<Mutex<HashMap<String, Arc<dyn crate::ports::render::RenderProcess>>>>;
 
 pub struct AppState {
     pub session: Mutex<Option<Session>>,
@@ -232,12 +229,7 @@ impl AppState {
     pub fn cancel_all_renders(&self) {
         if let Ok(mut jobs) = self.render_jobs.lock() {
             for (job_id, job) in jobs.drain() {
-                if let Ok(mut guard) = job.lock() {
-                    guard
-                        .cancelled
-                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                    let _ = guard.child.kill();
-                }
+                job.request_cancel();
                 let _ = std::fs::remove_dir_all(self.cache_dir.join(format!("render-{}", job_id)));
             }
         }

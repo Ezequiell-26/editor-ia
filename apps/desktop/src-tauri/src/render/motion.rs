@@ -176,8 +176,14 @@ fn validate_plan(plan: &Value, clip_id: &str) -> Result<(), ProjectError> {
                 if let Some(shape) = text_field(layer, "shape") {
                     if !matches!(
                         shape,
-                        "rect" | "ellipse" | "triangle" | "diamond" | "star" | "pentagon"
-                            | "hexagon" | "arrow"
+                        "rect"
+                            | "ellipse"
+                            | "triangle"
+                            | "diamond"
+                            | "star"
+                            | "pentagon"
+                            | "hexagon"
+                            | "arrow"
                     ) {
                         return Err(fail(format!("{label}: forma inválida")));
                     }
@@ -280,9 +286,13 @@ fn polygon_drawing(shape: &str, width: f64, height: f64) -> String {
                 // 5 puntas: vértices alternan radio externo (100%) e interno
                 // (50%) sobre la elipse inscripta, empezando arriba — los
                 // mismos puntos que el clip-path del preview.
-                let angle = -std::f64::consts::FRAC_PI_2 + index as f64 * std::f64::consts::PI / 5.0;
+                let angle =
+                    -std::f64::consts::FRAC_PI_2 + index as f64 * std::f64::consts::PI / 5.0;
                 let radius = if index % 2 == 0 { 1.0 } else { 0.5 };
-                (cx + rx * radius * angle.cos(), cy + ry * radius * angle.sin())
+                (
+                    cx + rx * radius * angle.cos(),
+                    cy + ry * radius * angle.sin(),
+                )
             })
             .collect(),
         "pentagon" | "hexagon" => {
@@ -489,20 +499,15 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                 let opacity = number(&layer, "opacity").unwrap_or(1.0).clamp(0.0, 1.0);
                 let alpha = ((1.0 - opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
                 let drawing = match text_field(&layer, "shape") {
-                    Some("ellipse")
-                    | Some("triangle")
-                    | Some("diamond")
-                    | Some("star")
-                    | Some("pentagon")
-                    | Some("hexagon")
-                    | Some("arrow") => {
-                        polygon_drawing(
-                            text_field(&layer, "shape").unwrap_or("ellipse"),
-                            width,
-                            height,
-                        )
-                    }
-                    _ => format!("m 0 0 l {width:.1} 0 {width:.1} {height:.1} 0 {height:.1} l 0 0{{\\p0}}"),
+                    Some("ellipse") | Some("triangle") | Some("diamond") | Some("star")
+                    | Some("pentagon") | Some("hexagon") | Some("arrow") => polygon_drawing(
+                        text_field(&layer, "shape").unwrap_or("ellipse"),
+                        width,
+                        height,
+                    ),
+                    _ => format!(
+                        "m 0 0 l {width:.1} 0 {width:.1} {height:.1} 0 {height:.1} l 0 0{{\\p0}}"
+                    ),
                 };
                 format!(
                     "{{\\an7\\pos({x:.1},{y:.1})\\p1\\c{color}\\alpha&H{alpha:02X}&{tags}}}{drawing}"
@@ -601,7 +606,10 @@ mod tests {
         plan["clip-g"]["layers"][0]["shape"] = json!("ellipse");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
         // Polígono de 32 lados: 1 moveto + 31 líneas + cierre = 33 comandos.
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         // 1 moveto + 32 líneas (31 vértices + cierre al primero).
         assert!(drawing.contains("m "));
         assert_eq!(drawing.matches(" l ").count(), 32);
@@ -614,19 +622,28 @@ mod tests {
         // Capa rect: x=0.1,y=0.7,w=0.5,h=0.15 de 1920x1080 → 960x162 px.
         plan["clip-g"]["layers"][0]["shape"] = json!("triangle");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         assert_eq!(drawing.matches(" l ").count(), 3);
         assert!(drawing.contains("m 480.0 0.0 l 960.0 162.0 l 0.0 162.0"));
 
         plan["clip-g"]["layers"][0]["shape"] = json!("diamond");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         assert_eq!(drawing.matches(" l ").count(), 4);
         assert!(drawing.contains("m 480.0 0.0 l 960.0 81.0 l 480.0 162.0 l 0.0 81.0"));
 
         plan["clip-g"]["layers"][0]["shape"] = json!("star");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         // 10 vértices + cierre.
         assert_eq!(drawing.matches(" l ").count(), 10);
         // Primera punta arriba al centro (480, 0).
@@ -634,17 +651,26 @@ mod tests {
 
         plan["clip-g"]["layers"][0]["shape"] = json!("pentagon");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         assert_eq!(drawing.matches(" l ").count(), 5);
 
         plan["clip-g"]["layers"][0]["shape"] = json!("hexagon");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         assert_eq!(drawing.matches(" l ").count(), 6);
 
         plan["clip-g"]["layers"][0]["shape"] = json!("arrow");
         let ass = build_motion_ass(input(&project, &plan)).expect("ass");
-        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        let drawing = ass
+            .lines()
+            .find(|line| line.contains("\\p1"))
+            .expect("dibujo");
         assert_eq!(drawing.matches(" l ").count(), 7);
         assert!(drawing.contains("}m 480.0 0.0"));
     }

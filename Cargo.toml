@@ -21,3 +21,11 @@ strip = "symbols"
 # Los tests y el `cargo check` de desarrollo no pagan el coste de LTO:
 # heredan el perfil `dev`, que queda intacto.
 
+
+# Perfil alterno sólo para microbenchmarks: idéntico a `release` pero sin
+# LTO, para medir la ganancia de `lto = "thin"` con
+# `cargo test --profile release-nolto --lib <módulo> -- --ignored`.
+# No se usa para compilar la app que se entrega.
+[profile.release-nolto]
+inherits = "release"
+lto = false
