@@ -554,19 +554,30 @@ fn run_render_job(
         total_seconds: plan.duration_seconds,
         phase: "verificando".to_owned(),
     });
-    let verified = ffmpeg::verify_output(&ffprobe, &plan).and_then(|verification| {
-        files.publish_output(&plan.output_path, &final_output)?;
-        let published = std::fs::metadata(&final_output)
-            .map(|metadata| metadata.len())
-            .unwrap_or(0);
-        if published != verification.output_bytes {
-            return Err(ProjectError::message(
-                ProjectErrorCode::RenderFailed,
-                "el archivo publicado no coincide con el render verificado",
-            ));
-        }
-        Ok(verification)
-    });
+    // ffprobe lee el temporal nada más salir ffmpeg; en Windows el archivo
+    // puede seguir liberándose y la verificación falla de forma transitoria.
+    // Un reintento tras una pausa cubre ese flake sin ocultar fallos reales
+    // (el segundo intento vuelve a medir todo).
+    let verify_and_publish = || {
+        ffmpeg::verify_output(&ffprobe, &plan).and_then(|verification| {
+            files.publish_output(&plan.output_path, &final_output)?;
+            let published = std::fs::metadata(&final_output)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
+            if published != verification.output_bytes {
+                return Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "el archivo publicado no coincide con el render verificado",
+                ));
+            }
+            Ok(verification)
+        })
+    };
+    let mut verified = verify_and_publish();
+    if verified.is_err() {
+        std::thread::sleep(Duration::from_millis(400));
+        verified = verify_and_publish();
+    }
     match verified {
         Ok(verification) => {
             let report = verifier.verify(&ffprobe, &final_output).ok();
