@@ -1,0 +1,172 @@
+/* Fase 2 CSS splitting — extras del EDITOR.
+ *
+ * Extraido verbatim de app.css (critical path). Cubre: inspector del clip
+ * organizado por pestañas (.clip-inspector / .inspector-tabs). Se importa
+ * desde entries/editor.css. Analisis de cascada: 0 selectores compartidos
+ * con el resto de app.css; unico overlap externo .asset-rail resuelto por
+ * !important+especificidad en premium/views.css.
+ */
+
+/* ---------------------------------------------------------------
+   Editor · inspector organizado por pestañas
+   --------------------------------------------------------------- */
+
+.clip-inspector {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.inspector-tabs {
+  position: sticky;
+  top: -10px;
+  z-index: 4;
+  display: flex;
+  gap: 2px;
+  margin: -10px -10px 0;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.inspector-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.inspector-tabs button {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.inspector-tabs button:hover {
+  color: var(--color-text);
+}
+
+.inspector-tabpanel {
+  display: contents;
+}
+
+.inspector-tabs button.active,
+.inspector-tabs button[aria-selected='true'] {
+  background: color-mix(in srgb, var(--color-accent) 14%, var(--color-panel));
+  color: var(--color-accent-light);
+}
+
+.color-wheels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.color-wheel {
+  min-width: 0;
+  margin: 0;
+  padding: 7px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-1);
+  background: var(--color-panel);
+}
+
+.color-wheel legend {
+  padding: 0 4px;
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.color-wheel .field,
+.color-wheel .number-field {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.color-wheel .field span,
+.color-wheel .number-field span {
+  font-size: 9px;
+  color: var(--color-text-muted);
+}
+
+.color-wheel input {
+  min-width: 0;
+  padding: 4px 5px;
+  font-size: 10px;
+}
+
+.color-range-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 4px 0;
+}
+
+.color-range-list .check {
+  margin: 0;
+  font-size: 10px;
+}
+
+.clip-inspector[data-tab='video'] .inspector-section[data-group]:not([data-group='video']),
+.clip-inspector[data-tab='audio'] .inspector-section[data-group]:not([data-group='audio']),
+.clip-inspector[data-tab='speed'] .inspector-section[data-group]:not([data-group='speed']),
+.clip-inspector[data-tab='trim'] .inspector-section[data-group]:not([data-group='trim']),
+.clip-inspector[data-tab='animation'] .inspector-section[data-group]:not([data-group='animation']),
+.clip-inspector[data-tab='color'] .inspector-section[data-group]:not([data-group='color']),
+.clip-inspector[data-tab='style'] .inspector-section[data-group]:not([data-group='style']) {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  .editor-grid {
+    grid-template-columns: minmax(0, 1fr) 300px;
+    grid-template-rows: minmax(0, 1fr) var(--timeline-height, 240px);
+  }
+
+  .asset-rail {
+    display: none;
+  }
+
+  .preview-panel {
+    grid-column: 1;
+  }
+
+  .inspector {
+    grid-column: 2;
+  }
+}
+
+.subtitle-io {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px;
+}
+
+.subtitle-io textarea {
+  width: 100%;
+  min-height: 150px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.subtitle-io .notice {
+  margin: 0;
+}

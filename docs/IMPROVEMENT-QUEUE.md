@@ -147,6 +147,36 @@ reconstruye el instalador salvo que el ítem lo pida.
     globales — evaluar si corresponde moverlos enteros al final del
     critical path o repartirlos por vista).
 
+- `[done]` **CSS splitting fase 2 · slice 4: inspector por pestañas al
+  editor entry + reconciliación 5 (2026-11-08)** — dos piezas en la
+  misma pasada.
+  - **Reconciliación 5**: fix de main `49aaa98` (`stateRef` eager en
+    mutadores del documento — bug sistémico: dos `update` en el mismo
+    tick perdían la primera edición) portado a
+    `project-store-provider.tsx` (provider spliteado), NodeGraphView sin
+    `setTimeout(0)`, +2 tests de regresión. Commit `142bb22`.
+  - **CSS slice 4**: bloque «Editor · inspector organizado por pestañas»
+    (163 líneas, 19 selectores, 23 reglas) → `styles/editor-tools.css`,
+    importado último en `entries/editor.css`. Era el único sub-bloque de
+    FÁBRICA con **0 selectores compartidos** con el resto de app.css —
+    los demás bloques editor (timeline markers, motion, Lottie, mixer,
+    VFX, inmersivo, loudness) comparten ~200 selectores con las
+    refinaciones de ORGANIZACIÓN VISUAL y requieren el splitter por
+    selector completo (mover regla + sus refinamientos juntos,
+    dividiendo grupos mezclados).
+  - **Verificación**: `postcss.parse` OK (app.css 1.562 reglas,
+    editor-tools.css 23) · overlap check vs los 3 CSS del editor entry y
+    los del content entry · tsc 0 errores · vitest project-store 9/9,
+    nodes 13/13.
+  - **Archivos**: `styles/app.css` (−163 líneas), `styles/editor-tools.css`,
+    `styles/entries/editor.css`, provider/test/NodeGraphView del fix,
+    `memory/2026-11-08-css-fase2-editor-tools.md` +
+    `memory/2026-11-08-stateRef-eager.md`.
+  - **Estado acumulado fase 2**: app.css 13.830 → **11.027 líneas
+    (−20,3 %)**. Pendiente: splitter por selector para los ~1.8k líneas
+    de bloques editor restantes + media organization + ORGANIZACIÓN
+    VISUAL (~2.2k, evaluar mover entera o repartir).
+
 - `[done]` **Rampa de velocidad del shuttle `L`/`J` (2026-11-08)** — cierra el
   pendiente 2 de `docs/ATAJOS-PRO.md` («repetir `L`/`J` no cambia la
   velocidad»), portado desde `main` (`43f03d0`) en la reconciliación 4 del
