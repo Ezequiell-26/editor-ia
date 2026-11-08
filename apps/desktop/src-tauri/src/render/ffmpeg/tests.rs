@@ -7790,3 +7790,351 @@ fn voice_isolation_without_stem_falls_back_to_source_audio() {
     assert!(joined.contains("audio.wav"));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+// --- Composición opaca en yuv420p -------------------------------------------
+//
+// `composition_needs_alpha` decide si el grafo puede componer sin plano alfa.
+// Estas pruebas cubren las dos direcciones: una timeline de cortes simples va
+// en yuv420p y cualquier feature que produzca o consuma alfa vuelve a rgba.
+
+fn plan_video_graph(project: &Value) -> String {
+    let root = std::env::temp_dir().join(format!("editor-ia-alpha-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("video.mp4"), b"x").unwrap();
+    std::fs::write(media.join("audio.wav"), b"x").unwrap();
+    std::fs::create_dir_all(media.join("luts")).unwrap();
+    std::fs::write(media.join("luts/x.cube"), b"LUT_3D_SIZE 2\n").unwrap();
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let plan = build_plan(BuildPlanInput {
+        audio_only: false,
+        project,
+        root: &root,
+        profile: &profile(),
+        output_path: &root.join("salida.mp4"),
+        include_captions: false,
+        temp_dir: &temp,
+        ffprobe: Path::new("ffprobe"),
+        motion_ass: None,
+    })
+    .expect("el plan debería construirse");
+    let graph = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("[vout]"))
+        .expect("falta el grafo de video")
+        .clone();
+    let _ = std::fs::remove_dir_all(&root);
+    graph
+}
+
+fn clip_graph_with(mutate: impl Fn(&mut Value)) -> String {
+    let mut project = project();
+    mutate(&mut project["timeline"]["clips"][0]);
+    plan_video_graph(&project)
+}
+
+#[test]
+fn opaque_cuts_compose_in_yuv420p_without_rgba() {
+    let graph = plan_video_graph(&project());
+    assert!(
+        graph.contains("[0:v]format=yuv420p"),
+        "la base debería componer en yuv420p: {graph}"
+    );
+    assert!(
+        graph.contains("format=yuv420p,setpts=PTS-STARTPTS+"),
+        "la cadena del clip debería cerrar en yuv420p: {graph}"
+    );
+    assert!(
+        !graph.contains("format=rgba"),
+        "una timeline opaca no debería tener ningún format=rgba: {graph}"
+    );
+}
+
+#[test]
+fn alpha_features_keep_the_rgba_composition() {
+    let cases: Vec<(&str, Box<dyn Fn(&mut Value)>)> = vec![
+        (
+            "opacidad",
+            Box::new(|c| c["transform"] = serde_json::json!({"opacity": 0.5})),
+        ),
+        (
+            "opacityFrozen",
+            Box::new(|c| c["opacityFrozen"] = serde_json::json!(0.5)),
+        ),
+        (
+            "blendMode",
+            Box::new(|c| c["blendMode"] = serde_json::json!("multiply")),
+        ),
+        (
+            "máscara",
+            Box::new(|c| c["mask"] = serde_json::json!({"shape": "rectangle"})),
+        ),
+        (
+            "chromaKey",
+            Box::new(|c| c["chromaKey"] = serde_json::json!({"color": "#00ff00"})),
+        ),
+        (
+            "rotación",
+            Box::new(|c| c["transform"] = serde_json::json!({"rotationDeg": 15})),
+        ),
+        (
+            "keyframes de opacidad",
+            Box::new(|c| {
+                c["transform"] = serde_json::json!({
+                    "keyframes": [{"frame": 0, "opacity": 0.0}, {"frame": 30, "opacity": 1.0}]
+                })
+            }),
+        ),
+        (
+            "keyframes de escala bajo 1",
+            Box::new(|c| {
+                c["transform"] = serde_json::json!({
+                    "keyframes": [{"frame": 0, "scale": 0.8}, {"frame": 30, "scale": 1.2}]
+                })
+            }),
+        ),
+        (
+            "glow",
+            Box::new(|c| c["effects"] = serde_json::json!({"glow": {"intensity": 0.5}})),
+        ),
+        (
+            "fadeInFrames",
+            Box::new(|c| c["effects"] = serde_json::json!({"fadeInFrames": 15})),
+        ),
+        (
+            "animación fade",
+            Box::new(|c| c["animationIn"] = serde_json::json!({"type": "fade"})),
+        ),
+        (
+            "perspectiva",
+            Box::new(|c| {
+                c["transform"] = serde_json::json!({
+                    "perspective": {"corners": [
+                        {"x": 0.1, "y": 0.1}, {"x": 0.9, "y": 0.1},
+                        {"x": 0.9, "y": 0.9}, {"x": 0.1, "y": 0.9}
+                    ]}
+                })
+            }),
+        ),
+        (
+            "LUT parcial",
+            Box::new(|c| {
+                c["effects"] = serde_json::json!({
+                    "lutFile": "media/luts/x.cube", "lutIntensity": 0.5
+                })
+            }),
+        ),
+    ];
+    for (name, mutate) in cases {
+        let graph = clip_graph_with(|clip| mutate(clip));
+        assert!(
+            graph.contains("format=rgba"),
+            "{name} debería forzar la composición RGBA: {graph}"
+        );
+    }
+}
+
+#[test]
+fn transitions_and_assets_decide_the_composition_format() {
+    // Dissolve con lead real (el clip no puede empezar en el frame 0).
+    let mut dissolve = project();
+    dissolve["timeline"]["clips"][0]["startFrame"] = serde_json::json!(15);
+    dissolve["timeline"]["clips"][0]["transitionIn"] =
+        serde_json::json!({"type": "dissolve", "frames": 15});
+    let graph = plan_video_graph(&dissolve);
+    assert!(graph.contains("format=rgba"), "dissolve: {graph}");
+
+    // Wipe e iris escriben alfa. `luma-wipe` también, pero exige clip mate y
+    // el plan falla antes de llegar al formato.
+    for kind in ["wipe-left", "iris", "slide-3d-left"] {
+        let mut case = project();
+        case["timeline"]["clips"][0]["startFrame"] = serde_json::json!(15);
+        case["timeline"]["clips"][0]["transitionIn"] =
+            serde_json::json!({"type": kind, "frames": 15});
+        let graph = plan_video_graph(&case);
+        assert!(graph.contains("format=rgba"), "{kind}: {graph}");
+    }
+
+    // Clip imagen: puede traer alfa propio.
+    let graph = clip_graph_with(|c| c["kind"] = serde_json::json!("image"));
+    assert!(graph.contains("format=rgba"), "imagen: {graph}");
+
+    // Asset de video con canal alpha (VP9).
+    let mut alpha_asset = project();
+    alpha_asset["assets"][0]["media"] = serde_json::json!({"alpha": true});
+    let graph = plan_video_graph(&alpha_asset);
+    assert!(graph.contains("format=rgba"), "media.alpha: {graph}");
+}
+
+#[test]
+fn non_alpha_transitions_and_safe_keyframes_stay_in_yuv420p() {
+    // Fades a color y slide 2D no tocan el plano alfa.
+    for kind in ["fade-black", "fade-white", "dip-color", "slide-left"] {
+        let mut case = project();
+        case["timeline"]["clips"][0]["startFrame"] = serde_json::json!(15);
+        case["timeline"]["clips"][0]["transitionIn"] =
+            serde_json::json!({"type": kind, "frames": 15});
+        let graph = plan_video_graph(&case);
+        assert!(
+            !graph.contains("format=rgba"),
+            "{kind} no debería exigir RGBA: {graph}"
+        );
+    }
+    // Keyframes de escala que nunca bajan de 1 van por zoompan: sin alfa.
+    let graph = clip_graph_with(|c| {
+        c["transform"] = serde_json::json!({
+            "keyframes": [{"frame": 0, "scale": 1.0}, {"frame": 30, "scale": 1.5}]
+        })
+    });
+    assert!(
+        !graph.contains("format=rgba"),
+        "zoompan no necesita alfa: {graph}"
+    );
+    // Keyframes de posición se resuelven en el overlay: sin alfa.
+    let graph = clip_graph_with(|c| {
+        c["transform"] = serde_json::json!({
+            "keyframes": [
+                {"frame": 0, "offsetX": 0.0, "offsetY": 0.0},
+                {"frame": 30, "offsetX": 0.2, "offsetY": 0.1}
+            ]
+        })
+    });
+    assert!(
+        !graph.contains("format=rgba"),
+        "offset keyframes no necesitan alfa: {graph}"
+    );
+}
+
+/// Render real A/B: la misma timeline opaca por el camino yuv420p y por el
+/// forzado rgba tiene que dar el mismo video (PSNR alto, misma duración).
+#[test]
+#[ignore]
+fn render_live_opaque_composition_matches_the_rgba_path() {
+    if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+        eprintln!("render_live_opaque omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+        return;
+    }
+    use crate::commands::system::find_executable;
+    let ffmpeg = find_executable("ffmpeg", None).expect("ffmpeg debería estar instalado");
+    let ffprobe = find_executable("ffprobe", None).expect("ffprobe debería estar instalado");
+    let root = std::env::temp_dir().join(format!("editor-ia-opaque-live-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    let video_path = media.join("video.mp4");
+    let status = Command::new(&ffmpeg)
+        .args([
+            "-hide_banner".to_string(),
+            "-y".into(),
+            "-f".into(),
+            "lavfi".into(),
+            "-i".into(),
+            "testsrc=size=320x180:rate=30:duration=2".into(),
+            "-pix_fmt".into(),
+            "yuv420p".into(),
+            path_to_string(&video_path),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success(), "no se pudo generar el video base");
+    let project = serde_json::json!({
+        "video": { "width": 320, "height": 180, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+        "timeline": {
+            "tracks": [{ "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false }],
+            "clips": [
+                { "id": "c1", "trackId": "v1", "kind": "video", "startFrame": 0, "durationFrames": 60, "source": { "type": "asset", "assetId": "asset1", "inFrame": 0, "outFrame": 60 } }
+            ]
+        },
+        "assets": [
+            { "id": "asset1", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/video.mp4" } }
+        ],
+        "captions": { "styles": [], "cues": [] },
+        "audio": { "master": { "gainDb": 0 } }
+    });
+    let mut profile = profile();
+    profile.width = 320;
+    profile.height = 180;
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let plan = build_plan(BuildPlanInput {
+        audio_only: false,
+        project: &project,
+        root: &root,
+        profile: &profile,
+        output_path: &root.join("opaque.mp4"),
+        include_captions: false,
+        temp_dir: &temp,
+        ffprobe: &ffprobe,
+        motion_ass: None,
+    })
+    .expect("el plan debería construirse");
+    let graph = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("[vout]"))
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        graph.contains("format=yuv420p") && !graph.contains("format=rgba"),
+        "la timeline de prueba debería componer en yuv420p: {graph}"
+    );
+    let opaque = root.join("opaque.mp4");
+    let v_opaque = execute_sync(&ffmpeg, &ffprobe, &plan, |_| {})
+        .expect("el render yuv420p debería verificarse");
+    // Variante de referencia: el mismo plan con el formato de composición
+    // forzado a rgba (equivale al pipeline anterior a la optimización).
+    let mut rgba_plan = plan.clone();
+    rgba_plan.output_path = root.join("rgba.mp4");
+    for arg in &mut rgba_plan.args {
+        if arg.contains("format=yuv420p") {
+            *arg = arg.replace("format=yuv420p", "format=rgba");
+        }
+        if arg.contains("opaque.mp4") {
+            *arg = arg.replace("opaque.mp4", "rgba.mp4");
+        }
+    }
+    let rgba = root.join("rgba.mp4");
+    let v_rgba = execute_sync(&ffmpeg, &ffprobe, &rgba_plan, |_| {})
+        .expect("el render rgba debería verificarse");
+    assert!(
+        (v_opaque.duration_seconds - v_rgba.duration_seconds).abs() < 0.1,
+        "duraciones distintas: {} vs {}",
+        v_opaque.duration_seconds,
+        v_rgba.duration_seconds
+    );
+    // PSNR entre ambas salidas: el yuv directo y el pase por RGBA difieren sólo
+    // por el redondeo de la conversión de color.
+    let output = Command::new(&ffmpeg)
+        .args([
+            "-hide_banner".to_string(),
+            "-i".into(),
+            path_to_string(&opaque),
+            "-i".into(),
+            path_to_string(&rgba),
+            "-lavfi".into(),
+            "psnr".into(),
+            "-f".into(),
+            "null".into(),
+            "-".into(),
+        ])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let average = stderr
+        .lines()
+        .find_map(|line| {
+            line.split("average:").nth(1).and_then(|rest| {
+                rest.split_whitespace()
+                    .next()
+                    .and_then(|value| value.parse::<f64>().ok())
+            })
+        })
+        .expect("ffmpeg no reportó PSNR");
+    eprintln!("PSNR yuv420p vs rgba: {average:.2} dB");
+    assert!(
+        average > 40.0,
+        "las salidas divergen demasiado: {average} dB\n{stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}

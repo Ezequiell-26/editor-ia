@@ -183,15 +183,6 @@ pub(crate) fn build_plan_range(
             seconds(duration_seconds)
         ),
     ]);
-    let mut inputs = 1usize;
-    let mut filters: Vec<String> = vec!["[0:v]format=rgba,setpts=PTS-STARTPTS[base0]".to_owned()];
-    let mut base_label = "base0".to_owned();
-    let mut audio_labels: Vec<String> = Vec::new();
-    // Gemelo de `filters` con sólo las cadenas de audio: en modo medición el
-    // grafo final se arma desde acá, sin las cadenas de video.
-    let mut audio_filters: Vec<String> = Vec::new();
-    let mut audio_track_ids: Vec<String> = Vec::new();
-
     let mut visual_clips: Vec<&Value> = clips
         .iter()
         .filter(|clip| {
@@ -212,6 +203,32 @@ pub(crate) fn build_plan_range(
         let order = track_info.get(track_id).map(|info| info.1).unwrap_or(0);
         (order, clip["startFrame"].as_u64().unwrap_or(0))
     });
+
+    // Composición sin alfa: si ningún clip, máscara, transición, blend ni
+    // efecto produce o consume transparencia, el grafo compone en yuv420p y
+    // cada capa evita las conversiones RGBA por frame.
+    let compose_format = if composition_needs_alpha(
+        &visual_clips,
+        &asset_by_id,
+        &track_info,
+        project,
+        profile,
+        project_fps,
+    ) {
+        "rgba"
+    } else {
+        "yuv420p"
+    };
+    let mut inputs = 1usize;
+    let mut filters: Vec<String> = vec![format!(
+        "[0:v]format={compose_format},setpts=PTS-STARTPTS[base0]"
+    )];
+    let mut base_label = "base0".to_owned();
+    let mut audio_labels: Vec<String> = Vec::new();
+    // Gemelo de `filters` con sólo las cadenas de audio: en modo medición el
+    // grafo final se arma desde acá, sin las cadenas de video.
+    let mut audio_filters: Vec<String> = Vec::new();
+    let mut audio_track_ids: Vec<String> = Vec::new();
 
     let mut probed_audio: HashMap<String, bool> = HashMap::new();
     for clip in visual_clips {
@@ -405,7 +422,7 @@ pub(crate) fn build_plan_range(
         } else {
             None
         };
-        filters.push(visual_filter(
+        filters.push(visual_filter_with_format(
             index,
             clip,
             asset,
@@ -416,6 +433,7 @@ pub(crate) fn build_plan_range(
             speed_num,
             speed_den,
             is_image,
+            compose_format,
         ));
         if let Some((transform, smoothing)) = stabilization.as_ref() {
             let position = filters.len() - 1;
@@ -513,7 +531,7 @@ pub(crate) fn build_plan_range(
         };
         if let (Some(mode), Some(layer)) = (blend, layer_index) {
             filters.push(format!(
-                "[{layer}:v]format=rgba,setpts=PTS-STARTPTS[layer{index}]"
+                "[{layer}:v]format={compose_format},setpts=PTS-STARTPTS[layer{index}]"
             ));
             filters.push(format!(
                 "[layer{index}][{overlay_source}]overlay=x='{overlay_x}':y='{overlay_y}':enable='between(t,{:.6},{:.6})':eof_action=pass:shortest=0[blended{index}]",

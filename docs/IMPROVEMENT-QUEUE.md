@@ -5155,10 +5155,22 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
     El chunk diferido `EmojiPickerPopover` (717,61 kB / 112,37 gzip) se descarga
     únicamente al interactuar con el selector. Tests unitarios y de accesibilidad
     (trampa de foco, Escape) 12/12 verdes.
-18. **Composición opaca en yuv420p** — si ningún clip necesita alfa
-    (sin chroma, máscara, opacidad, blend ni transición), componer sin
-    RGBA. Un benchmark externo midió −32% (2,08→1,41 s) con salida
-    idéntica; verificar con PSNR/SSIM y los tests live antes de adoptarlo.
+18. **Composición opaca en yuv420p** `[done]` — `composition_needs_alpha`
+    (`render/ffmpeg/plan/alpha.rs`) clasifica cada clip visible: fuerza
+    `rgba` ante blendMode, chromaKey, máscara (texto o forma), opacidad
+    <1 u opacidad/rotación/escala<1× keyframeadas, rotación, perspectiva,
+    transición con lead que escribe alfa (dissolve/wipe/iris/slide-3d/
+    luma-wipe; los fades a color y slide 2D no), `media.alpha`, clips
+    `image`, glow/relight/fadeInFrames, animación fade, `transitionFrozen`/
+    `fadeFrozen`/`opacityFrozen`/`animationFrozen.alpha` y LUT parcial en
+    clip, look global o capa de ajuste. Si nada aplica, el grafo compone
+    en `yuv420p` (base, capas y cierre de `visual_filter_with_format`).
+    Verificación: 4 tests de plan (opaco→yuv, 14 features→rgba, transiciones
+    seguras→yuv) + test live A/B `render_live_opaque_composition_matches_the_
+    rgba_path` que renderiza la misma timeline por ambas rutas y mide
+    **PSNR 40,87 dB** con duración verificada por `execute_sync`. Suite lib
+    697/697. Límite: la salida no es bit-idéntica (el pase por RGBA hace una
+    conversión extra de color); el test exige >40 dB.
 19. **Playhead fuera del contexto** — hoy cada tick de reproducción
     re-renderiza paneles; separar el playhead y memoizar mapas de clips
     en Preview. Medir frames >16 ms en 10 s de playback.

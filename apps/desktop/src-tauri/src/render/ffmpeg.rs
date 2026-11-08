@@ -71,7 +71,7 @@ pub(super) use visual::{
 pub(crate) use visual::{
     alpha_video_decoder, apply_audio_effect_stack, apply_effect_stack, apply_effect_stack_animated,
     apply_glow_to_chain, apply_lut_to_chain, drawtext_text, eased_fraction, effects_lut,
-    transition_lead_seconds, visual_filter,
+    transition_lead_seconds, visual_filter, visual_filter_with_format,
 };
 
 #[cfg(test)]

@@ -10,6 +10,38 @@ pub(crate) fn visual_filter(
     speed_den: u32,
     is_image: bool,
 ) -> String {
+    visual_filter_with_format(
+        input_index,
+        clip,
+        asset,
+        profile,
+        clip_seconds,
+        lead_seconds,
+        start_seconds,
+        speed_num,
+        speed_den,
+        is_image,
+        "rgba",
+    )
+}
+
+/// Igual que `visual_filter`, pero el formato de composición es el que el
+/// plan global eligió: `rgba` cuando algún clip necesita alfa y `yuv420p`
+/// cuando la timeline es totalmente opaca.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn visual_filter_with_format(
+    input_index: usize,
+    clip: &Value,
+    asset: &Value,
+    profile: &Profile,
+    clip_seconds: f64,
+    lead_seconds: f64,
+    start_seconds: f64,
+    speed_num: u32,
+    speed_den: u32,
+    is_image: bool,
+    compose_format: &str,
+) -> String {
     let lead = lead_seconds.clamp(0.0, clip_seconds.max(0.0));
     let total_seconds = clip_seconds + lead;
     let transform = &clip["transform"];
@@ -157,7 +189,7 @@ pub(crate) fn visual_filter(
     // The clip chain is rebased to zero by setpts before this point, so the
     // animation clock starts at the transition lead, not at the global start.
     filters.push("pad=ceil(iw/2)*2:ceil(ih/2)*2:0:0".to_owned());
-    filters.push("format=rgba".to_owned());
+    filters.push(format!("format={compose_format}"));
 
     let chroma = &clip["chromaKey"];
     let chroma_color = chroma["color"].as_str().unwrap_or("").trim();
@@ -602,7 +634,7 @@ pub(crate) fn visual_filter(
             "zoompan=z='{zoom}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':d=1:s={scaled_width}x{scaled_height}:fps={}",
             profile.fps_arg()
         ));
-        filters.push("format=rgba".to_owned());
+        filters.push(format!("format={compose_format}"));
     }
     // Fade congelado por la ventana de un frame: multiplica alfa y conserva
     // RGB, igual que el `fade ...:alpha=1` del compuesto completo.
@@ -692,8 +724,9 @@ pub(crate) fn visual_filter(
         filters.push(perspective);
     }
     // Asegura el canal alfa para los recortes VP9: `overlay` sólo compone
-    // transparencia si la capa llega en un formato con alfa.
-    filters.push("format=rgba".to_owned());
+    // transparencia si la capa llega en un formato con alfa. En composición
+    // opaca el formato ya es el del lienzo.
+    filters.push(format!("format={compose_format}"));
     if let Some(alpha) = clip["animationFrozen"]["alpha"]
         .as_f64()
         .map(|value| value.clamp(0.0, 1.0))
