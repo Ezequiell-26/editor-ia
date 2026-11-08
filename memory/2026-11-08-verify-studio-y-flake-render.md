@@ -29,6 +29,11 @@ por E2E que reporta "flaky" si pasa al segundo intento.
   (`commands/audio/transcribe.rs`, faster-whisper vía Python) pero el
   motor NO está instalado en esta máquina. Instalarlo es decisión del
   usuario (ctranslate2 + descarga de modelos).
+- **Provider de patrones** (commit posterior): `local-ffmpeg-pattern`
+  genera PNGs lavfi (gradients/mandelbrot/cellauto/testsrc2) para
+  requisitos `image` con prefijo `pattern:`/`gradient:`/`texture:`.
+  Son fuentes sintéticas de fondo/placeholder, NO arte semántico —
+  honesto en capabilities ("sólo patrones").
 
 ## Comandos
 
