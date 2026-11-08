@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
+use crate::ports::media::MediaTools;
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 
 #[derive(Debug, Clone)]
@@ -131,6 +132,9 @@ pub type SharedRenderJobs =
     Arc<Mutex<HashMap<String, Arc<dyn crate::ports::render::RenderProcess>>>>;
 
 pub struct AppState {
+    /// Handle de la app para adaptadores Tauri (eventos, diálogos).
+    /// `None` sólo en tests que construyen `AppState` a mano.
+    pub app: Option<AppHandle>,
     pub session: Mutex<Option<Session>>,
     pub settings: Mutex<Settings>,
     pub config_dir: PathBuf,
@@ -165,6 +169,7 @@ impl AppState {
             .sanitized();
 
         Self {
+            app: Some(app.clone()),
             session: Mutex::new(None),
             settings: Mutex::new(settings),
             config_dir,
@@ -233,5 +238,212 @@ impl AppState {
                 let _ = std::fs::remove_dir_all(self.cache_dir.join(format!("render-{}", job_id)));
             }
         }
+    }
+}
+
+impl AppState {
+    /// AppHandle para los adaptadores Tauri; nunca `None` en runtime real.
+    fn app_handle(&self) -> AppHandle {
+        self.app_handle_ref().clone()
+    }
+
+    /// Préstamo del AppHandle para adaptadores que lo referencian.
+    fn app_handle_ref(&self) -> &AppHandle {
+        self.app
+            .as_ref()
+            .expect("AppHandle no inicializado (sólo pasa en tests)")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Composición de adaptadores de infraestructura.
+//
+// Los comandos IPC no construyen tipos de `infrastructure` directamente:
+// piden el adaptador ya cableado desde aquí. Los tipos devueltos son los
+// concretos porque varios son vistas prestadas de `AppState` (no pueden
+// vivir dentro del propio estado); el contrato que consume `application/`
+// sigue siendo el trait de `ports/`.
+// ---------------------------------------------------------------------------
+
+impl AppState {
+    // Media / proyectos
+    pub fn media_tools(&self) -> crate::infrastructure::media::StateMediaTools<'_> {
+        crate::infrastructure::media::StateMediaTools::new(self)
+    }
+    pub fn media_runner(&self) -> crate::infrastructure::media::SystemMediaRunner {
+        crate::infrastructure::media::SystemMediaRunner
+    }
+    pub fn project_session(&self) -> crate::infrastructure::projects::StateProjectSession<'_> {
+        crate::infrastructure::projects::StateProjectSession::new(self)
+    }
+    pub fn project_documents(&self) -> crate::infrastructure::projects::LocalProjectDocuments {
+        crate::infrastructure::projects::LocalProjectDocuments
+    }
+    pub fn project_environment(
+        &self,
+    ) -> crate::infrastructure::projects::TauriProjectEnvironment<'_> {
+        crate::infrastructure::projects::TauriProjectEnvironment::new(self.app_handle_ref())
+    }
+    pub fn project_versioning(
+        &self,
+    ) -> crate::infrastructure::projects_history::LocalProjectVersioning {
+        crate::infrastructure::projects_history::LocalProjectVersioning
+    }
+    pub fn project_asset_files(&self) -> crate::infrastructure::projects::NativeProjectAssetFiles {
+        crate::infrastructure::projects::NativeProjectAssetFiles
+    }
+    pub fn project_asset_recovery(
+        &self,
+    ) -> crate::infrastructure::projects_recovery::LocalProjectAssetRecovery {
+        crate::infrastructure::projects_recovery::LocalProjectAssetRecovery
+    }
+    // Archivos y exportación
+    pub fn subtitle_files(&self) -> crate::infrastructure::media::LocalSubtitleFiles {
+        crate::infrastructure::media::LocalSubtitleFiles
+    }
+    pub fn localized_subtitle_files(
+        &self,
+    ) -> crate::infrastructure::media::LocalLocalizedSubtitleFiles {
+        crate::infrastructure::media::LocalLocalizedSubtitleFiles::new()
+    }
+    pub fn timeline_export_files(&self) -> crate::infrastructure::media::LocalTimelineExportFiles {
+        crate::infrastructure::media::LocalTimelineExportFiles
+    }
+    pub fn lossless_outputs(&self) -> crate::infrastructure::render_lossless::LocalLosslessOutputs {
+        crate::infrastructure::render_lossless::LocalLosslessOutputs
+    }
+    // Proxies
+    pub fn proxy_files(&self) -> crate::infrastructure::proxies::LocalProxyFiles {
+        crate::infrastructure::proxies::LocalProxyFiles
+    }
+    pub fn proxy_runtime(&self) -> crate::infrastructure::proxies::LocalProxyRuntime {
+        crate::infrastructure::proxies::LocalProxyRuntime
+    }
+    pub fn proxy_events(&self) -> crate::infrastructure::proxies::TauriProxyEvents {
+        crate::infrastructure::proxies::TauriProxyEvents::new(self.app_handle())
+    }
+    pub fn proxy_generator(&self) -> crate::infrastructure::proxies::StdioProxyGenerator {
+        crate::infrastructure::proxies::StdioProxyGenerator::new(
+            Arc::new(crate::infrastructure::proxies::LocalProxyRuntime),
+            Arc::new(crate::infrastructure::proxies::TauriProxyEvents::new(
+                self.app_handle(),
+            )),
+            Arc::new(crate::infrastructure::proxies::LocalProxyFiles),
+        )
+    }
+    // Render
+    pub fn render_runtime(&self) -> crate::infrastructure::render_jobs::SharedRenderRuntime {
+        crate::infrastructure::render_jobs::SharedRenderRuntime::new(self.render_jobs.clone())
+    }
+    pub fn render_events(&self) -> crate::infrastructure::render_jobs::TauriRenderEvents {
+        crate::infrastructure::render_jobs::TauriRenderEvents::new(self.app_handle())
+    }
+    pub fn render_dialogs(&self) -> crate::infrastructure::render_jobs::TauriRenderDialogs {
+        crate::infrastructure::render_jobs::TauriRenderDialogs::new(self.app_handle())
+    }
+    pub fn render_files(&self) -> crate::infrastructure::render_jobs::LocalRenderFiles {
+        crate::infrastructure::render_jobs::LocalRenderFiles
+    }
+    pub fn render_encoder(&self) -> crate::infrastructure::render_jobs::SystemRenderEncoder {
+        crate::infrastructure::render_jobs::SystemRenderEncoder
+    }
+    pub fn render_verifier(&self) -> crate::infrastructure::render_jobs::SystemRenderVerifier {
+        crate::infrastructure::render_jobs::SystemRenderVerifier
+    }
+    pub fn render_launcher(&self) -> crate::infrastructure::render_jobs::StdioRenderLauncher {
+        crate::infrastructure::render_jobs::StdioRenderLauncher::new(
+            Arc::new(self.render_runtime()),
+            Arc::new(self.render_events()),
+            Arc::new(self.render_files()),
+            Arc::new(self.render_verifier()),
+        )
+    }
+    pub fn render_queue_store(&self) -> crate::infrastructure::render_queue::LocalRenderQueueStore {
+        crate::infrastructure::render_queue::LocalRenderQueueStore::local()
+    }
+    // Conversión
+    pub fn conversion_files(&self) -> crate::infrastructure::conversion::LocalConversionFiles {
+        crate::infrastructure::conversion::LocalConversionFiles
+    }
+    pub fn conversion_events(&self) -> crate::infrastructure::conversion::TauriConversionEvents {
+        crate::infrastructure::conversion::TauriConversionEvents {
+            app: self.app_handle(),
+        }
+    }
+    pub fn conversion_runner(&self) -> crate::infrastructure::conversion::SystemConversionRunner {
+        crate::infrastructure::conversion::SystemConversionRunner
+    }
+    pub fn conversion_hardware(
+        &self,
+    ) -> crate::infrastructure::conversion::SystemConversionHardware {
+        crate::infrastructure::conversion::SystemConversionHardware
+    }
+    // Proveedores IA
+    pub fn provider_settings(&self) -> crate::infrastructure::ai::StateProviderSettings<'_> {
+        crate::infrastructure::ai::StateProviderSettings::new(self)
+    }
+    pub fn provider_secrets(&self) -> crate::infrastructure::ai::KeyringProviderSecrets {
+        crate::infrastructure::ai::KeyringProviderSecrets
+    }
+    pub fn provider_chat(&self) -> crate::infrastructure::ai::ReqwestProviderChat {
+        crate::infrastructure::ai::ReqwestProviderChat
+    }
+    pub fn provider_probe(&self) -> crate::infrastructure::ai::ReqwestProviderProbe {
+        crate::infrastructure::ai::ReqwestProviderProbe
+    }
+    pub fn motion_chat(&self) -> crate::infrastructure::ai::ReqwestMotionChat {
+        crate::infrastructure::ai::ReqwestMotionChat
+    }
+    pub fn media_match_chat(&self) -> crate::infrastructure::ai::ReqwestMediaMatchChat {
+        crate::infrastructure::ai::ReqwestMediaMatchChat
+    }
+    // Agentes / watchdog
+    pub fn watchdog(&self) -> crate::infrastructure::agent::SchtasksWatchdog {
+        crate::infrastructure::agent::SchtasksWatchdog::new()
+    }
+    // Estudio autónomo
+    pub fn production_store(
+        &self,
+    ) -> crate::infrastructure::studio::production_store::LocalProductionStore {
+        crate::infrastructure::studio::production_store::LocalProductionStore::new(&self.config_dir)
+    }
+    /// Ejecuta las etapas del pipeline que el proyecto abierto permite hoy
+    /// (plan/acquire/analyze/scenes/edit). Las demás devuelven error de
+    /// etapa no soportada — ver `CompositeStageExecutor`.
+    pub fn project_stage_executor(
+        &self,
+    ) -> crate::infrastructure::studio::composite::CompositeStageExecutor<'static> {
+        crate::infrastructure::studio::composite::CompositeStageExecutor::new(
+            self.media_tools().ffprobe_path(),
+        )
+    }
+    /// Catálogo de medios del proyecto abierto (assets + índice local).
+    pub fn project_catalog(
+        &self,
+        doc_path: &std::path::Path,
+        root: &std::path::Path,
+    ) -> crate::infrastructure::studio::local_catalog::LocalProjectCatalog {
+        crate::infrastructure::studio::local_catalog::LocalProjectCatalog::new(doc_path, root)
+    }
+    /// Ejecutor de las etapas render/review/deliver, con las dependencias
+    /// de render que el comando ya prestó desde `AppState`.
+    pub fn render_tail_executor<'a>(
+        &'a self,
+        deps: crate::application::render_lifecycle::RenderDeps<'a>,
+        verifier: &'a dyn crate::ports::render::RenderVerifier,
+    ) -> crate::infrastructure::studio::render_executor::RenderReviewDeliverExecutor<'a> {
+        crate::infrastructure::studio::render_executor::RenderReviewDeliverExecutor::new(
+            deps, verifier,
+        )
+    }
+    // MCP cliente
+    pub fn mcp_store(&self) -> crate::infrastructure::mcp::LocalMcpServerStore {
+        crate::infrastructure::mcp::config_dir_store(&self.config_dir)
+    }
+    pub fn mcp_env(&self) -> crate::infrastructure::mcp::KeyringMcpEnv {
+        crate::infrastructure::mcp::keyring_env()
+    }
+    pub fn mcp_factory(&self) -> crate::infrastructure::mcp::StdioMcpTransportFactory {
+        crate::infrastructure::mcp::stdio_factory()
     }
 }

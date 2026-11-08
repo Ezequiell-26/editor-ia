@@ -2,9 +2,9 @@ import type { DesktopService } from "../../services/contracts";
 import type { NativeCall } from './shared';
 import * as shared from './shared';
 import { convertFileSrc } from "@tauri-apps/api/core";
-import type { AssetFileInfo, CopiedMedia, DuplicateAssetGroup, MissingAssetInfo, ProjectVersionInfo, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from "../../services/contracts";
+import type { AssetFileInfo, CopiedMedia, DuplicateAssetGroup, MissingAssetInfo, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from "../../services/contracts";
 
-export function createProjectsService(call: NativeCall): Pick<DesktopService, 'createProject' | 'openProject' | 'openProjectAt' | 'adoptProject' | 'saveProject' | 'saveProjectAs' | 'saveDeliveryPackage' | 'closeProject' | 'importAssets' | 'importMediaPaths' | 'matchMediaPlan' | 'listMediaFolder' | 'listDirectory' | 'readTextFile' | 'writeTextFile' | 'makeDirectory' | 'movePath' | 'deletePath' | 'absoluteFileUrl' | 'recentProjectThumbnail' | 'checkAssetFiles' | 'chooseMediaFolder' | 'findMissingAssets' | 'relinkAsset' | 'relinkAssetsFromFolder' | 'listProjectVersions' | 'restoreProjectVersion' | 'findDuplicateAssets' | 'writeProjectVariant' | 'writeProjectFile' | 'copyMediaInto' | 'loadDirectorMemory' | 'saveDirectorMemory' | 'savePublicationManifest' | 'mediaUrl' | 'joinPath'> {
+export function createProjectsService(call: NativeCall): Pick<DesktopService, 'createProject' | 'openProject' | 'openProjectAt' | 'adoptProject' | 'saveProject' | 'saveProjectAs' | 'saveDeliveryPackage' | 'closeProject' | 'importAssets' | 'importMediaPaths' | 'matchMediaPlan' | 'listMediaFolder' | 'listDirectory' | 'readTextFile' | 'writeTextFile' | 'makeDirectory' | 'movePath' | 'deletePath' | 'absoluteFileUrl' | 'recentProjectThumbnail' | 'qualityGateReview' | 'checkAssetFiles' | 'chooseMediaFolder' | 'findMissingAssets' | 'relinkAsset' | 'relinkAssetsFromFolder' | 'listProjectVersions' | 'restoreProjectVersion' | 'findDuplicateAssets' | 'writeProjectVariant' | 'writeProjectFile' | 'copyMediaInto' | 'loadDirectorMemory' | 'saveDirectorMemory' | 'savePublicationManifest' | 'mediaUrl' | 'joinPath'> {
   return {
     async createProject(input) {
       return shared.requireOpened(
@@ -210,6 +210,10 @@ export function createProjectsService(call: NativeCall): Pick<DesktopService, 'c
     async recentProjectThumbnail(path) {
       const raw = await call(shared.PROJECT_COMMANDS.recentProjectThumbnail, { path });
       return typeof raw === 'string' ? raw : null;
+    },
+    async qualityGateReview() {
+      const raw = await call(shared.PROJECT_COMMANDS.qualityGateReview);
+      return raw as QualityGateReport;
     },
     async checkAssetFiles(paths) {
       const raw = await call(shared.PROJECT_COMMANDS.checkAssets, { paths });

@@ -1,4 +1,11 @@
+import { configure } from '@testing-library/dom';
 import { vi } from 'vitest';
+
+// Las vistas se cargan por chunks lazy: en una máquina cargada el primer
+// render de una vista puede tardar más de 1 s (el default de `waitFor` /
+// `findBy*`) y la suite fallaba de forma intermitente con "Unable to find".
+// 5 s es el mismo tope que los tests ya declaran a mano en `App.test.tsx`.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom does not implement media playback. The preview calls play/pause in an
 // effect; stubbing them keeps the UI tests focused on state and layout without

@@ -19,3 +19,4 @@ pub mod proxies;
 pub mod render_jobs;
 pub mod render_lossless;
 pub mod render_queue;
+pub mod studio;

@@ -6,8 +6,14 @@
  * `docs/CSS-PERF-NOTES.md` §5.
  *
  * Orden heredado: legacy de Home antes de la capa premium de vistas (que gana
- * la cascada).
+ * la cascada). `compliance.css` era crítica en `main.tsx`; se mudó acá en la
+ * segunda fase del splitting porque `.compliance-*` sólo lo usa
+ * `ComplianceView`, alcanzable vía el hub Descargar (kind `content`) o
+ * embebido en el editor (`both` carga los dos entries).
+ * (`scopes.css` vive en `entries/editor.css`: sus paneles son kind `editor`.
+ * `settings.css` sigue crítica: shell/filmora la pisan por orden de cascada.)
  */
+@import '../compliance.css';
 @import '../home.css';
 @import '../premium/views.css';
 /* Fase 2 CSS splitting: herramientas Director + Convertidor salieron del

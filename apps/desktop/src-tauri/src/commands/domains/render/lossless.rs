@@ -7,8 +7,6 @@
 
 use tauri::State;
 
-use crate::infrastructure::media::{StateMediaTools, SystemMediaRunner};
-use crate::infrastructure::render_lossless::LocalLosslessOutputs;
 use crate::projects::service::ProjectError;
 use crate::render::lossless::{ChapterInput, ChaptersResult, ExtractResult, LosslessResult};
 use crate::state::AppState;
@@ -23,9 +21,9 @@ pub async fn export_lossless(
     end_seconds: f64,
     exact: Option<bool>,
 ) -> Result<LosslessResult, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
-    let outputs = LocalLosslessOutputs;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
+    let outputs = state.lossless_outputs();
     crate::application::lossless::export_lossless(
         &tools,
         &runner,
@@ -45,9 +43,9 @@ pub async fn remux(
     input: String,
     output: String,
 ) -> Result<LosslessResult, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
-    let outputs = LocalLosslessOutputs;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
+    let outputs = state.lossless_outputs();
     crate::application::lossless::remux(&tools, &runner, &outputs, &input, &output)
 }
 
@@ -60,9 +58,9 @@ pub async fn write_chapters(
     title: Option<String>,
     chapters: Vec<ChapterInput>,
 ) -> Result<ChaptersResult, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
-    let outputs = LocalLosslessOutputs;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
+    let outputs = state.lossless_outputs();
     crate::application::lossless::write_chapters(
         &tools, &runner, &outputs, &input, &output, title, chapters,
     )
@@ -75,8 +73,8 @@ pub async fn extract_audio(
     input: String,
     output: String,
 ) -> Result<ExtractResult, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
-    let outputs = LocalLosslessOutputs;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
+    let outputs = state.lossless_outputs();
     crate::application::lossless::extract_audio(&tools, &runner, &outputs, &input, &output)
 }

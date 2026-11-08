@@ -314,3 +314,30 @@ bundled de piper copiados al worktree (gitignored).
    commitear en main — no se porta hasta que el usuario lo confirme.
    Antes de cualquier merge: revisar `git status` de main y repetir la
    comparación de delta.
+
+---
+
+## Fase de maduración arquitectónica (post-690f2bb, worktree sin commit)
+
+**Completada como fundación; providers del estudio pendientes.**
+
+- Reglas de dependencias automatizadas: `scripts/architecture-rules.test.mjs`
+  de 7 a 12 verificaciones (frontend Tauri, ciclos con excepciones
+  documentadas, commands→infrastructure, application→commands/infra/Tauri,
+  dominio puro, `#[path]` válidos, handlers IPC únicos).
+- `commands/**` migrado a accessors del composition root (`AppState`);
+  `application/**` limpio de infraestructura/Tauri en producción.
+- División dirigida: `application/media.rs` → `media.rs` + `media_analysis.rs`
+  + `media_subtitles.rs`; `infrastructure/ai.rs` → `infrastructure/ai/`
+  (secrets/settings/chat/probe/single_shot + test_server).
+- Fundación Autonomous Creative Studio: `ProductionPlanSchema` en
+  project-schema (`studio.ts`), espejo `src/studio/plan.rs`, puertos
+  `ports/studio.rs` (MediaCatalog, ResourceAcquisition, ContentGenerator),
+  Quality Gate (`studio/quality.rs` + `application/quality_gate.rs`).
+- ADRs: `adr/0001` (comandos como adaptadores IPC), `adr/0002` (fundación del
+  estudio), `adr/0003` (inventario include!/#[path]).
+
+**Siguiente bloque sugerido:** Production Orchestrator consumiendo
+`ProductionPlan` + `AgentOperation`, con el Quality Gate (`quality_gate_review`)
+ya disponible por IPC como puerta de entrega. Primer provider real de
+`MediaCatalog` (`LocalProjectCatalog`) como validación del puerto.

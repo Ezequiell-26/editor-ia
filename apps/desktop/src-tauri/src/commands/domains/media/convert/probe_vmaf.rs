@@ -12,7 +12,6 @@ use tauri::State;
 
 use crate::application::media as use_cases;
 use crate::commands::hide_console;
-use crate::infrastructure::media::{StateMediaTools, SystemMediaRunner};
 use crate::ports::media::MediaProbe;
 use crate::projects::service::ProjectError;
 use crate::state::AppState;
@@ -26,8 +25,8 @@ pub async fn probe_any_file(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<MediaProbe, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
     use_cases::probe_any_file(&tools, &runner, &path)
 }
 
@@ -64,7 +63,7 @@ pub async fn measure_vmaf(
     original: String,
     compressed: String,
 ) -> Result<Option<f64>, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
     use_cases::measure_vmaf(&tools, &runner, &original, &compressed)
 }

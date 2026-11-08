@@ -12,7 +12,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::infrastructure::mcp::{KeyringMcpEnv, LocalMcpServerStore, StdioMcpTransportFactory};
 use crate::mcp::client::{
     self, error, handshake_fields, initialize_request, initialized_notification, parse_tools,
     tools_call_request, tools_list_request, validate, validate_working_dir, McpCallResult,
@@ -503,24 +502,6 @@ pub fn call_tool(
     }
     let env = secrets.read_env(&server)?;
     call_config(registry, factory, &server, &env, tool.trim(), arguments)
-}
-
-// ---------------------------------------------------------------------------
-// Adaptadores listos para los comandos IPC
-// ---------------------------------------------------------------------------
-
-pub fn config_dir_store(config_dir: &std::path::Path) -> LocalMcpServerStore {
-    LocalMcpServerStore {
-        dir: config_dir.to_path_buf(),
-    }
-}
-
-pub fn keyring_env() -> KeyringMcpEnv {
-    KeyringMcpEnv
-}
-
-pub fn stdio_factory() -> StdioMcpTransportFactory {
-    StdioMcpTransportFactory
 }
 
 #[cfg(test)]

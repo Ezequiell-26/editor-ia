@@ -27,6 +27,7 @@ import type {
   OpenedProject,
   ProjectVersionInfo,
   ProxyCleanupResult,
+  QualityGateReport,
   ProxyProgressEvent,
   ProxyQuality,
   ProxyStatus,
@@ -39,6 +40,8 @@ import type {
   RenderProgressEvent,
   RenderStarted,
   ConvertProgress,
+  CatalogEntry,
+  ProductionRun,
   ScriptPlan,
   SystemInfo,
   YouTubeChannelReport,
@@ -995,6 +998,47 @@ export function createFakeService(): FakeService {
     },
     async recentProjectThumbnail() {
       return THUMB;
+    },
+    async qualityGateReview() {
+      return { passed: true, errors: 0, warnings: 0, findings: [] } as QualityGateReport;
+    },
+    async productionCreate(plan, options) {
+      return {
+        id: options?.runId ?? 'run-fake',
+        planId: plan.id,
+        plan,
+        status: 'planned',
+        currentStage: 'plan',
+        stages: [],
+        maxCostCents: options?.maxCostCents,
+        spentCents: 0,
+        maxStageAttempts: 3,
+        resumes: 0,
+        createdAt: '2026-01-01T00:00:00Z',
+        updatedAt: '2026-01-01T00:00:00Z',
+      } as ProductionRun;
+    },
+    async productionStatus() {
+      return null;
+    },
+    async productionList() {
+      return [] as readonly ProductionRun[];
+    },
+    async productionResume(runId: string) {
+      return (await service.productionStatus(runId)) as ProductionRun;
+    },
+    async productionCancel(runId: string) {
+      return (await service.productionStatus(runId)) as ProductionRun;
+    },
+    async productionRemove() {},
+    async productionAdvance(runId: string) {
+      return (await service.productionStatus(runId)) as ProductionRun;
+    },
+    async catalogSearch() {
+      return [] as readonly CatalogEntry[];
+    },
+    async catalogGet() {
+      return null;
     },
     async checkAssetFiles(paths: string[]) {
       return paths.map<AssetFileInfo>((path) => ({ path, exists: true, bytes: 1000 }));

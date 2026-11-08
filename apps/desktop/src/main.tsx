@@ -9,8 +9,11 @@ import './styles/dopamine-ux.css';
 import './styles/chrome.css';
 import './styles/flat.css';
 import './styles/panda.css';
-import './styles/compliance.css';
-import './styles/scopes.css';
+// scopes.css y compliance.css ya no son críticos: viven en
+// `styles/entries/{editor,content}.css` (segunda fase del CSS splitting,
+// ver docs/CSS-PERF-NOTES.md §5 y la cola de mejora). settings.css sigue
+// crítico: premium/shell.css y filmora.css tienen reglas `.settings-window`
+// de igual especificidad que dependen de cargar DESPUÉS de ella.
 import './styles/settings.css';
 import './styles/start-screen.css';
 import './styles/resolve-theme.css';

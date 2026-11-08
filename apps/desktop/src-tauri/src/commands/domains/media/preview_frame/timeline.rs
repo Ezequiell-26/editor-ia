@@ -446,12 +446,34 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
         }
     }
 
+    // Los mates de `luma-wipe` pueden vivir en pistas ocultas —la UI lo
+    // recomienda— y la ventana los descartaba junto al resto de la pista:
+    // el render no encontraba el clip y el preview entero fallaba. Se
+    // conservan sólo como fuente de máscara; su pista sigue oculta en
+    // `window`, así que el composite no los dibuja.
+    let luma_mate_ids: HashSet<&str> = clips
+        .iter()
+        .filter(|clip| clip["transitionIn"]["type"].as_str() == Some("luma-wipe"))
+        .filter_map(|clip| clip["transitionIn"]["mateClipId"].as_str())
+        .collect();
     let mut kept: Vec<Value> = Vec::new();
     let mut kept_captions: Vec<Value> = Vec::new();
     let mut omitted_graphic = false;
     for clip in &clips {
-        let Some(track_kind) = visible(clip) else {
-            continue;
+        let track_kind = match visible(clip) {
+            Some(kind) => kind,
+            None => {
+                let is_luma_mate = clip["id"]
+                    .as_str()
+                    .is_some_and(|id| luma_mate_ids.contains(id));
+                if !is_luma_mate {
+                    continue;
+                }
+                match track_info.get(clip["trackId"].as_str().unwrap_or("")) {
+                    Some((kind, _)) => kind.clone(),
+                    None => continue,
+                }
+            }
         };
         if clip["kind"].as_str() == Some("graphic") {
             let start = clip["startFrame"].as_u64().unwrap_or(0);

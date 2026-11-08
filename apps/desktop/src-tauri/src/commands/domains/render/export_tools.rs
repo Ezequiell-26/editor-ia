@@ -9,9 +9,8 @@ use std::path::Path;
 
 use tauri::State;
 
-use crate::infrastructure::media::{StateMediaTools, SystemMediaRunner};
-use crate::infrastructure::render_lossless::LocalLosslessOutputs;
-use crate::ports::media::MediaTools;
+use crate::ports::media::{MediaRunner, MediaTools};
+use crate::ports::render::LosslessOutputs;
 use crate::projects::service::ProjectError;
 use crate::state::AppState;
 
@@ -24,20 +23,20 @@ pub use crate::render::export_tools::{
 pub async fn export_capabilities(
     state: State<'_, AppState>,
 ) -> Result<ExportCapabilities, ProjectError> {
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
+    let tools = state.media_tools();
+    let runner = state.media_runner();
     crate::application::export_tools::export_capabilities(&tools, &runner)
 }
 
 /// Verifica un archivo existente con FFprobe; usado por el comando y por el
 /// worker de render al terminar (`render-finished.verification`).
-pub fn verify_file(ffprobe: &Path, path: &Path) -> Result<ExportVerification, ProjectError> {
-    crate::application::export_tools::verify_export_file(
-        &SystemMediaRunner,
-        &LocalLosslessOutputs,
-        ffprobe,
-        path,
-    )
+pub fn verify_file(
+    runner: &dyn MediaRunner,
+    outputs: &dyn LosslessOutputs,
+    ffprobe: &Path,
+    path: &Path,
+) -> Result<ExportVerification, ProjectError> {
+    crate::application::export_tools::verify_export_file(runner, outputs, ffprobe, path)
 }
 
 #[tauri::command]
@@ -45,12 +44,17 @@ pub async fn verify_export(
     state: State<'_, AppState>,
     path: String,
 ) -> Result<ExportVerification, ProjectError> {
-    let tools = StateMediaTools::new(&state);
+    let tools = state.media_tools();
     let Some(ffprobe) = tools.ffprobe_path() else {
         return Err(ProjectError::message(
             crate::projects::service::ProjectErrorCode::Io,
             "FFprobe no está configurado",
         ));
     };
-    verify_file(&ffprobe, Path::new(path.trim()))
+    verify_file(
+        &state.media_runner(),
+        &state.lossless_outputs(),
+        &ffprobe,
+        Path::new(path.trim()),
+    )
 }

@@ -18,9 +18,6 @@ use tauri::{AppHandle, Emitter, State};
 use crate::commands::providers::{
     chat_endpoint, is_local_endpoint, read_key, validate_provider_base_url,
 };
-use crate::infrastructure::ai::{
-    KeyringProviderSecrets, ReqwestMediaMatchChat, ReqwestProviderChat, StateProviderSettings,
-};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
@@ -33,11 +30,11 @@ pub async fn assistant_chat(
     state: State<'_, AppState>,
     request: AssistantRequest,
 ) -> Result<AssistantReply, ProjectError> {
-    let store = StateProviderSettings::new(&state);
+    let store = state.provider_settings();
     crate::application::assistant::assistant_chat(
         &store,
-        &KeyringProviderSecrets,
-        &ReqwestProviderChat,
+        &state.provider_secrets(),
+        &state.provider_chat(),
         request,
     )
     .await
@@ -48,11 +45,11 @@ pub async fn match_media_plan(
     state: State<'_, AppState>,
     request: MatchMediaRequest,
 ) -> Result<MatchMediaReply, ProjectError> {
-    let store = StateProviderSettings::new(&state);
+    let store = state.provider_settings();
     crate::application::assistant::match_media_plan(
         &store,
-        &KeyringProviderSecrets,
-        &ReqwestMediaMatchChat,
+        &state.provider_secrets(),
+        &state.media_match_chat(),
         request,
     )
     .await

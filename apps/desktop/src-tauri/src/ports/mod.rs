@@ -13,3 +13,4 @@ pub mod media;
 pub mod projects;
 pub mod proxies;
 pub mod render;
+pub mod studio;

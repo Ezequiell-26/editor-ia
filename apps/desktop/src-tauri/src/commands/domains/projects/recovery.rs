@@ -19,11 +19,6 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::application::projects as use_cases;
-use crate::infrastructure::projects::{
-    LocalProjectDocuments, StateProjectSession, TauriProjectEnvironment,
-};
-use crate::infrastructure::projects_history::LocalProjectVersioning;
-use crate::infrastructure::projects_recovery::LocalProjectAssetRecovery;
 use crate::ports::projects::{
     DuplicateAssetGroup, MissingAssetInfo, ProjectVersionInfo, RelinkFolderResult, RelinkResult,
     RestoreProjectVersionResult,
@@ -55,14 +50,14 @@ pub async fn choose_media_folder(
 
 #[tauri::command]
 pub async fn find_missing_assets(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     project_path: Option<String>,
 ) -> Result<Vec<MissingAssetInfo>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let environment = TauriProjectEnvironment::new(&app);
-    let documents = LocalProjectDocuments;
-    let recovery = LocalProjectAssetRecovery;
+    let session = state.project_session();
+    let environment = state.project_environment();
+    let documents = state.project_documents();
+    let recovery = state.project_asset_recovery();
     use_cases::find_missing_assets(
         &session,
         &environment,
@@ -78,23 +73,23 @@ pub async fn relink_asset(
     asset_id: String,
     new_path: String,
 ) -> Result<RelinkResult, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let recovery = LocalProjectAssetRecovery;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let recovery = state.project_asset_recovery();
     use_cases::relink_asset(&session, &documents, &recovery, &asset_id, &new_path)
 }
 
 #[tauri::command]
 pub async fn relink_assets_from_folder(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     project_path: Option<String>,
     folder: String,
 ) -> Result<RelinkFolderResult, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let environment = TauriProjectEnvironment::new(&app);
-    let documents = LocalProjectDocuments;
-    let recovery = LocalProjectAssetRecovery;
+    let session = state.project_session();
+    let environment = state.project_environment();
+    let documents = state.project_documents();
+    let recovery = state.project_asset_recovery();
     use_cases::relink_assets_from_folder(
         &session,
         &environment,
@@ -107,14 +102,14 @@ pub async fn relink_assets_from_folder(
 
 #[tauri::command]
 pub async fn find_duplicate_assets(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     project_path: Option<String>,
 ) -> Result<Vec<DuplicateAssetGroup>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let environment = TauriProjectEnvironment::new(&app);
-    let documents = LocalProjectDocuments;
-    let recovery = LocalProjectAssetRecovery;
+    let session = state.project_session();
+    let environment = state.project_environment();
+    let documents = state.project_documents();
+    let recovery = state.project_asset_recovery();
     use_cases::find_duplicate_assets(
         &session,
         &environment,
@@ -126,22 +121,23 @@ pub async fn find_duplicate_assets(
 
 #[tauri::command]
 pub async fn list_project_versions(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     project_path: Option<String>,
 ) -> Result<Vec<ProjectVersionInfo>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let environment = TauriProjectEnvironment::new(&app);
-    let versioning = LocalProjectVersioning;
+    let session = state.project_session();
+    let environment = state.project_environment();
+    let versioning = state.project_versioning();
     use_cases::list_project_versions(&session, &environment, &versioning, project_path.as_deref())
 }
 
 #[tauri::command]
 pub async fn restore_project_version(
+    state: State<'_, AppState>,
     project_path: String,
     version_id: String,
     mode: Option<String>,
 ) -> Result<RestoreProjectVersionResult, ProjectError> {
-    let versioning = LocalProjectVersioning;
+    let versioning = state.project_versioning();
     use_cases::restore_project_version(&versioning, &project_path, &version_id, mode.as_deref())
 }

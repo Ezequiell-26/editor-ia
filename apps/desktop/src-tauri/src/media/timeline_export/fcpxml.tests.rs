@@ -1,5 +1,5 @@
 use super::*;
-use crate::commands::fcpxml::{export_fcpxml, FcpxmlRequest};
+use crate::commands::fcpxml::{export_fcpxml_for_test, FcpxmlRequest};
 use uuid::Uuid;
 
 #[test]
@@ -12,7 +12,7 @@ fn fcpxml_has_resources_spine_and_clip() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-fcpxml-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let result = export_fcpxml(FcpxmlRequest {
+    let result = export_fcpxml_for_test(FcpxmlRequest {
         project,
         output_dir: dir.to_string_lossy().into_owned(),
     })
@@ -195,7 +195,7 @@ fn fcpxml_rejects_a_timeline_with_only_zero_duration_clips() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-fcpxml-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let error = export_fcpxml(FcpxmlRequest {
+    let error = export_fcpxml_for_test(FcpxmlRequest {
         project,
         output_dir: dir.to_string_lossy().into_owned(),
     })
@@ -386,7 +386,7 @@ fn fcpxml_expands_compound_clips() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-fcpxml-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let result = export_fcpxml(FcpxmlRequest {
+    let result = export_fcpxml_for_test(FcpxmlRequest {
         project,
         output_dir: dir.to_string_lossy().into_owned(),
     })

@@ -39,6 +39,7 @@ export function createUnavailableService(): DesktopService {
     sampleAssetColor: async () => unavailable(),
     mediaThumbnail: async () => unavailable(),
     recentProjectThumbnail: async () => null,
+    qualityGateReview: async () => unavailable(),
     checkAssetFiles: async () => unavailable(),
     chooseMediaFolder: async () => unavailable(),
     findMissingAssets: async () => unavailable(),
@@ -266,6 +267,15 @@ export function createUnavailableService(): DesktopService {
     onRenderFinished: async () => () => {},
     mediaUrl: () => '',
     joinPath: joinProjectPath,
+    productionCreate: async () => unavailable(),
+    productionStatus: async () => unavailable(),
+    productionList: async () => unavailable(),
+    productionResume: async () => unavailable(),
+    productionCancel: async () => unavailable(),
+    productionRemove: async () => unavailable(),
+    productionAdvance: async () => unavailable(),
+    catalogSearch: async () => unavailable(),
+    catalogGet: async () => unavailable(),
   };
 }
 

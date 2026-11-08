@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use serde_json::{json, Value};
-use tauri::async_runtime;
+use tokio::spawn as async_spawn;
 
 use crate::mcp::server::{
     self, batch_task_error, call_parts, classify_request, collect_read_only_tools,
@@ -201,7 +201,7 @@ impl<I: McpToolInvoker + Send + Sync + 'static> McpRequestHandler for RpcDispatc
                     for message in chunk {
                         let invoker = invoker.clone();
                         let cloned = message.clone();
-                        handles.push(async_runtime::spawn(async move {
+                        handles.push(async_spawn(async move {
                             Self::dispatch(&invoker, &cloned).await
                         }));
                     }

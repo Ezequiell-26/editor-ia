@@ -899,3 +899,93 @@ en main (TS4104/TS2339, ajenos al port) · cargo fmt + git diff
 
 - Reconciliar con main (el loop siguió avanzando: light.flare, light.leak,
   PreviewTransformBox fix ya portado manualmente).
+
+---
+
+## Fase de maduración arquitectónica y fundación del estudio (worktree, sin commit)
+
+Trabajo ejecutado sobre `architecture/refactor-foundation` a partir de `690f2bb`, preservando el WIP del usuario (`commands/preview_frame.rs`, `render/ffmpeg.rs`, `nul`, `vibe_videos/`).
+
+### Dependencias entre capas (Fase B)
+
+- `commands/**` ya no importa ni construye `infrastructure/**`: los ~20 dominios de comandos migrados a accessors del composition root (`AppState`) que devuelven vistas/adapters por préstamo. Los comandos que no recibían `State` lo ganaron como parámetro IPC (el contrato público no cambia: Tauri lo inyecta).
+- `application/**` quedó limpio de `commands`, `infrastructure` y `tauri` en código de producción; las únicas referencias a `infrastructure` son seams `#[cfg(test)]` documentados (tests de integración intencionales).
+- `application/mcp.rs`/`mcp_server.rs` ya no exponen helpers que devolvían tipos concretos de infraestructura ni `tauri::async_runtime`.
+- Tests que invocaban comandos con `State` migrados a llamar casos de uso de `application` con adaptadores concretos (`media/timeline_export/*`, `media/timeline_import.tests.rs`).
+
+### Reglas automatizadas
+
+`scripts/architecture-rules.test.mjs` pasó de 7 a **12 verificaciones**: aislamiento Tauri del frontend por capa, unicidad de `platform/tauri` como transporte, ciclos entre features (con 2 excepciones documentadas: `color↔editor`, `editor↔vfx` — pendiente bajar el módulo compartido), `commands` sin `infrastructure`, `application` sin `commands`/`infrastructure`/Tauri, dominio puro sin procesos/Tauri, `#[path]` a archivos existentes, unicidad y conteo de handlers IPC. La suite excluye `target/` y `*.tests.rs` (los tests sí pueden usar infraestructura concreta).
+
+### Modularización dirigida (Fase C)
+
+- `application/media.rs` (752 líneas, 3 responsabilidades) → fachada `media.rs` (259, ingesta/assets) + `media_analysis.rs` (430, escenas/estabilización/probe/VMAF) + `media_subtitles.rs` (101). Re-exporta la API pública: ningún consumidor cambió.
+- `infrastructure/ai.rs` (659, 5 adaptadores) → `infrastructure/ai/` con `mod.rs` fachada + `secrets.rs` (keyring), `settings.rs` (AppState), `chat.rs` (`/chat/completions`), `probe.rs` (`/models`), `single_shot.rs` (motion + media-match) + `test_server` compartido.
+- Inventario `include!`/`#[path]`: 99 `include!` en 21 archivos y 99 `#[path]` — la mayoría justificados (tests incluidos como módulos hermanos y submódulos de comandos gigantes). Clasificación completa en el ADR-0003; no se convirtieron masivamente porque varias rutas comparten scope/visibilidad deliberadamente.
+- Módulos grandes revisados y **justificados como cohesivos** (una responsabilidad, cabecera documental): `infrastructure/render_jobs.rs`, `application/conversion.rs`, `application/projects.rs`, `application/mcp.rs`, `application/proxies.rs`, `infrastructure/mcp_server.rs`.
+
+### Fundación del Autonomous Creative Studio (Fase D)
+
+Contratos nuevos, sin implementar providers:
+
+- **`ProductionPlan`**: `packages/project-schema/src/studio.ts` — schema zod versionado (`STUDIO_PLAN_VERSION = 1`) con brief, target (plataforma/aspecto/duración/profile), requirements de recursos con piso de derechos, escenas planned, specs de subtítulos/música, criterios de calidad y etapa del pipeline. Es artefacto de *entrada* del orquestador; no duplica `ProjectDocumentSchema`. Espejo serde en `src/studio/plan.rs` para Rust.
+- **Catálogo multimedia**: `ports/studio.rs::MediaCatalog` + `CatalogEntry`/`CatalogQuery` (tipo, duración, tags, transcript, análisis, thumbnail, fuente/licencia/derechos).
+- **Adquisición**: `ResourceAcquisition` + `SourceDescriptor` (términos, límites, coste, disponibilidad) + `AcquisitionCandidate`/`AcquiredResource`. Implementado `LocalCatalogAcquisition` (biblioteca del proyecto, coste 0, verifica piso de derechos y existencia en disco); fuentes externas siguen sin provider — lo no resoluble localmente falla `requires_provider`.
+- **Generación**: `ContentGenerator` + `GenerationCapability`/`GenerationRequest`/`GenerationResult` por tipo (texto, imagen, vídeo, voz, música, sfx, animación).
+- **AI Editor**: las operaciones tipadas ya existen como `AgentOperation` (JSON Patch versionado con `expectedRevision`, coste declarado y aprobación) en `provenance.ts`; el orquestador las consumirá, no se duplicó un segundo mecanismo.
+- **Quality Gate**: `studio/quality.rs` (checks puros: timeline vacío, assets no listos, clips fuera de rango fuente, subtítulos más allá de la duración, sin perfil de render, derechos de uso) + `application/quality_gate.rs::review_project`/`review_open_project` que agrega verificación de archivos en disco con `resolve_inside_root`. Taxonomía alineada a `QualityCheckKindSchema`. **Expuesto por IPC**: comando `quality_gate_review` (`commands/domains/projects/quality_gate.rs`) → `QualityReportSummary` serializable (`passed`/`errors`/`warnings`/`findings`), con método `service.qualityGateReview()` en el contrato `DesktopService`. Evalúa el último estado persistido: la UI debe guardar antes de pedir el veredicto. No confundir con `RenderProfile.qualityGate` (verificación post-render ya existente).
+
+### Reconciliación con main (post-fase)
+
+Matriz medida y commits pendientes portados en `docs/architecture/RECONCILIATION.md`. Desde el último sync (`cf943ef`) se portaron: `ea94355` (mate luma-wipe en pista oculta), `cf4ba59` (scope por proyecto en cola de render), `6a630e6` (CSS splitting fase 2: scopes/compliance fuera del critical path), `2c60004` (timeouts Testing Library). `cf943ef` ya estaba portado. Los commits docs-only de bookkeeping de main no se portan (cada worktree lleva su cola/ledger).
+
+### Evidencia
+
+- `cargo test --lib`: 698/698 antes del split; 16/16 tests de media+ai tras el split; 14/14 tests nuevos de studio/quality_gate/ports.
+- `npx vitest run scripts/architecture-rules.test.mjs`: 12/12.
+- `packages/project-schema`: `tsc --noEmit` limpio, `studio.test.ts` 10/10.
+- `cargo check` dev: 0 errores tras cada fase.
+- Orquestador completo: `cargo test --lib` 749 passed / 0 failed / 53 ignored; architecture-rules 12/12; `cargo check --tests` limpio; `packages/project-schema` tsc + vitest studio 10/10.
+- Pipeline E2E con render real: `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test --lib production_e2e -- --ignored` → 1/1 (MP4 verificado + manifest + clips/cues/transitionIn en el documento).
+
+### Production Orchestrator (ADR-0004)
+
+Ciclo de vida de producciones autónomas implementado y probado:
+
+- `studio/run.rs`: `ProductionRun` puro (status, checkpoints por etapa del pipeline, presupuesto `max_cost_cents`/`spent_cents`, `max_stage_attempts=3`, resumes). Etapa fallida no fatal vuelve a `pending`; fatal o intentos agotados ⇒ `failed`.
+- `ports/studio.rs`: `ProductionStore` + `StageExecutor`/`StageContext`/`StageOutcome` (el ejecutor debe ser honesto; el orquestador nunca simula).
+- `application/production.rs`: `create_run`, `advance` (una etapa por llamada), `cancel`, `resume`, `status`, `list`, `remove` (sólo terminales).
+- `infrastructure/studio/production_store.rs`: JSON por corrida en `<config_dir>/productions/`, escritura atómica, id sanitizado.
+- IPC: `production_create|status|list|resume|cancel|remove|advance`. `advance` usa `ProjectStageExecutor` y requiere proyecto abierto.
+
+### Primer catálogo y ejecutor reales
+
+- `infrastructure/studio/local_catalog.rs`: `LocalProjectCatalog` implementa `MediaCatalog` sobre `project.assets` del documento abierto + índice de enriquecimiento en `<root>/.olyvia/catalog-index.json` (transcript/analysis/thumbnail vía `upsert`; `prune_missing` limpia huérfanos). Traduce kind, licencia (`rights.license.commercialUse`), procedencia y sha256 1:1. Omite `font`/`text` (no son recursos producibles).
+- `infrastructure/studio/project_executor.rs`: `ProjectStageExecutor` soporta `plan` (re-valida el plan embebido), `acquire` (sin requisitos ⇒ completa a coste 0; con requisitos resuelve cada uno contra `LocalCatalogAcquisition` — biblioteca local, hasta `max_count` assets por requisito con licencia ≥ piso y archivo en disco; lo no satisfecho ⇒ `fatal` + `requires_provider`), `analyze` (indexa assets, reporta `indexedAssets`/`missingFiles`/`byKind`).
+- `infrastructure/studio/local_acquisition.rs`: `LocalCatalogAcquisition` implementa `ResourceAcquisition` sobre el `LocalProjectCatalog` (fuente `project-assets`, coste 0). `search` filtra por kind/texto/piso de derechos; `acquire` verifica que el asset siga en el catálogo, que su ruta resuelva dentro del root (`resolve_inside_root`) y que el archivo exista; devuelve `AcquiredResource` con bytes reales y sha256 declarado.
+- `infrastructure/studio/assembly_executor.rs`: `AssemblyStageExecutor` soporta `scenes` (resuelve cada escena contra el catálogo por `requirement_ids`+kind+query+piso de licencia, escribe `.olyvia/production/<planId>.scenes.json`) y `edit` (crea pistas "Producción Video/Imagen/Audio" y monta un clip por escena en secuencia desde frame 0; idempotente vía `clipIds` del artefacto; escritura atómica del documento; escenas sin resolver ⇒ `fatal` nombrándolas). `edit` además materializa las specs del plan: `transition` → `transitionIn` en los clips visuales tras el primero por pista (frames clampeados a duración y a 120), `subtitles.enabled` → un cue por escena en pista "Producción Subtítulos" (kind `caption`) con estilo propio y `narrationText`/título, `music.enabled` → asset de audio del catálogo en pista "Producción Música" a lo largo de la corrida con `gainDb -12` y fades (sin candidato ⇒ warning en output, no falla).
+- `infrastructure/studio/render_executor.rs`: `RenderReviewDeliverExecutor<'a>` cubre `render` (arranca `render_lifecycle::start_render` real con salida en `<root>/renders/`, sondea el job entre advances vía `previous_output`, verifica el MP4 publicado con ffprobe; `RenderBusy` ⇒ reintentable), `review` (Quality Gate post-edición; errores ⇒ fatal con reporte en output) y `deliver` (copia el MP4 a `<root>/deliverables/` + `manifest.json` con plan/proyecto/calidad).
+- `infrastructure/studio/composite.rs`: `CompositeStageExecutor<'a>` enruta cada etapa al ejecutor que la implementa (built-ins + `with_extra` para los que necesitan `RenderDeps` del `AppState`). Es lo que `production_advance` inyecta. Cobertura real: las 8 etapas del pipeline.
+- Soporte async en el dominio: `StageOutcome.in_progress` (etapa queda `running` y se re-sondea sin consumir intentos), `StageRecord.output` persistido, `StageContext.previous_output`/`stage_outputs` para que las etapas se pasen estado (jobId, outputPath, reportes). `resume` re-pone a `pending` las etapas `failed`.
+- `ProductionRun` ahora embebe el `plan` serializado: la corrida es autosuficiente y `advance` no necesita que el llamador lo re-suministre.
+- IPC nuevo: `production_advance`, `catalog_search`, `catalog_get` (requieren sesión de proyecto).
+- **E2E real verificado**: `production_e2e_runs_all_stages_to_deliverables` (ignorado por defecto, `EDITOR_IA_RUN_RENDER_TESTS=1`) corre las 8 etapas sobre el fixture `sample-vertical-slice` con medios generados por ffmpeg lavfi y un plan con subtítulos + transición. Resultado medido: `done`, MP4 entregado en `deliverables/e2e-plan.mp4` (~1,0 MB, 1920x1080 h264/aac, verificado por ffprobe), `e2e-plan.manifest.json` con `quality.passed=true`, 2 clips de escena + `transitionIn` dissolve + cues de subtítulo en el documento. La corrida completa tarda ~15 s.
+- **Schema**: `ProductionPlanSchema` gana `transition` opcional (`{type, frames}`, subconjunto seguro de `ClipTransitionSchema`); espejo serde `PlanTransition`/`PlanTransitionType` en `studio/plan.rs`.
+- **Bug real encontrado y corregido por el E2E**: `studio/quality.rs::collect_clips` leía `timeline.tracks[].clips[]`, forma que no existe en el schema v1 (los clips viven en `timeline.clips` plano con `trackId`); el Quality Gate reportaba "sin clip visual" en todo proyecto real. Corregido el lector y los fixtures de test que reproducían la forma equivocada.
+
+- **Contratos TS + UI de corridas**: `services/contracts/studio.ts` (`ProductionRun`, `StageRecord`, `CatalogEntry`, `CatalogQuery` — espejo camelCase del serde Rust), `services/contracts/services/studio.ts` (`DesktopServiceStudio`), comandos en `STUDIO_COMMANDS` (`platform/tauri/shared.ts`), adaptador `platform/tauri/studio.ts` compuesto en `native-service.ts`; stubs honestos en `unavailable-service.ts` y `fake-service.ts`. `state/production-plan.ts::buildProductionPlanFromProject` construye un `ProductionPlan` desde el proyecto abierto (assets de escena → `ResourceRequirement` con query=assetId, escenas → `PlanScene`, subtítulos si hay narración, target desde el primer render profile). `features/production/AutonomousRunsPanel.tsx` lista corridas con estado por etapa y opera avance/reanudación/cancelación/eliminación — todo vía `store.service`, sin imports de Tauri.
+- **Fix de workspace**: `node_modules/@editor-ia/project-schema` apuntaba al worktree hermano (`editor-ia`); se repuntó a `packages/project-schema` de este worktree para que los tipos `ProductionPlan`/`StudioStage` resuelvan.
+- **Provider externo real — Internet Archive**: `infrastructure/studio/internet_archive.rs` implementa `ResourceAcquisition` sobre archive.org (advancedsearch + metadata + descarga de derivado, sin credenciales). `acquire_stage` ahora prueba en dos pisos: biblioteca local → Internet Archive. `AcquisitionCandidate` ganó `kind`. Los recursos remotos se **registran como `project.assets`** (`register_remote_asset`: ffprobe para `media.*`, escritura atómica, idempotente por `source.path`, derechos/licencia del candidato en `rights`) para que `analyze`/`scenes`/`edit` los resuelvan. Sin ffprobe la fuente remota se omite y el requisito sigue `requires_provider`. Búsqueda live verificada contra archive.org (`EDITOR_IA_RUN_LIVE_TESTS=1`).
+- **UI de corridas**: `AutonomousRunsPanel` con "Correr" (auto-avance con sondeo del render async vía `state/production-runs.ts::advanceProductionRun`), "Detener", "Avanzar etapa", Reanudar/Cancelar/Eliminar y aviso al terminar.
+- **ContentGenerator real — voz local SAPI**: `infrastructure/studio/local_voice.rs` implementa `ContentGenerator` sobre la voz System.Speech de Windows (PowerShell, sin red, coste 0). `acquire_stage` desvía los requisitos `kind: voice` al generador: sintetiza `req.query` como texto a `media/generated/narracion-<req>.wav`, lo registra como asset `audio` (`register_generated_asset`: ffprobe + sha256 + provenance `generated-locally`/`windows-sapi`, licencia `user-generated`/`allowed`) y `scenes`/`edit` lo resuelven vía el binding `requirementId→assetId` (el catálogo mapea `voice`→`audio`). Tests live verificados: `live_synthesize_writes_a_real_wav` (RIFF/WAVE real, 0,9 s) y `acquire_voice_generates_registers_and_indexes_asset` (WAV + asset + catálogo, 3,4 s), ambos gated por `EDITOR_IA_RUN_LIVE_TESTS=1`.
+- **E2E con narración completa**: `production_e2e_voice_narration_runs_all_stages` (ignorado, `EDITOR_IA_RUN_RENDER_TESTS=1`) corre las 8 etapas con un requisito `voice`: SAPI sintetiza el WAV, `acquire` lo registra como asset `audio`, `scenes`/`edit` lo montan como clip de audio, `render` lo mezcla y `deliver` entrega el MP4 — `done` en ~14 s.
+
+### Pendiente
+
+- `npm run typecheck|test:serial|verify|build` completos al cierre de la fase.
+- Ciclos frontend `color↔editor` y `editor↔vfx` (excepciones documentadas).
+- Providers externos adicionales (más fuentes de `ResourceAcquisition` e `ContentGenerator` para imagen/vídeo/música; hoy: biblioteca local + Internet Archive + voz SAPI local).
+- **E2E remoto verificado**: `acquire_remote_downloads_and_registers_project_asset` (ignorado, `EDITOR_IA_RUN_LIVE_TESTS=1`) descargó un derivado real de archive.org (~2,5 min), lo registró como `project.assets` con ffprobe y el `LocalProjectCatalog` lo resolvió con `durationFrames`.
+- **E2E remoto completo**: `production_e2e_remote_acquire_runs_all_stages` (ignorado, `EDITOR_IA_RUN_RENDER_TESTS=1` + `EDITOR_IA_RUN_LIVE_TESTS=1`) corrió las 8 etapas con un requisito que la biblioteca local no satisface: `acquire` bajó `bigbuckdance.ogv` (CC-BY) de archive.org, lo registró, `scenes` lo resolvió vía binding `requirementId→assetId` del output de acquire, `edit` lo montó, `render` produjo el MP4 y `deliver` lo entregó con manifest — `done` en ~83 s. `candidates_for_scene` ahora prefiere los assets adquiridos para el requisito antes de buscar por texto en el catálogo.
+- Generación de texto de subtítulos por IA (hoy los cues usan `narrationText`/título de la escena) y transiciones más elaboradas (hoy una sola `transitionIn` por plan).
+- Reconciliación main↔architecture: matriz en el informe de la fase; sin merges automáticos.

@@ -75,3 +75,22 @@ La cohesión y el acoplamiento importan más que la longitud.
 - Trasladar tests junto a la responsabilidad nueva o mantener adaptadores de import si otros tests aún los consumen.
 - No usar any, casts inseguros ni allow masivos para silenciar fallos de migración.
 - Registrar excepciones temporales con ruta, motivo y criterio de eliminación.
+
+## 6. Automatización
+
+Las reglas se verifican en `scripts/architecture-rules.test.mjs` (12 checks,
+corre dentro de `npm run verify`):
+
+- Frontend: `features/**`, `components/**`, `hooks/**`, `lib/**` y `state/**`
+  no importan `@tauri-apps/api`; sólo `platform/tauri/**` toca el transporte.
+  `shared/**` no depende de features ni app. No hay ciclos nuevos entre
+  features (excepciones documentadas en el propio test).
+- Rust: `commands/**` no importa ni construye `infrastructure/**` (la
+  composición vive en `state.rs`/`AppState`); `application/**` no depende de
+  `commands`, `infrastructure` ni Tauri en producción (los `#[cfg(test)]`
+  pueden usar adaptadores concretos como seam de integración);
+  `projects/`/`media/` no ejecutan procesos ni usan Tauri; los `#[path]`
+  declarados apuntan a archivos existentes; el registro IPC no tiene
+  handlers duplicados y mantiene el conteo mínimo.
+
+Una regla nueva se agrega al test, no a la memoria del equipo.

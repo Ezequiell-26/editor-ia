@@ -5,7 +5,7 @@
 //! (y los de sesión/documentos/media compartidos); las reglas puras en
 //! `media::conversion`. Acá sólo queda el contrato IPC: mismos nombres,
 //! payloads y tipos serde. El worker FFmpeg está en
-//! `infrastructure::conversion::SystemConversionRunner`.
+//! `infrastructure::conversion::state.conversion_runner()`.
 //!
 //! - `convert_media`: un asset a un formato de la allowlist.
 //! - `compress_media` / `compress_any_file`: MP4/MKV/HEVC por calidad o tamaño.
@@ -21,11 +21,6 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 use crate::application::conversion;
-use crate::infrastructure::conversion::{
-    LocalConversionFiles, SystemConversionHardware, SystemConversionRunner, TauriConversionEvents,
-};
-use crate::infrastructure::media::{StateMediaTools, SystemMediaRunner};
-use crate::infrastructure::projects::{LocalProjectDocuments, StateProjectSession};
 use crate::media::conversion::{
     BatchConversionItem, CompressAnyRequest, CompressRequest, ConversionResult, EnhanceOptions,
 };
@@ -35,7 +30,7 @@ use crate::state::AppState;
 
 #[tauri::command]
 pub async fn convert_media(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_id: String,
     target: String,
@@ -45,14 +40,14 @@ pub async fn convert_media(
     encoder: Option<String>,
     enhance: Option<EnhanceOptions>,
 ) -> Result<ConversionResult, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let files = LocalConversionFiles;
-    let events: Arc<dyn ConversionEvents> = Arc::new(TauriConversionEvents { app });
-    let runner = SystemConversionRunner;
-    let media_runner = SystemMediaRunner;
-    let hardware = SystemConversionHardware;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let files = state.conversion_files();
+    let events: Arc<dyn ConversionEvents> = Arc::new(state.conversion_events());
+    let runner = state.conversion_runner();
+    let media_runner = state.media_runner();
+    let hardware = state.conversion_hardware();
     let deps = ConversionDeps {
         session: &session,
         documents: &documents,
@@ -77,7 +72,7 @@ pub async fn convert_media(
 
 #[tauri::command]
 pub async fn convert_media_batch(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_ids: Vec<String>,
     target: String,
@@ -87,14 +82,14 @@ pub async fn convert_media_batch(
     encoder: Option<String>,
     enhance: Option<EnhanceOptions>,
 ) -> Result<Vec<BatchConversionItem>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let files = LocalConversionFiles;
-    let events: Arc<dyn ConversionEvents> = Arc::new(TauriConversionEvents { app });
-    let runner = SystemConversionRunner;
-    let media_runner = SystemMediaRunner;
-    let hardware = SystemConversionHardware;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let files = state.conversion_files();
+    let events: Arc<dyn ConversionEvents> = Arc::new(state.conversion_events());
+    let runner = state.conversion_runner();
+    let media_runner = state.media_runner();
+    let hardware = state.conversion_hardware();
     let deps = ConversionDeps {
         session: &session,
         documents: &documents,
@@ -119,18 +114,18 @@ pub async fn convert_media_batch(
 
 #[tauri::command]
 pub async fn compress_media(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     request: CompressRequest,
 ) -> Result<ConversionResult, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let files = LocalConversionFiles;
-    let events: Arc<dyn ConversionEvents> = Arc::new(TauriConversionEvents { app });
-    let runner = SystemConversionRunner;
-    let media_runner = SystemMediaRunner;
-    let hardware = SystemConversionHardware;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let files = state.conversion_files();
+    let events: Arc<dyn ConversionEvents> = Arc::new(state.conversion_events());
+    let runner = state.conversion_runner();
+    let media_runner = state.media_runner();
+    let hardware = state.conversion_hardware();
     let deps = ConversionDeps {
         session: &session,
         documents: &documents,
@@ -146,18 +141,18 @@ pub async fn compress_media(
 
 #[tauri::command]
 pub async fn compress_any_file(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     request: CompressAnyRequest,
 ) -> Result<ConversionResult, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let files = LocalConversionFiles;
-    let events: Arc<dyn ConversionEvents> = Arc::new(TauriConversionEvents { app });
-    let runner = SystemConversionRunner;
-    let media_runner = SystemMediaRunner;
-    let hardware = SystemConversionHardware;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let files = state.conversion_files();
+    let events: Arc<dyn ConversionEvents> = Arc::new(state.conversion_events());
+    let runner = state.conversion_runner();
+    let media_runner = state.media_runner();
+    let hardware = state.conversion_hardware();
     let deps = ConversionDeps {
         session: &session,
         documents: &documents,

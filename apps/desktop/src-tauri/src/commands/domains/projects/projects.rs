@@ -16,11 +16,6 @@ use tauri::{AppHandle, State};
 
 use crate::application::projects::{self as use_cases, OpenedProjectView};
 use crate::commands::system::resolve_tools;
-use crate::infrastructure::projects::{
-    LocalProjectDocuments, NativeProjectAssetFiles, StateProjectSession, TauriProjectEnvironment,
-};
-use crate::infrastructure::projects_history::LocalProjectVersioning;
-use crate::infrastructure::proxies::LocalProxyFiles;
 use crate::media::{resolve_inside_root, thumbnail_data_url};
 use crate::ports::projects::ProjectSession;
 use crate::projects::service::ProjectError;
@@ -152,43 +147,48 @@ impl From<OpenedProjectView> for OpenedProjectDto {
 
 #[tauri::command]
 pub async fn create_project(
-    app: AppHandle,
+    _app: AppHandle,
+    state: State<'_, AppState>,
     name: String,
     video: Option<Value>,
 ) -> Result<Option<OpenedProjectDto>, ProjectError> {
-    let documents = LocalProjectDocuments;
-    let environment = TauriProjectEnvironment::new(&app);
+    let documents = state.project_documents();
+    let environment = state.project_environment();
     use_cases::create_project(&documents, &environment, &name, video)
         .map(|view| view.map(OpenedProjectDto::from))
 }
 
 #[tauri::command]
-pub async fn open_project(app: AppHandle) -> Result<Option<OpenedProjectDto>, ProjectError> {
-    let documents = LocalProjectDocuments;
-    let environment = TauriProjectEnvironment::new(&app);
+pub async fn open_project(
+    _app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<OpenedProjectDto>, ProjectError> {
+    let documents = state.project_documents();
+    let environment = state.project_environment();
     use_cases::open_project(&documents, &environment).map(|view| view.map(OpenedProjectDto::from))
 }
 
 #[tauri::command]
 pub async fn open_project_at(
-    app: AppHandle,
+    _app: AppHandle,
+    state: State<'_, AppState>,
     path: String,
 ) -> Result<OpenedProjectDto, ProjectError> {
-    let documents = LocalProjectDocuments;
-    let environment = TauriProjectEnvironment::new(&app);
+    let documents = state.project_documents();
+    let environment = state.project_environment();
     use_cases::open_project_at(&documents, &environment, Path::new(&path))
         .map(OpenedProjectDto::from)
 }
 
 #[tauri::command]
 pub async fn adopt_project(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<OpenedProjectDto, ProjectError> {
-    let documents = LocalProjectDocuments;
-    let environment = TauriProjectEnvironment::new(&app);
-    let session = StateProjectSession::new(&state);
+    let documents = state.project_documents();
+    let environment = state.project_environment();
+    let session = state.project_session();
     // Si el proyecto que entra es otro, limpia los proxies huérfanos del que
     // sale (best-effort: el cache nunca puede tumbar la adopción).
     let incoming = Path::new(&path);
@@ -205,7 +205,7 @@ pub async fn adopt_project(
         })
         .unwrap_or(false);
     if switching {
-        let files = LocalProxyFiles;
+        let files = state.proxy_files();
         crate::application::proxies::cleanup_session_orphans(&session, &documents, &files);
     }
     use_cases::adopt_project(&documents, &environment, &session, incoming)
@@ -217,33 +217,33 @@ pub async fn save_project(
     state: State<'_, AppState>,
     project: Value,
 ) -> Result<OpenedProjectDto, ProjectError> {
-    let documents = LocalProjectDocuments;
-    let session = StateProjectSession::new(&state);
-    let versioning = LocalProjectVersioning;
+    let documents = state.project_documents();
+    let session = state.project_session();
+    let versioning = state.project_versioning();
     use_cases::save_project(&documents, &session, &versioning, project).map(OpenedProjectDto::from)
 }
 
 #[tauri::command]
 pub async fn save_project_as(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     project: Value,
 ) -> Result<Option<OpenedProjectDto>, ProjectError> {
-    let documents = LocalProjectDocuments;
-    let environment = TauriProjectEnvironment::new(&app);
-    let session = StateProjectSession::new(&state);
-    let asset_files = NativeProjectAssetFiles;
+    let documents = state.project_documents();
+    let environment = state.project_environment();
+    let session = state.project_session();
+    let asset_files = state.project_asset_files();
     use_cases::save_project_as(&documents, &environment, &session, &asset_files, &project)
         .map(|view| view.map(OpenedProjectDto::from))
 }
 
 #[tauri::command]
 pub async fn close_project(state: State<'_, AppState>) -> Result<(), ProjectError> {
-    let session = StateProjectSession::new(&state);
+    let session = state.project_session();
     // Limpieza automática de proxies huérfanos del proyecto que se cierra
     // (best-effort): nunca bloquea el cierre.
-    let documents = LocalProjectDocuments;
-    let files = LocalProxyFiles;
+    let documents = state.project_documents();
+    let files = state.proxy_files();
     crate::application::proxies::cleanup_session_orphans(&session, &documents, &files);
     use_cases::close_project(&session)
 }

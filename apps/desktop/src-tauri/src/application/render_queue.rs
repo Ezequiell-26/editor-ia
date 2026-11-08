@@ -50,6 +50,8 @@ mod tests {
             output_path: None,
             message: None,
             queued_at: "2026-11-07T00:00:00Z".to_string(),
+            project_id: None,
+            project_name: None,
         }
     }
 
@@ -110,6 +112,23 @@ mod tests {
         let loaded = load_render_queue(&store);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[0].id, "x");
+    }
+
+    #[test]
+    fn entradas_sin_proyecto_cargan_como_legacy() {
+        let name = "legacy.json";
+        let store = temp_store(name);
+        std::fs::write(
+            temp_dir().join(name),
+            r#"[{"id":"l1","profileId":"p","profileName":"n","queuedAt":"z","status":"pending"},
+                {"id":"l2","profileId":"p2","profileName":"n2","queuedAt":"z","status":"pending","projectId":"proj-a","projectName":"Alpha"}]"#,
+        )
+        .unwrap();
+        let loaded = load_render_queue(&store);
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].project_id, None);
+        assert_eq!(loaded[1].project_id.as_deref(), Some("proj-a"));
+        assert_eq!(loaded[1].project_name.as_deref(), Some("Alpha"));
     }
 
     #[test]

@@ -4,27 +4,31 @@
 
 pub use crate::ai::watchdog::WatchdogStatus;
 
-use crate::infrastructure::agent::SchtasksWatchdog;
+use tauri::State;
+
+use crate::ports::agent::WatchdogTasks;
 use crate::projects::service::ProjectError;
+use crate::state::AppState;
 
 #[tauri::command]
-pub fn install_watchdog() -> Result<WatchdogStatus, ProjectError> {
-    crate::application::agent::install_watchdog(&SchtasksWatchdog::new())
+pub fn install_watchdog(state: State<'_, AppState>) -> Result<WatchdogStatus, ProjectError> {
+    crate::application::agent::install_watchdog(&state.watchdog())
 }
 
 #[tauri::command]
-pub fn remove_watchdog() -> Result<WatchdogStatus, ProjectError> {
+pub fn remove_watchdog(state: State<'_, AppState>) -> Result<WatchdogStatus, ProjectError> {
     Ok(crate::application::agent::remove_watchdog(
-        &SchtasksWatchdog::new(),
+        &state.watchdog(),
     ))
 }
 
 #[tauri::command]
-pub fn watchdog_status() -> WatchdogStatus {
-    crate::application::agent::watchdog_status(&SchtasksWatchdog::new())
+pub fn watchdog_status(state: State<'_, AppState>) -> WatchdogStatus {
+    crate::application::agent::watchdog_status(&state.watchdog())
 }
 
-/// La usa el cierre de la app (`lib.rs`); mantiene la ruta histórica.
-pub fn remove_watchdog_silent() {
-    crate::application::agent::remove_watchdog_silent(&SchtasksWatchdog::new());
+/// La usa el cierre de la app (`lib.rs`, composition root): el watchdog se
+/// construye ahí porque no hay `AppState` disponible en ese punto.
+pub fn remove_watchdog_silent(watchdog: &dyn WatchdogTasks) {
+    crate::application::agent::remove_watchdog_silent(watchdog);
 }

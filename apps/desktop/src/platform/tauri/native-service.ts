@@ -10,6 +10,7 @@ import { createMediaService } from "./media";
 import { createProjectsService } from "./projects";
 import { createProvidersService } from "./providers";
 import { createRenderService } from "./render";
+import { createStudioService } from "./studio";
 import { createSubtitlesService } from "./subtitles";
 
 export * from "./shared";
@@ -28,6 +29,7 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     ...createProvidersService(call),
     ...createRenderService(call),
     ...createSubtitlesService(call),
+    ...createStudioService(call),
   };
 }
 

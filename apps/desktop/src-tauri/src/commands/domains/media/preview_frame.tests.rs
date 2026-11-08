@@ -749,6 +749,37 @@ fn window_freezes_fades_and_transition_leads() {
     );
     assert!(window_project(&preview_copy(&luma), 22).is_ok());
 
+    // Mate en pista oculta (el caso que recomienda la UI): el clip
+    // entra a la ventana sólo como fuente de máscara —su pista sigue
+    // oculta, así que el render no lo compone— y su `inFrame` queda
+    // rebasado al frame del playhead, que es el frame que la máscara
+    // debe mostrar.
+    let mut hidden_mate = preview_project();
+    hidden_mate["timeline"]["tracks"][0]["hidden"] = serde_json::json!(true);
+    hidden_mate["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
+    hidden_mate["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
+        "type": "luma-wipe", "frames": 12, "mateClipId": "main"
+    });
+    let window = window_project(&preview_copy(&hidden_mate), 16)
+        .expect("luma-wipe con mate en pista oculta");
+    let clips = window["timeline"]["clips"].as_array().expect("clips");
+    let mate = clips
+        .iter()
+        .find(|clip| clip["id"] == "main")
+        .expect("el mate oculto debe entrar a la ventana");
+    assert_eq!(mate["source"]["inFrame"], 6, "mate al frame del playhead");
+    let later = later_clip(&window);
+    assert_eq!(later["transitionFrozen"]["mode"], "luma");
+    assert_eq!(later["transitionFrozen"]["mateClipId"], "main");
+    assert!(
+        window["timeline"]["tracks"]
+            .as_array()
+            .expect("tracks")
+            .iter()
+            .any(|track| track["id"] == "v1" && track["hidden"] == true),
+        "la pista del mate sigue oculta en la ventana"
+    );
+
     let mut motion = preview_project();
     motion["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
     motion["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({

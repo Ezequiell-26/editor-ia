@@ -1,4 +1,4 @@
-import type { AssetFileInfo, CopiedMedia, CreateProjectRequest, DuplicateAssetGroup, FsDeleteResult, FsFileContent, FsListing, FsWriteResult, ImportOutcome, MediaFolderListing, MissingAssetInfo, OpenedProject, ProjectVersionInfo, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from '../projects';
+import type { AssetFileInfo, CopiedMedia, CreateProjectRequest, DuplicateAssetGroup, FsDeleteResult, FsFileContent, FsListing, FsWriteResult, ImportOutcome, MediaFolderListing, MissingAssetInfo, OpenedProject, ProjectVersionInfo, QualityGateReport, RelinkFolderResult, RelinkResult, RestoreProjectVersionResult, VariantWritten } from '../projects';
 import type { MatchMediaPlanResult } from '../media';
 import type { ProjectDocument } from '@editor-ia/project-schema';
 
@@ -62,6 +62,12 @@ matchMediaPlan(input: {
   }): Promise<MatchMediaPlanResult>;
 
 recentProjectThumbnail(path: string): Promise<string | null>;
+
+/**
+   * Quality Gate del proyecto abierto: revisa el documento persistido y los
+   * archivos declarados por los assets. `passed` es false si hay errores.
+   */
+  qualityGateReview(): Promise<QualityGateReport>;
 
 checkAssetFiles(paths: string[]): Promise<AssetFileInfo[]>;
 

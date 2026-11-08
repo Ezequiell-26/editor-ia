@@ -26,6 +26,8 @@ pub mod best_frame;
 pub mod browser_instances;
 #[path = "domains/media/capabilities.rs"]
 pub mod capabilities;
+#[path = "domains/studio/catalog.rs"]
+pub mod catalog;
 #[path = "domains/media/color_lut.rs"]
 pub mod color_lut;
 #[path = "domains/media/convert.rs"]
@@ -110,6 +112,8 @@ pub mod piper;
 pub mod plugins;
 #[path = "domains/media/preview_frame.rs"]
 pub mod preview_frame;
+#[path = "domains/studio/production.rs"]
+pub mod production;
 #[path = "domains/projects/projects.rs"]
 pub mod projects;
 #[path = "domains/ai/providers.rs"]
@@ -118,6 +122,8 @@ pub mod providers;
 pub mod proxies;
 #[path = "domains/projects/publish.rs"]
 pub mod publish;
+#[path = "domains/projects/quality_gate.rs"]
+pub mod quality_gate;
 #[path = "domains/projects/recovery.rs"]
 pub mod recovery;
 pub mod registry;

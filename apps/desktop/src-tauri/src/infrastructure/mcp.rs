@@ -411,3 +411,24 @@ impl McpTransportFactory for StdioMcpTransportFactory {
         StdioMcpTransport::spawn_inner(server, env).map(|process| Box::new(process) as _)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Constructores de composición (usados por AppState, no por application/)
+// ---------------------------------------------------------------------------
+
+/// Store JSON de servidores MCP dentro del config dir de la app.
+pub fn config_dir_store(config_dir: &std::path::Path) -> LocalMcpServerStore {
+    LocalMcpServerStore {
+        dir: config_dir.to_path_buf(),
+    }
+}
+
+/// Secretos de entorno MCP en el llavero del sistema.
+pub fn keyring_env() -> KeyringMcpEnv {
+    KeyringMcpEnv
+}
+
+/// Transporte stdio real (proceso hijo con pipes).
+pub fn stdio_factory() -> StdioMcpTransportFactory {
+    StdioMcpTransportFactory
+}

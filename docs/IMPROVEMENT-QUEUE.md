@@ -6191,3 +6191,15 @@ en preview del monitor (el scope bajo playhead quedó hecho el 2026-11-08).
     «Selector de preset `easing` para keyframes de efecto» al tope de
     esta cola). La curva se edita por teclado (flechas/`[`/`]`) y arrastre
     de manejadores, igual que en la sección «Curvas» del Inspector.
+
+## 2026-02 — Fase de maduración arquitectónica + fundación Autonomous Creative Studio (worktree, SIN COMMIT)
+
+- **Dependencias**: `commands/**` migrado a accessors de `AppState` (composition root); `application/**` limpio de `infrastructure`/`tauri` en producción; `media/timeline_export` e `timeline_import` tests ahora llaman casos de uso de `application`.
+- **Reglas**: `scripts/architecture-rules.test.mjs` 7→12 checks (Tauri frontend por capa, ciclos con 2 excepciones documentadas `color↔editor`/`editor↔vfx`, commands→infra, application→infra/Tauri, dominio puro, `#[path]` válidos, handlers IPC únicos).
+- **Splits**: `application/media.rs` 752→`media.rs`+`media_analysis.rs`+`media_subtitles.rs`; `infrastructure/ai.rs` 659→`infrastructure/ai/` (5 adaptadores + test_server).
+- **Estudio**: `studio.ts` en project-schema (`ProductionPlanSchema` v1), `src/studio/{plan,quality}.rs`, `ports/studio.rs` (MediaCatalog/ResourceAcquisition/ContentGenerator), `application/quality_gate.rs`. AI Editor reutiliza `AgentOperation` JSON Patch existente.
+- **Docs**: CURRENT-STATE, DEPENDENCY-RULES §6, MIGRATION-ROADMAP, ADR-0001/0002/0003.
+- **Verificación**: cargo test --lib 698+16+14 verdes por tandas · architecture-rules 12/12 · project-schema tsc+10/10 · cargo check 0 errores · fmt/diff limpios.
+- **Pendiente**: ~~validaciones npm completas~~ **hecho** (verify+build verdes) · ~~exponer Quality Gate por IPC~~ **hecho** (`quality_gate_review` + `service.qualityGateReview()`) · reconciliación main↔architecture **hecha** (`docs/architecture/RECONCILIATION.md`, 4 commits portados) · pendiente real: Production Orchestrator + primer provider de catálogo (`LocalProjectCatalog`).
+- **Flaky**: `render-cost.test.tsx` falla bajo carga paralela, pasa aislado — candidato a subir umbral o aislar en serial.
+- **WIP preservado**: `commands/preview_frame.rs`, `render/ffmpeg.rs`, `nul`, `vibe_videos/` (trabajo del usuario, sin tocar).

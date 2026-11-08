@@ -10,16 +10,19 @@ pub use crate::media::localized_subtitle::{
     SaveLocalizedSubtitleRequest, SaveLocalizedSubtitleResult,
 };
 
-use crate::infrastructure::media::LocalLocalizedSubtitleFiles;
+use tauri::State;
+
 use crate::projects::service::ProjectError;
+use crate::state::AppState;
 
 /// Guarda un subtítulo traducido y devuelve la ruta publicada.
 #[tauri::command]
 pub fn save_localized_subtitle(
+    state: State<'_, AppState>,
     request: SaveLocalizedSubtitleRequest,
 ) -> Result<SaveLocalizedSubtitleResult, ProjectError> {
     crate::application::localization::save_localized_subtitle(
-        &LocalLocalizedSubtitleFiles::new(),
+        &state.localized_subtitle_files(),
         request,
     )
 }

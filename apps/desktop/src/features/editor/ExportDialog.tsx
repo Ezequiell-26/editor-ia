@@ -27,8 +27,10 @@ import {
   markRunning,
   movePending,
   nextPending,
+  queueEntryInScope,
   queueFileName,
   removeEntry,
+  renderQueueScope,
   retryEntry,
   saveRenderQueue,
   summarizeQueue,
@@ -384,10 +386,12 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   // cambio de estado mientras el render sigue en curso.
   useEffect(() => {
     if (!open || !store.service.available || queueBusy) return;
-    const entry = nextPending(queue);
-    if (!entry) return;
     const currentProject = store.state.project;
     if (!currentProject) return;
+    // La cola es global pero cada entrada recuerda su proyecto: sólo se drena
+    // lo del proyecto abierto, nunca un pendiente encolado en otro documento.
+    const entry = nextPending(queue, renderQueueScope(currentProject));
+    if (!entry) return;
     const motionBundle = buildProjectMotionPlans(currentProject);
     if (motionBundle.errors.length > 0) {
       setQueue((current) => markFailed(current, entry.id, motionBundle.errors[0]!));
@@ -619,6 +623,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const emojiWarning = currentProject.captions.cues.some((cue) => hasEmoji(cue.text));
   const hasQualityError = quality.some((finding) => finding.severity === 'error');
   const missingLoudness = quality.some((finding) => /loudness/i.test(finding.message));
+  // La cola es global (localStorage + JSON del backend) pero cada entrada
+  // recuerda su proyecto: la lista muestra todo, pero el drenaje, el orden y
+  // la limpieza operan sólo sobre las entradas de este proyecto.
+  const projectScope = renderQueueScope(project);
+  const foreignQueueCount = queue.filter(
+    (entry) => !queueEntryInScope(entry, projectScope),
+  ).length;
+  const scopedPendingCount = queue.filter(
+    (entry) => entry.status === 'pending' && queueEntryInScope(entry, projectScope),
+  ).length;
 
   const profiles = project.renderProfiles;
   const selected = profiles.find((profile) => profile.id === profileId) ?? profiles[0];
@@ -1499,22 +1513,26 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     <button
                       type="button"
                       className="small"
-                      disabled={queue.filter((entry) => entry.status === 'pending').length < 2}
+                      disabled={scopedPendingCount < 2}
                       title={
                         queueCapabilities.reorder
                           ? 'Reordenar la cola'
-                          : 'Intercambia las dos primeras entregas pendientes (el render activo no se toca)'
+                          : 'Intercambia las dos primeras entregas pendientes de este proyecto (el render activo no se toca)'
                       }
                       onClick={() => {
-                        const target = queue.find((entry) => entry.status === 'pending');
-                        const second = queue.find(
-                          (entry, index) =>
+                        const pendingEntries = queue.filter(
+                          (entry) =>
                             entry.status === 'pending' &&
-                            queue.findIndex((item) => item.status === 'pending') !== index,
+                            queueEntryInScope(entry, projectScope),
                         );
-                        if (queueCapabilities.reorder && target && optionalQueueService?.moveRenderQueueEntry) {
+                        const second = pendingEntries[1];
+                        if (
+                          queueCapabilities.reorder &&
+                          second &&
+                          optionalQueueService?.moveRenderQueueEntry
+                        ) {
                           void optionalQueueService
-                            .moveRenderQueueEntry(target.id, 'up')
+                            .moveRenderQueueEntry(second.id, 'up')
                             .catch((cause) => {
                               setError(
                                 cause instanceof Error ? cause.message : 'no se pudo reordenar',
@@ -1523,7 +1541,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         } else if (second) {
                           // Sin soporte del backend, permutar pendientes sigue
                           // siendo real: el runner drena nextPending en orden.
-                          setQueue((current) => movePending(current, second.id, 'up'));
+                          setQueue((current) => movePending(current, second.id, 'up', projectScope));
                         }
                       }}
                     >
@@ -1533,7 +1551,11 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                 </div>
                 <p className="fine-print">
                   Encolá perfiles y se renderizan en orden con el diálogo abierto. La cola queda
-                  guardada en este equipo: si cerrás la app, lo pendiente se reanuda al volver.
+                  guardada en este equipo: si cerrás la app, lo pendiente de este proyecto se
+                  reanuda al volver.
+                  {foreignQueueCount > 0
+                    ? ` ${foreignQueueCount} entrega${foreignQueueCount === 1 ? '' : 's'} de otro proyecto: se retoman al abrirlo.`
+                    : ''}
                 </p>
                 <div className="actions compact">
                   <button
@@ -1541,7 +1563,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     className="small"
                     onClick={() =>
                       setQueue((current) =>
-                        enqueueProfiles(current, selected ? [selected] : [], includeCaptions),
+                        enqueueProfiles(current, selected ? [selected] : [], includeCaptions, project),
                       )
                     }
                     disabled={running || !selected}
@@ -1553,7 +1575,12 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                     className="small"
                     onClick={() =>
                       setQueue((current) =>
-                        enqueueProfiles(current, selectedBatchProfiles, includeCaptions),
+                        enqueueProfiles(
+                          current,
+                          selectedBatchProfiles,
+                          includeCaptions,
+                          project,
+                        ),
                       )
                     }
                     disabled={running || selectedBatchProfiles.length === 0}
@@ -1563,25 +1590,15 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                   <button
                     type="button"
                     className="small ghost"
-                    onClick={() => {
-                      if (nativeQueueRef.current) {
-                        void store.service
-                          .renderQueueClearFinished()
-                          .then((entries) => {
-                            if (entries) setQueue(entries);
-                          })
-                          .catch(() => setQueue(clearSettled));
-                      } else {
-                        setQueue(clearSettled);
-                      }
-                    }}
+                    onClick={() => setQueue((current) => clearSettled(current, projectScope))}
                     disabled={
                       running ||
                       !queue.some(
                         (entry) =>
-                          entry.status === 'done' ||
-                          entry.status === 'error' ||
-                          entry.status === 'cancelled',
+                          (entry.status === 'done' ||
+                            entry.status === 'error' ||
+                            entry.status === 'cancelled') &&
+                          queueEntryInScope(entry, projectScope),
                       )
                     }
                   >
@@ -1590,48 +1607,60 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                 </div>
                 {queue.length > 0 ? (
                   <ul className="batch-results">
-                    {queue.map((entry) => (
-                      <li key={entry.id} className={entry.status}>
-                        <strong>{entry.profileName}</strong>
-                        <span>
-                          {entry.status === 'pending'
-                            ? 'En cola'
-                            : entry.status === 'running'
-                              ? 'Renderizando…'
-                              : entry.status === 'done'
-                                ? `OK · ${basename(entry.outputPath ?? '')}`
-                                : entry.status === 'cancelled'
-                                  ? 'Cancelado'
-                                  : `Falló · ${entry.message ?? 'error'}`}
-                        </span>
-                        {entry.status === 'error' ||
-                        entry.status === 'done' ||
-                        entry.status === 'cancelled' ? (
-                          <button
-                            type="button"
-                            className="small"
-                            onClick={() => setQueue((current) => retryEntry(current, entry.id))}
-                            disabled={running}
-                          >
-                            Reintentar
-                          </button>
-                        ) : null}
-                        {entry.status !== 'running' ? (
-                          <button
-                            type="button"
-                            className="small"
-                            onClick={() => setQueue((current) => removeEntry(current, entry.id))}
-                            disabled={running}
-                          >
-                            Quitar
-                          </button>
-                        ) : null}
-                      </li>
-                    ))}
+                    {queue.map((entry) => {
+                      const inScope = queueEntryInScope(entry, projectScope);
+                      return (
+                        <li key={entry.id} className={entry.status}>
+                          <strong>{entry.profileName}</strong>
+                          {!inScope ? (
+                            <span className="fine-print">
+                              {' '}
+                              de {entry.projectName ?? 'otro proyecto'}
+                            </span>
+                          ) : null}
+                          <span>
+                            {entry.status === 'pending'
+                              ? 'En cola'
+                              : entry.status === 'running'
+                                ? 'Renderizando…'
+                                : entry.status === 'done'
+                                  ? `OK · ${basename(entry.outputPath ?? '')}`
+                                  : entry.status === 'cancelled'
+                                    ? 'Cancelado'
+                                    : `Falló · ${entry.message ?? 'error'}`}
+                          </span>
+                          {inScope &&
+                          (entry.status === 'error' ||
+                            entry.status === 'done' ||
+                            entry.status === 'cancelled') ? (
+                            <button
+                              type="button"
+                              className="small"
+                              onClick={() => setQueue((current) => retryEntry(current, entry.id))}
+                              disabled={running}
+                            >
+                              Reintentar
+                            </button>
+                          ) : null}
+                          {entry.status !== 'running' ? (
+                            <button
+                              type="button"
+                              className="small"
+                              onClick={() => setQueue((current) => removeEntry(current, entry.id))}
+                              disabled={running}
+                            >
+                              Quitar
+                            </button>
+                          ) : null}
+                        </li>
+                      );
+                    })}
                   </ul>
                 ) : null}
                 {(() => {
-                  const summary = summarizeQueue(queue);
+                  const summary = summarizeQueue(
+                    queue.filter((entry) => queueEntryInScope(entry, projectScope)),
+                  );
                   if (summary.pending + summary.running === 0) return null;
                   return (
                     <p className="fine-print">

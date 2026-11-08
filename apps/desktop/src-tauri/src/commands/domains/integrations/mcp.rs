@@ -16,7 +16,7 @@ use crate::state::AppState;
 pub async fn list_mcp_servers(
     state: State<'_, AppState>,
 ) -> Result<Vec<McpServerConfig>, ProjectError> {
-    let store = mcp::config_dir_store(&state.config_dir);
+    let store = state.mcp_store();
     mcp::list_servers(&store)
 }
 
@@ -25,8 +25,8 @@ pub async fn save_mcp_server(
     state: State<'_, AppState>,
     server: McpServerInput,
 ) -> Result<McpServerConfig, ProjectError> {
-    let store = mcp::config_dir_store(&state.config_dir);
-    let secrets = mcp::keyring_env();
+    let store = state.mcp_store();
+    let secrets = state.mcp_env();
     tauri::async_runtime::spawn_blocking(move || {
         mcp::save_server(&store, &secrets, mcp::shared_sessions(), server)
     })
@@ -41,8 +41,8 @@ pub async fn save_mcp_server(
 
 #[tauri::command]
 pub async fn delete_mcp_server(state: State<'_, AppState>, id: String) -> Result<(), ProjectError> {
-    let store = mcp::config_dir_store(&state.config_dir);
-    let secrets = mcp::keyring_env();
+    let store = state.mcp_store();
+    let secrets = state.mcp_env();
     tauri::async_runtime::spawn_blocking(move || {
         mcp::delete_server(&store, &secrets, mcp::shared_sessions(), &id)
     })
@@ -60,9 +60,9 @@ pub async fn probe_mcp_server(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<McpProbeResult, ProjectError> {
-    let store = mcp::config_dir_store(&state.config_dir);
-    let secrets = mcp::keyring_env();
-    let factory = mcp::stdio_factory();
+    let store = state.mcp_store();
+    let secrets = state.mcp_env();
+    let factory = state.mcp_factory();
     tauri::async_runtime::spawn_blocking(move || mcp::probe_server(&store, &secrets, &factory, &id))
         .await
         .map_err(|_| {
@@ -80,9 +80,9 @@ pub async fn call_mcp_tool(
     tool: String,
     arguments: Value,
 ) -> Result<McpCallResult, ProjectError> {
-    let store = mcp::config_dir_store(&state.config_dir);
-    let secrets = mcp::keyring_env();
-    let factory = mcp::stdio_factory();
+    let store = state.mcp_store();
+    let secrets = state.mcp_env();
+    let factory = state.mcp_factory();
     tauri::async_runtime::spawn_blocking(move || {
         mcp::call_tool(
             mcp::shared_sessions(),

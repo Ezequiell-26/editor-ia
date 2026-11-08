@@ -17,6 +17,7 @@ pub mod ports;
 pub mod projects;
 pub mod render;
 pub mod state;
+pub mod studio;
 
 #[cfg_attr(test, allow(dead_code))]
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -95,7 +96,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 QUIT_REQUESTED.store(true, std::sync::atomic::Ordering::SeqCst);
                 app.state::<state::AppState>().cancel_all_renders();
                 commands::downloader::cancel_active_download();
-                commands::agent::remove_watchdog_silent();
+                commands::agent::remove_watchdog_silent(
+                    &infrastructure::agent::SchtasksWatchdog::new(),
+                );
                 app.exit(0);
             }
             _ => {}

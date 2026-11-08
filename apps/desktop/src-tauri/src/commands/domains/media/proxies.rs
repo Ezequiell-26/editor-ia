@@ -6,33 +6,26 @@
 //! `media::proxy`. Acá sólo queda el contrato IPC: mismos nombres,
 //! payloads y tipos serde.
 
-use std::sync::Arc;
-
 use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use crate::application::proxies::{self, ProxyDeps};
-use crate::infrastructure::media::StateMediaTools;
-use crate::infrastructure::projects::{LocalProjectDocuments, StateProjectSession};
-use crate::infrastructure::proxies::{
-    LocalProxyFiles, LocalProxyRuntime, StdioProxyGenerator, TauriProxyEvents,
-};
 use crate::media::proxy::{ProxyCleanupResult, ProxyStatus};
 use crate::projects::service::ProjectError;
 use crate::state::AppState;
 
 #[tauri::command]
 pub async fn proxy_status(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_id: String,
 ) -> Result<ProxyStatus, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let runtime = LocalProxyRuntime;
-    let files = LocalProxyFiles;
-    let events = TauriProxyEvents::new(app);
-    let tools = StateMediaTools::new(&state);
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let runtime = state.proxy_runtime();
+    let files = state.proxy_files();
+    let events = state.proxy_events();
+    let tools = state.media_tools();
     let deps = ProxyDeps {
         session: &session,
         documents: &documents,
@@ -46,17 +39,17 @@ pub async fn proxy_status(
 
 #[tauri::command]
 pub async fn ensure_proxy(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_id: String,
     quality: Option<String>,
 ) -> Result<ProxyStatus, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let runtime = LocalProxyRuntime;
-    let files = LocalProxyFiles;
-    let events = TauriProxyEvents::new(app.clone());
-    let tools = StateMediaTools::new(&state);
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let runtime = state.proxy_runtime();
+    let files = state.proxy_files();
+    let events = state.proxy_events();
+    let tools = state.media_tools();
     let deps = ProxyDeps {
         session: &session,
         documents: &documents,
@@ -65,26 +58,22 @@ pub async fn ensure_proxy(
         events: &events,
         tools: &tools,
     };
-    let generator = StdioProxyGenerator::new(
-        Arc::new(LocalProxyRuntime),
-        Arc::new(TauriProxyEvents::new(app)),
-        Arc::new(LocalProxyFiles),
-    );
+    let generator = state.proxy_generator();
     proxies::ensure_proxy(&deps, &generator, &asset_id, quality.as_deref())
 }
 
 #[tauri::command]
 pub async fn cancel_proxy(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_id: String,
 ) -> Result<ProxyStatus, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let runtime = LocalProxyRuntime;
-    let files = LocalProxyFiles;
-    let events = TauriProxyEvents::new(app);
-    let tools = StateMediaTools::new(&state);
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let runtime = state.proxy_runtime();
+    let files = state.proxy_files();
+    let events = state.proxy_events();
+    let tools = state.media_tools();
     let deps = ProxyDeps {
         session: &session,
         documents: &documents,
@@ -98,16 +87,16 @@ pub async fn cancel_proxy(
 
 #[tauri::command]
 pub async fn apply_proxy_to_asset(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_id: String,
 ) -> Result<Option<Value>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let runtime = LocalProxyRuntime;
-    let files = LocalProxyFiles;
-    let events = TauriProxyEvents::new(app);
-    let tools = StateMediaTools::new(&state);
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let runtime = state.proxy_runtime();
+    let files = state.proxy_files();
+    let events = state.proxy_events();
+    let tools = state.media_tools();
     let deps = ProxyDeps {
         session: &session,
         documents: &documents,
@@ -121,16 +110,16 @@ pub async fn apply_proxy_to_asset(
 
 #[tauri::command]
 pub async fn cleanup_proxies(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, AppState>,
     asset_id: Option<String>,
 ) -> Result<ProxyCleanupResult, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let runtime = LocalProxyRuntime;
-    let files = LocalProxyFiles;
-    let events = TauriProxyEvents::new(app);
-    let tools = StateMediaTools::new(&state);
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let runtime = state.proxy_runtime();
+    let files = state.proxy_files();
+    let events = state.proxy_events();
+    let tools = state.media_tools();
     let deps = ProxyDeps {
         session: &session,
         documents: &documents,

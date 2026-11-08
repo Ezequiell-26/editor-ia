@@ -8,8 +8,6 @@
 use tauri::State;
 
 use crate::application::media as use_cases;
-use crate::infrastructure::media::{StateMediaTools, SystemMediaRunner};
-use crate::infrastructure::projects::{LocalProjectDocuments, StateProjectSession};
 use crate::ports::media::{SceneDetection, StabilizationAnalysis};
 use crate::projects::service::ProjectError;
 use crate::state::AppState;
@@ -20,10 +18,10 @@ pub async fn detect_scenes(
     asset_id: String,
     threshold: f64,
 ) -> Result<SceneDetection, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runner = state.media_runner();
     use_cases::detect_scenes(&session, &documents, &tools, &runner, &asset_id, threshold)
 }
 
@@ -35,10 +33,10 @@ pub async fn analyze_stabilization(
     out_frame: u64,
     smoothing: u32,
 ) -> Result<StabilizationAnalysis, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runner = SystemMediaRunner;
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runner = state.media_runner();
     use_cases::analyze_stabilization(
         &session, &documents, &tools, &runner, &asset_id, in_frame, out_frame, smoothing,
     )

@@ -123,5 +123,10 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     setupFiles: ['./src/test/setup.ts'],
+    // Tests de integración de la shell completa: bajo carga varias vistas
+    // lazy + waits de 5 s por test superaban el default. Sólo afecta a
+    // tests que ya fallarían; no cambia lo que se verifica.
+    testTimeout: 30000,
+    hookTimeout: 30000,
   },
 });

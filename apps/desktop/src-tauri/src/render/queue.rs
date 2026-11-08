@@ -34,6 +34,13 @@ pub struct QueueEntry {
     #[serde(default)]
     pub message: Option<String>,
     pub queued_at: String,
+    /// Proyecto que encoló la entrega (la cola es global; el scope evita que un
+    /// pendiente del proyecto A se drene con el documento del B). `None` en
+    /// entradas persistidas antes de este campo.
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_name: Option<String>,
 }
 
 /// Estado que `clear_finished` conserva: lo que todavía puede correr.

@@ -471,6 +471,7 @@ mod tests {
         let project_dir = root.join("proyecto");
         fs::create_dir_all(&project_dir).unwrap();
         let state = AppState {
+            app: None,
             session: Mutex::new(Some(Session::new(
                 project_dir.join("sesion.olyvia"),
                 "proyecto-e2e".to_owned(),

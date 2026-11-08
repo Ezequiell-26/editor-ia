@@ -14,6 +14,9 @@
  *   mitad de un render, ese archivo quedó incompleto y hay que repetirlo.
  * - La cola se capea para que un `localStorage` corrupto o gigante no frene
  *   el arranque.
+ * - La cola es global pero cada entrada recuerda su proyecto (`projectId`):
+ *   el runner, el orden y la limpieza filtran por `RenderQueueScope` para que
+ *   un pendiente del proyecto A nunca se drene con el documento del B.
  */
 
 export type RenderQueueStatus = 'pending' | 'running' | 'done' | 'error' | 'cancelled';
@@ -27,9 +30,46 @@ export interface RenderQueueEntry {
   readonly outputPath: string | null;
   readonly message: string | null;
   readonly queuedAt: string;
+  /** Proyecto que encoló la entrega; ausente en colas persistidas antes del scope. */
+  readonly projectId?: string;
+  /** Nombre del proyecto al momento de encolar, sólo para mostrar en la lista. */
+  readonly projectName?: string;
 }
 
 export type RenderQueue = readonly RenderQueueEntry[];
+
+/**
+ * A qué proyecto pertenece una entrada de la cola. La cola es global (una sola
+ * clave de storage y un solo JSON del backend), así que el drenaje, el orden y
+ * la limpieza tienen que filtrar por proyecto o un pendiente del proyecto A se
+ * intentaría renderizar —y fallaría— con el documento del proyecto B.
+ */
+export interface RenderQueueScope {
+  readonly projectId: string;
+  /** Perfiles del proyecto actual: reclaman entradas legacy sin `projectId`. */
+  readonly profileIds: ReadonlySet<string>;
+}
+
+export function renderQueueScope(project: {
+  readonly id: string;
+  readonly renderProfiles: readonly { readonly id: string }[];
+}): RenderQueueScope {
+  return {
+    projectId: project.id,
+    profileIds: new Set(project.renderProfiles.map((profile) => profile.id)),
+  };
+}
+
+/**
+ * true si la entrada pertenece al proyecto del scope. Las entradas nuevas llevan
+ * `projectId`; las persistidas antes de este campo se reclaman sólo cuando su
+ * `profileId` existe en el proyecto actual (los ids son UUID por documento, así
+ * que un perfil ajeno nunca coincide).
+ */
+export function queueEntryInScope(entry: RenderQueueEntry, scope: RenderQueueScope): boolean {
+  if (entry.projectId != null) return entry.projectId === scope.projectId;
+  return scope.profileIds.has(entry.profileId);
+}
 
 export const RENDER_QUEUE_KEY = 'editor-ia.render-queue.v1';
 export const RENDER_QUEUE_LIMIT = 50;
@@ -61,8 +101,11 @@ export function enqueueProfiles(
   queue: RenderQueue,
   profiles: readonly { id: string; name: string }[],
   includeCaptions: boolean,
+  project: { readonly id: string; readonly name: string },
   now: Date = new Date(),
 ): RenderQueue {
+  // La deduplicación por profileId ya es segura entre proyectos: los ids son
+  // UUID por documento, así que una entrada de otro proyecto nunca coincide.
   const busyIds = new Set(
     queue
       .filter((entry) => entry.status === 'pending' || entry.status === 'running')
@@ -81,14 +124,24 @@ export function enqueueProfiles(
       outputPath: null,
       message: null,
       queuedAt: now.toISOString(),
+      projectId: project.id,
+      projectName: project.name,
     });
   }
   if (additions.length === 0) return queue;
   return [...queue, ...additions].slice(-RENDER_QUEUE_LIMIT);
 }
 
-export function nextPending(queue: RenderQueue): RenderQueueEntry | null {
-  return queue.find((entry) => entry.status === 'pending') ?? null;
+/**
+ * Primer pendiente del proyecto del scope. Sin scope devuelve el primer
+ * pendiente global (compat con tests y llamadas sin proyecto abierto).
+ */
+export function nextPending(queue: RenderQueue, scope?: RenderQueueScope): RenderQueueEntry | null {
+  return (
+    queue.find(
+      (entry) => entry.status === 'pending' && (!scope || queueEntryInScope(entry, scope)),
+    ) ?? null
+  );
 }
 
 function replace(
@@ -137,8 +190,17 @@ export function removeEntry(queue: RenderQueue, id: string): RenderQueue {
   return queue.filter((entry) => entry.id !== id);
 }
 
-export function clearSettled(queue: RenderQueue): RenderQueue {
-  return queue.filter((entry) => entry.status === 'pending' || entry.status === 'running');
+/**
+ * Quita las terminadas; con scope sólo las del proyecto indicado — las
+ * pendientes/corriendo y las terminadas de otros proyectos se conservan.
+ */
+export function clearSettled(queue: RenderQueue, scope?: RenderQueueScope): RenderQueue {
+  return queue.filter(
+    (entry) =>
+      entry.status === 'pending' ||
+      entry.status === 'running' ||
+      (scope != null && !queueEntryInScope(entry, scope)),
+  );
 }
 
 /**
@@ -153,8 +215,14 @@ export function movePending(
   queue: RenderQueue,
   id: string,
   direction: 'up' | 'down',
+  scope?: RenderQueueScope,
 ): RenderQueue {
-  const pendingIds = queue.filter((entry) => entry.status === 'pending').map((entry) => entry.id);
+  const pendingIds = queue
+    .filter(
+      (entry) =>
+        entry.status === 'pending' && (!scope || queueEntryInScope(entry, scope)),
+    )
+    .map((entry) => entry.id);
   const index = pendingIds.indexOf(id);
   const target = direction === 'up' ? index - 1 : index + 1;
   if (index < 0 || target < 0 || target >= pendingIds.length) return queue;
@@ -195,7 +263,9 @@ function isEntry(value: unknown): value is RenderQueueEntry {
       record.status === 'running' ||
       record.status === 'done' ||
       record.status === 'error' ||
-      record.status === 'cancelled')
+      record.status === 'cancelled') &&
+    (record.projectId === undefined || typeof record.projectId === 'string') &&
+    (record.projectName === undefined || typeof record.projectName === 'string')
   );
 }
 

@@ -2992,6 +2992,91 @@ fn luma_wipe_wires_the_mate_as_a_mask_input() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Ventana de un frame del preview: el clip entrante llega con
+/// `transitionFrozen.mode = "luma"` y el mate puede estar en una pista
+/// oculta —la UI lo recomienda—. Debe entrar como entrada de máscara sin
+/// componerse (su pista sigue oculta).
+#[test]
+fn luma_frozen_mate_on_hidden_track_builds_the_mask_input() {
+    let root = std::env::temp_dir().join(format!("editor-ia-luma-hid-{}", uuid::Uuid::new_v4()));
+    let media = root.join("media");
+    std::fs::create_dir_all(&media).unwrap();
+    std::fs::write(media.join("video.mp4"), b"x").unwrap();
+    std::fs::write(media.join("mate.mp4"), b"x").unwrap();
+    let temp = root.join("temp");
+    std::fs::create_dir_all(&temp).unwrap();
+    let project = serde_json::json!({
+        "video": { "width": 1920, "height": 1080, "frameRate": { "num": 30, "den": 1 }, "backgroundColor": "#101014" },
+        "timeline": {
+            "tracks": [
+                { "id": "v1", "kind": "video", "order": 0, "hidden": false, "muted": false },
+                { "id": "v2", "kind": "video", "order": 1, "hidden": true, "muted": false }
+            ],
+            "clips": [
+                { "id": "c2", "trackId": "v1", "kind": "video", "startFrame": 0, "durationFrames": 1,
+                  "source": { "type": "asset", "assetId": "asset1", "inFrame": 16, "outFrame": 17 },
+                  "transitionIn": {},
+                  "transitionFrozen": { "mode": "luma", "mateClipId": "c1" },
+                  "audio": { "muted": true } },
+                { "id": "c1", "trackId": "v2", "kind": "video", "startFrame": 0, "durationFrames": 1,
+                  "source": { "type": "asset", "assetId": "asset3", "inFrame": 6, "outFrame": 7 },
+                  "audio": { "muted": true } }
+            ]
+        },
+        "assets": [
+            { "id": "asset1", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/video.mp4" } },
+            { "id": "asset3", "status": "ready", "rights": { "license": { "commercialUse": "allowed" } }, "source": { "path": "media/mate.mp4" } }
+        ],
+        "captions": { "styles": [], "cues": [] },
+        "audio": { "master": { "gainDb": 0 } }
+    });
+    let plan = build_plan(BuildPlanInput {
+        audio_only: false,
+        project: &project,
+        root: &root,
+        profile: &profile(),
+        output_path: &root.join("salida.mp4"),
+        include_captions: false,
+        temp_dir: &temp,
+        ffprobe: Path::new("ffprobe"),
+        motion_ass: None,
+    })
+    .expect("el mate oculto debe alimentar la máscara sin romper el plan");
+    let graph = plan
+        .args
+        .iter()
+        .find(|arg| arg.contains("alphamerge"))
+        .cloned()
+        .unwrap_or_else(|| plan.args.join(" "));
+    assert!(
+        graph.contains("alphamerge") && graph.contains("scale2ref"),
+        "falta el grafo de máscara del mate: {graph}"
+    );
+    // El mate entra una sola vez (sólo como máscara): su pista oculta lo
+    // excluye del composite, así que no hay segundo `-i` de mate.mp4.
+    let mate_uses = plan
+        .args
+        .iter()
+        .zip(plan.args.iter().skip(1))
+        .filter(|(flag, value)| flag.as_str() == "-i" && value.contains("mate.mp4"))
+        .count();
+    assert_eq!(
+        mate_uses, 1,
+        "el mate oculto sólo alimenta la máscara: {:?}",
+        plan.args
+    );
+    // Y el seek es el `inFrame` de la ventana del mate (el frame del
+    // playhead), no un punto fijo del clip original.
+    let seek_at = plan
+        .args
+        .iter()
+        .position(|arg| arg == "0.200000")
+        .expect("seek del mate");
+    assert_eq!(plan.args[seek_at - 1], "-ss");
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// Render real del luma wipe: la luminancia del mate decide qué clip se
 /// ve durante el solape. Mate mitad negra/mitad blanca → durante el lead
 /// la mitad izquierda muestra el clip de abajo (rojo) y la derecha el

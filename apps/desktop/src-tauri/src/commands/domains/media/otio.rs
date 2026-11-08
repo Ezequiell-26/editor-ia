@@ -5,8 +5,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::infrastructure::media::LocalTimelineExportFiles;
+use tauri::State;
+
 use crate::projects::service::ProjectError;
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -26,9 +28,28 @@ pub struct OtioResult {
 }
 
 #[tauri::command]
-pub fn export_otio(request: OtioRequest) -> Result<OtioResult, ProjectError> {
+pub fn export_otio(
+    state: State<'_, AppState>,
+    request: OtioRequest,
+) -> Result<OtioResult, ProjectError> {
     let outcome = crate::application::timeline_export::export_otio(
-        &LocalTimelineExportFiles,
+        &state.timeline_export_files(),
+        &request.project,
+        &request.output_dir,
+    )?;
+    Ok(OtioResult {
+        path: outcome.path,
+        bytes: outcome.bytes,
+        tracks: outcome.tracks,
+        clips: outcome.items,
+        warnings: outcome.warnings,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn export_otio_for_test(request: OtioRequest) -> Result<OtioResult, ProjectError> {
+    let outcome = crate::application::timeline_export::export_otio(
+        &crate::infrastructure::media::LocalTimelineExportFiles,
         &request.project,
         &request.output_dir,
     )?;

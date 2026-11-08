@@ -6,17 +6,15 @@
 //! worker FFmpeg en `infrastructure::render_jobs`.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use serde_json::Value;
 use tauri::{AppHandle, State};
 
 use crate::application::render_lifecycle::{self, RenderDeps};
-use crate::infrastructure::media::StateMediaTools;
-use crate::infrastructure::projects::{LocalProjectDocuments, StateProjectSession};
-use crate::infrastructure::render_jobs::{
-    LocalRenderFiles, SharedRenderRuntime, StdioRenderLauncher, SystemRenderEncoder,
-    SystemRenderVerifier, TauriRenderDialogs, TauriRenderEvents,
+use crate::ports::media::MediaTools;
+use crate::ports::projects::{ProjectDocuments, ProjectSession};
+use crate::ports::render::{
+    RenderDialogs, RenderEncoder, RenderEvents, RenderFiles, RenderLauncher, RenderRuntime,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::render::lifecycle::RenderStarted;
@@ -25,15 +23,15 @@ use crate::state::AppState;
 fn deps<'a>(
     _state: &'a State<'a, AppState>,
     _app: &'a AppHandle,
-    session: &'a StateProjectSession<'a>,
-    documents: &'a LocalProjectDocuments,
-    tools: &'a StateMediaTools<'a>,
-    runtime: &'a SharedRenderRuntime,
-    events: &'a TauriRenderEvents,
-    files: &'a LocalRenderFiles,
-    dialogs: &'a TauriRenderDialogs,
-    encoder: &'a SystemRenderEncoder,
-    launcher: &'a StdioRenderLauncher,
+    session: &'a dyn ProjectSession,
+    documents: &'a dyn ProjectDocuments,
+    tools: &'a dyn MediaTools,
+    runtime: &'a dyn RenderRuntime,
+    events: &'a dyn RenderEvents,
+    files: &'a dyn RenderFiles,
+    dialogs: &'a dyn RenderDialogs,
+    encoder: &'a dyn RenderEncoder,
+    launcher: &'a dyn RenderLauncher,
     cache_dir: &'a Path,
 ) -> RenderDeps<'a> {
     RenderDeps {
@@ -61,20 +59,15 @@ pub async fn start_render(
     start_frame: Option<u64>,
     end_frame: Option<u64>,
 ) -> Result<Option<RenderStarted>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runtime = SharedRenderRuntime::new(state.render_jobs.clone());
-    let events = TauriRenderEvents::new(app.clone());
-    let files = LocalRenderFiles;
-    let dialogs = TauriRenderDialogs::new(app.clone());
-    let encoder = SystemRenderEncoder;
-    let launcher = StdioRenderLauncher::new(
-        Arc::new(SharedRenderRuntime::new(state.render_jobs.clone())),
-        Arc::new(TauriRenderEvents::new(app.clone())),
-        Arc::new(LocalRenderFiles),
-        Arc::new(SystemRenderVerifier),
-    );
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runtime = state.render_runtime();
+    let events = state.render_events();
+    let files = state.render_files();
+    let dialogs = state.render_dialogs();
+    let encoder = state.render_encoder();
+    let launcher = state.render_launcher();
     let deps = deps(
         &state,
         &app,
@@ -132,20 +125,15 @@ pub async fn start_render_to(
             "ya existe un archivo con ese nombre en la carpeta elegida",
         ));
     }
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runtime = SharedRenderRuntime::new(state.render_jobs.clone());
-    let events = TauriRenderEvents::new(app.clone());
-    let files = LocalRenderFiles;
-    let dialogs = TauriRenderDialogs::new(app.clone());
-    let encoder = SystemRenderEncoder;
-    let launcher = StdioRenderLauncher::new(
-        Arc::new(SharedRenderRuntime::new(state.render_jobs.clone())),
-        Arc::new(TauriRenderEvents::new(app.clone())),
-        Arc::new(LocalRenderFiles),
-        Arc::new(SystemRenderVerifier),
-    );
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runtime = state.render_runtime();
+    let events = state.render_events();
+    let files = state.render_files();
+    let dialogs = state.render_dialogs();
+    let encoder = state.render_encoder();
+    let launcher = state.render_launcher();
     let deps = deps(
         &state,
         &app,
@@ -179,20 +167,15 @@ pub async fn choose_export_directory(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runtime = SharedRenderRuntime::new(state.render_jobs.clone());
-    let events = TauriRenderEvents::new(app.clone());
-    let files = LocalRenderFiles;
-    let dialogs = TauriRenderDialogs::new(app.clone());
-    let encoder = SystemRenderEncoder;
-    let launcher = StdioRenderLauncher::new(
-        Arc::new(SharedRenderRuntime::new(state.render_jobs.clone())),
-        Arc::new(TauriRenderEvents::new(app.clone())),
-        Arc::new(LocalRenderFiles),
-        Arc::new(SystemRenderVerifier),
-    );
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runtime = state.render_runtime();
+    let events = state.render_events();
+    let files = state.render_files();
+    let dialogs = state.render_dialogs();
+    let encoder = state.render_encoder();
+    let launcher = state.render_launcher();
     let deps = deps(
         &state,
         &app,
@@ -216,20 +199,15 @@ pub async fn cancel_render(
     state: State<'_, AppState>,
     job_id: String,
 ) -> Result<(), ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runtime = SharedRenderRuntime::new(state.render_jobs.clone());
-    let events = TauriRenderEvents::new(app.clone());
-    let files = LocalRenderFiles;
-    let dialogs = TauriRenderDialogs::new(app.clone());
-    let encoder = SystemRenderEncoder;
-    let launcher = StdioRenderLauncher::new(
-        Arc::new(SharedRenderRuntime::new(state.render_jobs.clone())),
-        Arc::new(TauriRenderEvents::new(app.clone())),
-        Arc::new(LocalRenderFiles),
-        Arc::new(SystemRenderVerifier),
-    );
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runtime = state.render_runtime();
+    let events = state.render_events();
+    let files = state.render_files();
+    let dialogs = state.render_dialogs();
+    let encoder = state.render_encoder();
+    let launcher = state.render_launcher();
     let deps = deps(
         &state,
         &app,
@@ -252,20 +230,15 @@ pub async fn active_render(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<Option<String>, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runtime = SharedRenderRuntime::new(state.render_jobs.clone());
-    let events = TauriRenderEvents::new(app.clone());
-    let files = LocalRenderFiles;
-    let dialogs = TauriRenderDialogs::new(app.clone());
-    let encoder = SystemRenderEncoder;
-    let launcher = StdioRenderLauncher::new(
-        Arc::new(SharedRenderRuntime::new(state.render_jobs.clone())),
-        Arc::new(TauriRenderEvents::new(app.clone())),
-        Arc::new(LocalRenderFiles),
-        Arc::new(SystemRenderVerifier),
-    );
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runtime = state.render_runtime();
+    let events = state.render_events();
+    let files = state.render_files();
+    let dialogs = state.render_dialogs();
+    let encoder = state.render_encoder();
+    let launcher = state.render_launcher();
     let deps = deps(
         &state,
         &app,
@@ -288,20 +261,15 @@ pub async fn prune_render_cache(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<u64, ProjectError> {
-    let session = StateProjectSession::new(&state);
-    let documents = LocalProjectDocuments;
-    let tools = StateMediaTools::new(&state);
-    let runtime = SharedRenderRuntime::new(state.render_jobs.clone());
-    let events = TauriRenderEvents::new(app.clone());
-    let files = LocalRenderFiles;
-    let dialogs = TauriRenderDialogs::new(app.clone());
-    let encoder = SystemRenderEncoder;
-    let launcher = StdioRenderLauncher::new(
-        Arc::new(SharedRenderRuntime::new(state.render_jobs.clone())),
-        Arc::new(TauriRenderEvents::new(app.clone())),
-        Arc::new(LocalRenderFiles),
-        Arc::new(SystemRenderVerifier),
-    );
+    let session = state.project_session();
+    let documents = state.project_documents();
+    let tools = state.media_tools();
+    let runtime = state.render_runtime();
+    let events = state.render_events();
+    let files = state.render_files();
+    let dialogs = state.render_dialogs();
+    let encoder = state.render_encoder();
+    let launcher = state.render_launcher();
     let deps = deps(
         &state,
         &app,

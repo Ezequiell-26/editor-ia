@@ -106,6 +106,7 @@ export const PROJECT_COMMANDS = {
   sampleAssetColor: 'sample_asset_color',
   thumbnail: 'media_thumbnail',
   recentProjectThumbnail: 'recent_project_thumbnail',
+  qualityGateReview: 'quality_gate_review',
   checkAssets: 'check_asset_files',
   chooseMediaFolder: 'choose_media_folder',
   findMissingAssets: 'find_missing_assets',
@@ -338,6 +339,18 @@ export const FAILED_PHRASE: Record<string, string> = {
   render: 'exportar el video',
   provider: 'contactar al proveedor',
 };
+
+export const STUDIO_COMMANDS = {
+  productionCreate: 'production_create',
+  productionStatus: 'production_status',
+  productionList: 'production_list',
+  productionResume: 'production_resume',
+  productionCancel: 'production_cancel',
+  productionRemove: 'production_remove',
+  productionAdvance: 'production_advance',
+  catalogSearch: 'catalog_search',
+  catalogGet: 'catalog_get',
+} as const;
 
 export function sanitizeForUi(message: string): string {
   const withoutDrivePaths = message.replace(/[A-Za-z]:[\\/][^\s,;)"']*/g, (match) =>

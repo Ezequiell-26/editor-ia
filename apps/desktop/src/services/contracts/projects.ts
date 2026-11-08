@@ -77,6 +77,35 @@ export interface AssetFileInfo {
   readonly bytes: number;
 }
 
+// ─────────────── Quality Gate ───────────────
+// Contrato nativo: `quality_gate_review`. Evalúa el último estado
+// persistido del proyecto abierto (guardar antes de pedir el veredicto).
+
+export type QualityGateCheck =
+  | 'missing-resources'
+  | 'clip-range'
+  | 'caption-sync'
+  | 'loudness'
+  | 'resolution'
+  | 'color'
+  | 'render-verify'
+  | 'rights';
+
+export interface QualityGateFinding {
+  readonly check: QualityGateCheck;
+  readonly severity: 'error' | 'warning';
+  /** Ruta JSON dentro del documento del proyecto. */
+  readonly path: string;
+  readonly message: string;
+}
+
+export interface QualityGateReport {
+  readonly passed: boolean;
+  readonly errors: number;
+  readonly warnings: number;
+  readonly findings: readonly QualityGateFinding[];
+}
+
 // ─────────────── Fase 1 · Recuperación, historial y duplicados ───────────────
 // Contrato nativo: `choose_media_folder`, `find_missing_assets`, `relink_asset`,
 // `relink_assets_from_folder`, `list_project_versions`,

@@ -81,6 +81,31 @@ export {
 export type { Source, Claim, AgentOperation } from './provenance.ts';
 
 export {
+  STUDIO_PLAN_VERSION,
+  StudioStageSchema,
+  ProductionBriefSchema,
+  StudioResourceKindSchema,
+  ResourceRequirementSchema,
+  PlanSceneSchema,
+  ProductionTargetSchema,
+  QualityCheckKindSchema,
+  QualityCriteriaSchema,
+  ProductionPlanSchema,
+  createEmptyProductionPlan,
+} from './studio.ts';
+export type {
+  StudioStage,
+  ProductionBrief,
+  StudioResourceKind,
+  ResourceRequirement,
+  PlanScene,
+  ProductionTarget,
+  QualityCheckKind,
+  QualityCriteria,
+  ProductionPlan,
+} from './studio.ts';
+
+export {
   MAX_GAIN_KEYFRAMES,
   MAX_TRANSFORM_KEYFRAMES,
   TRANSFORM_KEYFRAME_SCALE_MAX,

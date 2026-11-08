@@ -4,8 +4,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::infrastructure::media::LocalTimelineExportFiles;
+use tauri::State;
+
 use crate::projects::service::ProjectError;
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,9 +26,27 @@ pub struct FcpxmlResult {
 }
 
 #[tauri::command]
-pub fn export_fcpxml(request: FcpxmlRequest) -> Result<FcpxmlResult, ProjectError> {
+pub fn export_fcpxml(
+    state: State<'_, AppState>,
+    request: FcpxmlRequest,
+) -> Result<FcpxmlResult, ProjectError> {
     let outcome = crate::application::timeline_export::export_fcpxml(
-        &LocalTimelineExportFiles,
+        &state.timeline_export_files(),
+        &request.project,
+        &request.output_dir,
+    )?;
+    Ok(FcpxmlResult {
+        path: outcome.path,
+        bytes: outcome.bytes,
+        clips: outcome.items,
+        warnings: outcome.warnings,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn export_fcpxml_for_test(request: FcpxmlRequest) -> Result<FcpxmlResult, ProjectError> {
+    let outcome = crate::application::timeline_export::export_fcpxml(
+        &crate::infrastructure::media::LocalTimelineExportFiles,
         &request.project,
         &request.output_dir,
     )?;

@@ -167,7 +167,7 @@ pub fn build_otio(project: &Value) -> Result<(String, usize, usize, Vec<String>)
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::otio::{export_otio, OtioRequest};
+    use crate::commands::otio::{export_otio_for_test, OtioRequest};
     use uuid::Uuid;
 
     #[test]
@@ -186,7 +186,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_otio(OtioRequest {
+        let result = export_otio_for_test(OtioRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })
@@ -219,7 +219,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_otio(OtioRequest {
+        let result = export_otio_for_test(OtioRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })
@@ -250,7 +250,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_otio(OtioRequest {
+        let result = export_otio_for_test(OtioRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })
@@ -313,7 +313,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_otio(OtioRequest {
+        let result = export_otio_for_test(OtioRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })
@@ -365,7 +365,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_otio(OtioRequest {
+        let result = export_otio_for_test(OtioRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })
@@ -425,7 +425,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-otio-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_otio(OtioRequest {
+        let result = export_otio_for_test(OtioRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })

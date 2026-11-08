@@ -204,7 +204,7 @@ pub fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::commands::edl::{export_edl, EdlRequest};
+    use crate::commands::edl::{export_edl_for_test, EdlRequest};
     use uuid::Uuid;
 
     #[test]
@@ -390,7 +390,7 @@ mod tests {
         });
         let dir = std::env::temp_dir().join(format!("editoria-edl-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&dir).expect("dir");
-        let result = export_edl(EdlRequest {
+        let result = export_edl_for_test(EdlRequest {
             project,
             output_dir: dir.to_string_lossy().into_owned(),
         })

@@ -4,8 +4,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::infrastructure::media::LocalTimelineExportFiles;
+use tauri::State;
+
 use crate::projects::service::ProjectError;
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,9 +26,29 @@ pub struct EdlResult {
 }
 
 #[tauri::command]
-pub fn export_edl(request: EdlRequest) -> Result<EdlResult, ProjectError> {
+pub fn export_edl(
+    state: State<'_, AppState>,
+    request: EdlRequest,
+) -> Result<EdlResult, ProjectError> {
     let outcome = crate::application::timeline_export::export_edl(
-        &LocalTimelineExportFiles,
+        &state.timeline_export_files(),
+        &request.project,
+        &request.output_dir,
+    )?;
+    Ok(EdlResult {
+        path: outcome.path,
+        bytes: outcome.bytes,
+        events: outcome.items,
+        warnings: outcome.warnings,
+    })
+}
+
+/// Los tests no pueden fabricar `tauri::State`: ejercitan el caso de uso con
+/// el adaptador concreto (patrón de integración permitido).
+#[cfg(test)]
+pub(crate) fn export_edl_for_test(request: EdlRequest) -> Result<EdlResult, ProjectError> {
+    let outcome = crate::application::timeline_export::export_edl(
+        &crate::infrastructure::media::LocalTimelineExportFiles,
         &request.project,
         &request.output_dir,
     )?;

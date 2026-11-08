@@ -4,18 +4,21 @@
 //!
 //! La lectura y validación viven en `media::subtitle_file` (reglas puras),
 //! `application::media::read_subtitle_file` (orquestación) y
-//! `infrastructure::media::LocalSubtitleFiles` (filesystem).
+//! `infrastructure::media::state.subtitle_files()` (filesystem).
 
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::infrastructure::media::LocalSubtitleFiles;
 use crate::projects::service::ProjectError;
+use crate::state::AppState;
 
 pub use crate::media::subtitle_file::SubtitleFile;
 
 #[tauri::command]
-pub async fn choose_subtitle_file(app: AppHandle) -> Result<Option<SubtitleFile>, ProjectError> {
+pub async fn choose_subtitle_file(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<SubtitleFile>, ProjectError> {
     let Some(picked) = app
         .dialog()
         .file()
@@ -31,5 +34,5 @@ pub async fn choose_subtitle_file(app: AppHandle) -> Result<Option<SubtitleFile>
             "no se pudo usar la ruta elegida",
         )
     })?;
-    crate::application::media::read_subtitle_file(&LocalSubtitleFiles, &path).map(Some)
+    crate::application::media::read_subtitle_file(&state.subtitle_files(), &path).map(Some)
 }

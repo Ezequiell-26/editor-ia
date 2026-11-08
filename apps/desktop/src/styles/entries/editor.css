@@ -6,8 +6,14 @@
  * CSS crítico de `main.tsx`; ver `docs/CSS-PERF-NOTES.md` §5.
  *
  * Orden heredado: capa premium del workspace al final (gana la cascada sobre
- * las hojas legacy que ya están cargadas por main.tsx).
+ * las hojas legacy). `scopes.css` era crítica en `main.tsx` (legacy antes de
+ * la capa premium); se mudó acá en la segunda fase del splitting porque sus
+ * selectores `.scopes-panel*` sólo los usan vistas kind `editor`
+ * (ScopesPanel, AudioScopesPanel del Mixer, PreviewAudioScopes) y ninguna
+ * hoja premium ni filmora los pisa sin `!important`.
+ * (`thumbnail-browser.css` ya era lazy: la importa `EffectBrowser.tsx`.)
  */
+@import '../scopes.css';
 @import '../premium/workspace.css';
 @import '../effect-studio.css';
 @import '../brain.css';

@@ -466,7 +466,7 @@ fn our_edl_export_round_trips_timing_and_media() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let exported = crate::commands::edl::export_edl(crate::commands::edl::EdlRequest {
+    let exported = crate::commands::edl::export_edl_for_test(crate::commands::edl::EdlRequest {
         project,
         output_dir: dir.to_string_lossy().into_owned(),
     })
@@ -497,7 +497,7 @@ fn our_edl_export_round_trips_ntsc_frames() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let exported = crate::commands::edl::export_edl(crate::commands::edl::EdlRequest {
+    let exported = crate::commands::edl::export_edl_for_test(crate::commands::edl::EdlRequest {
         project,
         output_dir: dir.to_string_lossy().into_owned(),
     })
@@ -590,11 +590,12 @@ fn our_otio_export_round_trips_gap_and_media() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let exported = crate::commands::otio::export_otio(crate::commands::otio::OtioRequest {
-        project,
-        output_dir: dir.to_string_lossy().into_owned(),
-    })
-    .expect("exportar OTIO");
+    let exported =
+        crate::commands::otio::export_otio_for_test(crate::commands::otio::OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar OTIO");
     let text = std::fs::read_to_string(&exported.path).expect("leer");
     let parsed = parse_otio(&text, 30.0).expect("parsear OTIO");
     assert_eq!(parsed.clips.len(), 1);
@@ -624,11 +625,12 @@ fn our_otio_export_round_trips_speed() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let exported = crate::commands::otio::export_otio(crate::commands::otio::OtioRequest {
-        project,
-        output_dir: dir.to_string_lossy().into_owned(),
-    })
-    .expect("exportar OTIO");
+    let exported =
+        crate::commands::otio::export_otio_for_test(crate::commands::otio::OtioRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar OTIO");
     let text = std::fs::read_to_string(&exported.path).expect("leer");
     let parsed = parse_otio(&text, 30.0).expect("parsear OTIO");
     assert_eq!(parsed.clips.len(), 1, "{:?}", parsed.warnings);
@@ -661,11 +663,12 @@ fn our_fcpxml_export_round_trips_gaps_and_media() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let exported = crate::commands::fcpxml::export_fcpxml(crate::commands::fcpxml::FcpxmlRequest {
-        project,
-        output_dir: dir.to_string_lossy().into_owned(),
-    })
-    .expect("exportar FCPXML");
+    let exported =
+        crate::commands::fcpxml::export_fcpxml_for_test(crate::commands::fcpxml::FcpxmlRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar FCPXML");
     let text = std::fs::read_to_string(&exported.path).expect("leer");
     let parsed = parse_fcpxml(&text, 30.0).expect("parsear FCPXML");
     assert_eq!(parsed.clips.len(), 2);
@@ -804,11 +807,12 @@ fn our_fcpxml_export_round_trips_audio_lanes() {
     });
     let dir = std::env::temp_dir().join(format!("editoria-roundtrip-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&dir).expect("dir");
-    let exported = crate::commands::fcpxml::export_fcpxml(crate::commands::fcpxml::FcpxmlRequest {
-        project,
-        output_dir: dir.to_string_lossy().into_owned(),
-    })
-    .expect("exportar FCPXML con audio");
+    let exported =
+        crate::commands::fcpxml::export_fcpxml_for_test(crate::commands::fcpxml::FcpxmlRequest {
+            project,
+            output_dir: dir.to_string_lossy().into_owned(),
+        })
+        .expect("exportar FCPXML con audio");
     assert_eq!(exported.clips, 2);
     let text = std::fs::read_to_string(&exported.path).expect("leer");
     let parsed = parse_fcpxml(&text, 30.0).expect("parsear FCPXML con audio");

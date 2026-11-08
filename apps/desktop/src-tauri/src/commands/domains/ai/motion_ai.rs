@@ -6,7 +6,6 @@ pub use crate::ai::motion::{MotionRequest, MotionSuggestion};
 
 use tauri::State;
 
-use crate::infrastructure::ai::{KeyringProviderSecrets, ReqwestMotionChat, StateProviderSettings};
 use crate::projects::service::ProjectError;
 use crate::state::AppState;
 
@@ -15,11 +14,11 @@ pub async fn generate_motion(
     state: State<'_, AppState>,
     request: MotionRequest,
 ) -> Result<MotionSuggestion, ProjectError> {
-    let store = StateProviderSettings::new(&state);
+    let store = state.provider_settings();
     crate::application::motion::generate_motion(
         &store,
-        &KeyringProviderSecrets,
-        &ReqwestMotionChat,
+        &state.provider_secrets(),
+        &state.motion_chat(),
         request,
     )
     .await

@@ -7,4 +7,5 @@ export * from './contracts/render';
 export * from './contracts/integrations';
 export * from './contracts/downloader';
 export * from './contracts/media';
+export * from './contracts/studio';
 export * from './contracts/service';

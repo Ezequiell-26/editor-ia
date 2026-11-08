@@ -16,6 +16,7 @@ import { Icon } from '../../components/Icon';
 import { ViewToolbar } from '../../components/ViewToolbar';
 import { PublicationReadiness } from './PublicationReadiness';
 import { FolderQueuePanel } from './FolderQueuePanel';
+import { AutonomousRunsPanel } from './AutonomousRunsPanel';
 
 interface ProductionViewProps {
   readonly onNavigate: (id: ViewId) => void;
@@ -575,6 +576,8 @@ export function ProductionView({ onNavigate }: ProductionViewProps) {
           </article>
 
           <FolderQueuePanel />
+
+          <AutonomousRunsPanel />
 
           <PublicationReadiness onNavigate={onNavigate} />
         </div>
