@@ -115,12 +115,17 @@ Sin cambios en la semántica global de `Espacio`/flechas.
    negativo del elemento HTML (Chromium lo soporta; si el motor lo ignorara,
    el playhead retrocede pero el medio no — la corrección de deriva lo
    reconduce por `sourceSeconds`) y `preservesPitch` puede no aplicar en
-   reversa. No hay rampa de velocidad (sigue siendo ×1 salvo el selector).
-2. **Rampa de velocidad de shuttle** (repetir `L`/`J` acelera, como CapCut):
-   el transporte tiene selector 0.25/0.5/1/2/4× (`setPlaybackRate` en
-   `project-store`, `usePlayback` multiplica el avance y la preview fija
-   `playbackRate`/`preservesPitch` en los elementos). Sigue pendiente la
-   rampa por teclas repetidas: hoy repetir `L`/`J` no cambia la velocidad.
+   reversa. La rampa de velocidad por pulsaciones repetidas existe desde el
+   2026-11-08 (ver pendiente 2): escala 1→2→4→8× en ventana de 1,5 s y se
+   corta al pausar.
+2. ~~**Rampa de velocidad de shuttle**~~ ✅ resuelto (2026-11-08): módulo puro
+   `state/shuttle.ts` — cada pulsación de `L`/`J` dentro de una ventana de
+   1,5 s sube un escalón `SHUTTLE_RATES` 1→2→4→8× (tope = clamp del store);
+   fuera de ventana vuelve a 1× y alternar teclas invierte el sentido
+   conservando la velocidad. Pausar (`K`, Espacio, frame a frame, inicio/fin)
+   corta la rampa sólo si la velocidad la fijó el shuttle (`active`): una
+   velocidad manual del selector no se toca. El selector del transporte gana
+   la opción 8× para reflejar la rampa.
 3. **`Ctrl+D` eliminación con ripple**: no se registró. `Ctrl+D` ya es
    «Duplicar clip» (`edit.duplicateClip`) y reasignar atajos existentes estaba
    prohibido. La acción ripple existe y ya está registrada como

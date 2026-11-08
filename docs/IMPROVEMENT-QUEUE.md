@@ -4,6 +4,30 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Rampa de velocidad del shuttle `L`/`J` (2026-11-08)** — cierra el
+  pendiente 2 de `docs/ATAJOS-PRO.md` («repetir `L`/`J` no cambia la
+  velocidad»), portado desde `main` (`43f03d0`) en la reconciliación 4 del
+  worktree de arquitectura.
+  - **Cambio**: módulo puro `state/shuttle.ts` — `SHUTTLE_RATES`
+    1→2→4→8× (tope = clamp 8 de `setPlaybackRate`), ventana de 1,5 s entre
+    pulsaciones, `shuttleStep`/`shuttleRate`/`resetShuttle` con tests (8).
+    `app/Shell.tsx` gana `shuttleRef`: los casos `playback.shuttleForward`/
+    `Reverse` comparten bloque y escriben dirección + velocidad rampada +
+    `setPlaying(true)`; `endShuttleRamp()` devuelve la velocidad a 1× sólo
+    cuando `active` (la rampa la fijó, no el selector) y corre al pausar
+    por Espacio/`K`/saltos de frame. `Transport.tsx`: el selector gana la
+    opción 8× para reflejar la rampa.
+  - **Verificación en este worktree**: `tsc` + vitest del slice (resultados
+    en el commit de la reconciliación).
+  - **Archivos**: `state/shuttle.ts` (+test), `app/Shell.tsx`,
+    `features/editor/Transport.tsx`, `docs/ATAJOS-PRO.md`, esta entrada,
+    `memory/2026-11-08-shuttle-rampa.md`.
+  - **Pendiente honesto**: la rampa es por pulsaciones (la auto-repetición
+    del SO también escala); pausar desde la UI del transporte (botón,
+    scrub) no pasa por `endShuttleRamp` — la rampa queda tibia hasta que
+    venza la ventana; el estado es un ref del Shell (cambiar de proyecto no
+    lo resetea, pero la ventana lo expira sola).
+
 - `[done]` **Shuttle inverso `J` con dirección real en el motor de
   reproducción (2026-11-08)** — cierra el pendiente 1 de
   `docs/ATAJOS-PRO.md` («`J` no se registró: el motor sólo avanza y

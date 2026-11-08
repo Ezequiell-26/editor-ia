@@ -21,6 +21,7 @@ import { useProjectPlaying, useProjectStore } from '../state/project-store';
 import { collectSearchDocuments, createGlobalSearch, destinationOfHit, searchGlobal, type GlobalSearchDocument, type GlobalSearchHit, type GlobalSearchIndex } from '../state/global-search';
 import { recordViewVisit } from '../state/learning-progress';
 import { SHORTCUTS_CHANGED_EVENT, bindingMatches, eventToBinding, isActivatableTarget, loadShortcuts, normalizeBinding, type ShortcutId, type ShortcutMap } from '../state/shortcuts';
+import { IDLE_SHUTTLE, resetShuttle, shuttleRate, shuttleStep, type ShuttleState } from '../state/shuttle';
 
 
 
@@ -196,6 +197,9 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
 
   const storeRef = useRef(store);
   storeRef.current = store;
+  // Rampa del shuttle L/J: vive fuera del store (es estado de sesión de la
+  // tecla, no del documento) y el ref sobrevive a los re-renders del frame.
+  const shuttleRef = useRef<ShuttleState>(IDLE_SHUTTLE);
   const saveNow = store.saveNow;
 
   useEffect(() => {
@@ -417,6 +421,13 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
       // quitarlo y volverlo a poner ~30 veces por segundo.
       const store = storeRef.current;
       const map = shortcutsRef.current;
+      // Pausar corta la rampa del shuttle (vuelve a 1×) sólo si la velocidad
+      // vigente la fijó la rampa; una velocidad manual del selector queda.
+      const endShuttleRamp = () => {
+        if (!shuttleRef.current.active) return;
+        shuttleRef.current = resetShuttle(shuttleRef.current);
+        store.setPlaybackRate(1);
+      };
       // La paleta se abre incluso mientras se escribe en un input.
       if (bindingMatches(event, map['palette.toggle'])) {
         event.preventDefault();
@@ -507,24 +518,27 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
           // en keyup y no se dispara si este keydown se previene.
           if (isActivatableTarget(event.target)) return;
           event.preventDefault();
-          store.setPlaying(!store.getPlaying());
+          const wasPlaying = store.getPlaying();
+          store.setPlaying(!wasPlaying);
+          if (wasPlaying) endShuttleRamp();
           return;
         case 'playback.shuttleForward':
+        case 'playback.shuttleReverse': {
           if (!store.state.project) return;
           event.preventDefault();
-          store.setPlaybackDirection(1);
+          const direction = matched === 'playback.shuttleForward' ? 1 : -1;
+          const next = shuttleStep(shuttleRef.current, direction, performance.now());
+          shuttleRef.current = next;
+          store.setPlaybackDirection(next.direction);
+          store.setPlaybackRate(shuttleRate(next));
           store.setPlaying(true);
           return;
-        case 'playback.shuttleReverse':
-          if (!store.state.project) return;
-          event.preventDefault();
-          store.setPlaybackDirection(-1);
-          store.setPlaying(true);
-          return;
+        }
         case 'playback.shuttlePause':
           if (!store.state.project) return;
           event.preventDefault();
           store.setPlaying(false);
+          endShuttleRamp();
           return;
         case 'playback.framePrev':
         case 'playback.frameNext':
@@ -546,6 +560,7 @@ export function Shell({ initialView = 'home', onReturnToStart }: ShellProps) {
                   : duration;
           store.setPlaying(false);
           store.setPlayhead(next);
+          endShuttleRamp();
           return;
         }
         default: {

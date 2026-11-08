@@ -5,7 +5,7 @@ import { useProjectPlayback, useProjectStore } from '../../state/project-store';
 import { updateEditorPreferences } from '../../state/editor-preferences';
 import { useEditorPreferences } from '../../state/useEditorPreferences';
 
-const PLAYBACK_RATES = [0.25, 0.5, 1, 2, 4] as const;
+const PLAYBACK_RATES = [0.25, 0.5, 1, 2, 4, 8] as const;
 
 export function Transport() {
   const store = useProjectStore();
