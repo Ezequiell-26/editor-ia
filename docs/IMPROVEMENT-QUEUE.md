@@ -4,6 +4,30 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Certificación build + cargo post-sincronización (2026-11-08)**
+  — pasada del protocolo del loop (Devin CLI) que cierra la matriz de
+  verificación del worktree tras la reconciliación 12 y el fix del css-audit.
+  - **`npm run build`** (vite, apps/desktop): **OK en 9,68 s**, 482 módulos.
+    Los chunks confirman el split de CSS en producción: `content-*.css`
+    111 kB y `editor-*.css` separados del `app.css` crítico. Warnings
+    conocidos y preexistentes: `eval` de lottie-web y chunks >300 kB
+    (vendor-lottie 307 kB, vendor-emojibase 499 kB, main 634 kB) —
+    ya documentados, no regresión.
+  - **`cargo test --lib -p editor-ia-desktop`**: compilación completa
+    desde cero (deps + crate) **sin errores** — sólo los warnings
+    preexistentes de unused imports/doc comments en módulos ajenos — y
+    **698 passed / 0 failed / 52 ignored** en 20,8 s (los ignored son los
+    tests live que exigen `EDITOR_IA_RUN_RENDER_TESTS=1`).
+  - **Matriz de verificación completa del worktree**: typecheck 4
+    paquetes 0 errores · vitest serial 2400/2404 (3 skipped) ·
+    extensiones 31+10 · e2e 36/37 + 1 skip documentado · vite build OK ·
+    cargo lib 698/698.
+  - **Archivos**: sólo esta entrada y
+    `memory/2026-11-08-certificacion-build-cargo.md` (sin cambios de
+    código: main `cf943ef` ya estaba sincronizado y el WIP de
+    `preview_frame.rs`/`ffmpeg.rs` en main quedó sin tocar por ser
+    trabajo del usuario).
+
 - `[done]` **Suite e2e completa + snapshots del css-audit commiteados
   (2026-11-08)** — pasada del protocolo del loop (Devin CLI) de
   verificación e2e sobre el estado post-reconciliación 12.
