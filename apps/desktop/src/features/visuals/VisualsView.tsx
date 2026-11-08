@@ -212,49 +212,66 @@ export function VisualsView({
     }
     const type = transitionType as ClipTransition['type'];
     setError(null);
-    let clamped = 0;
-    let skipped = 0;
-    const ok = store.update(
-      (current) =>
-        selectedIds.reduce((next, id) => {
-          const clip = next.timeline.clips.find((item) => item.id === id);
-          if (!clip) return next;
-          const frames = safeTransitionFrames(transitionFrames, clip);
-          if (frames !== transitionFrames) clamped += 1;
-          const ownTransition = 'transitionIn' in clip ? clip.transitionIn : undefined;
-          let mateClipId: string | undefined;
-          if (type === 'luma-wipe') {
-            const probe = {
-              ...clip,
-              transitionIn: { type: 'luma-wipe' as const, frames },
-            } as Clip;
-            const candidates = lumaMateCandidates(
-              next.timeline.clips,
-              next.timeline.tracks,
-              probe,
-              fps,
-            );
-            mateClipId = lumaMatePick(clip, mateChoice[id], candidates);
+    // Los contadores se completan dentro de la receta, que corre de forma
+    // síncrona en `store.update`: el `notice` no puede armase antes porque
+    // `options.notice` es un string ya evaluado.
+    const stats = { clamped: 0, skipped: 0, staleMates: 0 };
+    const ok = store.update((current) =>
+      selectedIds.reduce((next, id) => {
+        const clip = next.timeline.clips.find((item) => item.id === id);
+        if (!clip) return next;
+        const frames = safeTransitionFrames(transitionFrames, clip);
+        if (frames !== transitionFrames) stats.clamped += 1;
+        const ownTransition = 'transitionIn' in clip ? clip.transitionIn : undefined;
+        let mateClipId: string | undefined;
+        if (type === 'luma-wipe') {
+          const probe = {
+            ...clip,
+            transitionIn: { type: 'luma-wipe' as const, frames },
+          } as Clip;
+          const candidates = lumaMateCandidates(
+            next.timeline.clips,
+            next.timeline.tracks,
+            probe,
+            fps,
+          );
+          mateClipId = lumaMatePick(clip, mateChoice[id], candidates);
+          const storedMateId =
+            ownTransition?.type === 'luma-wipe' ? ownTransition.mateClipId : undefined;
+          if (
+            mateClipId &&
+            storedMateId !== undefined &&
+            storedMateId !== mateClipId &&
+            !candidates.some((candidate) => candidate.clip.id === storedMateId)
+          ) {
+            stats.staleMates += 1;
           }
-          const transitionIn = batchTransitionIn(clip, type, frames, {
-            color: dipColorForClip(ownTransition, dipColorById[id], dipColor),
-            mateClipId,
-          });
-          if (!transitionIn) {
-            skipped += 1;
-            return next;
-          }
-          return updateClip(next, id, { transitionIn });
-        }, current),
-      {
-        notice:
-          (clamped > 0
-            ? `Transición aplicada; ${clamped} clip(s) se acotaron a su duración.`
-            : `Transición aplicada a ${selectedClips.length} clip(s).`) +
-          (skipped > 0 ? ` ${skipped} clip(s) se omitieron por falta de mate válido.` : ''),
-      },
+        }
+        const transitionIn = batchTransitionIn(clip, type, frames, {
+          color: dipColorForClip(ownTransition, dipColorById[id], dipColor),
+          mateClipId,
+        });
+        if (!transitionIn) {
+          stats.skipped += 1;
+          return next;
+        }
+        return updateClip(next, id, { transitionIn });
+      }, current),
     );
-    if (ok) setAudit(null);
+    if (ok) {
+      store.setNotice(
+        (stats.clamped > 0
+          ? `Transición aplicada; ${stats.clamped} clip(s) se acotaron a su duración.`
+          : `Transición aplicada a ${selectedClips.length} clip(s).`) +
+          (stats.skipped > 0
+            ? ` ${stats.skipped} clip(s) se omitieron por falta de mate válido.`
+            : '') +
+          (stats.staleMates > 0
+            ? ` ${stats.staleMates} clip(s) tenían un mate inválido y recibieron el elegido en el selector.`
+            : ''),
+      );
+      setAudit(null);
+    }
   }
 
   function removeTransition(): void {
@@ -705,7 +722,12 @@ export function VisualsView({
                       <span>
                         Mate de {clipLabel(clip)}
                         {candidates.length === 0 ? ' · sin candidato' : ''}
-                        {staleMate ? ' · mate asignado ya no válido' : ''}
+                        {staleMate ? (
+                          <span className="visuals-stale-mate">
+                            {' '}
+                            · mate asignado ya no válido
+                          </span>
+                        ) : null}
                       </span>
                       <select
                         value={value}

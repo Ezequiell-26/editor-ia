@@ -220,8 +220,11 @@ describe('VisualsView · mate de luma-wipe', () => {
     await screen.findByText(/2 de 2 seleccionados/);
     await chooseLumaWipe();
 
+    // La marca es un span propio con estilo de warning, no texto plano.
+    const staleMark = document.querySelector('.visuals-stale-mate');
+    expect(staleMark?.textContent).toContain('mate asignado ya no válido');
     expect(
-      screen.getByText(/Mate de Toma Beta · mate asignado ya no válido/),
+      screen.getByText('Mate de Toma Beta', { exact: false }),
     ).toBeTruthy();
     // El selector muestra el primer candidato (A) como fallback honesto.
     const select = screen
@@ -229,6 +232,62 @@ describe('VisualsView · mate de luma-wipe', () => {
       .closest('label')
       ?.querySelector('select');
     expect(select?.value).toBe(clipIds[0]);
+  });
+
+  it('avisa en el notice cuántos mates inválidos se reemplazaron al aplicar', async () => {
+    const { clipIds } = renderView(
+      (project) => {
+        const clipB = project.timeline.clips[1]!;
+        return updateClip(project, clipB.id, {
+          transitionIn: {
+            type: 'luma-wipe',
+            frames: 12,
+            mateClipId: 'mate-que-no-existe',
+          },
+        });
+      },
+      200,
+    );
+    await screen.findByText(/2 de 2 seleccionados/);
+    await chooseLumaWipe();
+
+    fireEvent.click(transitionSection().getByRole('button', { name: 'Aplicar' }));
+    const probe = await screen.findByTestId('probe');
+    await waitFor(() => {
+      expect(probe.textContent).toContain(
+        '1 clip(s) tenían un mate inválido y recibieron el elegido en el selector.',
+      );
+      // El mate aplicado es el candidato real (A), no el id fantasma.
+      expect(probe.textContent).toContain(
+        `"mateClipId":"${clipIds[0]}"`,
+      );
+    });
+  });
+
+  it('no avisa de reemplazo cuando el mate asignado sigue siendo válido', async () => {
+    const { clipIds } = renderView(
+      (project) => {
+        const [clipA, clipB] = project.timeline.clips;
+        return updateClip(project, clipB!.id, {
+          transitionIn: {
+            type: 'luma-wipe',
+            frames: 12,
+            mateClipId: clipA!.id,
+          },
+        });
+      },
+      200,
+    );
+    await screen.findByText(/2 de 2 seleccionados/);
+    await chooseLumaWipe();
+
+    fireEvent.click(transitionSection().getByRole('button', { name: 'Aplicar' }));
+    const probe = await screen.findByTestId('probe');
+    await waitFor(() => {
+      expect(probe.textContent).toContain('Transición aplicada a 2 clip(s).');
+      expect(probe.textContent).not.toContain('mate inválido');
+    });
+    expect(clipIds).toHaveLength(2);
   });
 
   it('no marca nada cuando el mate asignado sigue siendo válido', async () => {

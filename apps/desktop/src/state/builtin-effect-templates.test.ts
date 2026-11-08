@@ -84,6 +84,18 @@ describe('plantillas de fábrica', () => {
     expect(depth).toHaveLength(2);
     expect(depth?.[0]?.value).toBe(0);
     expect(depth?.[1]?.value).toBeCloseTo(0.7);
+    // La curva vive en la clave que inicia el tramo (0→24): un easing o
+    // bezier en la última clave es inerte porque no hay segmento que salga
+    // de ella. Antes el ease-in-out estaba en la clave del frame 24 y la
+    // rampa salía lineal.
+    expect(depth?.[0]?.bezier).toEqual({
+      cp1X: 0.35,
+      cp1Y: 0.05,
+      cp2X: 0.5,
+      cp2Y: 1,
+    });
+    expect(depth?.[1]?.easing).toBeUndefined();
+    expect(depth?.[1]?.bezier).toBeUndefined();
     // El resto de las de fábrica sigue estático.
     const lookCine = builtinEffectTemplates('video').find((t) => t.name === 'Look cine');
     expect(
@@ -126,6 +138,25 @@ describe('sanitizeBuiltinKeyframes', () => {
     expect(track?.map((key) => key.frame)).toEqual([0, 5]); // frame redondeado
     expect(track?.[0]?.value).toBe(0); // -50 clampeado al mínimo
     expect(track?.[0]?.easing).toBeUndefined(); // 'bounce' no existe
+  });
+
+  it('conserva un bezier válido y descarta los que salen del rango del schema', () => {
+    const curve = { cp1X: 0.2, cp1Y: 0.9, cp2X: 0.3, cp2Y: 1 };
+    const tracks = sanitizeBuiltinKeyframes(shake, {
+      amount: [
+        { frame: 0, value: 5, bezier: curve },
+        { frame: 4, value: 15, bezier: { cp1X: 1.5, cp1Y: 0, cp2X: 0, cp2Y: 0 } },
+        { frame: 8, value: 25, bezier: { cp1X: Number.NaN, cp1Y: 0, cp2X: 0, cp2Y: 0 } },
+        { frame: 12, value: 30, bezier: 'no-es-objeto' as never },
+      ],
+    });
+    const track = tracks?.amount;
+    expect(track?.[0]?.bezier).toEqual(curve);
+    // Fuera de 0..1, NaN o no-objeto: la clave sobrevive con su easing, sin
+    // curva — igual que un documento cuya bezier no pasa el schema.
+    expect(track?.[1]?.bezier).toBeUndefined();
+    expect(track?.[2]?.bezier).toBeUndefined();
+    expect(track?.[3]?.bezier).toBeUndefined();
   });
 
   it('sin pistas válidas devuelve undefined', () => {

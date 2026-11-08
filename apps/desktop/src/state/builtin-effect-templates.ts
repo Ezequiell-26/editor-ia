@@ -27,6 +27,13 @@ interface BuiltinKeyframe {
   readonly frame: number;
   readonly value: number;
   readonly easing?: EffectKeyframe['easing'];
+  /**
+   * Curva cúbica propia (mismo shape que `EffectKeyframe.bezier`). Si está
+   * presente gobierna el segmento que empieza en esta clave —el bezier gana
+   * sobre `easing` en el muestreo—; se valida contra el rango del schema
+   * (coords 0..1) al sanitizar.
+   */
+  readonly bezier?: EffectKeyframe['bezier'];
 }
 
 interface BuiltinEffectSpec {
@@ -328,9 +335,18 @@ const AUDIO_TEMPLATES: readonly BuiltinTemplateDef[] = [
         effectId: 'audio.tremolo',
         params: { rate: 6 },
         keyframes: {
+          // La curva va en la clave que INICIA el tramo (0→24): un easing o
+          // bezier en la última clave es inerte — no hay segmento que salga
+          // de ella. Bezier propio: arranque lento y llegada suave, la
+          // lectura «tensión que crece» que el preset ease-in-out no daba
+          // (además estaba declarado en la clave equivocada y nunca regía).
           depth: [
-            { frame: 0, value: 0 },
-            { frame: 24, value: 0.7, easing: 'ease-in-out' },
+            {
+              frame: 0,
+              value: 0,
+              bezier: { cp1X: 0.35, cp1Y: 0.05, cp2X: 0.5, cp2Y: 1 },
+            },
+            { frame: 24, value: 0.7 },
           ],
         },
       },
@@ -350,6 +366,29 @@ const EASING_VALUES = new Set<NonNullable<EffectKeyframe['easing']>>([
   'ease-out',
   'ease-in-out',
 ]);
+
+/**
+ * Normaliza una curva declarada por una receta contra el rango del schema
+ * (`CubicBezierSchema`: las cuatro coords finitas en 0..1). Devuelve
+ * `undefined` cuando la curva es inválida — la clave conserva su `easing`
+ * si lo tiene, como haría un documento con la curva descartada.
+ */
+function sanitizeBuiltinBezier(
+  raw: EffectKeyframe['bezier'],
+): EffectKeyframe['bezier'] {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const { cp1X, cp1Y, cp2X, cp2Y } = raw;
+  const coords = [cp1X, cp1Y, cp2X, cp2Y];
+  if (
+    !coords.every(
+      (coord) =>
+        typeof coord === 'number' && Number.isFinite(coord) && coord >= 0 && coord <= 1,
+    )
+  ) {
+    return undefined;
+  }
+  return { cp1X, cp1Y, cp2X, cp2Y };
+}
 
 /**
  * Normaliza las claves declaradas por una receta contra el manifiesto real:
@@ -375,10 +414,12 @@ export function sanitizeBuiltinKeyframes(
       if (typeof value !== 'number') continue;
       const easing =
         entry.easing && EASING_VALUES.has(entry.easing) ? entry.easing : undefined;
+      const bezier = sanitizeBuiltinBezier(entry.bezier);
       byFrame.set(frame, {
         frame,
         value,
         ...(easing ? { easing } : {}),
+        ...(bezier ? { bezier } : {}),
       });
     }
     const track = [...byFrame.values()]

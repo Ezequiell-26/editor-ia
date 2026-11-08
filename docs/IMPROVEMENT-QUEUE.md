@@ -4,6 +4,84 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Curvas Bézier por parámetro en las plantillas de fábrica +
+  fix de la curva inerte de «Tensión que crece» (2026-11-08)** — cierra el
+  «las recetas no admiten presets de curva Bézier propia (sólo easing)»
+  del «Pendiente honesto» de la entrada plantillas animadas, en una
+  pasada del protocolo del loop (Devin CLI). Al implementarlo apareció un
+  bug real en la receta de audio que ya estaba en el catálogo.
+  - **Bug encontrado**: en `tension-que-crece` el `easing: 'ease-in-out'`
+    estaba declarado en la clave del **frame 24 — la última** de la pista
+    `depth`. La curva de un tramo la gobierna la clave que lo **inicia**
+    (`previous.easing`/`previous.bezier` en `sampleKeyframes`, misma
+    convención que transform y que el export segmentado de FFmpeg), así
+    que ese easing nunca rigió nada: la rampa de `depth` 0→0.7 salía
+    **lineal** aunque la receta declaraba ease-in-out.
+  - **Cambio** (`state/builtin-effect-templates.ts`): `BuiltinKeyframe`
+    gana `bezier?: EffectKeyframe['bezier']` (mismo shape que el schema:
+    `cp1X/cp1Y/cp2X/cp2Y`) y `sanitizeBuiltinBezier` lo normaliza contra
+    el rango de `CubicBezierSchema` — las cuatro coords finitas en 0..1;
+    lo inválido se descarta y la clave conserva su `easing`, igual que un
+    documento cuya curva no pasa el schema. `tension-que-crece` pasa a
+    declarar la curva en la clave del frame 0 con un bezier propio
+    (`0.35,0.05 → 0.5,1`: arranque lento, llegada suave — la lectura de
+    «tensión» que el ease-in-out pretendía) y el easing inerte del frame
+    24 se elimina.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `builtin-effect-templates.test.ts` **9/9**
+    (+1: bezier válido conservado, fuera de rango/NaN/no-objeto
+    descartados sin romper la clave; +asserts de la curva en la plantilla:
+    `depth[0].bezier` exacta, `depth[1]` sin easing ni bezier) ·
+    regresión `effect-templates.test.ts` + `EffectTemplates.test.tsx`
+    **14/14**. No se tocó Rust ni el contrato del documento (el schema ya
+    admitía `bezier` en `EffectKeyframeSchema`).
+  - **Archivos**: `state/builtin-effect-templates.ts` (+test), esta
+    entrada, `memory/2026-11-08-plantillas-bezier.md`.
+  - **Pendiente honesto**: los keyframes de plantilla siguen siendo
+    locales al clip (frames 0…N desde el inicio, no del timeline) y no
+    hay presets de curva por nombre — el bezier se declara por coordenadas;
+    el resto de las recetas animadas no usa bezier (sólo easing, que ya
+    estaba bien ubicado).
+
+- `[done]` **Aviso honesto de mates `luma-wipe` stale al aplicar el lote de
+  VisualsView + fix del notice muerto (2026-11-08)** — cierra el «la marca es
+  sólo texto en la etiqueta (no hay estilo de warning ni conteo en el aviso de
+  «Aplicar»)» del «Pendiente honesto» de la entrada mate stale, y de paso
+  repara un bug real descubierto al implementarlo, en una pasada del
+  protocolo del loop (Devin CLI).
+  - **Brecha**: la marca «mate asignado ya no válido» era texto plano en la
+  etiqueta del selector, y el notice de «Aplicar» nunca reportaba los clips
+  omitidos ni los mates reemplazados.
+  - **Bug encontrado**: `applyTransition` contaba `clamped`/`skipped` dentro
+  de la receta pero armaba `options.notice` **antes** de llamar
+  `store.update` — `options.notice` es un string ya evaluado, así que esos
+  contadores eran siempre 0 y los sufijos «se acotaron»/«se omitieron» del
+  notice **nunca se mostraron** (código muerto desde que se escribió).
+  - **Cambio** (`features/visuals/VisualsView.tsx`): la marca stale pasa a un
+  `<span className="visuals-stale-mate">` con `color: var(--color-warning)`
+  en `visuals-view.css`. `applyTransition` junta los contadores en `stats`
+  (mutados por la receta, que corre síncrona dentro de `applyRecipe`) y
+  compone el notice **después** con `store.setNotice` — ahora sí reporta
+  clips acotados, omitidos por falta de mate y, nuevo, `staleMates`: clips
+  cuyo `mateClipId` guardado ya no es candidato válido y recibieron el mate
+  del selector («N clip(s) tenían un mate inválido y recibieron el elegido
+  en el selector»).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+  **0 errores** · vitest `features/visuals` **14/14** (+3: la marca es span
+    con clase de warning, el notice cuenta el mate reemplazado y el documento
+    recibe el candidato real, y no avisa cuando el mate sigue válido) ·
+    vitest `luma-mate.test.ts` **17/17**. No se tocó Rust ni el contrato del
+    documento.
+  - **Archivos**: `features/visuals/VisualsView.tsx`,
+    `features/visuals/VisualsView.test.tsx`,
+    `features/visuals/visuals-view.css`, esta entrada,
+    `memory/2026-11-08-luma-mate-aviso-honesto.md`.
+  - **Pendiente honesto**: el aviso de reemplazo no distingue si el usuario
+    eligió el mate a mano o cayó el fallback (el texto dice «el elegido en el
+    selector», que es lo que el select muestra); el mate sigue sin preview
+    animado en el monitor; el conteo de mates «sugeridos por tramo» del lote
+    sigue siendo mejora aparte.
+
 - `[done]` **Plantillas de fábrica animadas con keyframes
   (2026-11-08)** — cierra el «las recetas son stacks estáticos (sin
   keyframes); un preset animado (p. ej. zoom-punch con curve) queda como
