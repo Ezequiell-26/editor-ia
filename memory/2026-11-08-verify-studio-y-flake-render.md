@@ -21,11 +21,14 @@ por E2E que reporta "flaky" si pasa al segundo intento.
   bug determinista del pipeline: cada E2E pasó solo tras fallar en
   suite. Causa probable: `verify_output`/publish corre justo tras salir
   ffmpeg y en Windows el archivo puede estar aún bloqueado/flusheándose.
-- **Diagnóstico ya cableado** (commit posterior): el worker persiste
-  `<cache>/render-<job>.log` con el stderr saneado o el error de
-  verificación/publicación, y la etapa `render` del estudio incluye la
-  cola del log en el error fatal. La próxima vez que flakee, el mensaje
-  de la corrida dirá la causa real en vez del genérico.
+- **Mitigación aplicada** (commit posterior): `verify_output`+publish se
+  reintenta una vez tras 400 ms — el temporal puede seguir liberándose
+  en Windows justo tras salir ffmpeg. Si el flake persiste, el
+  `render-<job>.log` dirá la causa real.
+- **Subtítulos por IA**: existe pipeline Whisper real
+  (`commands/audio/transcribe.rs`, faster-whisper vía Python) pero el
+  motor NO está instalado en esta máquina. Instalarlo es decisión del
+  usuario (ctranslate2 + descarga de modelos).
 
 ## Comandos
 
