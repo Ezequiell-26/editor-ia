@@ -14,6 +14,13 @@ afterEach(() => {
   cleanup();
 });
 
+// jsdom no implementa PointerEvent: fireEvent.pointer* crea un Event sin
+// clientX/clientY y el editor recibe NaN. Un MouseEvent con el type
+// 'pointer*' burbujea igual y React lee las coordenadas del nativeEvent.
+function pointerEvent(type: string, init: MouseEventInit = {}): MouseEvent {
+  return new MouseEvent(type, { bubbles: true, cancelable: true, ...init });
+}
+
 describe('PolygonEditor', () => {
   it('dibuja el polígono con los puntos actuales', () => {
     render(<PolygonEditor value={INITIAL} onChange={() => {}} />);
@@ -52,14 +59,14 @@ describe('PolygonEditor', () => {
     const onChange = vi.fn();
     render(<PolygonEditor value={INITIAL} onChange={onChange} />);
     const vertex = screen.getByRole('button', { name: 'Vértice 1 de la forma' });
-    fireEvent.pointerDown(vertex, { pointerId: 1, clientX: 0.1, clientY: 0.1 });
-    fireEvent.pointerMove(vertex, { pointerId: 1, clientX: 0.4, clientY: 0.6 });
+    fireEvent(vertex, pointerEvent('pointerdown', { clientX: 0.1, clientY: 0.1 }));
+    fireEvent(vertex, pointerEvent('pointermove', { clientX: 0.4, clientY: 0.6 }));
     expect(onChange).toHaveBeenCalledWith([
       { x: 0.4, y: 0.6 },
       INITIAL[1],
       INITIAL[2],
     ]);
-    fireEvent.pointerUp(vertex, { pointerId: 1 });
+    fireEvent(vertex, pointerEvent('pointerup'));
   });
 
   it('deshabilitado no edita', () => {

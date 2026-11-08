@@ -4,6 +4,37 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Verificación integral post-reconciliación + fix del test de
+  PolygonEditor (2026-11-08)** — pasada del protocolo del loop (Devin CLI)
+  tras la reconciliación 10 (main `408300b`+`42283fe`): typecheck de
+  workspace + suite serial completa + corrección del único fallo real
+  encontrado.
+  - **Reconciliación 10**: bezier por parámetro en plantillas de fábrica
+    (con fix de la curva inerte de «Tensión que crece») y aviso honesto de
+    mates `luma-wipe` stale portados verbatim; cola y memoria del delta
+    aplicadas. `tsc` workspace **0 errores**.
+  - **Verificación**: `npm run typecheck` → 0 errores en los 4 paquetes ·
+    `npm run test:serial` → **2400 passed / 3 skipped / 1 failed**
+    (273 archivos, 381 s).
+  - **Fallo encontrado y corregido**: `PolygonEditor.test.tsx` —
+    «arrastrar un vértice lo mueve» recibía `NaN` en las coordenadas.
+    Causa: jsdom 25 no implementa `PointerEvent`, así que
+    `fireEvent.pointerMove` entrega un `Event` sin `clientX/clientY` y el
+    componente calculaba `(undefined - 0)/1 = NaN`. **El componente es
+    correcto en navegadores reales** — el fix es del test: helper
+    `pointerEvent()` que despacha un `MouseEvent` con type `pointer*`
+    (burbujea igual y React lee las coords del `nativeEvent`).
+    `PolygonEditor.test.tsx` **7/7** tras el cambio. Los otros 43 usos de
+    `fireEvent.pointer*` de la suite no dependen de coordenadas de puntero
+    y siguen verdes.
+  - **Archivos**: `features/motion/PolygonEditor.test.tsx`, esta entrada,
+    `memory/2026-11-08-verificacion-integral-polygoneditor.md`.
+  - **Pendiente honesto**: `npm run verify` completo (incluye
+    `test:extension` y `test:web-tts`) no se corrió en esta pasada — la
+    suite serial cubrió los paquetes del workspace; los tests de las
+    extensiones quedan para la próxima. El fallo era sólo de test, no de
+    producto: en navegador real `PointerEvent.clientX` existe.
+
 - `[done]` **Curvas Bézier por parámetro en las plantillas de fábrica +
   fix de la curva inerte de «Tensión que crece» (2026-11-08)** — cierra el
   «las recetas no admiten presets de curva Bézier propia (sólo easing)»
