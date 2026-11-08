@@ -4,6 +4,61 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **`stateRef` del project-store sincronizado de forma eager en
+  todos los mutadores del documento (2026-11-08)** — cierra el follow-up
+  «`runGraph` llama `store.update` + `saveNow` en el mismo tick; `saveNow`
+  lee `stateRef` que aún no refleja el update» asentado el 2026-11-07, que
+  resultó ser un bug **sistémico**, en una pasada del protocolo del loop
+  (Devin CLI); portado al worktree de arquitectura en la reconciliación 5 (provider spliteado: mismo cambio en `project-store-provider.tsx`).
+  - **Brecha medida**: `applyRecipe` (vía `store.update`/`mutate`), `undo`,
+    `redo`, `adopt`, `closeProject`, `setIoPoint` y `clearIoRange` pedían el
+    render con `setState`, pero `stateRef.current` —leído por `saveNow`,
+    `getProject`, `durationOf` y la siguiente `applyRecipe`— recién se
+    actualizaba cuando React renderizaba (`stateRef.current = state` en el
+    cuerpo del provider). Consecuencias reales: (a) dos `update` en el mismo
+    tick encadenaban sobre el documento viejo y **la primera edición se
+    perdía**; (b) `update` + `saveNow` inmediato guardaba el documento
+    anterior (el `setTimeout(0)` de `NodeGraphView` era un parche frágil y
+    la mayoría de los callers —AssistantDock, ExportDialog, Inspector,
+    MenuBar— no lo tenían); (c) `DownloadView` ya documentaba el mismo
+    síntoma («dos llamadas seguidas en el mismo tick se pisan») y lo
+    esquivaba con `withImportLock` + tick.
+  - **Cambio** (`state/project-store.tsx` en main; en este worktree el provider vive en `state/project-store-provider.tsx` tras el split de Fase 2): los mutadores del documento
+    adelantan `stateRef.current` de forma síncrona antes de pedir el render
+    —mismo criterio que `playbackRef` ya usaba para el playhead— calculando
+    el próximo estado desde el ref y manteniendo el `setState` funcional
+    para el commit de React. Cubiertos: `applyRecipe` (proyecto, phase,
+    error, notice, undo, redo), `undo`, `redo`, `adopt` (estado completo),
+    `closeProject` (`INITIAL`), `setIoPoint`/`clearIoRange` (`ioRange`, que
+    `saveNow` combina con el proyecto vía `projectWithIoRange`). Quedan
+    fuera a propósito los campos que ningún lector síncrono usa para
+    decidir (selection, notice suelto, exportRequested, recoveryOffer,
+    transiciones `saving`/`saved` de `saveNow`/`saveAs`).
+  - **`NodeGraphView.tsx`**: eliminados los dos `setTimeout(0)` que cedían
+    un tick antes de `saveNow` (ya innecesarios; el comentario documenta el
+    nuevo contrato). `DownloadView` conserva su `withImportLock` (serializa
+    imports entre sí, no sólo el tick).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `project-store.test.tsx` **9/9** (+2 tests de
+    regresión que **fallan sobre el código anterior** — verificado
+    restaurando `HEAD` temporalmente: «dos update en el mismo tick» dejaba
+    1 sola pista en vez de 2, y «update + saveNow» guardaba el documento
+    sin el cue— y pasan con el fix) · `src/state` completo **776/776** ·
+    `src/features/nodes` 13/13 · `App.test.tsx` **77/77**. No se tocó Rust
+    ni el contrato del documento.
+  - **Archivos**: `state/project-store-provider.tsx` (port), `state/project-store.test.tsx`,
+    `features/nodes/NodeGraphView.tsx`, esta entrada,
+    `memory/2026-11-08-stateRef-eager.md`.
+  - **Pendiente honesto**: el adelanto es por mutador — un `setState`
+    futuro que cambie `project`/`undo`/`redo`/`ioRange`/`opened` sin tocar
+    `stateRef` reintroduciría la clase de bug (el contrato quedó escrito
+    junto al ref); si una edición y un `setNotice`/`setSelection` quedan en
+    el mismo tick, el ref puede mostrar transitoriamente el campo viejo
+    hasta el próximo render (ningún lector síncrono lo consulta); un render
+    concurrente descartado por React podría hacer retroceder el ref a un
+    estado ya comprometido (peligro preexistente de `stateRef.current =
+    state` en el cuerpo del render, no agravado por este cambio).
+
 - `[done]` **CSS splitting fase 2 · slice 1: dedup del bloque premium
   duplicado (2026-11-08)** — primer corte de la segunda fase de CSS
   splitting (pendiente sin spec: se definió el alcance como «sacar del

@@ -264,6 +264,94 @@ describe('playback fuera del store principal', () => {
   });
 });
 
+function SyncHarness() {
+  const store = useProjectStore();
+  const [saved, setSaved] = useState('none');
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => {
+          // Dos ediciones en el mismo tick, sin render entre medio: la
+          // segunda debe encadenar sobre el resultado de la primera.
+          store.update((project) => addTrack(project, 'video').project);
+          store.update((project) => addTrack(project, 'video').project);
+        }}
+      >
+        doble edición
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          // `saveNow` inmediato tras `update`: debe guardar el documento
+          // editado, no la instantánea anterior al render.
+          store.update((project) =>
+            addCaptionCue(project, { text: 'sync', startFrame: 0, durationFrames: 30 }).project,
+          );
+          void store.saveNow().then((ok) => setSaved(String(ok)));
+        }}
+      >
+        editar y guardar
+      </button>
+      <span data-testid="tracks">{String(store.state.project?.timeline.tracks.length ?? -1)}</span>
+      <span data-testid="cues">{String(store.state.project?.captions.cues.length ?? -1)}</span>
+      <span data-testid="saved">{saved}</span>
+    </div>
+  );
+}
+
+describe('estado síncrono del store (stateRef)', () => {
+  it('dos update en el mismo tick encadenan sobre el documento nuevo', async () => {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('Sync', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'sync.editoria.json',
+      path: 'C:\\tmp\\sync.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.current = opened;
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <SyncHarness />
+      </ProjectProvider>,
+    );
+    expect(screen.getByTestId('tracks').textContent).toBe('0');
+    fireEvent.click(screen.getByRole('button', { name: 'doble edición' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('tracks').textContent).toBe('2');
+    });
+  });
+
+  it('update + saveNow en el mismo tick guarda el documento editado', async () => {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('SyncSave', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'sync-save.editoria.json',
+      path: 'C:\\tmp\\sync-save.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.current = opened;
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <SyncHarness />
+      </ProjectProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'editar y guardar' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('saved').textContent).toBe('true');
+    });
+    // El documento que llegó al servicio tiene el cue recién agregado.
+    expect(
+      service.current?.project.captions.cues.some((cue) => cue.text === 'sync'),
+    ).toBe(true);
+    await waitFor(() => {
+      expect(screen.getByTestId('cues').textContent).toBe('1');
+    });
+  });
+});
+
 describe('solicitud de exportación', () => {
   it('se solicita una vez y se consume al abrir el diálogo', () => {
     const service = createFakeService();

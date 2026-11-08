@@ -270,9 +270,8 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
       return;
     }
     setError(null);
-    // `saveNow` lee el estado ya confirmado por React: hay que ceder un tick
-    // para que el render del `update` actualice `stateRef` antes de pedirlo.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // `stateRef` se actualiza de forma síncrona en `update`: `saveNow` ya ve
+    // el grafo recién guardado sin ceder un tick al render.
     const saved = await store.saveNow();
     setNotice(
       saved
@@ -320,10 +319,8 @@ export function NodeGraphView({ onNavigate }: NodeGraphViewProps) {
       const clipCount = result.results.reduce((sum, item) => sum + item.clipIds.length, 0);
       let message = `Grafo ejecutado: ${result.results.length} nodos, ${clipCount} clips en la timeline.`;
       if (result.renderRequested) {
-        // `saveNow` lee `stateRef`, que se actualiza recién cuando React
-        // confirma el `update` de arriba: sin ceder un tick se podría guardar
-        // (y renderizar) el documento anterior al grafo.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        // `stateRef` refleja el `update` de forma síncrona: `saveNow` guarda
+        // (y el render usa) el documento que ya incluye el grafo.
         const saved = await store.saveNow();
         if (!saved) {
           setError('El grafo editó el proyecto pero no se pudo guardar para renderizar.');

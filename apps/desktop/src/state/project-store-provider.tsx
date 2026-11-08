@@ -73,6 +73,12 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   );
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Contrato: los mutadores del documento (`applyRecipe`, `undo`, `redo`,
+  // `adopt`, `closeProject`, `setIoPoint`, `clearIoRange`) adelantan
+  // `stateRef.current` de forma s├│ncrona antes de pedir el render, igual que
+  // `playbackRef`. Los lectores s├│ncronos (`saveNow`, `getProject`, la
+  // siguiente receta) ven siempre la ├║ltima edici├│n aunque React todav├¡a no
+  // haya confirmado el `setState`.
   // Playhead y reproducci├│n en estado propio: ver PlayheadContext arriba.
   // `playbackRef` se actualiza de forma s├¡ncrona para que `getPlayhead()` /
   // `getPlaying()` devuelvan el valor reci├®n fijado aunque `setState` a├║n no
@@ -138,14 +144,19 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     setPlayheadFrame(0);
     setPlayingState(false);
     setPlaybackDirectionState(1);
-    setState({
+    const next: StoreState = {
       ...INITIAL,
       project: opened.project,
       opened,
       phase: phaseForAdopt(),
       ioRange: ioRangeFromDocument(opened.project),
       lastSavedAt: new Date().toISOString(),
-    });
+    };
+    // `stateRef` se adelanta al render (mismo criterio que `playbackRef`):
+    // un `saveNow`/`getProject` inmediato despu├®s de abrir ve el proyecto
+    // nuevo y no el anterior.
+    stateRef.current = next;
+    setState(next);
   }, []);
 
   const createProject = useCallback(
@@ -405,6 +416,23 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
           }));
           return null;
         }
+        // `stateRef` se adelanta al render: los lectores s├│ncronos
+        // (`saveNow`, `getProject`, la pr├│xima `applyRecipe`) ven la edici├│n
+        // ya aplicada. Sin esto, dos `update` en el mismo tick encadenaban
+        // sobre el documento viejo (la primera edici├│n se perd├¡a) y un
+        // `update` + `saveNow` inmediato guardaba el estado anterior.
+        stateRef.current = {
+          ...snapshot,
+          project: parsed.project,
+          phase: 'dirty',
+          error: null,
+          notice: options?.notice ?? snapshot.notice,
+          undo:
+            options?.history === false || !snapshot.project
+              ? snapshot.undo
+              : [...snapshot.undo, snapshot.project].slice(-historyLimitRef.current),
+          redo: options?.history === false ? snapshot.redo : [],
+        };
         setState((current) => ({
           ...current,
           project: parsed.project,
@@ -443,10 +471,22 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   );
 
   const undo = useCallback(() => {
-    if (!stateRef.current.project || stateRef.current.undo.length === 0) {
+    const snapshot = stateRef.current;
+    const previous = snapshot.undo[snapshot.undo.length - 1];
+    if (!snapshot.project || !previous) {
       return;
     }
     editVersionRef.current += 1;
+    // Mismo adelanto de `stateRef` que en `applyRecipe`: un `saveNow` o una
+    // edici├│n inmediatamente despu├®s del undo ven el documento restaurado.
+    stateRef.current = {
+      ...snapshot,
+      project: previous,
+      undo: snapshot.undo.slice(0, -1),
+      redo: [snapshot.project, ...snapshot.redo].slice(0, historyLimitRef.current),
+      phase: 'dirty',
+      error: null,
+    };
     setState((current) => {
       const previous = current.undo[current.undo.length - 1];
       if (!previous || !current.project) {
@@ -464,10 +504,20 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   }, []);
 
   const redo = useCallback(() => {
-    if (!stateRef.current.project || stateRef.current.redo.length === 0) {
+    const snapshot = stateRef.current;
+    const next = snapshot.redo[0];
+    if (!snapshot.project || !next) {
       return;
     }
     editVersionRef.current += 1;
+    stateRef.current = {
+      ...snapshot,
+      project: next,
+      undo: [...snapshot.undo, snapshot.project].slice(-historyLimitRef.current),
+      redo: snapshot.redo.slice(1),
+      phase: 'dirty',
+      error: null,
+    };
     setState((current) => {
       const next = current.redo[0];
       if (!next || !current.project) {
@@ -504,6 +554,9 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
         outFrame: stateRef.current.ioRange?.outFrame ?? null,
         [edge === 'in' ? 'inFrame' : 'outFrame']: frame,
       };
+      // `stateRef` se adelanta al render: `saveNow` combina `project` +
+      // `ioRange` del ref, as├¡ que el rango nuevo debe estar visible ya.
+      stateRef.current = { ...stateRef.current, ioRange: next };
       setState((current) => ({ ...current, ioRange: next }));
       // El rango vive en el documento (`x-ioRange`) para sobrevivir al cierre:
       // `history:false` porque es una marca de UI, no una edici├│n del timeline.
@@ -515,6 +568,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   );
 
   const clearIoRange = useCallback(() => {
+    stateRef.current = { ...stateRef.current, ioRange: null };
     setState((current) => (current.ioRange === null ? current : { ...current, ioRange: null }));
     if (stateRef.current.project) {
       update((project) => projectWithIoRange(project, null), { history: false });
@@ -582,6 +636,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     setPlayheadFrame(0);
     setPlayingState(false);
     setPlaybackDirectionState(1);
+    stateRef.current = INITIAL;
     setState(INITIAL);
   }, []);
 
