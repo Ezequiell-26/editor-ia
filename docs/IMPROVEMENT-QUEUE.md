@@ -4,6 +4,26 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Warnings `dead_code` del arranque en lib-test a cero
+  (2026-11-08)** — continuación de la limpieza de warnings Rust, en una
+  pasada del protocolo del loop (Devin CLI).
+  - **Causa**: `lib.rs` define `run()` real bajo `#[cfg(not(test))]` y un
+    stub vacío bajo `#[cfg(test)]`, así que todo el andamiaje de arranque
+    que sólo `run()` ejerce (single-instance, splash/reveal, tray,
+    `background_start_mode`, `registry::register`) quedaba «never used»
+    en el target de tests — ~15 warnings `dead_code`.
+  - **Fix**: `#[cfg_attr(test, allow(dead_code))]` en los 14 ítems de
+    `lib.rs` (statics, fns y ambas variantes `cfg(windows)`/
+    `cfg(not(windows))`) y en `commands/registry.rs::register`. No se
+  usó `#[cfg(not(test))]` porque `generate_handler!` referencia
+    `background_start_mode` también en el build de tests.
+  - **Verificación**: `cargo check --all-targets` → **0 warnings** en lib
+    y lib-test (antes 10 + 21) · `cargo test --lib` **698/698** ·
+    `cargo fmt --check` limpio.
+  - **Archivos**: `src-tauri/src/lib.rs`,
+    `src-tauri/src/commands/registry.rs`, esta entrada,
+    `memory/2026-11-08-rust-dead-code-tests.md`.
+
 - `[done]` **Limpieza de warnings Rust del lib (2026-11-08)** — pasada
   del protocolo del loop (Devin CLI): `cargo check` reportaba 10 warnings
   en el target lib y 21 en lib-test, casi todos `unused_imports` dejados
