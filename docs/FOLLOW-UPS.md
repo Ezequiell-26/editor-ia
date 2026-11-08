@@ -255,9 +255,22 @@ sigue quedó **fuera** de este incremento y la UI no debe ofrecerlo todavía.
   (válidos vía `hardwareEncoder` explícito del perfil).
 - **HDR:** no soportado en export (no se inyecta metadata HDR10/HLG). El reporte
   de verificación sólo *detecta* HDR en archivos existentes.
-- **Pendiente:** `pixelFormat` real en el plan de FFmpeg (toca `render/ffmpeg.rs`
-  y el worker; requiere pruebas de roundtrip). Sonda de hardware para
-  AV1/VP9. Presets actuales siguen intactos.
+- ~~**Pendiente:** `pixelFormat` real~~ **resuelto**: `pixel_format_for`
+  (`render/ffmpeg/profile.rs`) valida el `pixelFormat` del perfil contra la
+  matriz real — `yuv420p` siempre, `yuv444p` sólo en WebM VP9/AV1 por
+  software (los encoders de hardware y MP4/MOV lo rechazan con motivo
+  honesto), `rgb24` rechazado como formato intermedio. `software_encoder_for`
+  fuerza `libvpx-vp9`/`libaom-av1` para 4:4:4 porque degradarían en
+  silencio. **Sonda de hardware AV1/VP9 también resuelta**:
+  `render/ffmpeg/probe.rs` declara `HW_AV1`/`HW_VP9` y `hardware_encoders`
+  devuelve `av1`/`vp9` con prueba funcional real (codificación lavfi de
+  0,1 s por candidato, cacheada por binario).
+- **HDR:** no soportado en export (no se inyecta metadata HDR10/HLG). El reporte
+  de verificación sólo *detecta* HDR en archivos existentes.
+- **Pendiente restante:** metadata HDR10/HLG en el plan de export (feature
+  nueva: mastering display metadata + transfer characteristics en el
+  contenedor) y `pixelFormat` de entrada (alpha/10-bit) en el plan de
+  composición, que es otro pipeline (`render/ffmpeg/plan`).
 
 ### 6.3 Cola de render persistente (persistencia nativa v1 implementada)
 - Hoy: el backend tiene **un render activo a la vez** (`start_render`,
