@@ -125,4 +125,21 @@ describe('buildProductionPlanFromProject', () => {
     expect(plan.requirements.every((req) => req.kind !== 'voice')).toBe(true);
     expect(plan.scenes).toHaveLength(1);
   });
+
+  it('con música agrega un requisito music con convención y habilita plan.music', () => {
+    const { project } = projectWithClip();
+    const plan = buildProductionPlanFromProject(project, 'Con música', NOW, {
+      music: true,
+    });
+    const musicReq = plan.requirements.find((req) => req.kind === 'music');
+    expect(musicReq).toMatchObject({ id: 'req-musica', query: 'music:ambient' });
+    expect(plan.music).toEqual({ enabled: true, query: 'music:ambient' });
+  });
+
+  it('sin opción de música el plan no pide cama musical', () => {
+    const { project } = projectWithClip();
+    const plan = buildProductionPlanFromProject(project, 'Sin música', NOW);
+    expect(plan.requirements.every((req) => req.kind !== 'music')).toBe(true);
+    expect(plan.music.enabled).toBe(false);
+  });
 });

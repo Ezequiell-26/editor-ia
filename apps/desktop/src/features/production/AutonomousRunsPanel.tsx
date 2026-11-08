@@ -57,6 +57,7 @@ export function AutonomousRunsPanel() {
   const [objective, setObjective] = useState('');
   const [voices, setVoices] = useState<readonly VoiceInfo[]>([]);
   const [voiceId, setVoiceId] = useState('');
+  const [musicBed, setMusicBed] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -110,6 +111,7 @@ export function AutonomousRunsPanel() {
     if (!project || busy) return;
     const plan = buildProductionPlanFromProject(project, objective, undefined, {
       ...(voiceId ? { voice: voiceId } : {}),
+      ...(musicBed ? { music: true } : {}),
     });
     await act('new', () =>
       store.service.productionCreate(plan, { maxCostCents: plan.maxCostCents }),
@@ -179,6 +181,13 @@ export function AutonomousRunsPanel() {
                   {voice.culture ? ` (${voice.culture})` : ''}
                 </option>
               ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>Música de fondo</span>
+            <select value={musicBed ? 'ambient' : ''} onChange={(event) => setMusicBed(event.target.value === 'ambient')}>
+              <option value="">Sin cama musical</option>
+              <option value="ambient">Ambiental generada (local, ffmpeg)</option>
             </select>
           </label>
           <div className="actions compact">

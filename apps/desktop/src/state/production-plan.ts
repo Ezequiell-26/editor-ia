@@ -20,6 +20,10 @@ export interface BuildPlanOptions {
   /** Voz del generador local (p.ej. nombre SAPI) para narrar las escenas
    *  que tienen `narrationText`. Sin opción no se generan requisitos de voz. */
   voice?: string;
+  /** Cama musical ambiental generada localmente (ffmpeg). Emite un
+   *  requisito `music` con la convención `music:` y habilita
+   *  `plan.music` para que `edit` la monte en "Producción Música". */
+  music?: boolean;
 }
 
 export function buildProductionPlanFromProject(
@@ -129,6 +133,22 @@ export function buildProductionPlanFromProject(
     planScenes.push(...baseScenes);
   }
 
+  // Cama musical ambiental: un requisito `music` con la convención
+  // `music:` (lo satisface el generador local ffmpeg) y `plan.music`
+  // habilitado con la misma query para que `edit` lo resuelva por tags.
+  const MUSIC_QUERY = 'music:ambient';
+  if (options.music) {
+    requirements.set('req-musica', {
+      id: 'req-musica',
+      kind: 'music',
+      query: MUSIC_QUERY,
+      maxCount: 1,
+      minCommercialUse: 'unknown',
+      preferLocal: true,
+      optional: false,
+    });
+  }
+
   const hasNarration = planScenes.some((scene) => scene.narrationText);
   const profile = project.renderProfiles[0];
   const fps = fpsOf(project);
@@ -149,6 +169,9 @@ export function buildProductionPlanFromProject(
     requirements: [...requirements.values()],
     scenes: planScenes,
     subtitles: hasNarration ? { enabled: true, language: 'es' } : { enabled: false },
+    music: options.music
+      ? { enabled: true, query: MUSIC_QUERY }
+      : { enabled: false },
     target: {
       platform: 'youtube',
       aspectRatio: profile?.aspectRatio ?? '16:9',
