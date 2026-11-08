@@ -4,6 +4,43 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Preview por corte en «Ver los cortes» del editor automático
+  (2026-11-08)** — cierra la parte «ver los cortes elegidos sobre el
+  material antes de escribir la timeline» del «Pendiente honesto»
+  «preview antes de aplicar» (declarado dos veces: lotes de umbrales y de
+  exportación por lote), en una pasada del protocolo del loop (Devin CLI).
+  El reproductor compartido por fuente ya existía (un `<video>` por asset
+  en «Reproductor del material», `seekPreviewSource` salta a cualquier
+  segundo desde el mapa del material); la lista de cortes sólo mostraba
+  tiempos y motivo, sin forma de ver el metraje.
+  - **Cambio** (`AutoEditView.tsx`): cada fila de «Ver los cortes» gana un
+    botón «Ver el corte N» (icono play, `aria-label` con variante y
+    reproductor, `title` con el rango en timecode) que llama a
+    `seekPreviewSource(cut.assetId, cut.startSeconds)` — seek + scroll +
+    play del mismo reproductor compartido, sin montar copias del video.
+    Sólo se renderiza cuando el asset tiene URL de preview
+    (`previewUrls.get(cut.assetId) != null`); en modo navegador la lista
+    queda como antes. La `<ol>` suma la clase `watchable` cuando la
+    variante tiene al menos un corte visible y un `fine-print` explica el
+    botón. CSS (`app.css`): `.auto-cut-list.watchable` reserva la columna
+    del botón (también combinada con `with-src`), `.auto-cut-watch` como
+    botón ghost de 20 px con foco visible; el right-align del puntaje pasa
+    de `span:last-child` a `span:last-of-type` para que el botón nuevo no
+    lo rompa.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `features/autoedit` **44/44** (+1 test: los
+    botones «Ver el corte N» existen, `data-start`/`data-end` son el
+    rango real del corte y el click lleva `video.currentTime` al segundo
+    inicial con `play()` llamado) · `AutoEditView.test.tsx` **14/14**.
+    No se tocó Rust ni el contrato del servicio.
+  - **Archivos**: `features/autoedit/AutoEditView.tsx` (+test),
+    `styles/app.css`, esta entrada, `memory/2026-11-08-preview-por-corte-autoedit.md`.
+  - **Pendiente honesto**: es un seek por corte, no una reproducción
+    continua de la variante (no hay «previsualizar montaje completo» con
+    transiciones/zoom); el botón salta al **inicio** del corte, no
+    reproduce sólo su ventana; en modo navegador (sin `sessionRoot`) no
+    hay botones, como el resto del preview.
+
 - `[done]` **`luma-wipe` en `TRANSITION_PRESETS` del rail de Activos con
   mate auto-elegido por corte (2026-11-08)** — cierra el «`luma-wipe` sigue
   fuera de `TRANSITION_PRESETS` … (sólo Inspector)» del «Pendiente» de la

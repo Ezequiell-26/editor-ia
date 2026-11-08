@@ -1043,6 +1043,9 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 const title = titles[variant.id] ?? variant.name;
                 const proposal = directorFor === variant.id ? director : null;
                 const usage = buildSourceUsage(sources, variant, chosenIndices);
+                const watchable = variant.cuts.some(
+                  (cut) => previewUrls.get(cut.assetId) != null,
+                );
                 return (
                   <article className="card auto-edit-variant" key={variant.id}>
                     <header>
@@ -1093,7 +1096,7 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       <ol
                         className={`auto-cut-list${
                           sources.length > 1 ? ' with-src' : ''
-                        }`}
+                        }${watchable ? ' watchable' : ''}`}
                       >
                         {variant.cuts.map((cut, index) => {
                           const sourceLabel =
@@ -1114,10 +1117,33 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                               ) : null}
                               <span>{REASON_LABEL[cut.reason] ?? cut.reason}</span>
                               <span>{cut.score}</span>
+                              {previewUrls.get(cut.assetId) != null ? (
+                                <button
+                                  type="button"
+                                  className="auto-cut-watch"
+                                  aria-label={`Ver el corte ${index + 1} de «${title}» en el reproductor del material`}
+                                  title={`Ver ${formatSeconds(
+                                    cut.startSeconds,
+                                  )}–${formatSeconds(cut.endSeconds)} en el reproductor`}
+                                  data-start={cut.startSeconds}
+                                  data-end={cut.endSeconds}
+                                  onClick={() =>
+                                    seekPreviewSource(cut.assetId, cut.startSeconds)
+                                  }
+                                >
+                                  <Icon name="play" size={11} />
+                                </button>
+                              ) : null}
                             </li>
                           );
                         })}
                       </ol>
+                      {watchable ? (
+                        <p className="fine-print">
+                          El botón de play salta el reproductor del material al segundo de cada
+                          corte: podés ver el metraje antes de aplicar.
+                        </p>
+                      ) : null}
                     </details>
 
                     <details className="auto-cut-details auto-src-details">

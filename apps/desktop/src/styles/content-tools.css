@@ -1281,11 +1281,37 @@
   font-family: var(--font-mono, monospace);
   font-size: 10px;
 }
-.auto-cut-list li span:last-child {
+.auto-cut-list li span:last-of-type {
   text-align: right;
 }
 .auto-cut-list.with-src li {
   grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr) 30px;
+}
+.auto-cut-list.watchable li {
+  grid-template-columns: 90px minmax(0, 1fr) 34px 22px;
+}
+.auto-cut-list.watchable.with-src li {
+  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr) 30px 22px;
+}
+.auto-cut-watch {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.auto-cut-watch:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.auto-cut-watch:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 .auto-cut-src {
   overflow: hidden;

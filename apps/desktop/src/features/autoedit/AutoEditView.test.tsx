@@ -187,6 +187,26 @@ describe('editor automático', () => {
     playSpy.mockRestore();
   });
 
+  it('cada corte de la lista salta el reproductor a su segundo', async () => {
+    renderView();
+    await analyze();
+    const watches = screen.getAllByRole('button', { name: /Ver el corte \d+ de/i });
+    expect(watches.length).toBeGreaterThan(0);
+    const playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue(undefined);
+    const first = watches[0]!;
+    const start = Number(first.getAttribute('data-start'));
+    const end = Number(first.getAttribute('data-end'));
+    expect(Number.isFinite(start)).toBe(true);
+    expect(end).toBeGreaterThan(start);
+    fireEvent.click(first);
+    const video = document.querySelector<HTMLVideoElement>('.auto-src-video')!;
+    expect(video.currentTime).toBeCloseTo(start, 5);
+    expect(playSpy).toHaveBeenCalled();
+    playSpy.mockRestore();
+  });
+
   it('sin videos ofrece ir a Medios', () => {
     renderView(false);
     expect(screen.getByText(/No hay videos listos/i)).toBeTruthy();
