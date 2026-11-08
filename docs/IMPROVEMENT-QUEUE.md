@@ -4,6 +4,33 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Suite e2e completa + snapshots del css-audit commiteados
+  (2026-11-08)** — pasada del protocolo del loop (Devin CLI) de
+  verificación e2e sobre el estado post-reconciliación 12.
+  - **`playwright test`** (Chrome del sistema, 37 tests): **23 passed /
+    1 skipped / 13 failed** — los 13 fallos eran todos `css-audit`:
+    el spec estaba commiteado pero sus snapshots PNG **no** (la carpeta se
+    genera al correr y `.gitignore` no la cubría, quedaba `??` untracked).
+    El propio spec se declaraba «auditoría temporal, NO commitear» —
+    contracción resuelta convirtiéndolo en regresión permanente.
+  - **Fix**: los 13 snapshots (856 KB, `chrome-win32`, pixel-perfect
+    `maxDiffPixelRatio: 0`) generados contra el CSS spliteado actual y
+    **commiteados**; el header del spec ahora documenta que es la puerta
+    de regresión visual de la fase 2 y cómo regenerarla
+    (`--update-snapshots` + revisar diff). Re-corrida:
+    **13/13 css-audit en verde**.
+  - **Estado e2e final**: 36/37 verdes + 1 skip intencional y documentado
+    (`lottie.spec.ts`: el panel vive en el modo Motion del Editor y en
+    navegador no hay proyecto/servicio — cobertura en
+    `LottiePanel.test.tsx`).
+  - **Archivos**: `e2e/css-audit.spec.ts` + `css-audit.spec.ts-snapshots/`
+    (13 PNG), esta entrada,
+    `memory/2026-11-08-e2e-css-audit-snapshots.md`.
+  - **Límite honesto**: los snapshots son de `chrome-win32` con el Chrome
+    del sistema — en otro SO/navegador pueden requerir regeneración; las
+    sub-vistas internas del editor siguen sin cobertura e2e (necesitan
+    proyecto+backend, igual que en la fase 2).
+
 - `[done]` **Preview por corte en «Ver los cortes» del editor automático
   (2026-11-08)** — cierra la parte «ver los cortes elegidos sobre el
   material antes de escribir la timeline» del «Pendiente honesto»
