@@ -30,7 +30,7 @@ mismas categorías y una cobertura equivalente. El formato de datos es compatibl
 | 69 efectos de video | `effects/` | ~12 equivalentes | **48 efectos** en `catalog/video.ts` |
 | 28 transiciones GPU | `transitions/` | 7 fijas en el schema | **22 transiciones** en `catalog/transitions.ts` |
 | 30 efectos de audio | `audio-effects/` | EQ/paneo/loudness por pista | **30 efectos** en `catalog/audio.ts` |
-| 20 plantillas de efecto | `effect-templates/` | 9 presets de un objeto | **Pendiente**: el stack ya lo permite, falta la UI |
+| 20 plantillas de efecto | `effect-templates/` | 9 presets de un objeto | **Hecho**: `state/effect-templates.ts` + `EffectTemplates` (propias + catálogo «De fábrica» de `builtin-effect-templates.ts`) |
 | Animaciones de texto (24 JSON) | `presets/text-animations/` | `caption-motion` propio | Sin cambios (ya cubierto) |
 | Scopes | `src/ui/color` | `ScopesPanel` | Sin cambios |
 | Seguimiento y máscaras | `core/tracking` | Máscaras + face track | Sin cambios |
@@ -180,12 +180,19 @@ Verificación real (no declarativa):
 
 ## 5. Lo que queda pendiente (y por qué)
 
-- **Efectos de audio (30 en Drift).** Cerrado en §4.5. Límite: la preview no los simula; el
-  panel lo dice y el MP4 los aplica. Un preview Web Audio por efecto queda como trabajo aparte.
-- **Plantillas de efecto.** Resuelto (parcial): `state/effect-templates.ts` +
+- **Efectos de audio (30 en Drift).** Cerrado en §4.5. La preview del monitor
+  los reproduce con Web Audio (`clip-audio-fx.ts` resuelve manifiesto +
+  keyframes por frame y `usePreviewAudio.ts` construye la cadena de nodos;
+  `PREVIEW_AUDIO_FX.size === 30`, testeado). Límite honesto: son
+  aproximaciones — el pitcheo usa un shifter granular por AudioWorklet y
+  los seguidores de envolvente (`gate`/`leveler`/`deesser`) leen el RMS en
+  el hilo de UI cada ~40 ms, no sample-exactos como el filtro FFmpeg; el
+  MP4 sigue siendo la referencia exacta y el panel lo declara.
+- **Plantillas de efecto.** Resuelto: `state/effect-templates.ts` +
   `EffectTemplates` permiten guardar/aplicar/exportar/importar stacks de video
-  y audio como JSON portable. Drift trae 23 de fábrica; acá las plantillas son
-  del usuario (no hay catálogo curado).
+  y audio como JSON portable, y `state/builtin-effect-templates.ts` suma un
+  catálogo curado de fábrica (12 de video + 15 de audio, 2026-11-08) que la UI
+  muestra en la sección «De fábrica» separada de las propias.
 - ~~**Keyframes en export.**~~ Resuelto: el export segmenta el clip en los frames de
   keyframe y aplica los parámetros estáticos por tramo (`atrim`/`concat` en audio,
   `split`/`trim`/`concat` en video), con muestreo por la misma curva que la preview.

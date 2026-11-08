@@ -4,6 +4,555 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Lista de keyframes por parámetro en el editor de curva de
+  efectos (2026-11-08)** — cierra el «Pendiente honesto» de la pasada del
+  selector `easing` (2026-11-08): «el easing se edita por tramo dentro del
+  popover de curva (no hay lista de keyframes por parámetro como la del
+  Inspector de transform)», en una pasada del protocolo del loop (Devin
+  CLI). Hasta acá una clave suelta sólo se podía borrar con el playhead
+  exactamente sobre ella (◆) o vaciando toda la pista (×).
+  - **Cambio**: `removeParamKeyframe(stack, instanceId, paramId, frame)` en
+    `packages/effect-kit/src/stack.ts` — quita la clave del frame y, con la
+    misma invariante que `toggleParamKeyframe`, elimina la pista entera si
+    quedan menos de 2 claves (el schema exige mínimo 2). En
+    `EffectStackPanel.tsx`, dentro del popover «Curva» (junto al editor
+    Bézier y a los selectores de tramo), una `.keyframe-list` muestra cada
+    clave ordenada: `frame N · valor` (+ «curva propia» o el nombre del
+    preset si no es lineal) y un × por fila que la borra sin mover el
+    playhead. Reusa las clases `.keyframe-list`/`.keyframe-row` del
+    Inspector; CSS nuevo mínimo `.effect-param-keys`.
+  - **Verificación**: vitest effect-kit **56/56** (+3 tests de
+    `removeParamKeyframe`: borrado suelto 3→2, pista eliminada al quedar
+    1 clave, no-op sin pista/clave/instancia) · vitest desktop **49/49**
+    en `features/vfx` + `AudioEffectStack` + `KeyframeCurveEditor` (+1
+    test: la lista muestra las 3 claves con su easing, el × quita la del
+    frame 15 y al quedar una sola la pista desaparece) ·
+    `npx tsc --noEmit -p apps/desktop/tsconfig.json` **0 errores**. No se
+    tocó Rust ni el contrato del documento.
+  - **Archivos**: `packages/effect-kit/src/{stack,index,engine.test}.ts`,
+    `apps/desktop/src/features/vfx/EffectStackPanel.tsx`,
+    `apps/desktop/src/features/editor/AudioEffectStack.test.tsx`,
+    `apps/desktop/src/styles/effect-studio.css`, esta entrada,
+    `memory/2026-11-08-keyframe-list-efectos.md`.
+  - **Pendiente honesto**: la lista vive dentro del popover «Curva» (no
+    está siempre visible como la del Inspector de transform, para no
+    inflar cada fila del stack); las filas muestran frame local del clip,
+    no timecode (el panel no recibe fps); no hay click-to-seek (el panel
+    es puro, sin acceso al playhead).
+
+- `[done]` **Botón «Mover el mate a una pista propia oculta» en la
+  transición `luma-wipe` del Inspector (2026-11-08)** — cierra el
+  «Pendiente honesto» de la entrada luma-mate-ocultar-pista («no hay UI
+  para mover el mate a una pista propia (hay que hacerlo a mano en la
+  timeline)»), en una pasada del protocolo del loop (Devin CLI).
+  - **Brecha**: cuando el mate compartía pista con otros clips —o estaba
+    en la misma pista del clip— el Inspector avisaba «mové el mate a una
+    pista propia» pero esa acción no existía en la UI.
+  - **Cambio**: `moveLumaMateToOwnTrack` (`features/editor/luma-mate.ts`)
+    compone las acciones existentes — `addTrack` con el kind compatible
+    (`image`→pista imagen, `video`/`freeze`→video) y etiqueta
+    `Mate · <label>` acotada a 120 chars, `moveClip` conservando
+    `startFrame`, `updateTrack(hidden:true)`— y devuelve `null` si el
+    clip no existe o la pista de origen está bloqueada. En `Inspector.tsx`,
+    dentro del bloque `luma-wipe`, el botón aparece cuando el mate está
+    en la misma pista del clip o su pista tiene más de un clip (los dos
+    casos donde ocultar la pista entera no sirve); el copy del aviso y
+    del `fine-print` ahora apunta al botón.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `luma-mate.test.ts` **13/13** (+3 tests:
+    pista nueva oculta con kind video y mates intactos, mate imagen →
+    pista imagen, `null` con id inexistente y pista bloqueada) ·
+    `features/visuals` **10/10**. No se tocó Rust ni el contrato del
+    render.
+  - **Archivos**: `features/editor/luma-mate.ts` (+test),
+    `features/editor/Inspector.tsx`, esta entrada,
+    `memory/2026-11-08-luma-mate-pista-propia.md`.
+  - **Pendiente honesto**: el mate sigue sin preview animado en el
+    monitor (el frame de transición se congela, igual que el resto de
+    transiciones); la pista nueva queda al tope del orden (las pistas
+    ocultas no afectan el render, pero si el usuario la muestra vuelve a
+    ser una pista de video normal).
+
+- `[done]` **Botón «Bucle» del transporte conectado a la preferencia real
+  (2026-11-08)** — bug de UI deshonesta encontrado por inspección en una
+  pasada del protocolo del loop (Devin CLI): `Transport.tsx` guardaba el
+  estado del bucle en un `useState` local que **nunca llegaba a
+  `usePlayback`** — el botón se veía activo pero la reproducción no
+  repetía. El bucle real es la preferencia persistida `loopPlayback`
+  (Ajustes → Editor → «Reproducir en bucle»), que `usePlayback` ya lee.
+  - **Cambio**: el botón ahora refleja `useEditorPreferences().loopPlayback`
+    y escribe con `updateEditorPreferences({ loopPlayback: !loop })`, el
+    mismo patrón que el ripple de la timeline (`Timeline.tsx`). Transporte
+    y Ajustes quedan sincronizados en ambos sentidos y el estado sobrevive
+    a reinicios (antes el `useState` moría con el componente).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `Transport.test.tsx` **3/3** (nuevo: refleja la
+    preferencia, inactivo sin ella, el click escribe la preferencia real
+    que lee `usePlayback`) · `editor-preferences` 9/9 ·
+    `EditorPreferencesCard` 4/4 · `Timeline.pro` 7/7. No se tocó Rust ni
+    el motor de reproducción.
+  - **Archivos**: `features/editor/Transport.tsx` (+test nuevo), esta
+    entrada, `memory/2026-11-08-transport-bucle-real.md`.
+  - **Pendiente honesto**: el bucle sigue aplicando sólo a la dirección
+    directa; cuando exista shuttle inverso (`J`, pendiente 1–2 de
+    `ATAJOS-PRO.md`) habrá que decidir si el bucle envuelve al inicio o al
+    final según la dirección.
+
+- `[done]` **Velocidad de reproducción 0.25–4× en el transporte
+  (2026-11-08)** — cierra la parte «no existe control de velocidad de
+  reproducción» del pendiente 2 de `docs/ATAJOS-PRO.md` (la rampa por
+  teclas repetidas sigue pendiente), en una pasada del protocolo del loop
+  (Devin CLI). El motor avanzaba siempre a 1× (`usePlayback` sumaba
+  `delta·fps`) y los elementos de media de la preview reproducían a
+  velocidad natural.
+  - **Cambio**: `playbackRef`/`PlaybackRateContext` nuevos en
+    `project-store.tsx` — `setPlaybackRate`/`getPlaybackRate` con clamp
+    0.1–8 y `useProjectPlaybackRate()`/`useProjectPlayback().rate`, en
+    contexto propio para no re-renderizar el store por frame (mismo
+    patrón que playhead/playing). `usePlayback` lee la velocidad del ref
+    en cada tick (`delta·fps·rate`): cambiarla a mitad de la reproducción
+    no reinicia el rAF. `Transport` gana un `<select>` «Velocidad de
+    reproducción» con 0.25/0.5/1/2/4×. `Preview.tsx`: `VideoLayer` y
+    `AudioLayer` reciben `playbackRate` y fijan
+    `element.playbackRate = clipSpeed × rate` con `preservesPitch = true`
+    — el elemento avanza exactamente lo que `sourceSeconds` necesita, así
+    que el drift-correction de 0.12 s deja de reconducir y el audio
+    conserva el tono como el `atempo` del export (antes los clips con
+    `speed ≠ 1` re-busaban el `currentTime` cada ~0.12 s de deriva).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `project-store.test.tsx` **6/6** (+1 test:
+    rate en contexto propio sin renders del store, clamp a 8) ·
+    `render-cost` 1/1 · `PreviewAudioScopes` 3/3 · `LiveMeters` 23/23 ·
+    `App.test.tsx` **77/77** · `Timeline` 20/20 + `Timeline.pro` 7/7 ·
+    shortcuts 12/12. No se tocó Rust ni el contrato del render.
+  - **Archivos**: `state/project-store.tsx` (+test),
+    `features/editor/{usePlayback.ts,Transport.tsx,Preview.tsx}`,
+    `styles/app.css`, `docs/ATAJOS-PRO.md`, esta entrada,
+    `memory/2026-11-08-velocidad-reproduccion.md`.
+  - **Pendiente honesto**: la velocidad es de sesión (no persiste ni va
+    al documento); no hay rampa por teclas repetidas (L/J sigue sin
+    dirección inversa — el motor sólo avanza); a 4× el avance por rAF
+    salta ~2 frames por tick a 30 fps, suficiente para revisar pero no
+    frame-exacto.
+
+- `[done]` **VisualsView: color y mate propios se precargan desde el
+  `transitionIn` existente (2026-11-08)** — cierra la parte accionable del
+  «Pendiente honesto» de la entrada dip-color-por-clip («el color por clip no
+  se precarga desde un `transitionIn` existente — el swatch muestra el
+  general hasta tocarlo») y el simétrico de `luma-wipe`, en una pasada del
+  protocolo del loop (Devin CLI).
+  - **Brecha medida**: al aplicar `dip-color` por lote, un clip que ya tenía
+  `transitionIn.color` propio (p. ej. afinado en el Inspector) lo perdía: el
+  lote escribía el color general en todos. En `luma-wipe` el selector caía al
+  primer candidato aunque el clip ya tuviera un mate válido asignado.
+  - **Cambio**: `dipColorForClip` (`features/visuals/visuals.ts`) resuelve el
+    color efectivo — override de la vista > `null` (fuerza general) > color
+    propio del `transitionIn` > general. `dipColorById` pasa a
+    `Record<string, string | null>`; el botón «General» aparece cuando el
+    color efectivo no es el general (propio u override) y fija `null`. Con un
+    solo clip seleccionado el swatch general muestra el color efectivo y al
+    cambiarlo guarda override para ese clip (lo que se ve es lo que se
+    aplica). `lumaMatePick` (`features/editor/luma-mate.ts`) elige el mate:
+    override válido > mate existente válido > primer candidato; lo usan el
+    `<select>` y `applyTransition`. Copy del `fine-print` actualizado.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `features/visuals` + `luma-mate.test.ts`
+    **20/20** (`visuals.test.ts` 6/6 con `dipColorForClip` override/null/propio/
+    general, `luma-mate.test.ts` 10/10 con `lumaMatePick` 3 tests,
+    `VisualsView.test.tsx` 4/4 con el caso nuevo: clip con `dip-color`
+    `#123456` propio conserva su color al aplicar el lote mientras el otro
+    recibe el general). No se tocó Rust ni el contrato del render.
+  - **Archivos**: `features/visuals/{visuals.ts,VisualsView.tsx}` (+tests),
+    `features/editor/luma-mate.ts` (+test), esta entrada,
+    `memory/2026-11-08-visuals-precarga-transicion.md`.
+  - **Pendiente honesto**: para `luma-wipe` el lote sigue sin permitir mates
+    «sugeridos» por tramo más allá del selector por clip (ya prefiere el mate
+    existente); si el mate propio quedó inválido el selector muestra el
+    primer candidato pero no lo marca como «cambiado»; el color/mate no se
+    precarga hasta abrir la sección de transición (es resolución en vivo,
+    no estado sembrado, así que nunca queda stale).
+
+- `[done]` **`dip-color` con color por clip en la aplicación por lote de
+  VisualsView (2026-11-08)** — cierra la primera mitad del «Pendiente
+  honesto» de la entrada dip-color/luma-wipe («el lote aplica el mismo
+  `color` a todos los clips (no hay color por clip)»), en una pasada del
+  protocolo del loop (Devin CLI). El mate por clip de `luma-wipe` ya
+  existía; faltaba el equivalente para el color.
+  - **Cambio** (`features/visuals/VisualsView.tsx`): estado nuevo
+    `dipColorById` (override por clip, mismo patrón que `mateChoice`).
+    Con más de un clip seleccionado, debajo del «Color general del
+    fundido» aparece una fila por clip con su `ColorSwatch` (valor =
+    override ?? general) y, sólo cuando hay override, un botón «General»
+    que lo quita. `applyTransition` escribe
+    `color: dipColorById[id] ?? dipColor`. Con un solo clip no hay filas
+    (el general alcanza). Copy actualizado: el `fine-print` distingue el
+    caso multi y el single, y las descripciones del catálogo
+    (`visuals.ts` fallback + `commands/visuals.rs`) ya no dicen «el lote
+    usa el mismo color para todos». CSS: `.visuals-dip-colors` /
+    `.visuals-dip-color-row` en `visuals-view.css`.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `features/visuals` **8/8** (`VisualsView.test.tsx`
+    nuevo, 3 tests: override por clip llega al documento con el general
+    en el otro, «General» vuelve al color común, un solo clip no muestra
+    filas) · `cargo test -p editor-ia-desktop --lib commands::visuals`
+    **6/6** (sólo cambió una cadena de descripción) · `cargo fmt --check`
+    limpio en `visuals.rs` (los diffs de fmt en otros archivos son
+    preexistentes del árbol, no de esta pasada).
+  - **Archivos**: `features/visuals/VisualsView.tsx` (+test nuevo),
+    `features/visuals/visuals.ts`, `features/visuals/visuals-view.css`,
+    `src-tauri/src/commands/visuals.rs`, esta entrada,
+    `memory/2026-11-08-dip-color-por-clip.md`.
+  - **Pendiente honesto**: para `luma-wipe` el lote sigue sin permitir
+    mates distintos «sugeridos» por tramo más allá del selector por clip
+    (ya los elige por clip); el color por clip no se precarga desde un
+    `transitionIn` existente — el swatch muestra el general hasta tocarlo.
+
+- `[done]` **DRIFT-PARITY: dos afirmaciones stale corregidas contra el
+  código (2026-11-08)** — pasada del protocolo del loop (Devin CLI) sin
+  cambios de código de producto: el documento de paridad es fuente de
+  verdad para próximas pasadas y declaraba dos cosas que ya no son
+  ciertas, lo que podía inducir a rehacer trabajo hecho.
+  - **Matriz §2, «20 plantillas de efecto»**: decía «Pendiente: el stack ya
+    lo permite, falta la UI». La UI existe desde antes
+    (`features/vfx/EffectTemplates.tsx` + `state/effect-templates.ts`:
+    guardar/aplicar/exportar/importar stacks como JSON portable) y desde
+    el 2026-11-08 además hay catálogo curado de fábrica
+    (`state/builtin-effect-templates.ts`, sección «De fábrica»). Celda
+    actualizada a «Hecho» con las rutas reales.
+  - **§5, «Efectos de audio»**: decía «la preview no los simula; el panel
+    lo dice y el MP4 los aplica. Un preview Web Audio por efecto queda
+    como trabajo aparte». Falso desde el commit `a7cff32` («audio preview
+    30/30»): `features/mixer/clip-audio-fx.ts` resuelve manifiesto +
+    keyframes por frame (`clipAudioFxSpec` muestrea `keyframes` en el
+    frame pedido, cubierto por test) y `usePreviewAudio.ts` construye la
+    cadena Web Audio por clip (`ClipFxChain`/`buildClipFxChain`); el copy
+    del panel ya dice «La preview reproduce los 30 efectos del catálogo
+    (con keyframes)». El bullet quedó reescrito con el estado real y sus
+    límites honestos: shifter granular por AudioWorklet para el pitcheo y
+    seguidores de envolvente (`gate`/`leveler`/`deesser`) que leen el RMS
+    en el hilo de UI cada ~40 ms — aproximaciones, no sample-exactas; el
+    MP4 sigue siendo la referencia.
+  - **Verificación**: `npx vitest run src/features/mixer/
+    clip-audio-fx.test.ts` → **6/6** (incluye `PREVIEW_AUDIO_FX.size ===
+    30` y muestreo de keyframes) · inspección directa de
+    `usePreviewAudio.ts` (`buildClipFxChain`, `envelopeFollower` con tick
+    fijo de 40 ms) y `AudioEffectStack.tsx` (copy vigente). Sólo docs:
+    no aplica typecheck ni suite.
+  - **Archivos**: `docs/DRIFT-PARITY.md`, esta entrada,
+    `memory/2026-11-08-drift-parity-stale.md`.
+  - **Nota de contexto**: los pendientes reales que quedan son grandes o
+    bloqueados — transiciones OBS en vivo, física 2D del stickman,
+    editor de capas libres del titler, diarización con modelo local,
+    importador de paquetes (sandbox real), firma OV/EV (externo) y Ola
+    CapCut P1 (gateada a pedido del usuario).
+
+- `[done]` **UI para ocultar la pista del mate de `luma-wipe`
+  (2026-11-08)** — cierra el segundo «Pendiente» de la entrada luma-wipe
+  («el mate en pista oculta funciona pero no hay UI para sugerirla»), en una
+  pasada del protocolo del loop (Devin CLI).
+  - **Por qué es seguro**: `render/ffmpeg.rs::luma_mate` resuelve el mate
+    por id sin mirar `track.hidden`, y el pipeline ya salta los clips de
+    pistas ocultas como imagen (`hidden_tracks`, ffmpeg.rs:4525-4567): el
+    mate en pista oculta aporta la máscara sin aparecer en el frame. Lo que
+    faltaba era la superficie para llegar a ese estado sin buscar la
+    pestaña Pista.
+  - **Cambio**: helper puro `lumaMateById` en `luma-mate.ts` (mate por id +
+    su pista, sin validar cobertura: sirve aunque el mate esté stale).
+    En el bloque `luma-wipe` del Inspector, con mate asignado: checkbox
+    «Ocultar la pista «{label}»» que hace `updateTrack(hidden)` y copy que
+    distingue tres casos honestos — pista ya oculta (sólo aporta máscara),
+    pista con sólo el mate (ocultar no pierde nada más) y pista con más
+    clips (avisa que se ocultan todos y sugiere mover el mate a pista
+    propia). **Caso bloqueado**: mate en la misma pista que el clip —
+    ocultarla también ocultaría el clip en preview y export, así que se
+    muestra `notice-warning` en vez del toggle.
+  - **Verificación**: `tsc --noEmit -p apps/desktop/tsconfig.json` **0
+    errores** · vitest `luma-mate.test.ts` **7/7** (+2 tests de
+    `lumaMateById`: mate no candidato válido con pista oculta, y
+    undefined sin id/id inexistente/sin pista). No se tocó Rust ni el
+    contrato del render.
+  - **Archivos**: `features/editor/luma-mate.ts` (+test),
+    `features/editor/Inspector.tsx`, esta entrada,
+    `memory/2026-11-08-luma-mate-ocultar-pista.md`.
+  - **Pendiente honesto**: el mate sigue sin preview animado en el monitor
+    (el frame de transición se congela, igual que el resto de
+    transiciones); no hay UI para mover el mate a una pista propia (hay
+    que hacerlo a mano en la timeline).
+
+- `[done]` **Descargar: los 12 idiomas del backend al traducir subtítulos
+  (2026-11-08)** — cierra la asimetría medida entre `translate_subtitles`
+  (acepta 12 códigos en `providers.rs::language_name`) y el selector de
+  «Traducir los subtítulos al descargar» de `DownloadView`, que sólo
+  ofrecía 8 (`es/en/pt/fr/de/it/ja/zh`): `hi`, `ar`, `bn` y `ru` — que
+  Localización ya usaba— siempre fallaban con «el idioma de destino no
+  está soportado» si se pedían por MCP, y ni siquiera eran elegibles en
+  la UI, en una pasada del protocolo del loop (Devin CLI).
+  - **Cambio** (`features/download/DownloadView.tsx`): el `<select>` de
+    «Idioma de destino» y la grilla «También …» ahora se generan desde
+    `LOCALIZATION_LANGUAGES` (`features/localization/localization.ts`,
+    la misma lista canónica de los 12 que consume Localización) — una
+    sola fuente, sin la lista duplicada que había hardcodeada dos veces.
+    El job persiste los mismos códigos (`translateTo`/`translateExtras`
+    son strings; jobs viejos en cola siguen válidos).
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `DownloadView.test.tsx` **12/12** (+1 test
+    nuevo: las 12 opciones del select con sus etiquetas y los checks
+    «También Hindi/Árabe/Bengalí/Ruso») · `queue.test.ts` 9/9 ·
+    `features/localization/` 11/11. No se tocó Rust ni el contrato del
+    servicio: el backend ya aceptaba los cuatro códigos.
+  - **Archivos**: `features/download/DownloadView.tsx` (+test), esta
+    entrada, `memory/2026-11-08-descarga-12-idiomas.md`.
+  - **Pendiente honesto**: el árabe se guarda como SRT UTF-8 sin marca
+    de dirección (el formato no la tiene; los players aplican bidi);
+    el doblaje SAPI sigue sin `ja` y la clonación sin `bn`, igual que
+    en Localización.
+
+- `[done]` **Forma `custom` (puntos libres) en el titler (2026-11-08)** —
+  cierra la mitad «forma custom» del pendiente del titler en
+  `docs/KDENLIVE-REFERENCE.md` (el editor visual completo de capas sigue
+  pendiente), en una pasada del protocolo del loop (Devin CLI).
+  - **Cambio**: `MotionRectLayer.shape` admite `'custom'` + `points`
+    (3..16 vértices normalizados 0..1 dentro de la caja de la capa, mismo
+    espacio que el `clip-path` del preview y el dibujo ASS). La plantilla
+    `badge` gana la opción «Personalizada» en el selector Forma y un campo
+    nuevo `kind:'polygon'` que `MotionForm` muestra habilitado sólo cuando
+    `shape==='custom'` (`MotionField.requires`, genérico). `points` tiene
+    default (cheurón) para que elegir la forma no rompa la validación, y se
+    conserva en props si se vuelve a una forma con nombre (la capa lo
+    ignora). `PolygonEditor` (nuevo): SVG con `polygon` de relleno, clic en
+    el fondo agrega vértice (tope 16), arrastrar mueve, doble clic quita
+    (mínimo 3), hint accesible y estado deshabilitado honesto.
+    `MotionPreview` emite `clip-path: polygon(...)` con los mismos puntos.
+    Rust `render/motion.rs`: `validate_plan` exige `points` válidos con
+    `shape:'custom'`; `custom_shape_vertices` + `drawing_commands`
+    (emit extraído de `polygon_drawing`) generan el `\p1`; si el plan
+    llega inválido el dibujo cae al rectángulo en vez de romper el render.
+  - **Verificación**: `tsc --noEmit` desktop **0 errores** · vitest
+    `motion` **13/13** (+3: points en la capa, default sin points, shapes
+    con nombre ignoran points, points inválidos rechazados) ·
+    `PolygonEditor.test.tsx` **7/7** (dibujo, agregar, quitar con mínimo,
+    arrastre, disabled, tolerancia a valores inválidos) ·
+    `templates-pro` 9/9 · `MotionView` 3/3 · `cargo test -p
+    editor-ia-desktop --lib render::motion` **9/9** (+2: dibujo custom con
+    coordenadas escaladas exactas, rechazo de points inválidos).
+  - **Archivos**: `features/motion/{templates,MotionForm,MotionPreview,
+    PolygonEditor}.tsx` (+`PolygonEditor.test.tsx`),
+    `features/motion/motion-view.css`,
+    `src-tauri/src/render/motion.rs`, `features/motion/motion.test.ts`,
+    `docs/KDENLIVE-REFERENCE.md`, esta entrada,
+    `memory/2026-11-08-forma-custom-titler.md`.
+  - **Pendiente honesto**: la forma custom existe sólo en la plantilla
+    insignia (no hay editor de capas libres del titler); los puntos son
+    estáticos dentro de la caja (sin keyframes por vértice); no hay
+    curvas Bézier entre vértices (ASS `\p1` tampoco las tiene).
+
+- `[done]` **Selector de preset `easing` para keyframes de efecto
+  (2026-11-08)** — cierra el «Pendiente honesto» de la pasada Bézier por
+  parámetro (2026-11-08): «no hay selector de preset `easing` para
+  keyframes de efecto (sólo lineal o curva propia)», en una pasada del
+  protocolo del loop (Devin CLI). El campo ya existía en el schema y lo
+  honraban preview (`sampleKeyframes`) y export (`effect_ease`); los
+  keyframes de transform ya tenían su selector «Curva» en el Inspector.
+  - **Cambio**: `setParamKeyframeEasing` en `effect-kit/stack.ts` escribe
+    el preset en la clave que inicia el tramo (conserva `value`, quita
+    `bezier` para que el preset rija — el bezier gana sobre easing en el
+    muestreo). En `EffectStackPanel` (compartido por EffectStudio y
+    AudioEffectStack), el popover «Curva» gana un `<select>` por tramo
+    («Tramo N», `aria-label` con el parámetro) con Lineal/Acelerar/
+    Desacelerar/Suave/Mantener; si la clave tiene curva propia el selector
+    muestra «Curva propia» (deshabilitada) y elegir un preset la
+    reemplaza. CSS: `.effect-param-easings`/`.effect-easing-field`.
+  - **Verificación**: `tsc --noEmit` effect-kit + desktop **0 errores** ·
+    vitest effect-kit **53/53** (+2 en `engine.test`: preset conserva
+    valor y reemplaza bezier con assert de muestreo, no-op sin pista/clave)
+    · vitest desktop **56/56** en los archivos tocados (`AudioEffectStack`
+    8/8 con el flujo ◆→Curva→easing→«Curva propia»→preset, `features/vfx` +
+    `KeyframeCurveEditor` 48/48).
+  - **Archivos**: `packages/effect-kit/src/{stack,index,engine.test}.ts`,
+    `apps/desktop/src/features/vfx/EffectStackPanel.tsx`,
+    `apps/desktop/src/features/editor/AudioEffectStack.test.tsx`,
+    `apps/desktop/src/styles/effect-studio.css`, esta entrada,
+    `memory/2026-11-08-easing-por-parametro-efecto.md`.
+  - **Pendiente honesto**: el easing se edita por tramo dentro del popover
+    de curva (no hay lista de keyframes por parámetro como la del
+    Inspector de transform); elegir un preset borra la curva propia de ese
+    tramo a propósito.
+
+- `[done]` **`dip-color` y `luma-wipe` en la aplicación por lote de
+  VisualsView (2026-11-08)** — cierra el «pendiente honesto» declarado al
+  agregar el catálogo de transiciones: el lote no podía ofrecerlos porque
+  `dip-color` exige `color` y `luma-wipe` un `mateClipId` elegible por
+  clip, en una pasada del protocolo del loop (Devin CLI).
+  - **Cambio**: `catalog_transitions()` (Rust) y `FALLBACK_VISUAL_CATALOG`
+    suman ambas transiciones (19 en total; `dip-color` con
+    `overlapsPrevious: false`, `luma-wipe` con `true`). `VisualsView`
+    muestra un `ColorSwatch` compartido cuando el tipo es `dip-color` y un
+    `<select>` de mate **por clip seleccionado** cuando es `luma-wipe`,
+    con los candidatos de `lumaMateCandidates` calculados sobre la
+    transición pendiente (el solape depende de `frames`) — la misma regla
+    que valida el render. `batchTransitionIn` (`visuals.ts`) arma el
+    `transitionIn` por clip y devuelve `undefined` si falta `color`/`mate`;
+    los clips sin mate válido se omiten y el notice lo dice. Thumbnails
+    nuevos `dip-color.svg` y `luma-wipe.svg`.
+  - **Verificación**: `tsc --noEmit` desktop **0 errores** · vitest
+    `visuals.test.ts` **5/5** (lista esperada a 19 + tests de
+    `batchTransitionIn`) · `luma-mate` 5/5 · `Timeline` 20/20 ·
+    `project-actions` 108/108 · `EditorAssets` 9/9 · `cargo test -p
+    editor-ia-desktop --lib commands::visuals` **6/6** · `cargo fmt
+    --check` limpio en `visuals.rs`.
+  - **Archivos**: `commands/visuals.rs`, `features/visuals/visuals.ts`
+    (+test), `features/visuals/VisualsView.tsx`,
+    `features/visuals/visuals-view.css`,
+    `public/thumbnails/transitions/{dip-color,luma-wipe}.svg`, esta
+    entrada, `memory/2026-11-08-dip-luma-lote-visuals.md`.
+  - **Pendiente honesto**: el lote aplica el **mismo** `color` a todos los
+    clips (no hay color por clip) y para `luma-wipe` elige un mate por
+    clip pero no permite mates distintos por tramo; ambos casos siguen
+    siendo más finos desde el Inspector.
+
+- `[done]` **Catálogo curado de plantillas de fábrica para stacks de
+  efectos (2026-11-08)** — cierra «no hay catálogo curado» de
+  `docs/DRIFT-PARITY.md` §5 (Drift trae ~23 presets de fábrica), en una
+  pasada del protocolo del loop (Devin CLI).
+  - **Brecha medida**: `EffectTemplates` sólo listaba plantillas del
+  usuario en `localStorage`; no había punto de partida para quien no
+  conoce los 78 efectos del catálogo.
+  - **Cambio**: `state/builtin-effect-templates.ts` (nuevo) define 12
+    recetas de video + 15 de audio como datos `{effectId, params}` y las
+    resuelve contra `effectRegistry` en cada llamada
+    (`builtinEffectTemplates(kind)` → `EffectTemplate[]`, ids de instancia
+    nuevos, plantilla entera omitida si un efecto ya no existe).
+    `EffectTemplates.tsx` muestra la sección «De fábrica» (Aplicar +
+    Exportar, sin Quitar) sobre la lista del usuario, ahora rotulada
+    «Propias»; el contador del summary suma ambas. CSS:
+    `.effect-templates-section`.
+  - **Verificación**: `tsc --noEmit` desktop **0 errores** · vitest
+    `builtin-effect-templates.test.ts` **4/4** (recetas resuelven y se
+    aplican completas con params normalizados) · `effect-templates`
+    **7/7** · `EffectTemplates.test.tsx` **6/6** (+2: aplicar «Look cine»
+    con su stack y params; sección «De fábrica» separada) · regresión
+    `features/vfx` + `AudioEffectStack` **34/34**.
+  - **Archivos**: `state/builtin-effect-templates.ts` (+test),
+    `features/vfx/EffectTemplates.tsx` (+test),
+    `styles/effect-studio.css`, `docs/DRIFT-PARITY.md`, esta entrada,
+    `memory/2026-11-08-plantillas-fabrica-efectos.md`.
+  - **Pendiente honesto**: las recetas son stacks estáticos (sin
+    keyframes); un preset animado (p. ej. zoom-punch con curve) queda
+    como mejora si se pide.
+
+- `[done]` **Catálogo de transiciones de VisualsView al día + thumbnails
+  faltantes (2026-11-08)** — en una pasada del protocolo del loop (Devin CLI).
+  - **Brecha medida**: `catalog_transitions()` (`commands/visuals.rs`, la
+    fuente medida que consume `VisualsView`) quedó en 11 entradas y no
+    incluía `slide-3d-*` (agregadas al renderer el 2026-11-08), `wipe-*` ni
+    `iris`: la vista de aplicación por lote no podía ofrecer 10 de los 18
+    tipos del schema. Además `slide-3d-*` pedía
+    `/thumbnails/transitions/slide-3d-*.svg` inexistentes (fondo vacío) e
+    `iris` no tenía thumbnail; el fallback `FALLBACK_VISUAL_CATALOG` de
+    `visuals.ts` (modo navegador / servicio caído) ni siquiera tenía las
+    `slide-3d-*`.
+  - **Cambio**: `catalog_transitions()` suma `wipe-left|right|up|down` e
+    `iris` (los 6 aplicables por lote: `transitionIn: {type, frames}` es
+    válido tal cual). `dip-color` y `luma-wipe` quedan **fuera a propósito**
+    — el primero exige `color` y el segundo un `mateClipId` elegible por
+    clip; el Inspector ya los resuelve. Comentario en el código lo declara.
+    `FALLBACK_VISUAL_CATALOG` queda espejo del backend (17 transiciones,
+    mismas etiquetas/descripciones/defaults). Thumbnails nuevos:
+    `iris.svg` (motivo circular propio) y `slide-3d-{left,right,up,down}.svg`
+    (mismo placeholder que el resto del directorio).
+  - **Verificación**: `cargo test -p editor-ia-desktop --lib
+    commands::visuals` **6/6** (el test de unicidad ahora fija las 17) ·
+    vitest `features/visuals/visuals.test.ts` **4/4** (lista esperada
+    actualizada a las 17) · `npx tsc --noEmit -p apps/desktop/tsconfig.json`
+    **0 errores** · `rustfmt --check` limpio en `visuals.rs`. Sin cambios en
+    el renderer: wipe/iris ya exportaban y previsualizaban.
+  - **Archivos**: `apps/desktop/src-tauri/src/commands/visuals.rs`,
+    `apps/desktop/src/features/visuals/visuals.ts` (+test),
+    `apps/desktop/public/thumbnails/transitions/{iris,slide-3d-*}.svg`,
+    `docs/IMPROVEMENT-QUEUE.md`, `memory/2026-11-08-catalogo-transiciones-visuals.md`.
+  - **Pendiente honesto**: `dip-color`/`luma-wipe` siguen siendo
+    Inspector-only (el lote no puede elegir color/mate); si se quiere
+    ofrecerlos en VisualsView hay que agregar un selector de color y un
+    picker de mate por clip — trabajo aparte.
+
+- `[done]` **UI honesta del clip mate del `luma-wipe` (2026-11-08)** —
+  cierra el pendiente declarado al cerrar la transición (2026-11-08): «el
+  mate en pista oculta funciona pero no hay UI para sugerirla», en una
+  pasada del protocolo del loop (Devin CLI).
+  - **`features/editor/luma-mate.ts` (nuevo)**: la lógica de candidatos
+    que vivía inline en `Inspector.tsx` queda como función pura
+    `lumaMateCandidates(clips, tracks, clip, fps)` — misma ventana activa
+    (inicio menos lead, tope `2·fps`, tolerancia de un frame) que valida
+    `luma_mate` en Rust — más `lumaMateOptionLabel` (nombre · frame ·
+    pista · «pista oculta») y `lumaMateIsStale` (mate asignado que ya no
+    es candidato válido: se movió, deshabilitó o cambió de tipo).
+  - **`Inspector.tsx`**: las opciones del selector muestran la pista y la
+    marca «pista oculta» — el render sólo lee la luminancia del mate, así
+    que una pista oculta es una máscara válida y ahora la UI lo dice. Si
+    el mate asignado quedó inválido, el selector conserva la opción
+    «Mate actual (ya no cubre el solape)» y un `notice-warning` explica
+    que el export va a fallar hasta elegir otro mate. Si no hay
+    candidatos, un `fine-print` explica qué puede ser mate (video,
+    imagen o freeze en cualquier pista, oculta incluida).
+  - **Verificación**: vitest `luma-mate.test.ts` **5/5** (cobertura del
+    solape, lead propio del mate, marca de pista oculta en la etiqueta,
+    mate stale y mate vigente) · `tsc --noEmit` desktop **0 errores** ·
+    vitest `EditorAssets` 9/9, `Timeline` 20/20, `project-actions` 108/108.
+    No se tocó Rust: el renderer ya aceptaba mates en pistas ocultas.
+  - **Archivos**: `features/editor/luma-mate.ts` (+test),
+    `features/editor/Inspector.tsx`, `docs/IMPROVEMENT-QUEUE.md`,
+    `memory/2026-11-08-mate-luma-wipe-ui.md`.
+  - **Pendiente honesto**: el mate animado sigue congelado en el preview
+    del monitor (un frame, igual que el resto de transiciones); crear un
+    mate nuevo (p. ej. freeze sobre la zona del solape) sigue siendo
+    manual.
+
+- `[done]` **Transición `iris` con máscara radial + fix de borde en
+  `wipe-left`/`wipe-up` (2026-11-08)** — continúa la cola de transiciones
+  Kdenlive (`docs/KDENLIVE-REFERENCE.md` §4), en una pasada del protocolo
+  del loop (Devin CLI).
+  - **`iris`**: nuevo tipo en `ClipTransitionSchema` (enum + JSON Schema
+    regenerado). Reusa la infraestructura `geq` de los wipe:
+    `wipe_alpha_expr("iris", p)` emite una máscara circular que crece
+    desde el centro — `dist² < p²·R²` con `R² = (W/2)²+(H/2)²` — y un
+    guard `gt(p,0.999)` que abre los cuatro vértices exactos al cerrar el
+    lead (a `p=1` su `dist² = R²` y `lt` los dejaría fuera). Export:
+    mismo brazo del lead que `wipe-*` en `visual_filter`; preview:
+    `transitionFrozen {mode:"wipe",kind:"iris",progress}` →
+    `wipe_frozen_filter` con progreso constante. UI: opción «Iris
+    circular» en Inspector, preset en `EditorAssets` (17 tarjetas, grupo
+    propio «Iris» en el árbol) y label en `Timeline`. Auditoría:
+    `visuals.rs` whitelist actualizada.
+  - **Fix real**: `wipe-left` y `wipe-up` usaban `gt(X,W*(1-p))` /
+    `gt(Y,H*(1-p))`; al llegar a `p=1` la condición queda `gt(X,0)` /
+    `gt(Y,0)` y la columna `X=0` / fila `Y=0` permanecía transparente
+    durante todo el resto del clip. Pasan a `gte`, simétrico con
+    `wipe-right`/`wipe-down` que ya eran correctos (`lt(X,W)` / `lt(Y,H)`
+    incluyen todo el frame en `p=1`).
+  - **Verificación**: `cargo test --lib transition` → **8/8** (incluye
+    `extra_transitions_change_the_filter_chain` con asserts nuevos de
+    `geq` radial + iris congelado sin `in`/`N`, y
+    `window_freezes_fades_and_transition_leads` con el bloque iris:
+    `mode:"wipe"`, `kind:"iris"`, `progress 0.5`) · `commands::visuals`
+    dentro del filtro → ok · `tsc --noEmit` desktop **0 errores** ·
+    project-schema **373/373** (schema regenerado en sync) · vitest
+    `EditorAssets` 9/9, `Timeline` 20/20, `project-actions` 108/108.
+    **Smoke real FFmpeg** (build LGPL local): el `geq` del iris parsea y
+    corre sin errores; con progreso constante 0,5 sobre 64×36 el alfa
+    medido da YAVG=115,3/255 ≈ 45 %, consistente con el círculo de
+    radio √337 px (~46 % del frame). El test de render completo
+    (`transition_leads_use_the_window_and_match_full`) sigue `ignored`:
+    el FFmpeg dev local no trae `libx264`.
+  - **Archivos**: `packages/project-schema/src/timeline.ts` + schema
+    regenerado, `render/ffmpeg.rs`, `commands/preview_frame.rs`,
+    `commands/visuals.rs`, `Inspector.tsx`, `Timeline.tsx`,
+    `EditorAssets.tsx` (+test), `docs/KDENLIVE-REFERENCE.md`, esta
+    entrada, `memory/2026-11-08-transicion-iris.md`.
+  - **Pendiente**: `luma-wipe` sigue fuera de `TRANSITION_PRESETS` y del
+    catálogo Rust (sólo Inspector, como antes); el mate animado en
+    preview del monitor queda congelado igual que el resto de
+    transiciones.
+
 - `[done]` **Localización Studio unificada con los idiomas reales de cada
   backend (2026-11-08)** — cierra el «pendiente honesto» de la pasada de
   idiomas de traducción (2026-11-08): «Localización Studio sigue con su lista
@@ -4479,3 +5028,99 @@ en preview del monitor (el scope bajo playhead quedó hecho el 2026-11-08).
     spec propia). Pendientes externos sin cambio: firma OV/EV + updater,
     Ola CapCut P1 (sólo si el usuario la pide), luma wipe con clip mate,
     scopes del audio ya mezclado, física 2D del stickman, transiciones OBS.
+
+- `[done]` **Transición `luma-wipe` con clip mate (2026-11-08)** — el
+  «siguiente gap Kdenlive» declarado al cerrar slide-3d, en una pasada del
+  protocolo del loop (Devin CLI). La implementación venía sin commitear en
+  el árbol (trabajo de una pasada anterior); esta pasada la verificó de
+  punta a punta, agregó el test de render real y documentó.
+  - **Schema**: `luma-wipe` en el enum de `ClipTransitionSchema` con
+    `mateClipId` obligatorio vía `superRefine` (EntityId); schema JSON
+    regenerado. `applyTransitionToCuts` la salta en aplicación masiva
+    (no puede elegir mate por corte); se aplica desde el Inspector.
+  - **Export (Rust, `render/ffmpeg.rs`)**: `luma_mate` resuelve el clip
+    mate declarado (video/imagen/freeze, habilitado, sin speed curve ni
+    reverse, ventana activa que cubre el solape con tolerancia de un
+    frame, asset `ready` con licencia conocida, path dentro del root,
+    `ensure_asset_unchanged`) y lo suma como entrada extra de FFmpeg
+    (`-ss`/`-t` en source-time del solape, `-loop 1` para imágenes).
+    `luma_wipe_graph` parte el clip entrante por `lead_frames`
+    (`split`+`trim`+`setpts`), aplica `fps`+`format=gray`+`scale2ref`+
+    `alphamerge` sobre el lead (la luma del mate se copia al alfa) y
+    `concat` con el resto; el overlay consume `v{index}out`. Errores
+    honestos: sin mate, mate inexistente, auto-mate, mate deshabilitado,
+    mate sin cobertura del solape.
+  - **Preview**: `preview_frame.rs` congela `transitionFrozen
+    {mode:"luma",mateClipId}` en el lead y `freezable_transition` acepta
+    `luma-wipe`; `luma_frozen_graph` aplica la máscara de un solo frame
+    del mate sin split/concat.
+  - **UI**: Inspector con selector «Clip mate (máscara)» filtrado por
+    cobertura del solape (misma tolerancia de un frame que el renderer) y
+    auto-asignación del primer candidato al elegir el tipo; label en
+    Timeline; auditoría `visuals.rs` marca `luma-wipe` sin mate como
+    error.
+  - **Verificación**: `tsc --noEmit` 0 · project-schema **373/373**
+    (incluye schema-artifacts: JSON en sync) · vitest dirigidos
+    **144/144** (project-actions 108, Timeline 20, Timeline.pro 7,
+    EditorAssets 9) · `cargo test --lib luma` **2/2** ·
+    `window_freezes_fades_and_transition_leads` ok · `commands::visuals`
+    6/6 · filtro `transition` 8/8 (+1 ignored) · **render real**
+    (`EDITOR_IA_RUN_RENDER_TESTS=1`, ffmpeg 9.0.1): mate mitad
+    negra/blanca sobre base roja y entrante azul — a mitad del lead
+    YAVG izq=81.00 / der=41.00 (la máscara reveló el clip de abajo a la
+    izquierda y el entrante a la derecha); post-lead 41.00/41.00 parejo.
+    Nuevo test ignorado `render_luma_wipe_uses_the_mate_luminance` +
+    helper `region_luma`.
+  - **Archivos**: `packages/project-schema/src/timeline.ts` + schema
+    regenerado + `effects.test.ts`, `render/ffmpeg.rs`,
+    `commands/preview_frame.rs`, `commands/visuals.rs`, `Inspector.tsx`,
+    `Timeline.tsx`, `state/project-actions.ts`, `docs/KDENLIVE-REFERENCE.md`,
+    esta entrada, `memory/2026-11-08-luma-wipe-clip-mate.md`.
+  - **Pendiente**: mate animado visible en preview del monitor (el
+    preview congela un frame, igual que el resto de transiciones). ~~El
+    mate en pista oculta funciona pero no hay UI para sugerirla~~
+    **resuelto el mismo día**: checkbox «Ocultar la pista del mate» en el
+    Inspector con aviso de pista completa y bloqueo si comparte pista con
+    el clip (ver la entrada al tope de esta cola).
+
+- `[done]` **Curva Bézier por parámetro de efecto en la UI (2026-11-08)** —
+  cierra el «Honesto: no hay UI para editar la curva por parámetro todavía»
+  declarado al implementar `bezier` en `EffectKeyframeSchema`, en una pasada
+  del protocolo del loop (Devin CLI). Preview y export ya muestreaban la curva
+  (`cubicBezierProgress` en effect-kit, `SegmentEasing.bezier` en ffmpeg.rs);
+  faltaba la superficie.
+  - **effect-kit** (`stack.ts`): `setParamKeyframeBezier` escribe la curva de
+    la clave que inicia cada segmento (conserva valor y `easing`; `null` la
+    quita) y `clearParamKeyframeCurves` las borra todas; ambas no-op sin pista
+    o sin clave en el frame. Exportadas en `index.ts`.
+  - **`KeyframeCurveEditor`** (`features/editor/`): el tipo de claves se
+    generalizó a `CurveEditorKeyframe` estructural (`frame`/`easing`/`bezier`)
+    — lo comparten `ClipTransformKeyframe` y `EffectKeyframe` sin acoplar
+    effect-kit a project-schema; `property` admite string libre (los efectos
+    pasan la etiqueta visible del parámetro) y `helpId` hace único el
+    `aria-describedby` cuando hay varios editores montados.
+  - **`EffectStackPanel`** (compartido por `EffectStudio` video y
+    `AudioEffectStack` audio): los parámetros con pista de ≥2 claves ganan el
+    botón «Curva» (∿) que despliega el editor; «Quitar curvas» aparece cuando
+    alguna clave tiene `bezier` propio. La escritura pasa por
+    `setParamKeyframeBezier` con el mismo `onChange` del stack.
+  - **Fix al margen**: `engine.test.ts` no typecheckaba en el tsconfig del
+    paquete (arrays mutables vs `EffectStack` readonly y un `sort` sobre
+    `number[]` con `(a,b)=>a.frame-b.frame`); corregido — era deuda previa,
+    no de esta pasada.
+  - **Verificación**: `tsc --noEmit` effect-kit + desktop **0 errores** ·
+    vitest effect-kit **51/51** (+3: setter preserva valor al reescribir,
+    no-op sin pista/clave, clear de curvas) · vitest
+    `AudioEffectStack` **7/7** (+1: flujo ◆→Curva→flecha→bezier en frame 0→
+    «Quitar curvas») · `features/vfx` + `KeyframeCurveEditor` **47/47**.
+  - **Archivos**: `packages/effect-kit/src/{stack,index,engine.test}.ts`,
+    `apps/desktop/src/features/editor/{KeyframeCurveEditor.tsx,
+    KeyframeCurveEditor.test.tsx,AudioEffectStack.test.tsx}`,
+    `apps/desktop/src/features/vfx/EffectStackPanel.tsx`,
+    `apps/desktop/src/styles/effect-studio.css`, esta entrada,
+    `memory/2026-11-08-bezier-por-parametro-efecto.md`.
+  - **Pendiente honesto**: ~~no hay selector de preset `easing` para
+    keyframes de efecto~~ **resuelto el mismo día** (ver la entrada
+    «Selector de preset `easing` para keyframes de efecto» al tope de
+    esta cola). La curva se edita por teclado (flechas/`[`/`]`) y arrastre
+    de manejadores, igual que en la sección «Curvas» del Inspector.

@@ -819,6 +819,28 @@ el contrato común es la forma del port, no el motor.
 Validado: `cargo check --tests` 0 errores · tests `application::conversion`
 18/18 · `cargo fmt` limpio · `git diff --check` limpio.
 
+### Reconciliación 2 con main (delta 73fabb6..34cefcb)
+
+Segundo delta auditado y portado (30 commits nuevos en main):
+
+- **Frontend/packages**: 54 archivos copiados desde main HEAD
+  (autoedit export lote, keyframes UI, easing por parámetro, forma
+  custom del titler + PolygonEditor, plantillas de fábrica, transiciones
+  por lote en VisualsView, velocidad 0.25–4× y botón Bucle, luma-mate,
+  descarga 12 idiomas, thumbnails de transiciones, project-store con
+  playbackRate portado a los 4 módulos del split).
+- **Rust**: `luma-wipe` con clip mate (`plan/luma.rs`:
+  `luma_mate`/`luma_wipe_graph`/`luma_frozen_graph` + input extra en
+  `build_plan_range`), `iris` en wipe_alpha_expr + fix `gte` en
+  wipe-left/up, `preview_frame` frozen `mode:"luma"`, catálogo/audit de
+  transiciones completo (wipe×4, iris, dip-color, luma-wipe), forma
+  `custom` en motion graphics.
+- **Verificación**: cargo check --tests 0 errores · tests del port
+  6/6 (luma plan, custom shape ×2, preview freezes, catálogo,
+  transiciones) · typecheck raíz completo en verde (el error
+  preexistente de engine.test.ts quedó resuelto por el sync) ·
+  vitest 49/49 en las áreas tocadas · cargo fmt + diff --check limpios.
+
 ### Reconciliación con main (post-Fase 7)
 
 Delta `a7cff32..main-HEAD` (19 commits) auditado y portado:

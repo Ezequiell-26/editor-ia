@@ -107,8 +107,12 @@ Sin cambios en la semántica global de `Espacio`/flechas.
 1. **`J` (shuttle hacia atrás)**: no se registró. El motor de reproducción
    (`usePlayback.ts`) sólo avanza (`frame += deltaSeconds * fps`) y `playing`
    es booleano: no existe reproducción inversa. Requiere dirección en el motor.
-2. **Rampa de velocidad de shuttle** (repetir `L`/`J` acelera, como CapCut): no
-   existe control de velocidad de reproducción.
+2. **Rampa de velocidad de shuttle** (repetir `L`/`J` acelera, como CapCut):
+   ~~no existe control de velocidad de reproducción~~ **parcial (2026-11-08)**:
+   el transporte tiene selector 0.25/0.5/1/2/4× (`setPlaybackRate` en
+   `project-store`, `usePlayback` multiplica el avance y la preview fija
+   `playbackRate`/`preservesPitch` en los elementos). Sigue pendiente la
+   rampa por teclas repetidas y la dirección inversa (`J`).
 3. **`Ctrl+D` eliminación con ripple**: no se registró. `Ctrl+D` ya es
    «Duplicar clip» (`edit.duplicateClip`) y reasignar atajos existentes estaba
    prohibido. La acción ripple existe y ya está registrada como

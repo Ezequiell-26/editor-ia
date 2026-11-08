@@ -20,8 +20,8 @@ Clone local de referencia: `D:\DevCache\kdenlive-ref` (shallow).
 | `timeline2/model` | Clips, tracks, groups, snapping, compositions | Hecho: timeline schema + snapping + grupos | Snapping por intervalo/cara (edge) más rico |
 | `effects/effectstack` | Pila de efectos con keyframes por parámetro | **Hecho**: keyframes por parámetro con ◆ en EffectStudio (preview GPU ya los muestreaba) + export segmentado `split/trim/concat` en video **y audio** (`atrim` por samples + `concat`, parámetros muestreados por tramo medio, tope 32) + **Bézier por parámetro** (schema `bezier`, `cubicBezierProgress` en preview y export) | — (UI ◆ en ambos stacks; Bézier por datos/MCP) |
 | `renderpresets` | Perfiles de render con nombres/params | Hecho: perfiles + presets de compresión + cola durable | — |
-| `titler` | Editor de títulos | Parcial→mejorado: 11 plantillas + **formas** (`shape:'rect'\|'ellipse'\|'triangle'\|'diamond'\|'star'` en capas rect → polígono `\p1` en ASS y `clip-path` en preview) | Forma custom (puntos libres), editor visual de titler |
-| `transitions` | Transiciones con geometría | Hecho: catálogo + **dip-color** (color elegible) + **wipe-\*** direccional (máscara `geq` progresiva, preview congelado) + **slide-3d-\*** (desplazamiento + `perspective` eval=frame, preview congelado) | luma wipe con mate |
+| `titler` | Editor de títulos | Parcial→mejorado: 11 plantillas + **formas** (`shape:'rect'\|'ellipse'\|'triangle'\|'diamond'\|'star'\|'pentagon'\|'hexagon'\|'arrow'\|'custom'` en capas rect → polígono `\p1` en ASS y `clip-path` en preview) + **forma custom con puntos libres** (insignia «Personalizada»: `points` 0..1, editor `PolygonEditor` en MotionForm, validación Rust) | Editor visual completo del titler (capas, no sólo props de plantilla) |
+| `transitions` | Transiciones con geometría | Hecho: catálogo + **dip-color** (color elegible) + **wipe-\*** direccional (máscara `geq` progresiva, preview congelado) + **slide-3d-\*** (desplazamiento + `perspective` eval=frame, preview congelado) + **luma-wipe** (máscara de luminancia de un clip mate, `alphamerge`, preview congelado) | — |
 | `bin` | Media pool, proxies, thumbnails | Hecho: assets + proxies + thumbnails | — |
 | `monitor` | Preview con scopes y transport | Hecho: preview + scopes de color **en vivo** (muestreo canvas cada ~180 ms) + scopes de audio del bus master | — |
 | `utils/gentime`, `timecode` | Timecode/drop-frame, conversión frames↔tc | **Hecho**: DF en export EDL (`edl.rs`) y sync multicam (`multicam-timecode.ts`) | — (display DF ya en `formatTimecode`) |
@@ -76,13 +76,46 @@ Clone local de referencia: `D:\DevCache\kdenlive-ref` (shallow).
    quad simétrico sobre el centro, no puerta anclada a borde. UI: 4
    opciones en Inspector + 4 presets + labels. Además se corrigió la
    whitelist de auditoría de `visuals.rs`, que no reconocía `dip-color`
-   ni `wipe-*`. Pendiente: luma wipe con clip mate.
+   ni `wipe-*`.
+   **Luma wipe con clip mate (2026-11-08)**: `luma-wipe` en el enum con
+   `mateClipId` obligatorio (superRefine); `luma_mate` resuelve el clip
+   mate dentro del proyecto (video/imagen/freeze, habilitado, sin speed
+   curve ni reverse, ventana activa que cubre el solape, asset ready con
+   licencia conocida) y lo agrega como entrada extra de FFmpeg;
+   `luma_wipe_graph` parte el clip entrante por el lead y aplica
+   `scale2ref`+`alphamerge` (luma del mate → alfa) antes del `concat`.
+   Preview: `transitionFrozen {mode:"luma",mateClipId}` →
+   `luma_frozen_graph` de un frame. UI: selector de mate en Inspector
+   (candidatos filtrados por cobertura del solape); la aplicación masiva
+   `applyTransitionToCuts` lo salta porque no puede elegir mate. Verificado
+   con render real: mitad del lead izq=81/der=41 (máscara), post-lead
+   41/41 parejo. UI del mate (2026-11-08): candidatos en
+   `features/editor/luma-mate.ts` con pista y marca «pista oculta»
+   (válida: el render sólo usa luminancia), aviso `notice-warning` cuando
+   el mate asignado ya no cubre el solape y pista vacía honesta.
+   **Iris circular (2026-11-08)**: `iris` en el enum; máscara `geq`
+   radial que crece desde el centro (`dist² < p²·R²`, guard
+   `gt(p,0.999)` para los vértices exactos al cerrar el lead). Preview:
+   `transitionFrozen {mode:"wipe",kind:"iris",progress}` →
+   `wipe_frozen_filter`. UI: opción en Inspector + preset en
+   EditorAssets + label en Timeline. Mismo pase corrigió un bug de
+   borde: `wipe-left`/`wipe-up` dejaban la columna/fila opuesta
+   transparente para siempre al llegar a `p=1` (`gt` → `gte`).
 5. **Titler**: formas y plantillas — **avanzado**: `MotionRectLayer.shape`
    (`rect`|`ellipse`|`triangle`|`diamond`|`star`|`pentagon`|`hexagon`|
    `arrow`) con plantilla `badge` (selector Forma); `polygon_drawing` en
    `render/motion.rs` genera el polígono ASS y `MotionPreview` usa
    `border-radius`/`clip-path`/`regularPolygonClipPath`/`arrowClipPath`
-   con los mismos vértices. Pendiente: formas custom y editor visual.
+   con los mismos vértices. **Forma custom (2026-11-08)**: `shape:'custom'`
+   + `points` (3..16 vértices 0..1 dentro de la caja de la capa) en
+   `MotionRectLayer`; la insignia gana la opción «Personalizada» y un campo
+   `polygon` (`PolygonEditor`: clic agrega, arrastrar mueve, doble clic
+   quita) que `MotionForm` muestra sólo cuando `shape==='custom'`
+   (`MotionField.requires`). Preview: `clip-path: polygon(...)` con los
+   mismos puntos. Export: `custom_shape_vertices` + `drawing_commands`
+   (el emit de `polygon_drawing` se extrajo); `validate_plan` exige
+   points válidos y el dibujo cae al rectángulo si el plan llega inválido.
+   Pendiente: editor visual completo del titler (capas libres).
 6. ~~**Scopes de color en vivo**~~ — **verificado ya implementado**:
    `ScopesPanel` en `Preview.tsx` samplea el medio real del monitor por
    canvas cada ~180 ms (`computeScopes`: onda/vectores/hist/parade) durante
