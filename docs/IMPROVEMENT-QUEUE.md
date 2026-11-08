@@ -203,9 +203,15 @@ reconstruye el instalador salvo que el ítem lo pida.
   - **Estado acumulado fase 2**: app.css 13.830 → **4.946 líneas
     (−64,2 %)**. Quedan ~705 reglas: tokens, shell, primitivas premium
     compartidas, chrome compartido y refinamientos ambiguos.
-  - **Sigue vivo**: medición CDP/SSIM con la app corriendo para cierre
-    formal; evaluar si las ~360 reglas STUDIO UI que quedaron (uso
-    mixto/compartido) tienen sub-grupos separables con más evidencia.
+  - **Verificación visual real**: suite e2e Playwright completa contra
+    Vite dev — **23/23 verdes** (1 skip: raster Lottie requiere media
+    real). Cubre navegación por TODAS las vistas, repaint de tema en
+    shell+preview, paneles de ajustes, paleta de comandos y chequeo de
+    contraste AA. Las hojas extraídas cargan y renderizan correcto.
+  - **Sigue vivo**: comparación SSIM pixel-a-pixel contra la versión
+    pre-split (requiere servir ambos builds); evaluar si las ~360
+    reglas STUDIO UI que quedaron (uso mixto/compartido) tienen
+    sub-grupos separables con más evidencia.
 
 - `[done]` **CSS splitting fase 2 · slice 8: ORGANIZACIÓN VISUAL
   clasificada por uso real de selectores (2026-11-08)** — cierre del

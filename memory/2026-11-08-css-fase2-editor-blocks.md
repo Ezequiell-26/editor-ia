@@ -84,3 +84,11 @@ editor entry; lo de herramientas content en `content-tools.css` +
   veredictos; (2) postcss walkRules pierde el contexto @media —
   verificar rules dentro de atrules antes de mover texto plano;
   (3) CRLF vs LF del repo exige normalizar EOL en comparaciones.
+
+## Verificación e2e (cierre de evidencia de la fase)
+
+- `npx playwright test` contra `npm run dev` (Vite :3000, Chrome del
+  sistema): **23/23 passed**, 1 skipped (lottie preview necesita media
+  real). Navegación por todas las vistas + repaint tema + ajustes +
+  paleta + contraste AA — las hojas extraídas renderizan correcto.
+- Pendiente honesto: SSIM pixel-a-pixel vs build pre-split.
