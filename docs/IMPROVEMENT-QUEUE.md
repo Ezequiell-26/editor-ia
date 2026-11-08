@@ -4,6 +4,30 @@ Actualizado: 2026-11-11. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Fix `PreviewTransformBox`: crash sin clip + typecheck verde
+  (2026-11-07)** — el `tsc --noEmit` del desktop arrastraba **1 error
+  preexistente** desde el lote grande (`PreviewTransformBox.tsx:248`,
+  `'clip' is possibly 'undefined'`), documentado como WIP en pasadas
+  anteriores y commiteado después en `a7cff32`.
+  - **Brecha**: `clip` es opcional en las props (la caja también se usa
+    para cues con `transformOverride`/`onApply`/`labelOverride`), pero el
+    `aria-label` leía `clip.label` sin guarda → `TypeError` en render.
+    Además un clip sin `label` imprimía «Encuadre de undefined».
+  - **Fix**: `aria-label` usa `labelOverride ?? clip?.label ?? 'capa'` —
+    mismo texto que antes para clips con nombre; fallback honesto para el
+    resto.
+  - **Test primero**: caso nuevo en `PreviewTransformBox.test.tsx` que
+    renderiza la vía cue (sin `clip`, con `labelOverride`/`onApply`) —
+    **falló con el TypeError real** antes del fix y pasa después; además
+    verifica que el arrastre escribe por `onApply` y no toca el store.
+  - **Verificación**: vitest `PreviewTransformBox.test.tsx` **8/8** ·
+    `npx tsc --noEmit -p apps/desktop/tsconfig.json` → **0 errores**
+    (antes 1). No se corrió la suite serial completa (cambio de una
+    línea en un componente con cobertura propia).
+  - **Archivos**: `apps/desktop/src/features/editor/PreviewTransformBox.tsx`,
+    `apps/desktop/src/features/editor/PreviewTransformBox.test.tsx`,
+    `memory/2026-11-07-preview-transform-box-clip-opcional.md`.
+
 - `[done]` **Receta FFmpeg para `light.leak` (2026-11-07)** — el último efecto
   «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en una pasada del
   protocolo del loop (Devin CLI). Con esto **los 48 efectos de video
