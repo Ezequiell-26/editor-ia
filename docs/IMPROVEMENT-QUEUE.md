@@ -185,6 +185,26 @@ reconstruye el instalador salvo que el ítem lo pida.
     globales — evaluar si corresponde moverlos enteros al final del
     critical path o repartirlos por vista).
 
+- `[done]` **CSS splitting fase 2 · slice 7: refinamientos de
+  ORGANIZACIÓN VISUAL de vistas content al content entry (2026-11-08)** —
+  continuación del tramo de ORGANIZACIÓN VISUAL.
+  - **Cambio**: 76 reglas de la sección org cuyos selectores pertenecen
+    exclusivamente a vistas content (prefijos `yt-`, `creator-`,
+    `delogo-`, `plugin-`; grep: cero uso en `features/editor` ni
+    `components`, usos residuales sólo en home/learn = content) movidas
+    a `content-tools.css`. 0 grupos mixtos — cobertura completa por
+    construcción (toda regla que toca un selector de esos prefijos es
+    safe, porque mixed=0).
+  - **Verificación**: `postcss.parse` OK · 0 reglas con esos prefijos
+    restantes en la sección org · `git diff --check` limpio.
+  - **Estado acumulado fase 2**: app.css 13.830 → **8.718 líneas
+    (−36,9 %)**.
+  - **Sigue vivo**: en org quedan reglas de selectores editor-base
+    (transport/preview/rail/timeline/inspector), shell y content-base
+    ambiguos (auto-, ai-, home-, script-, review- con uso mixto) —
+    moverlas exige clasificación por uso real + verificación visual.
+    Cierre formal de la fase: medición CDP/SSIM con la app corriendo.
+
 - `[done]` **CSS splitting fase 2 · slice 6: bloques editor de FÁBRICA +
   refinamientos de ORGANIZACIÓN VISUAL al editor entry (2026-11-08)** —
   el tramo grande de la fase.

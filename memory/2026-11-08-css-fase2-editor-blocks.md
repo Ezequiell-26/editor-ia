@@ -49,3 +49,13 @@ selectores no-movidos (shell, transport, preview, rail base, content
 views). Todo lo de vistas editor vive en `editor-tools.css` dentro del
 editor entry; lo de herramientas content en `content-tools.css` +
 `director-convert.css` dentro del content entry.
+
+## Slice 7 (misma sesión) — refinamientos org de vistas content
+
+- 76 reglas de ORGANIZACIÓN VISUAL con selectores 100% content
+  (yt-, creator-, delogo-, plugin-; grep: cero uso en editor/components;
+  usos residuales en home/learn = vistas content igualmente) → content-tools.css.
+- 0 grupos mixtos. app.css queda en 8.718 líneas (−36,9 % vs 13.830).
+- Queda en org sólo lo de editor-base (transport/preview/rail/timeline…),
+  shell y prefijos ambiguos (auto-, ai-, home-, script-, review- con uso
+  mixto) — moverlos exige clasificación por uso + verificación visual.
