@@ -59,3 +59,13 @@ editor entry; lo de herramientas content en `content-tools.css` +
 - Queda en org sólo lo de editor-base (transport/preview/rail/timeline…),
   shell y prefijos ambiguos (auto-, ai-, home-, script-, review- con uso
   mixto) — moverlos exige clasificación por uso + verificación visual.
+
+## Slice 8 — ORGANIZACIÓN VISUAL clasificada por uso real
+
+- Índice clase→área: 180 clases únicas de las reglas org grepeadas
+  contra src/**/*.{ts,tsx} (áreas = features/<view>, components, app…).
+- Movidas: 52 reglas editor-exclusivas → editor-tools.css,
+  116 content-exclusivas → content-tools.css. Quedan 53 (shell,
+  genéricas .badge/.active, clases sin uso tsx, uso mixto).
+- app.css: 9.198 → 7.540 líneas. Acumulado 13.830 → 7.540 (−45,5 %).
+- Pendiente: medición visual CDP/SSIM con la app corriendo.

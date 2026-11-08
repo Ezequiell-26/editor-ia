@@ -185,6 +185,26 @@ reconstruye el instalador salvo que el ítem lo pida.
     globales — evaluar si corresponde moverlos enteros al final del
     critical path o repartirlos por vista).
 
+- `[done]` **CSS splitting fase 2 · slice 8: ORGANIZACIÓN VISUAL
+  clasificada por uso real de selectores (2026-11-08)** — cierre del
+  barrido de la sección org.
+  - **Método**: índice clase→área construido grepeando las 180 clases
+    únicas de las reglas org restantes contra `src/**/*.{ts,tsx}`;
+    cada regla se movió sólo si TODOS sus selectores eran
+    editor-exclusivos (52 reglas → `editor-tools.css`) o
+    content-exclusivos (116 → `content-tools.css`). 53 reglas quedaron
+    (selectores shell, genéricos —`.badge`,`.active`,`.check`— o clases
+    sin uso en tsx / uso mixto editor+content).
+  - **Verificación**: `postcss.parse` OK en las 3 hojas · 168/168
+    reglas movidas sin duplicados · 53 reglas org permanecen en
+    app.css · `git diff --check` limpio.
+  - **Estado acumulado fase 2**: app.css 13.830 → **7.540 líneas
+    (−45,5 %)**. ORGANIZACIÓN VISUAL en app.css quedó reducida a
+    refinamientos shell/compartidos.
+  - **Sigue vivo**: cierre formal con medición visual CDP/SSIM sobre
+    la app real (pendiente desde la ola 2); las 53 reglas restantes
+    son intencionalmente críticas.
+
 - `[done]` **CSS splitting fase 2 · slice 7: refinamientos de
   ORGANIZACIÓN VISUAL de vistas content al content entry (2026-11-08)** —
   continuación del tramo de ORGANIZACIÓN VISUAL.
