@@ -7,7 +7,7 @@
     "expiresAt": null,
     "consecutiveFailures": 0,
     "maxConsecutiveFailures": 2,
-    "lastPassAt": "2026-11-07T23:05:27.846Z"
+    "lastPassAt": "2026-11-08T00:34:38.632Z"
   },
   "goal": "App Desktop Editor IA completa y verificada: proyecto v1, shell Tauri/React, timeline funcional, importacion de medios con derechos, guion IA opcional, narracion local, render FFmpeg honesto y empaquetado Windows, sin UI falsa ni renders falsamente completados.",
   "environment": {
@@ -409,6 +409,14 @@
   ],
   "passes": [
     {
+      "at": "2026-11-08T00:34:38.632Z",
+      "taskId": null,
+      "status": "noop",
+      "note": "Pasada sobre IMPROVEMENT-QUEUE (ledger cerrado): receta FFmpeg approximate para light.flare (split + geq overlay especular core/anillo/ghost + blend=all_mode=screen) + codegen 77 recetas + tests TS + docs; verificado con FFmpeg real (YAVG +48.4 en zona core, +0 esquina; pixel centro 152,130,96 vs 153,130,96 calculado); vitest effect-kit 47/47 (3 live skipped), vfx 25/26 (1 fallo ajeno preexistente EffectTemplates), tsc con errores preexistentes WIP, cargo test bloqueado por os error 32; commit a7cff32 (codigo, del usuario) + 441ffd5 (docs)",
+      "remedy": null,
+      "verifyRan": false
+    },
+    {
       "at": "2026-11-07T23:05:27.846Z",
       "taskId": null,
       "status": "noop",
@@ -708,14 +716,6 @@
       "note": "Workspace Cargo virtual (resolver 2, miembro unico apps/desktop/src-tauri), rust-toolchain.toml con channel stable, crate editor-ia-desktop sin dependencias (ninguna descarga de red) y main.rs stub vacio. Test primero en scripts/rust-workspace.test.mjs: 6/6. Evidencia real: node scripts/rust-env.mjs -- cargo metadata --no-deps --format-version 1 (1 miembro, resuelve el manifiesto), cargo check 1.54s exit 0, cargo build 2.66s exit 0 (linkea de verdad). npm run verify: 234 tests (228 esquema + 6 nuevos) y tsc limpio. Cargo.lock y target/ quedan generados; target/ ignorado por git (verificado con git check-ignore).",
       "remedy": null,
       "verifyRan": true
-    },
-    {
-      "at": "2026-10-18T22:29:29.692Z",
-      "taskId": null,
-      "status": "noop",
-      "note": "arranque del loop",
-      "remedy": null,
-      "verifyRan": false
     }
   ]
 }
