@@ -160,6 +160,22 @@ impl ProjectStageExecutor {
                 }
                 continue;
             }
+            // Requisitos `image` con convención `title:`/`card:` los
+            // satisface el generador local de tarjetas (ffmpeg drawtext).
+            // Otros `image` siguen el camino normal de adquisición.
+            if req.kind == StudioResourceKind::Image {
+                match self.acquire_title_cards(ctx, req, &plan.id) {
+                    Ok(Some(entries)) => {
+                        acquired.extend(entries);
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(_) => {
+                        unsatisfied.push(req.id.clone());
+                        continue;
+                    }
+                }
+            }
             let query = crate::ports::studio::AcquisitionQuery {
                 requirement_id: req.id.clone(),
                 kind: req.kind,
@@ -485,6 +501,52 @@ impl ProjectStageExecutor {
         Ok(entries)
     }
 
+    /// Genera tarjetas de título para requisitos `image` con la
+    /// convención `title:`/`card:`. Devuelve `None` si el query no la usa
+    /// (el requisito sigue el camino normal de adquisición).
+    fn acquire_title_cards(
+        &self,
+        ctx: &StageContext,
+        req: &crate::studio::plan::ResourceRequirement,
+        plan_id: &str,
+    ) -> Result<Option<Vec<Value>>, ProjectError> {
+        if crate::infrastructure::studio::local_titlecard::title_card_text(&req.query).is_none() {
+            return Ok(None);
+        }
+        let generator =
+            crate::infrastructure::studio::local_titlecard::LocalTitleCardGenerator::new(
+                self.ffmpeg.clone(),
+            );
+        let mut entries = Vec::new();
+        for i in 0..req.max_count.max(1) {
+            let request = GenerationRequest {
+                request_id: format!("{plan_id}-{}-{i}", req.id),
+                kind: StudioResourceKind::Image,
+                prompt: req.query.clone(),
+                duration_seconds: None,
+                voice: None,
+                params: json!({}),
+            };
+            let result = generator.generate(&request, &ctx.project_root)?;
+            let asset_id = self.register_generated_asset_typed(
+                ctx,
+                &result.path,
+                generator.provider_id(),
+                &req.query,
+                "image",
+            )?;
+            entries.push(json!({
+                "requirementId": req.id,
+                "path": result.path,
+                "bytes": result.bytes,
+                "externalId": request.request_id,
+                "sourceId": generator.provider_id(),
+                "assetId": asset_id,
+            }));
+        }
+        Ok(Some(entries))
+    }
+
     /// Registra un archivo generado localmente (voz, etc.) como
     /// `project.assets`. Mismo contrato que `register_remote_asset`:
     /// ffprobe para `media.*`, escritura atómica, idempotente por path.
@@ -495,6 +557,19 @@ impl ProjectStageExecutor {
         provider: &str,
         title: &str,
     ) -> Result<String, ProjectError> {
+        self.register_generated_asset_typed(ctx, rel_path, provider, title, "audio")
+    }
+
+    /// Igual que `register_generated_asset` pero con el `kind` del asset
+    /// (`audio`/`image`/`video`) y la ficha `media` acorde al probe.
+    fn register_generated_asset_typed(
+        &self,
+        ctx: &StageContext,
+        rel_path: &str,
+        provider: &str,
+        title: &str,
+        kind: &str,
+    ) -> Result<String, ProjectError> {
         let ffprobe = self.ffprobe.clone().ok_or_else(|| {
             ProjectError::message(
                 ProjectErrorCode::Io,
@@ -502,7 +577,12 @@ impl ProjectStageExecutor {
             )
         })?;
         let abs = crate::media::resolve_inside_root(&ctx.project_root, rel_path)?;
-        let measure = crate::media::probe_file(&ffprobe, &abs, crate::media::MediaKind::Audio)?;
+        let media_kind = match kind {
+            "image" => crate::media::MediaKind::Image,
+            "video" => crate::media::MediaKind::Video,
+            _ => crate::media::MediaKind::Audio,
+        };
+        let measure = crate::media::probe_file(&ffprobe, &abs, media_kind)?;
         let (sha256, bytes) = crate::media::sha256_file(&abs)?;
 
         let raw = std::fs::read_to_string(&ctx.document_path).map_err(|e| {
@@ -538,10 +618,28 @@ impl ProjectStageExecutor {
             return Ok(existing["id"].as_str().unwrap_or_default().to_owned());
         }
         let asset_id = uuid::Uuid::new_v4().to_string();
+        let media = match kind {
+            "image" => json!({
+                "width": measure.width,
+                "height": measure.height,
+                "durationFrames": frames,
+            }),
+            "video" => json!({
+                "width": measure.width,
+                "height": measure.height,
+                "durationFrames": frames,
+                "frameRate": { "num": project_fps_num, "den": project_fps_den },
+            }),
+            _ => json!({
+                "sampleRate": measure.sample_rate.unwrap_or(48_000),
+                "channels": measure.channels.unwrap_or(2),
+                "durationFrames": frames,
+            }),
+        };
         assets.push(json!({
             "id": asset_id,
             "label": title.chars().take(200).collect::<String>(),
-            "kind": "audio",
+            "kind": kind,
             "source": { "type": "local", "path": rel_path },
             "status": "ready",
             "integrity": { "sha256": sha256, "bytes": bytes },
@@ -553,11 +651,7 @@ impl ProjectStageExecutor {
                     "acquiredAt": crate::projects::service::now_rfc3339(),
                 },
             },
-            "media": {
-                "sampleRate": measure.sample_rate.unwrap_or(48_000),
-                "channels": measure.channels.unwrap_or(2),
-                "durationFrames": frames,
-            },
+            "media": media,
         }));
         let payload = serde_json::to_string_pretty(&doc).map_err(|e| {
             ProjectError::message(
@@ -845,6 +939,24 @@ impl ProjectStageExecutor {
         // Registra el índice en el catálogo: queda disponible para las
         // etapas siguientes y para el IPC `catalog_search`.
         let _ = catalog.prune_missing();
+        // Sin ffmpeg/ffprobe el análisis de medios se omite en silencio:
+        // se reporta como warning para que la corrida no parezca completa.
+        let mut warnings = Vec::new();
+        let has_av = entries.iter().any(|e| {
+            matches!(
+                e.kind,
+                StudioResourceKind::Video | StudioResourceKind::Audio
+            )
+        });
+        if has_av && self.ffmpeg.is_none() {
+            warnings.push(
+                "ffmpeg no disponible: se omitieron thumbnails, cortes de escena y silencios"
+                    .to_owned(),
+            );
+        }
+        if has_av && self.ffmpeg.is_some() && self.ffprobe.is_none() {
+            warnings.push("ffprobe no disponible: se omitieron thumbnails".to_owned());
+        }
         Ok(StageOutcome {
             completed: true,
             cost_cents: Some(0),
@@ -856,6 +968,7 @@ impl ProjectStageExecutor {
                 "thumbnailFailures": thumbnail_failures,
                 "sceneAnalyses": scene_analyses,
                 "silenceAnalyses": silence_analyses,
+                "warnings": warnings,
                 "catalog": "local-project",
             })),
             error: None,
