@@ -201,4 +201,23 @@ describe('serialización para localización', () => {
     expect(serializeSrtSeconds([])).toBe('');
     expect(serializeVttSeconds([])).toBe('WEBVTT\n\n');
   });
+
+  it('envuelve los cues en isolate bidi cuando la dirección es rtl', () => {
+    const rtl = [
+      { startSeconds: 0, endSeconds: 1, text: 'مرحبا بالعالم' },
+      { startSeconds: 1, endSeconds: 2, text: '  ' },
+    ];
+    const srt = serializeSrtSeconds(rtl, 'rtl');
+    expect(srt).toContain('\u2068مرحبا بالعالم\u2069');
+    expect(srt).not.toContain('\u2068  \u2069');
+    const vtt = serializeVttSeconds(rtl, 'rtl');
+    expect(vtt).toContain('\u2068مرحبا بالعالم\u2069');
+  });
+
+  it('no toca el texto para ltr ni cuando no se declara dirección', () => {
+    const cue = [{ startSeconds: 0, endSeconds: 1, text: 'Hola' }];
+    expect(serializeSrtSeconds(cue, 'ltr')).toContain('\nHola');
+    expect(serializeSrtSeconds(cue)).toContain('\nHola');
+    expect(serializeVttSeconds(cue, 'ltr')).not.toContain('\u2068');
+  });
 });

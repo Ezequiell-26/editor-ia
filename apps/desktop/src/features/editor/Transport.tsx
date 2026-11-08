@@ -153,7 +153,14 @@ export function Transport() {
           aria-label="Velocidad de reproducción"
           title="Velocidad de reproducción"
           value={playback.rate}
-          onChange={(event) => store.setPlaybackRate(Number(event.target.value))}
+          onChange={(event) => {
+            const rate = Number(event.target.value);
+            store.setPlaybackRate(rate);
+            // La velocidad de reposo se persiste como preferencia del
+            // editor: sobrevive a reinicios y la adoptan todos los
+            // transportes. La rampa del shuttle no la toca.
+            updateEditorPreferences({ playbackRate: rate });
+          }}
         >
           {PLAYBACK_RATES.map((rate) => (
             <option key={rate} value={rate}>

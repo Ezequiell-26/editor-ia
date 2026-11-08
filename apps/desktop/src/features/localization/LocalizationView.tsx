@@ -426,10 +426,11 @@ export function LocalizationView({
       }
       const saved: SaveLocalizedSubtitleResult[] = [];
       for (const localized of selectedTranslations) {
+        const direction = localizationLanguage(localized.language)?.direction;
         const content =
           format === 'srt'
-            ? serializeSrtSeconds(localized.cues)
-            : serializeVttSeconds(localized.cues);
+            ? serializeSrtSeconds(localized.cues, direction)
+            : serializeVttSeconds(localized.cues, direction);
         const result = await store.service.saveLocalizedSubtitle({
           content,
           outputDir: destination,

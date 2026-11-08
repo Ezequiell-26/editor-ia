@@ -57,6 +57,16 @@ describe('preferencias del editor', () => {
     expect(preferences.emojiStyle).toBe('android');
   });
 
+  it('playbackRate se acota a 0.25–8 y por defecto es 1×', () => {
+    expect(DEFAULT_EDITOR_PREFERENCES.playbackRate).toBe(1);
+    expect(normalizeEditorPreferences({}).playbackRate).toBe(1);
+    expect(normalizeEditorPreferences({ playbackRate: 2 }).playbackRate).toBe(2);
+    expect(normalizeEditorPreferences({ playbackRate: 0.5 }).playbackRate).toBe(0.5);
+    expect(normalizeEditorPreferences({ playbackRate: 99 }).playbackRate).toBe(8);
+    expect(normalizeEditorPreferences({ playbackRate: 0.1 }).playbackRate).toBe(0.25);
+    expect(normalizeEditorPreferences({ playbackRate: 'x' }).playbackRate).toBe(1);
+  });
+
   it('acepta solo los dos estilos de emoji conocidos', () => {
     expect(normalizeEditorPreferences({ emojiStyle: 'open' }).emojiStyle).toBe('open');
     expect(normalizeEditorPreferences({ emojiStyle: 'apple' }).emojiStyle).toBe('android');

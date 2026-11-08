@@ -35,6 +35,7 @@ function Probe() {
 
 function renderView(
   prepare?: (project: ProjectDocument) => ProjectDocument,
+  clipBAtFrame = 300,
 ) {
   let project: ProjectDocument = ensureDelivery(createEmptyProject('Demo fundidos', NOW));
   const assetA = readyAsset({ label: 'Toma Alfa' });
@@ -46,7 +47,7 @@ function renderView(
     durationFrames: 240,
   }).project;
   project = addClipFromAsset(project, assetB, {
-    atFrame: 300,
+    atFrame: clipBAtFrame,
     durationFrames: 120,
   }).project;
   if (prepare) project = prepare(project);
@@ -190,5 +191,68 @@ describe('VisualsView · fundido a color por clip', () => {
       screen.queryByRole('button', { name: 'Color de Toma Beta' }),
     ).toBeNull();
     expect(screen.getByText('Color general del fundido')).toBeTruthy();
+  });
+});
+
+describe('VisualsView · mate de luma-wipe', () => {
+  async function chooseLumaWipe() {
+    const card = await screen.findByRole('button', { name: 'Barrido por luminancia' });
+    fireEvent.click(card);
+    await screen.findByText(/Mate de Toma Beta/);
+  }
+
+  it('marca el mate asignado cuando ya no es un candidato válido', async () => {
+    // El clip B entra en 200 (solapa con A en 0–240): A es su único mate
+    // posible, pero el documento guarda un mateClipId que ya no existe.
+    const { clipIds } = renderView(
+      (project) => {
+        const clipB = project.timeline.clips[1]!;
+        return updateClip(project, clipB.id, {
+          transitionIn: {
+            type: 'luma-wipe',
+            frames: 12,
+            mateClipId: 'mate-que-no-existe',
+          },
+        });
+      },
+      200,
+    );
+    await screen.findByText(/2 de 2 seleccionados/);
+    await chooseLumaWipe();
+
+    expect(
+      screen.getByText(/Mate de Toma Beta · mate asignado ya no válido/),
+    ).toBeTruthy();
+    // El selector muestra el primer candidato (A) como fallback honesto.
+    const select = screen
+      .getByText(/Mate de Toma Beta/)
+      .closest('label')
+      ?.querySelector('select');
+    expect(select?.value).toBe(clipIds[0]);
+  });
+
+  it('no marca nada cuando el mate asignado sigue siendo válido', async () => {
+    const { clipIds } = renderView(
+      (project) => {
+        const [clipA, clipB] = project.timeline.clips;
+        return updateClip(project, clipB!.id, {
+          transitionIn: {
+            type: 'luma-wipe',
+            frames: 12,
+            mateClipId: clipA!.id,
+          },
+        });
+      },
+      200,
+    );
+    await screen.findByText(/2 de 2 seleccionados/);
+    await chooseLumaWipe();
+
+    expect(screen.queryByText(/mate asignado ya no válido/)).toBeNull();
+    const select = screen
+      .getByText(/Mate de Toma Beta/)
+      .closest('label')
+      ?.querySelector('select');
+    expect(select?.value).toBe(clipIds[0]);
   });
 });

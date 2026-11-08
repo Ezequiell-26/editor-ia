@@ -228,8 +228,27 @@ function orderedCues(cues: readonly SubtitleCueSeconds[]): SubtitleCueSeconds[] 
     .sort((a, b) => a.startSeconds - b.startSeconds);
 }
 
+/**
+ * SRT/VTT no tienen dirección de párrafo: para un idioma RTL (árabe) el cue
+ * se envuelve en un isolate First-Strong-Isolate … Pop Directional Isolate
+ * (U+2068/U+2069) para que el player aplique bidi al texto sin heredar el
+ * contexto LTR del archivo ni mezclarlo con timestamps vecinos.
+ */
+const FSI = '\u2068';
+const PDI = '\u2069';
+
+export type SubtitleDirection = 'ltr' | 'rtl';
+
+function cueText(text: string, direction?: SubtitleDirection): string {
+  const trimmed = text.trim();
+  return direction === 'rtl' && trimmed ? `${FSI}${trimmed}${PDI}` : trimmed;
+}
+
 /** SRT desde tiempos en segundos; lo usa la localización multiidioma. */
-export function serializeSrtSeconds(cues: readonly SubtitleCueSeconds[]): string {
+export function serializeSrtSeconds(
+  cues: readonly SubtitleCueSeconds[],
+  direction?: SubtitleDirection,
+): string {
   const ordered = orderedCues(cues);
   return ordered
     .map(
@@ -237,14 +256,17 @@ export function serializeSrtSeconds(cues: readonly SubtitleCueSeconds[]): string
         `${index + 1}\n${clock(cue.startSeconds, ',')} --> ${clock(
           cue.endSeconds,
           ',',
-        )}\n${cue.text.trim()}`,
+        )}\n${cueText(cue.text, direction)}`,
     )
     .join('\n\n')
     .concat(ordered.length > 0 ? '\n' : '');
 }
 
 /** VTT desde tiempos en segundos, con la cabecera obligatoria. */
-export function serializeVttSeconds(cues: readonly SubtitleCueSeconds[]): string {
+export function serializeVttSeconds(
+  cues: readonly SubtitleCueSeconds[],
+  direction?: SubtitleDirection,
+): string {
   const ordered = orderedCues(cues);
   const body = ordered
     .map(
@@ -252,7 +274,7 @@ export function serializeVttSeconds(cues: readonly SubtitleCueSeconds[]): string
         `${index + 1}\n${clock(cue.startSeconds, '.')} --> ${clock(
           cue.endSeconds,
           '.',
-        )}\n${cue.text.trim()}`,
+        )}\n${cueText(cue.text, direction)}`,
     )
     .join('\n\n');
   return `WEBVTT\n\n${body}${body ? '\n' : ''}`;

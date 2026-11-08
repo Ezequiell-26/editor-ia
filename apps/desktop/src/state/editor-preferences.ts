@@ -39,6 +39,11 @@ export interface EditorPreferences {
   readonly showThumbnails: boolean;
   /** Al terminar, vuelve al inicio en lugar de detenerse. */
   readonly loopPlayback: boolean;
+  /**
+   * Velocidad de reposo de la reproducción (0.25–8×). La elige el selector
+   * del transporte; la rampa del shuttle L/J es transitoria y no la pisa.
+   */
+  readonly playbackRate: number;
   /** Cuántos frames avanza la flecha del teclado. */
   readonly jumpStepFrames: number;
   /** Las guías de acción y título arrancan visibles. */
@@ -83,6 +88,7 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   showWaveforms: true,
   showThumbnails: true,
   loopPlayback: false,
+  playbackRate: 1,
   jumpStepFrames: 1,
   safeMargins: false,
   emojiStyle: 'android',
@@ -101,6 +107,7 @@ export const EDITOR_PREFERENCE_BOUNDS = {
   defaultZoom: { min: 0.4, max: 6, step: 0.1 },
   snapPixels: { min: 4, max: 24, step: 1 },
   jumpStepFrames: { min: 1, max: 60, step: 1 },
+  playbackRate: { min: 0.25, max: 8, step: 0.25 },
 } as const;
 
 function clamp(value: unknown, min: number, max: number, fallback: number): number {
@@ -152,6 +159,12 @@ export function normalizeEditorPreferences(raw: unknown): EditorPreferences {
     showWaveforms: bool(source.showWaveforms, DEFAULT_EDITOR_PREFERENCES.showWaveforms),
     showThumbnails: bool(source.showThumbnails, DEFAULT_EDITOR_PREFERENCES.showThumbnails),
     loopPlayback: bool(source.loopPlayback, DEFAULT_EDITOR_PREFERENCES.loopPlayback),
+    playbackRate: clamp(
+      source.playbackRate,
+      bounds.playbackRate.min,
+      bounds.playbackRate.max,
+      DEFAULT_EDITOR_PREFERENCES.playbackRate,
+    ),
     jumpStepFrames: Math.round(
       clamp(
         source.jumpStepFrames,

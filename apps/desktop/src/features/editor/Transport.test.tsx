@@ -58,6 +58,23 @@ describe('Transport · botón Bucle', () => {
   });
 });
 
+describe('Transport · velocidad de reproducción', () => {
+  it('el selector escribe la preferencia persistida playbackRate', () => {
+    renderTransport();
+    const select = screen.getByLabelText('Velocidad de reproducción');
+    expect((select as HTMLSelectElement).value).toBe('1');
+    fireEvent.change(select, { target: { value: '2' } });
+    expect(loadEditorPreferences().playbackRate).toBe(2);
+    expect((select as HTMLSelectElement).value).toBe('2');
+    // Y la preferencia elegida es la que arranca el próximo transporte.
+    cleanup();
+    renderTransport();
+    expect(
+      (screen.getByLabelText('Velocidad de reproducción') as HTMLSelectElement).value,
+    ).toBe('2');
+  });
+});
+
 describe('Transport · sentido del shuttle', () => {
   it('en reversa el botón de play/pausa lo indica en título e icono', () => {
     function ShuttleBack() {

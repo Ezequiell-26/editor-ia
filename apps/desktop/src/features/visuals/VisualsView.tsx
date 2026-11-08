@@ -691,11 +691,21 @@ export function VisualsView({
                   const candidates = mateCandidates.get(clip.id) ?? [];
                   const value =
                     lumaMatePick(clip, mateChoice[clip.id], candidates) ?? '';
+                  const storedMateId =
+                    'transitionIn' in clip && clip.transitionIn?.type === 'luma-wipe'
+                      ? clip.transitionIn.mateClipId
+                      : undefined;
+                  const staleMate =
+                    storedMateId !== undefined &&
+                    !candidates.some(
+                      (candidate) => candidate.clip.id === storedMateId,
+                    );
                   return (
                     <label className="field" key={clip.id}>
                       <span>
                         Mate de {clipLabel(clip)}
                         {candidates.length === 0 ? ' · sin candidato' : ''}
+                        {staleMate ? ' · mate asignado ya no válido' : ''}
                       </span>
                       <select
                         value={value}

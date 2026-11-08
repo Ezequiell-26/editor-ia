@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseProject, type ProjectDocument } from '@editor-ia/project-schema';
 import type { OpenedProject } from '../services/project-service';
 import { buildDeliveryPackage } from './delivery-package';
+import { loadEditorPreferences } from './editor-preferences';
 import { useEditorPreferences } from './useEditorPreferences';
 import { ioRangeFromDocument, projectWithIoRange, type IoRange } from './io-range';
 import { ProjectActionError, cloneProject, totalFrames } from './project-actions';
@@ -86,9 +87,18 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   // haya llegado al render.
   const [playheadFrame, setPlayheadFrame] = useState(0);
   const [playing, setPlayingState] = useState(false);
-  const [playbackRate, setPlaybackRateState] = useState(1);
+  // La velocidad de reposo es la preferencia persistida `playbackRate`
+  // (selector del transporte); la rampa del shuttle la pisa sin escribirla.
+  const [playbackRate, setPlaybackRateState] = useState(() =>
+    loadEditorPreferences().playbackRate,
+  );
   const [playbackDirection, setPlaybackDirectionState] = useState<1 | -1>(1);
-  const playbackRef = useRef({ frame: 0, playing: false, rate: 1, direction: 1 as 1 | -1 });
+  const playbackRef = useRef({
+    frame: 0,
+    playing: false,
+    rate: playbackRate,
+    direction: 1 as 1 | -1,
+  });
   // Rampa del shuttle L/J: estado de sesión de la tecla (no del documento).
   // Vive acá y no en el shell para que `setPlaying(false)` —que usan el botón
   // del transporte, el scrub y los atajos— corte la rampa en todos los casos.
@@ -138,6 +148,10 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
   const preferences = useEditorPreferences();
   const historyLimitRef = useRef(preferences.historyLimit);
   historyLimitRef.current = preferences.historyLimit;
+  // La velocidad que eligió el usuario (preferencia) para que la pausa de
+  // la rampa del shuttle vuelva a ella y no a un 1× fijo.
+  const playbackRatePrefRef = useRef(preferences.playbackRate);
+  playbackRatePrefRef.current = preferences.playbackRate;
 
   const adopt = useCallback((opened: OpenedProject) => {
     editVersionRef.current = 0;
@@ -611,10 +625,17 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     setPlaybackRateState(next);
   }, []);
 
+  // Si la preferencia cambia en vivo (selector del transporte, respaldo
+  // importado, «Restablecer» en Ajustes) el motor la adopta. La rampa del
+  // shuttle no escribe la preferencia, así que no dispara este efecto.
+  useEffect(() => {
+    setPlaybackRate(preferences.playbackRate);
+  }, [preferences.playbackRate, setPlaybackRate]);
+
   const endShuttleRamp = useCallback(() => {
     if (!shuttleRef.current.active) return;
     shuttleRef.current = resetShuttle(shuttleRef.current);
-    setPlaybackRate(1);
+    setPlaybackRate(playbackRatePrefRef.current);
   }, [setPlaybackRate]);
 
   const setPlayhead = useCallback(

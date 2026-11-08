@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { useState } from 'react';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, act } from '@testing-library/react';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { afterEach, describe, expect, it } from 'vitest';
+import {
+  loadEditorPreferences,
+  resetEditorPreferences,
+  updateEditorPreferences,
+} from './editor-preferences';
 import { createFakeService } from '../test/fake-service';
 import { addCaptionCue, addClipFromAsset, addAsset, addTrack, ensureDelivery } from './project-actions';
 import { readyAsset } from '../test/fake-service';
@@ -51,7 +56,10 @@ function deferred<T>() {
   return { promise, release };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  resetEditorPreferences();
+});
 
 describe('autoguardado', () => {
   it('no declara guardado si aparecen cambios nuevos durante el await', async () => {
@@ -449,6 +457,59 @@ describe('rampa del shuttle en el store', () => {
     fireEvent.click(screen.getByRole('button', { name: 'pausar' }));
     // Sin rampa activa la velocidad manual sobrevive a la pausa.
     expect(screen.getByTestId('rate').textContent).toBe('2');
+  });
+});
+
+describe('velocidad de reproducción persistida', () => {
+  function renderWithPrefs() {
+    const service = createFakeService();
+    const project = ensureDelivery(createEmptyProject('VelPref', '2025-01-01T00:00:00Z'));
+    const opened = {
+      project,
+      label: 'velpref.editoria.json',
+      path: 'C:\\tmp\\velpref.editoria.json',
+      root: 'C:\\tmp',
+    };
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <ShuttleHarness />
+      </ProjectProvider>,
+    );
+  }
+
+  it('arranca en la velocidad persistida y adopta cambios en vivo', async () => {
+    updateEditorPreferences({ playbackRate: 2 });
+    renderWithPrefs();
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('2');
+    });
+    // Otro componente (o un respaldo importado) cambia la preferencia:
+    // el motor la adopta sin reiniciar ni tocar el documento.
+    act(() => {
+      updateEditorPreferences({ playbackRate: 4 });
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('4');
+    });
+  });
+
+  it('la pausa de la rampa vuelve a la velocidad elegida, no a 1× fijo', async () => {
+    updateEditorPreferences({ playbackRate: 2 });
+    renderWithPrefs();
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('2');
+    });
+    // Una pulsación de shuttle pisa la velocidad de forma transitoria.
+    fireEvent.click(screen.getByRole('button', { name: 'shuttle adelante' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('1');
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'pausar' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('rate').textContent).toBe('2');
+    });
+    // La rampa no escribe la preferencia: sigue en 2×.
+    expect(loadEditorPreferences().playbackRate).toBe(2);
   });
 });
 

@@ -4,6 +4,105 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Isolate bidi en subtítulos RTL al exportar SRT/VTT
+  (2026-11-08)** — cierra el «el árabe se guarda como SRT UTF-8 sin marca
+  de dirección» del «Pendiente honesto» de la entrada de los 12 idiomas,
+  en una pasada del protocolo del loop (Devin CLI).
+  - **Brecha**: SRT/VTT no tienen dirección de párrafo; un cue en árabe se
+    guardaba como texto plano y el player lo bidi-reordenaba dentro del
+    contexto LTR del archivo (números de cue, timestamps vecinos).
+  - **Cambio**: `serializeSrtSeconds`/`serializeVttSeconds`
+    (`state/subtitles.ts`) ganan `direction?: 'ltr' | 'rtl'`; con `'rtl'`
+    el texto de cada cue se envuelve en FSI…PDI (U+2068/U+2069), isolate
+    first-strong que deja decidir la dirección al contenido. Sin
+    dirección o `'ltr'` la salida es byte-idéntica. `LocalizationView`
+    pasa la dirección del idioma de cada traducción;
+    `DownloadView` elimina su `buildSrt`/`srtTime` duplicados y usa
+    `serializeSrtSeconds` con la dirección del idioma destino.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `subtitles.test.ts` **15/15** (+2: isolate en
+    SRT y VTT para rtl, texto intacto en ltr/sin dirección) ·
+    `localization.test.ts` 6/6 · `DownloadView.test.tsx` 12/12. No se
+    tocó Rust ni el contrato del servicio.
+  - **Archivos**: `state/subtitles.ts` (+test),
+    `features/localization/LocalizationView.tsx`,
+    `features/download/DownloadView.tsx`, esta entrada,
+    `memory/2026-11-08-srt-rtl-bidi.md`.
+  - **Pendiente honesto**: players sin soporte bidi ignoran las marcas
+    (mismo resultado que antes); el burn-in por FFmpeg/libass recibe las
+    marcas y FriBidi las interpreta como isolates, pero no se verificó
+    un quemado real de árabe; sólo `ar` es RTL hoy.
+
+- `[done]` **Aviso de mate `luma-wipe` stale en el selector por lote de
+  VisualsView (2026-11-08)** — cierra el «si el mate propio quedó inválido el
+  selector muestra el primer candidato pero no lo marca como "cambiado"» del
+  «Pendiente honesto» de la entrada VisualsView precarga, en una pasada del
+  protocolo del loop (Devin CLI).
+  - **Brecha**: con `transitionIn.mateClipId` asignado pero ya no candidato
+    (el mate se movió, se deshabilitó o dejó de cubrir el solape),
+    `lumaMatePick` cae en silencio al primer candidato y el `<select>` lo
+    mostraba como si nada; «Aplicar» escribía ese otro mate sin avisar.
+  - **Cambio** (`features/visuals/VisualsView.tsx`): por clip seleccionado se
+    lee el `mateClipId` guardado en su `transitionIn` (`luma-wipe`) y, si no
+    está entre los candidatos calculados con los frames que se van a
+    escribir, la etiqueta suma «· mate asignado ya no válido». La marca es
+    independiente del fallback: también aparece cuando hay override del
+    usuario, porque el mate guardado se reemplaza igual al aplicar. Sin
+    mate guardado o con mate válido no cambia nada.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `VisualsView.test.tsx` **6/6** (+2 tests: clip B
+    solapado con `mateClipId` inexistente muestra la marca y el selector
+    cae al candidato real; con mate válido no hay marca y el valor es el
+    asignado). `renderView` del test ganó un segundo parámetro para ubicar
+    el clip B en el frame 200 (los clips por defecto no solapan y no hay
+    candidatos de mate). No se tocó Rust ni el contrato del documento.
+  - **Archivos**: `features/visuals/VisualsView.tsx`,
+    `features/visuals/VisualsView.test.tsx`, esta entrada,
+    `memory/2026-11-08-luma-mate-stale-aviso.md`.
+  - **Pendiente honesto**: la marca es sólo texto en la etiqueta (no hay
+    estilo de warning ni conteo en el aviso de «Aplicar»); el mate sigue
+    sin preview animado en el monitor.
+
+- `[done]` **Velocidad de reproducción persistida como preferencia del
+  editor (2026-11-08)** — cierra la parte «no persiste» del «Pendiente
+  honesto» de la entrada velocidad de reproducción 0.25–4× («la velocidad
+  es de sesión: no persiste ni va al documento»), en una pasada del
+  protocolo del loop (Devin CLI). Sigue sin ir al documento del proyecto
+  (es preferencia del equipo, no del corte).
+  - **Cambio**: `EditorPreferences` gana `playbackRate` (default 1,
+    acotado 0.25–8 en `EDITOR_PREFERENCE_BOUNDS`/`normalize`). El
+    `ProjectProvider` lo usa como velocidad inicial
+    (`useState`/`playbackRef` desde `loadEditorPreferences`) y un efecto
+    adopta cambios en vivo de la preferencia — mismo patrón que
+    `historyLimit`. El `<select>` del `Transport` escribe
+    `updateEditorPreferences({ playbackRate })` además de
+    `setPlaybackRate`, así que la elección sobrevive a reinicios y la
+    ven todos los transportes. La rampa del shuttle **no** escribe la
+    preferencia (sigue siendo transitoria) y `endShuttleRamp` ahora
+    devuelve la velocidad a la elegida persistida en vez de a 1× fijo.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `editor-preferences` **10/10** (+1: clamp
+    0.25–8, default 1, tipos inválidos) · `project-store.test.tsx`
+    **14/14** (+2: arranca en la preferencia y adopta cambios en vivo;
+    la pausa de la rampa vuelve a la velocidad elegida y no escribe la
+    preferencia) · `Transport.test.tsx` **5/5** (+1: el selector
+    persiste y el próximo transporte arranca con ella) ·
+    `preferences-backup` 7/7 · `EditorPreferencesCard` 4/4 · regresión
+    `src/state` + `App.test.tsx` **864/864** (79 archivos). No se tocó
+    Rust ni el contrato del documento.
+  - **Archivos**: `state/editor-preferences.ts` (+test),
+    `state/project-store.tsx` (+test), `features/editor/Transport.tsx`
+    (+test), esta entrada, `memory/2026-11-08-velocidad-persistente.md`.
+  - **Pendiente honesto**: la preferencia se edita sólo desde el
+    selector del transporte (no hay control en Ajustes → Editor a
+    propósito: es la velocidad vigente, no un default); `setPlaybackRate`
+    sigue siendo API de sesión — un llamador que no pase por el selector
+    ni escriba la preferencia verá su velocidad revertida a la elegida
+    si usa el shuttle y pausa (en la app real el único escritor manual
+    es el selector); valores de un respaldo fuera de las opciones del
+    `<select>` se normalizan al rango pero el select puede mostrar uno
+    intermedio no listado (sólo vía JSON editado a mano).
+
 - `[done]` **Timecode en las claves del editor de curva de efectos
   (2026-11-08)** — cierra el «las filas muestran frame local del clip, no
   timecode» del «Pendiente honesto» de click-to-seek, en una pasada del

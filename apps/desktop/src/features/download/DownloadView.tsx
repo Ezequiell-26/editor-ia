@@ -28,9 +28,9 @@ import {
 } from '../../state/project-actions';
 import { DOWNLOAD_DIR_KEY } from '../../state/download-prefs';
 import { addMarker } from '../../state/markers';
-import { parseSubtitles } from '../../state/subtitles';
+import { parseSubtitles, serializeSrtSeconds } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
-import { LOCALIZATION_LANGUAGES } from '../localization/localization';
+import { LOCALIZATION_LANGUAGES, localizationLanguage } from '../localization/localization';
 import { takePendingDownloadUrl } from './pending';
 import {
   clampParallel,
@@ -156,26 +156,6 @@ function formatTimestamp(seconds: number): string {
   return hours > 0
     ? `${hours}:${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
     : `${minutes}:${String(rest).padStart(2, '0')}`;
-}
-
-function srtTime(seconds: number): string {
-  const total = Math.max(0, Math.round(seconds * 1000));
-  const hours = Math.floor(total / 3_600_000);
-  const minutes = Math.floor((total % 3_600_000) / 60_000);
-  const secs = Math.floor((total % 60_000) / 1000);
-  const millis = total % 1000;
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')},${String(millis).padStart(3, '0')}`;
-}
-
-function buildSrt(
-  cues: readonly { startSeconds: number; endSeconds: number; text: string }[],
-): string {
-  return cues
-    .map(
-      (cue, index) =>
-        `${index + 1}\n${srtTime(cue.startSeconds)} --> ${srtTime(cue.endSeconds)}\n${cue.text.trim()}\n`,
-    )
-    .join('\n');
 }
 
 function qualitySummary(quality: DownloadQuality): string {
@@ -1063,12 +1043,13 @@ export function DownloadView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 break;
               }
               if (translatedTexts.length !== cues.length) continue;
-              const content = buildSrt(
+              const content = serializeSrtSeconds(
                 cues.map((cue, cueIndex) => ({
                   startSeconds: cue.startSeconds,
                   endSeconds: cue.endSeconds,
                   text: translatedTexts[cueIndex] ?? cue.text,
                 })),
+                localizationLanguage(language)?.direction,
               );
               const base = subtitle.name.replace(/\.[^.]+$/, '') || `${stem}-${index + 1}`;
               const saved = await service.saveLocalizedSubtitle({
