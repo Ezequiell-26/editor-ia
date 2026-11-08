@@ -34,6 +34,16 @@ por E2E que reporta "flaky" si pasa al segundo intento.
   requisitos `image` con prefijo `pattern:`/`gradient:`/`texture:`.
   Son fuentes sintéticas de fondo/placeholder, NO arte semántico —
   honesto en capabilities ("sólo patrones").
+- **Música desde la UI**: `BuildPlanOptions.music` emite
+  `req-musica` (kind `music`, query `music:ambient`) + `plan.music`
+  habilitado; el panel tiene selector "Música de fondo".
+- **Symlink `project-schema` reincidente**: npm volvió a copiar una
+  versión vieja del package en `node_modules/@editor-ia/project-schema`
+  (sin `createEmptyProductionPlan`) → los 7 tests del builder fallaban
+  con "is not a function". Se reemplazó por junction a
+  `packages/project-schema` del worktree (la copia vieja quedó en
+  `project-schema.stale-bak`). Si vitest vuelve a fallar así, revisar
+  ese enlace primero — npm install lo pisa.
 
 ## Comandos
 
