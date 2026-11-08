@@ -79,6 +79,11 @@ struct SceneResolution {
     /// (segundos); base para edición por contenido.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     scene_cuts: Vec<f64>,
+    /// Tramos de silencio/sonido muerto detectados por `analyze`
+    /// (segundos, pares inicio-fin); `edit` los usa para evitar ventanas
+    /// con aire muerto.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    silences: Vec<(f64, f64)>,
     warnings: Vec<String>,
 }
 
@@ -256,6 +261,7 @@ impl AssemblyStageExecutor {
             let chosen = candidates.first();
             let mut warnings = Vec::new();
             let mut scene_cuts: Vec<f64> = Vec::new();
+            let mut silences: Vec<(f64, f64)> = Vec::new();
             let (asset_id, asset_kind, media_frames) = match chosen {
                 Some(entry) => {
                     scene_cuts = entry
@@ -264,6 +270,20 @@ impl AssemblyStageExecutor {
                         .and_then(|a| a.get("scenes"))
                         .and_then(|s| s.as_array())
                         .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect())
+                        .unwrap_or_default();
+                    silences = entry
+                        .analysis
+                        .as_ref()
+                        .and_then(|a| a.get("silences"))
+                        .and_then(|s| s.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|pair| {
+                                    let p = pair.as_array()?;
+                                    Some((p.first()?.as_f64()?, p.get(1)?.as_f64()?))
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default();
                     let kind = format!("{:?}", entry.kind).to_lowercase();
                     let media = entry.duration_frames;
@@ -299,6 +319,7 @@ impl AssemblyStageExecutor {
                 media_frames,
                 narration_text: scene.narration_text.clone(),
                 scene_cuts,
+                silences,
                 warnings,
             });
         }
@@ -329,18 +350,20 @@ impl AssemblyStageExecutor {
         })
     }
 
-    /// Elige la ventana `[in, out)` de `duration` frames dentro del medio
-    /// que contiene más cortes de plano detectados (segundos → frames por
-    /// `fps`). Los candidatos son `0` y cada corte que deja entrar la
-    /// ventana completa; empates → el inicio más temprano. Sin cortes que
-    /// aporten, devuelve `(0, duration)`.
+    /// Elige la ventana `[in, out)` de `duration` frames dentro del medio.
+    /// Criterio: más cortes de plano dentro de la ventana; a igual número
+    /// de cortes, menos frames de silencio/sonido muerto. Los candidatos
+    /// son `0`, cada corte y el **final** de cada silencio que deja entrar
+    /// la ventana completa (empezar tras un tramo muerto es lo útil).
+    /// Sin cortes ni silencios → `(0, duration)`.
     fn content_window(
         scene_cuts: &[f64],
+        silences: &[(f64, f64)],
         duration: u64,
         media_frames: u64,
         fps: f64,
     ) -> (u64, u64) {
-        if scene_cuts.is_empty() || duration == 0 {
+        if (scene_cuts.is_empty() && silences.is_empty()) || duration == 0 {
             return (0, duration);
         }
         let mut cut_frames: Vec<u64> = scene_cuts
@@ -349,24 +372,49 @@ impl AssemblyStageExecutor {
             .collect();
         cut_frames.sort_unstable();
         cut_frames.dedup();
+        let silence_frames: Vec<(u64, u64)> = silences
+            .iter()
+            .map(|(s, e)| {
+                (
+                    (s * fps).round().max(0.0) as u64,
+                    (e * fps).round().max(0.0) as u64,
+                )
+            })
+            .filter(|(s, e)| e > s)
+            .collect();
         let max_start = media_frames.saturating_sub(duration);
         let mut starts: Vec<u64> = vec![0];
         starts.extend(cut_frames.iter().copied().filter(|c| *c <= max_start));
+        // Candidatos extra: arrancar justo cuando termina un silencio.
+        starts.extend(
+            silence_frames
+                .iter()
+                .map(|(_, e)| *e)
+                .filter(|c| *c <= max_start),
+        );
         starts.sort_unstable();
         starts.dedup();
-        let mut best: Option<(u64, usize)> = None;
+        let mut best: Option<(u64, usize, u64)> = None;
         for start in starts {
             let end = start + duration;
-            let count = cut_frames
+            let cuts = cut_frames
                 .iter()
                 .filter(|c| **c > start && **c < end)
                 .count();
-            if best.map(|(_, b)| count > b).unwrap_or(count > 0) {
-                best = Some((start, count));
+            let silence: u64 = silence_frames
+                .iter()
+                .map(|(ss, se)| end.min(*se).saturating_sub(start.max(*ss)))
+                .sum();
+            let better = match best {
+                None => true,
+                Some((_, bc, bs)) => cuts > bc || (cuts == bc && silence < bs),
+            };
+            if better {
+                best = Some((start, cuts, silence));
             }
         }
         match best {
-            Some((start, _)) if start + duration <= media_frames => (start, start + duration),
+            Some((start, _, _)) if start + duration <= media_frames => (start, start + duration),
             _ => (0, duration.min(media_frames)),
         }
     }
@@ -584,16 +632,18 @@ impl AssemblyStageExecutor {
             // Auto-edición por contenido: si `analyze` detectó cortes en el
             // asset, la ventana del clip es el tramo de `duration` frames
             // que contiene más cortes de plano (empates → el más temprano).
-            let (in_frame, out_frame) = if kind == "video" && !scene.scene_cuts.is_empty() {
-                Self::content_window(
-                    &scene.scene_cuts,
-                    duration,
-                    scene.media_frames.unwrap_or(u64::MAX),
-                    fps,
-                )
-            } else {
-                (0, duration)
-            };
+            let (in_frame, out_frame) =
+                if kind == "video" && !(scene.scene_cuts.is_empty() && scene.silences.is_empty()) {
+                    Self::content_window(
+                        &scene.scene_cuts,
+                        &scene.silences,
+                        duration,
+                        scene.media_frames.unwrap_or(u64::MAX),
+                        fps,
+                    )
+                } else {
+                    (0, duration)
+                };
             // Un clip por plano cuando hay cortes detectados: cada segmento
             // entre cortes se monta como clip propio (mismo asset, in/out
             // propios). Las transiciones del plan se aplican sólo al primer
@@ -1244,7 +1294,7 @@ mod tests {
         // start=120: (120,210) contiene 135 → 1. start=30: (30,120)={}→0? 30 excl,120 excl → 0.
         // start=0: (0,90)={30}→1. Empate 1 → gana el más temprano (0,90).
         assert_eq!(
-            AssemblyStageExecutor::content_window(&cuts, 90, 300, 30.0),
+            AssemblyStageExecutor::content_window(&cuts, &[], 90, 300, 30.0),
             (0, 90)
         );
         // Caso donde un inicio tardío gana: cortes densos al final.
@@ -1252,13 +1302,39 @@ mod tests {
         // 180f,195f,210f,225f,240f; duration=90 → max_start=210.
         // start=180: (180,270) = {195,210,225,240} → 4. start=0: (0,90)={}→0(no best).
         assert_eq!(
-            AssemblyStageExecutor::content_window(&dense, 90, 300, 30.0),
+            AssemblyStageExecutor::content_window(&dense, &[], 90, 300, 30.0),
             (180, 270)
         );
         // Sin cortes útiles → default.
         assert_eq!(
-            AssemblyStageExecutor::content_window(&[0.5], 90, 300, 30.0),
+            AssemblyStageExecutor::content_window(&[0.5], &[], 90, 300, 30.0),
             (0, 90)
+        );
+        // A igual número de cortes gana la ventana con menos silencio:
+        // medio de 600 frames, ventana 90, silencio de 4-5 s (120-150f)
+        // sólo cae dentro de la ventana que empieza en 0..60.
+        let silences = vec![(4.0, 5.0)]; // 120f-150f a 30fps
+                                         // start=0: (0,90) no contiene silencio → 0 frames muertos, 0 cortes.
+                                         // start=90? no es candidato (no es corte ni fin de silencio).
+                                         // Candidatos: 0 y fin de silencio 150 (≤510). start=150: (150,240)
+                                         // tampoco contiene el silencio → empate de cortes(0) y silencio(0)
+                                         // → gana el más temprano: (0,90).
+        assert_eq!(
+            AssemblyStageExecutor::content_window(&[], &silences, 90, 600, 30.0),
+            (0, 90)
+        );
+        // Caso donde evitar el silencio sí cambia la ventana: silencio
+        // 0-3 s (0-90f) y el único corte a 5 s (150f); duration=90, media=600.
+        // Candidatos: 0, 150 (corte), 90 (fin de silencio).
+        // start=0: (0,90) contiene silencio 0-90 → 90 frames muertos, 0 cortes.
+        // start=90: (90,180) → 0 muertos, corte 150 dentro → 1 corte. GANA.
+        // start=150: (150,240) → 0 muertos, 0 cortes (150 excl). Empate 0
+        // cortes/0 silencio con start=90? start=90 tiene 1 corte → gana.
+        let cuts2 = vec![5.0];
+        let silences2 = vec![(0.0, 3.0)];
+        assert_eq!(
+            AssemblyStageExecutor::content_window(&cuts2, &silences2, 90, 600, 30.0),
+            (90, 180)
         );
     }
 

@@ -378,6 +378,74 @@ impl ProjectStageExecutor {
         Ok(cuts)
     }
 
+    /// Detecta tramos de silencio/sonido muerto con el filtro
+    /// `silencedetect` de ffmpeg (umbral -35 dB, mínimo 0,4 s). Devuelve
+    /// pares `(inicio, fin)` en segundos, persistidos en
+    /// `analysis.silences` del índice.
+    fn detect_silences(
+        &self,
+        ctx: &StageContext,
+        entry: &crate::ports::studio::CatalogEntry,
+    ) -> Result<Vec<(f64, f64)>, ProjectError> {
+        let ffmpeg = self
+            .ffmpeg
+            .clone()
+            .ok_or_else(|| ProjectError::message(ProjectErrorCode::Io, "ffmpeg no disponible"))?;
+        let abs = crate::media::resolve_inside_root(&ctx.project_root, &entry.reference)?;
+        let output = std::process::Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "info",
+                "-i",
+                &abs.to_string_lossy(),
+                "-af",
+                "silencedetect=noise=-35dB:d=0.4",
+                "-f",
+                "null",
+                "-",
+            ])
+            .output()
+            .map_err(|e| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("ffmpeg no se pudo ejecutar: {e}"),
+                )
+            })?;
+        if !output.status.success() {
+            return Err(ProjectError::message(
+                ProjectErrorCode::RenderFailed,
+                "ffmpeg falló en la detección de silencios",
+            ));
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let mut silences = Vec::new();
+        let mut open_start: Option<f64> = None;
+        for line in stderr.lines() {
+            if let Some((_, rest)) = line.split_once("silence_start:") {
+                let numeric: String = rest
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+                    .collect();
+                if let Ok(t) = numeric.parse::<f64>() {
+                    open_start = Some(t);
+                }
+            } else if let Some((_, rest)) = line.split_once("silence_end:") {
+                let numeric: String = rest
+                    .trim_start()
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || matches!(c, '.' | '-' | '+' | 'e' | 'E'))
+                    .collect();
+                if let (Some(start), Ok(end)) = (open_start.take(), numeric.parse::<f64>()) {
+                    if end > start {
+                        silences.push((start, end));
+                    }
+                }
+            }
+        }
+        Ok(silences)
+    }
+
     /// Genera la narración pedida por un requisito `voice` con el
     /// `ContentGenerator` local (SAPI) y registra cada WAV como asset
     /// `audio` del proyecto. Devuelve las entradas `resources` del output.
@@ -712,6 +780,7 @@ impl ProjectStageExecutor {
         // `analysis` del índice. Una pasada por asset; si ya tiene scenes
         // detectadas se salta (idempotente entre corridas de analyze).
         let mut scene_analyses = 0u32;
+        let mut silence_analyses = 0u32;
         if self.ffmpeg.is_some() {
             for entry in &entries {
                 if entry.kind != StudioResourceKind::Video {
@@ -727,9 +796,49 @@ impl ProjectStageExecutor {
                 }
                 if let Ok(cuts) = self.detect_scene_cuts(ctx, entry) {
                     let mut enriched = entry.clone();
-                    enriched.analysis = Some(json!({ "scenes": cuts }));
+                    let mut analysis = entry.analysis.clone().unwrap_or_else(|| json!({}));
+                    analysis["scenes"] = json!(cuts);
+                    enriched.analysis = Some(analysis);
                     let _ = catalog.upsert(&enriched);
                     scene_analyses += 1;
+                }
+            }
+            // Silencios: `silencedetect` sobre video y audio (la voz
+            // generada y la música también pueden tener tramos muertos).
+            // Se fusiona con `scenes` en el mismo objeto `analysis`.
+            for entry in &entries {
+                if !matches!(
+                    entry.kind,
+                    StudioResourceKind::Video | StudioResourceKind::Audio
+                ) {
+                    continue;
+                }
+                // Releer del catálogo: el loop de escenas puede haber
+                // persistido `analysis.scenes` y un upsert desde el entry
+                // original lo pisaría.
+                let current = catalog
+                    .get(&entry.id)
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| entry.clone());
+                let already = current
+                    .analysis
+                    .as_ref()
+                    .and_then(|a| a.get("silences"))
+                    .is_some();
+                if already {
+                    continue;
+                }
+                if let Ok(silences) = self.detect_silences(ctx, entry) {
+                    let mut enriched = current.clone();
+                    let mut analysis = current.analysis.clone().unwrap_or_else(|| json!({}));
+                    analysis["silences"] = json!(silences
+                        .iter()
+                        .map(|(s, e)| json!([s, e]))
+                        .collect::<Vec<_>>());
+                    enriched.analysis = Some(analysis);
+                    let _ = catalog.upsert(&enriched);
+                    silence_analyses += 1;
                 }
             }
         }
@@ -746,6 +855,7 @@ impl ProjectStageExecutor {
                 "thumbnails": thumbnails,
                 "thumbnailFailures": thumbnail_failures,
                 "sceneAnalyses": scene_analyses,
+                "silenceAnalyses": silence_analyses,
                 "catalog": "local-project",
             })),
             error: None,
@@ -1239,6 +1349,112 @@ mod tests {
         assert!(
             (1.2..=1.8).contains(&cut),
             "el corte debería estar cerca de 1,5 s, llegó {cut}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// `analyze` detecta silencios reales: un WAV con 1 s de tono + 1,5 s
+    /// de silencio + 1 s de tono produce un par (inicio, fin) en
+    /// `analysis.silences` sobre el asset de audio.
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test analyze_detects_silences -- --ignored`
+    #[test]
+    #[ignore]
+    fn analyze_detects_silences() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("detección de silencios omitida: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        let ffmpeg = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFMPEG").unwrap_or_else(|_| "ffmpeg".to_owned()),
+        );
+        let ffprobe = std::path::PathBuf::from(
+            std::env::var("EDITOR_IA_FFPROBE").unwrap_or_else(|_| "ffprobe".to_owned()),
+        );
+        let dir = std::env::temp_dir().join(format!(
+            "exec-analyze-silence-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        ));
+        fs::create_dir_all(dir.join("media")).unwrap();
+        // 1 s tono + 1,5 s silencio + 1 s tono = 3,5 s totales.
+        let status = std::process::Command::new(&ffmpeg)
+            .args([
+                "-v",
+                "error",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1:sample_rate=44100",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=44100:cl=mono:duration=1.5",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=1:sample_rate=44100",
+                "-filter_complex",
+                "[0:a][1:a][2:a]concat=n=3:v=0:a=1[a]",
+                "-map",
+                "[a]",
+                "-c:a",
+                "pcm_s16le",
+            ])
+            .arg(dir.join("media/con-silencio.wav"))
+            .status()
+            .unwrap();
+        assert!(status.success(), "ffmpeg no generó el wav con silencio");
+        fs::write(
+            dir.join("project.json"),
+            serde_json::json!({
+                "schemaVersion": 1,
+                "video": { "frameRate": { "num": 30, "den": 1 } },
+                "assets": [{
+                    "id": "s1", "label": "Audio", "kind": "audio", "status": "ready",
+                    "source": { "type": "local", "path": "media/con-silencio.wav" },
+                    "rights": {
+                        "license": { "id": "user-declared", "commercialUse": "allowed" },
+                        "provenance": { "origin": "user-imported", "acquiredAt": "2026-01-01T00:00:00Z" }
+                    },
+                    "media": { "durationFrames": 105,
+                               "frameRate": { "num": 30, "den": 1 } }
+                }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let executor = ProjectStageExecutor::new(Some(ffprobe)).with_ffmpeg(Some(ffmpeg));
+        let outcome = executor
+            .execute(StudioStage::Analyze, &ctx(&plan(0), &dir))
+            .unwrap();
+        assert!(outcome.completed, "{:?}", outcome.error);
+        assert_eq!(outcome.output.unwrap()["silenceAnalyses"], 1);
+
+        let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
+        let entry = catalog.get("s1").unwrap().expect("asset en catálogo");
+        let silences = entry
+            .analysis
+            .as_ref()
+            .and_then(|a| a["silences"].as_array())
+            .expect("analysis.silences persistido");
+        assert_eq!(
+            silences.len(),
+            1,
+            "debía haber un solo silencio: {silences:?}"
+        );
+        let pair = silences[0].as_array().unwrap();
+        let (start, end) = (pair[0].as_f64().unwrap(), pair[1].as_f64().unwrap());
+        assert!(
+            (0.8..=1.3).contains(&start),
+            "el silencio debería empezar cerca de 1 s, llegó {start}"
+        );
+        assert!(
+            (2.2..=2.8).contains(&end),
+            "el silencio debería terminar cerca de 2,5 s, llegó {end}"
         );
         let _ = fs::remove_dir_all(&dir);
     }
