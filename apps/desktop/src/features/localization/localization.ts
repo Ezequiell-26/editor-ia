@@ -1,6 +1,18 @@
 import type { SubtitleCueSeconds } from '../../state/subtitles';
 
-export type LocalizationLanguageCode = 'es' | 'en' | 'zh' | 'hi' | 'ar' | 'pt' | 'bn' | 'ru';
+export type LocalizationLanguageCode =
+  | 'es'
+  | 'en'
+  | 'zh'
+  | 'hi'
+  | 'ar'
+  | 'pt'
+  | 'bn'
+  | 'ru'
+  | 'fr'
+  | 'de'
+  | 'it'
+  | 'ja';
 export type LocalizationFormat = 'srt' | 'vtt';
 
 export interface LocalizationLanguage {
@@ -11,8 +23,11 @@ export interface LocalizationLanguage {
 }
 
 /**
- * Los ocho idiomas con más hablantes nativos. El orden no es un ranking de
- * calidad: el traductor recibe el nombre completo del idioma en el prompt.
+ * Los idiomas que `translate_subtitles` acepta en Rust
+ * (`commands/providers.rs::language_name`): los ocho con más hablantes
+ * nativos más francés, alemán, italiano y japonés, que Descargar ya ofrece.
+ * El orden no es un ranking de calidad: el traductor recibe el nombre
+ * completo del idioma en el prompt.
  */
 export const LOCALIZATION_LANGUAGES: readonly LocalizationLanguage[] = [
   { code: 'es', label: 'Español', native: 'Español', direction: 'ltr' },
@@ -23,11 +38,63 @@ export const LOCALIZATION_LANGUAGES: readonly LocalizationLanguage[] = [
   { code: 'pt', label: 'Portugués', native: 'Português', direction: 'ltr' },
   { code: 'bn', label: 'Bengalí', native: 'বাংলা', direction: 'ltr' },
   { code: 'ru', label: 'Ruso', native: 'Русский', direction: 'ltr' },
+  { code: 'fr', label: 'Francés', native: 'Français', direction: 'ltr' },
+  { code: 'de', label: 'Alemán', native: 'Deutsch', direction: 'ltr' },
+  { code: 'it', label: 'Italiano', native: 'Italiano', direction: 'ltr' },
+  { code: 'ja', label: 'Japonés', native: '日本語', direction: 'ltr' },
 ];
 
 export function localizationLanguage(code: string): LocalizationLanguage | null {
   return LOCALIZATION_LANGUAGES.find((language) => language.code === code) ?? null;
 }
+
+/**
+ * Idiomas que `synthesize_dub` acepta (`commands/dubbing.rs::normalize_language`):
+ * todos los de traducción menos `ja`, que SAPI no tiene mapeado en el backend.
+ */
+export const DUBBING_LANGUAGE_CODES: ReadonlySet<LocalizationLanguageCode> = new Set([
+  'es',
+  'en',
+  'zh',
+  'hi',
+  'ar',
+  'pt',
+  'bn',
+  'ru',
+  'fr',
+  'de',
+  'it',
+]);
+
+export function isDubbingLanguage(code: string): boolean {
+  return DUBBING_LANGUAGE_CODES.has(code as LocalizationLanguageCode);
+}
+
+/**
+ * Idiomas que `clone_voice` acepta (`commands/voice_clone.rs::CLONE_LANGUAGES`)
+ * entre los de esta lista: todos menos `bn`, que el motor local no soporta.
+ */
+export const CLONE_LANGUAGE_CODES: ReadonlySet<LocalizationLanguageCode> = new Set([
+  'es',
+  'en',
+  'zh',
+  'hi',
+  'ar',
+  'pt',
+  'ru',
+  'fr',
+  'de',
+  'it',
+  'ja',
+]);
+
+export const DUBBING_LANGUAGES: readonly LocalizationLanguage[] = LOCALIZATION_LANGUAGES.filter(
+  (language) => DUBBING_LANGUAGE_CODES.has(language.code),
+);
+
+export const CLONE_LANGUAGES: readonly LocalizationLanguage[] = LOCALIZATION_LANGUAGES.filter(
+  (language) => CLONE_LANGUAGE_CODES.has(language.code),
+);
 
 export interface TranslationChunk {
   readonly offset: number;

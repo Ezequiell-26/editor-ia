@@ -196,6 +196,38 @@ function firePointer(
     expect(transform?.scaleY ?? 1).toBe(1);
   });
 
+  it('sin clip (capa de cue) usa labelOverride y escribe por onApply', () => {
+    setup();
+    const onApply = vi.fn();
+    const { getByTestId, getByLabelText } = render(
+      <div className="preview-canvas">
+        <PreviewTransformBox
+          project={project}
+          playheadFrame={0}
+          canvas={{ width: 960, height: 540 }}
+          transformOverride={{
+            offsetX: 0,
+            offsetY: 0,
+            scaleX: 1,
+            scaleY: 1,
+            rotationDeg: 0,
+            opacity: 1,
+          }}
+          onApply={onApply}
+          labelOverride="Subtítulo"
+        />
+      </div>,
+    );
+    expect(getByLabelText('Encuadre de Subtítulo')).toBeTruthy();
+    const box = getByTestId('transform-box');
+    firePointer(box, 'pointerdown', 480, 270);
+    firePointer(box, 'pointermove', 530, 300);
+    firePointer(box, 'pointerup', 0, 0);
+    expect(onApply).toHaveBeenCalled();
+    // La receta nunca toca el store: no hay clip que actualizar.
+    expect(project.timeline.clips[0]!.transform?.offsetX ?? 0).toBe(0);
+  });
+
   it('el deslizador de opacidad escribe la transparencia', () => {
     const clip = setup();
     const { getByLabelText } = render(

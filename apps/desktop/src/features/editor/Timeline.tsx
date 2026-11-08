@@ -102,6 +102,14 @@ const TRANSITION_LABELS: Record<string, string> = {
   'slide-right': 'Deslizar',
   'slide-up': 'Deslizar',
   'slide-down': 'Deslizar',
+  'slide-3d-left': 'Deslizar 3D',
+  'slide-3d-right': 'Deslizar 3D',
+  'slide-3d-up': 'Deslizar 3D',
+  'slide-3d-down': 'Deslizar 3D',
+  'wipe-left': 'Barrido',
+  'wipe-right': 'Barrido',
+  'wipe-up': 'Barrido',
+  'wipe-down': 'Barrido',
 };
 
 /**

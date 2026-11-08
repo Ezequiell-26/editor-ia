@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { isWindowFullscreen, setWindowFullscreen } from '../platform/tauri/window';
 import type { NavView, ViewId } from '../app/navigation';
 import { NAV_VIEWS } from '../app/navigation';
 import { CURRENT_APP_VERSION } from '../app/version';
@@ -347,8 +347,7 @@ export function MenuBar({
   useEffect(() => {
     if (!detectNativeRuntime()) return;
     let active = true;
-    void getCurrentWindow()
-      .isFullscreen()
+    void isWindowFullscreen()
       .then((value) => {
         if (active) setFullscreen(value);
       })
@@ -378,8 +377,8 @@ export function MenuBar({
   async function toggleFullscreen(): Promise<void> {
     if (!detectNativeRuntime()) return;
     try {
-      const next = !(await getCurrentWindow().isFullscreen());
-      await getCurrentWindow().setFullscreen(next);
+      const next = !(await isWindowFullscreen());
+      await setWindowFullscreen(next);
       setFullscreen(next);
     } catch {
       setFullscreen(false);

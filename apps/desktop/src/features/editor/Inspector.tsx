@@ -446,8 +446,8 @@ const SUB_TABS: Record<ClipTab, readonly InspectorSubTab[]> = {
   ],
   audio: [
     { id: 'basic', label: 'Básico' },
-    { id: 'noise', label: 'Eliminar Ruido', pending: true },
-    { id: 'voice', label: 'Filtros de voz', pending: true },
+    { id: 'noise', label: 'Eliminar Ruido' },
+    { id: 'voice', label: 'Filtros de voz' },
     { id: 'custom', label: 'Personalizar' },
   ],
   speed: [
@@ -2180,6 +2180,10 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 <option value="slide-right">Deslizar desde la izquierda</option>
                 <option value="slide-up">Deslizar desde abajo</option>
                 <option value="slide-down">Deslizar desde arriba</option>
+                <option value="slide-3d-left">Deslizar 3D desde la derecha</option>
+                <option value="slide-3d-right">Deslizar 3D desde la izquierda</option>
+                <option value="slide-3d-up">Deslizar 3D desde abajo</option>
+                <option value="slide-3d-down">Deslizar 3D desde arriba</option>
                 <option value="wipe-left">Barrido hacia la izquierda</option>
                 <option value="wipe-right">Barrido hacia la derecha</option>
                 <option value="wipe-up">Barrido hacia arriba</option>
@@ -4229,7 +4233,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       ) : null}
 
       {clip.kind === 'video' || clip.kind === 'audio' ? (
-        <Section title="Audio del clip" group="audio" subtab="basic noise voice">
+        <>
+        <Section title="Audio del clip" group="audio" subtab="basic">
           <label className="check">
             <input
               type="checkbox"
@@ -4296,64 +4301,6 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               propio quedan centrados.
             </p>
             <NumberField
-              label="High-pass (Hz)"
-              value={audio.highPassHz ?? 0}
-              min={0}
-              max={2_000}
-              step={10}
-              onCommit={(value) => patchAudio({ highPassHz: value > 20 ? value : undefined })}
-            />
-            <NumberField
-              label="Low-pass (Hz)"
-              value={audio.lowPassHz ?? 0}
-              min={0}
-              max={20_000}
-              step={100}
-              onCommit={(value) => patchAudio({ lowPassHz: value > 1_000 ? value : undefined })}
-            />
-            <NumberField
-              label="EQ graves (dB)"
-              value={audio.eqLowDb ?? 0}
-              min={-12}
-              max={12}
-              step={0.5}
-              onCommit={(value) => patchAudio({ eqLowDb: value })}
-            />
-            <NumberField
-              label="EQ medios (dB)"
-              value={audio.eqMidDb ?? 0}
-              min={-12}
-              max={12}
-              step={0.5}
-              onCommit={(value) => patchAudio({ eqMidDb: value })}
-            />
-            <NumberField
-              label="EQ agudos (dB)"
-              value={audio.eqHighDb ?? 0}
-              min={-12}
-              max={12}
-              step={0.5}
-              onCommit={(value) => patchAudio({ eqHighDb: value })}
-            />
-            <NumberField
-              label="Reducción de ruido (%)"
-              value={Math.round((audio.denoise ?? 0) * 100)}
-              min={0}
-              max={100}
-              step={5}
-              onCommit={(value) =>
-                patchAudio({ denoise: value > 0 ? value / 100 : undefined })
-              }
-            />
-            <NumberField
-              label="Puerta de ruido (dB)"
-              value={audio.gateDb ?? -60}
-              min={-60}
-              max={-10}
-              step={1}
-              onCommit={(value) => patchAudio({ gateDb: value > -60 ? value : undefined })}
-            />
-            <NumberField
               label="Fade in (frames)"
               value={audio.fadeInFrames ?? 0}
               min={0}
@@ -4366,178 +4313,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               onCommit={(value) => patchAudio({ fadeOutFrames: Math.round(value) })}
             />
           </div>
-          <label className="field">
-            <span>Efecto de voz (render)</span>
-            <select
-              value={audio.voiceEffect ?? 'none'}
-              onChange={(event) =>
-                patchAudio({
-                  voiceEffect:
-                    event.target.value === 'none'
-                      ? undefined
-                      : (event.target.value as NonNullable<
-                          NonNullable<Clip['audio']>['voiceEffect']
-                        >),
-                })
-              }
-            >
-              <option value="none">Sin efecto</option>
-              <option value="deep">Voz grave</option>
-              <option value="chipmunk">Voz aguda</option>
-              <option value="robot">Robot</option>
-              <option value="echo">Eco</option>
-              <option value="cave">Cueva</option>
-              <option value="radio">Radio / teléfono</option>
-            </select>
-          </label>
-          <p className="fine-print">
-            El efecto se aplica en el render con filtros locales (`asetrate`, `aecho`, `vibrato`,
-            high/low-pass). La preview reproduce la voz original.
-          </p>
-          {source.type === 'asset' && (asset?.kind === 'audio' || asset?.kind === 'video') ? (
-            <div className="inspector-block">
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={audio.voiceIsolation?.enabled ?? false}
-                  onChange={(event) =>
-                    patchAudio({
-                      voiceIsolation: event.target.checked
-                        ? {
-                            enabled: true,
-                            model: 'demucs-v4',
-                            quality: audio.voiceIsolation?.quality ?? 'medium',
-                          }
-                        : undefined,
-                    })
-                  }
-                />
-                <span>Aislar voz (IA local, Demucs)</span>
-              </label>
-              <label className="field">
-                <span>Calidad del stem</span>
-                <select
-                  value={audio.voiceIsolation?.quality ?? 'medium'}
-                  onChange={(event) =>
-                    patchAudio({
-                      voiceIsolation: {
-                        enabled: audio.voiceIsolation?.enabled ?? false,
-                        model: 'demucs-v4',
-                        quality: event.target.value as 'low' | 'medium' | 'high' | 'best',
-                      },
-                    })
-                  }
-                >
-                  <option value="low">Baja (rápida)</option>
-                  <option value="medium">Media</option>
-                  <option value="high">Alta</option>
-                  <option value="best">Máxima</option>
-                </select>
-              </label>
-              <div className="actions compact">
-                <button
-                  type="button"
-                  className="small"
-                  disabled={voiceIsoBusy || !asset}
-                  onClick={async () => {
-                    if (!asset) return;
-                    setVoiceIsoBusy(true);
-                    setVoiceIsoInfo(null);
-                    try {
-                      const outcome = await store.service.voiceIsolationPrepare(
-                        asset.id,
-                        audio.voiceIsolation?.quality ?? 'medium',
-                      );
-                      patchAudio({
-                        voiceIsolation: {
-                          enabled: true,
-                          model: 'demucs-v4',
-                          quality: audio.voiceIsolation?.quality ?? 'medium',
-                        },
-                      });
-                      setVoiceIsoInfo(
-                        outcome.cached
-                          ? 'Stem de voz reutilizado.'
-                          : `Stem listo en ${(outcome.processingTimeMs / 1000).toFixed(1)} s de proceso.`,
-                      );
-                    } catch (error) {
-                      setVoiceIsoInfo(
-                        error instanceof Error ? error.message : 'No se pudo aislar la voz.',
-                      );
-                    } finally {
-                      setVoiceIsoBusy(false);
-                    }
-                  }}
-                >
-                  {voiceIsoBusy ? 'Aislando voz…' : 'Generar stem de voz'}
-                </button>
-              </div>
-              <p className="fine-print">
-                Requiere Python con Demucs; la primera vez descarga el modelo (~2 GB). El audio
-                exportado usa sólo la voz; el video no cambia. La preview reproduce el original.
-              </p>
-              {voiceIsoInfo ? <p className="fine-print">{voiceIsoInfo}</p> : null}
-            </div>
-          ) : null}
-          <AudioEffectStack
-            stack={audioStack as EffectStack}
-            onChange={(next) =>
-              patchEffects({ audioStack: [...next] as ClipEffects['audioStack'] })
-            }
-            clipLabel={asset?.label ?? clip.label}
-            keyframeFrame={localFrame}
-          />
           <div className="actions compact">
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={audio.compressor ?? false}
-                onChange={(event) => patchAudio({ compressor: event.target.checked })}
-              />
-              <span>Compresor</span>
-            </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={audio.deesser ?? false}
-                onChange={(event) => patchAudio({ deesser: event.target.checked })}
-              />
-              <span>De-esser</span>
-            </label>
-            <button
-              type="button"
-              className="small"
-              onClick={() =>
-                patchAudio({
-                  highPassHz: 80,
-                  lowPassHz: 16_000,
-                  eqLowDb: -2,
-                  eqMidDb: 3,
-                  eqHighDb: 2,
-                  compressor: true,
-                  deesser: true,
-                  denoise: 0.15,
-                })
-              }
-            >
-              Voz clara
-            </button>
-            <button
-              type="button"
-              className="small"
-              onClick={() =>
-                patchAudio({
-                  highPassHz: 40,
-                  eqLowDb: 2,
-                  eqMidDb: 0,
-                  eqHighDb: 1,
-                  compressor: false,
-                  denoise: 0,
-                })
-              }
-            >
-              Música
-            </button>
             <button
               type="button"
               className="small primary"
@@ -4639,15 +4415,258 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             )}
           </div>
           <p className="fine-print">
-            Filtros y compresor se aplican en el render con FFmpeg. La reducción de ruido usa
-            `afftdn` y conviene probarla en el MP4; no reemplaza un modelo de voice isolation.
-          </p>
-          <p className="fine-print">
             {transcribeInfo
               ? `Transcripción: ${transcribeInfo}. Revisá nombres y puntuación antes de publicar.`
               : 'La transcripción usa Faster-Whisper local (modelo small) y reemplaza los subtítulos que se solapen con este clip. Puede tardar.'}
           </p>
         </Section>
+        <Section title="Reducción de ruido" group="audio" subtab="noise">
+          <div className="inspector-grid">
+            <NumberField
+              label="Reducción de ruido (%)"
+              value={Math.round((audio.denoise ?? 0) * 100)}
+              min={0}
+              max={100}
+              step={5}
+              onCommit={(value) =>
+                patchAudio({ denoise: value > 0 ? value / 100 : undefined })
+              }
+            />
+            <NumberField
+              label="Puerta de ruido (dB)"
+              value={audio.gateDb ?? -60}
+              min={-60}
+              max={-10}
+              step={1}
+              onCommit={(value) => patchAudio({ gateDb: value > -60 ? value : undefined })}
+            />
+          </div>
+          {source.type === 'asset' && (asset?.kind === 'audio' || asset?.kind === 'video') ? (
+            <div className="inspector-block">
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={audio.voiceIsolation?.enabled ?? false}
+                  onChange={(event) =>
+                    patchAudio({
+                      voiceIsolation: event.target.checked
+                        ? {
+                            enabled: true,
+                            model: 'demucs-v4',
+                            quality: audio.voiceIsolation?.quality ?? 'medium',
+                          }
+                        : undefined,
+                    })
+                  }
+                />
+                <span>Aislar voz (IA local, Demucs)</span>
+              </label>
+              <label className="field">
+                <span>Calidad del stem</span>
+                <select
+                  value={audio.voiceIsolation?.quality ?? 'medium'}
+                  onChange={(event) =>
+                    patchAudio({
+                      voiceIsolation: {
+                        enabled: audio.voiceIsolation?.enabled ?? false,
+                        model: 'demucs-v4',
+                        quality: event.target.value as 'low' | 'medium' | 'high' | 'best',
+                      },
+                    })
+                  }
+                >
+                  <option value="low">Baja (rápida)</option>
+                  <option value="medium">Media</option>
+                  <option value="high">Alta</option>
+                  <option value="best">Máxima</option>
+                </select>
+              </label>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small"
+                  disabled={voiceIsoBusy || !asset}
+                  onClick={async () => {
+                    if (!asset) return;
+                    setVoiceIsoBusy(true);
+                    setVoiceIsoInfo(null);
+                    try {
+                      const outcome = await store.service.voiceIsolationPrepare(
+                        asset.id,
+                        audio.voiceIsolation?.quality ?? 'medium',
+                      );
+                      patchAudio({
+                        voiceIsolation: {
+                          enabled: true,
+                          model: 'demucs-v4',
+                          quality: audio.voiceIsolation?.quality ?? 'medium',
+                        },
+                      });
+                      setVoiceIsoInfo(
+                        outcome.cached
+                          ? 'Stem de voz reutilizado.'
+                          : `Stem listo en ${(outcome.processingTimeMs / 1000).toFixed(1)} s de proceso.`,
+                      );
+                    } catch (error) {
+                      setVoiceIsoInfo(
+                        error instanceof Error ? error.message : 'No se pudo aislar la voz.',
+                      );
+                    } finally {
+                      setVoiceIsoBusy(false);
+                    }
+                  }}
+                >
+                  {voiceIsoBusy ? 'Aislando voz…' : 'Generar stem de voz'}
+                </button>
+              </div>
+              <p className="fine-print">
+                Requiere Python con Demucs; la primera vez descarga el modelo (~2 GB). El audio
+                exportado usa sólo la voz; el video no cambia. La preview reproduce el original.
+              </p>
+              {voiceIsoInfo ? <p className="fine-print">{voiceIsoInfo}</p> : null}
+            </div>
+          ) : null}
+          <p className="fine-print">
+            La reducción de ruido usa `afftdn` y conviene probarla en el MP4; no reemplaza un
+            modelo de voice isolation.
+          </p>
+        </Section>
+        <Section title="Filtros de voz" group="audio" subtab="voice">
+          <div className="inspector-grid">
+            <NumberField
+              label="High-pass (Hz)"
+              value={audio.highPassHz ?? 0}
+              min={0}
+              max={2_000}
+              step={10}
+              onCommit={(value) => patchAudio({ highPassHz: value > 20 ? value : undefined })}
+            />
+            <NumberField
+              label="Low-pass (Hz)"
+              value={audio.lowPassHz ?? 0}
+              min={0}
+              max={20_000}
+              step={100}
+              onCommit={(value) => patchAudio({ lowPassHz: value > 1_000 ? value : undefined })}
+            />
+            <NumberField
+              label="EQ graves (dB)"
+              value={audio.eqLowDb ?? 0}
+              min={-12}
+              max={12}
+              step={0.5}
+              onCommit={(value) => patchAudio({ eqLowDb: value })}
+            />
+            <NumberField
+              label="EQ medios (dB)"
+              value={audio.eqMidDb ?? 0}
+              min={-12}
+              max={12}
+              step={0.5}
+              onCommit={(value) => patchAudio({ eqMidDb: value })}
+            />
+            <NumberField
+              label="EQ agudos (dB)"
+              value={audio.eqHighDb ?? 0}
+              min={-12}
+              max={12}
+              step={0.5}
+              onCommit={(value) => patchAudio({ eqHighDb: value })}
+            />
+          </div>
+          <label className="field">
+            <span>Efecto de voz (render)</span>
+            <select
+              value={audio.voiceEffect ?? 'none'}
+              onChange={(event) =>
+                patchAudio({
+                  voiceEffect:
+                    event.target.value === 'none'
+                      ? undefined
+                      : (event.target.value as NonNullable<
+                          NonNullable<Clip['audio']>['voiceEffect']
+                        >),
+                })
+              }
+            >
+              <option value="none">Sin efecto</option>
+              <option value="deep">Voz grave</option>
+              <option value="chipmunk">Voz aguda</option>
+              <option value="robot">Robot</option>
+              <option value="echo">Eco</option>
+              <option value="cave">Cueva</option>
+              <option value="radio">Radio / teléfono</option>
+            </select>
+          </label>
+          <p className="fine-print">
+            El efecto se aplica en el render con filtros locales (`asetrate`, `aecho`, `vibrato`,
+            high/low-pass). La preview reproduce la voz original.
+          </p>
+          <AudioEffectStack
+            stack={audioStack as EffectStack}
+            onChange={(next) =>
+              patchEffects({ audioStack: [...next] as ClipEffects['audioStack'] })
+            }
+            clipLabel={asset?.label ?? clip.label}
+            keyframeFrame={localFrame}
+          />
+          <div className="actions compact">
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={audio.compressor ?? false}
+                onChange={(event) => patchAudio({ compressor: event.target.checked })}
+              />
+              <span>Compresor</span>
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={audio.deesser ?? false}
+                onChange={(event) => patchAudio({ deesser: event.target.checked })}
+              />
+              <span>De-esser</span>
+            </label>
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                patchAudio({
+                  highPassHz: 80,
+                  lowPassHz: 16_000,
+                  eqLowDb: -2,
+                  eqMidDb: 3,
+                  eqHighDb: 2,
+                  compressor: true,
+                  deesser: true,
+                  denoise: 0.15,
+                })
+              }
+            >
+              Voz clara
+            </button>
+            <button
+              type="button"
+              className="small"
+              onClick={() =>
+                patchAudio({
+                  highPassHz: 40,
+                  eqLowDb: 2,
+                  eqMidDb: 0,
+                  eqHighDb: 1,
+                  compressor: false,
+                  denoise: 0,
+                })
+              }
+            >
+              Música
+            </button>
+          </div>
+          <p className="fine-print">
+            Filtros y compresor se aplican en el render con FFmpeg.
+          </p>
+        </Section>
+        </>
       ) : null}
 
       {timed ? <SilenceCutsSection clips={[clip]} group="audio" /> : null}

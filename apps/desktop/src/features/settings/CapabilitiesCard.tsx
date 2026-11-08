@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { onModelDownloadProgress } from '../../platform/tauri/events';
 import type { CapabilityInfo, ModelInfo } from '../../services/project-service';
 import { useProjectStore } from '../../state/project-store';
 
@@ -52,24 +52,20 @@ export function CapabilitiesCard() {
     if (!store.service.available) return;
     let disposed = false;
     let unlisten: (() => void) | null = null;
-    try {
-      void listen<{ id: string; percent: number }>('model-download', (event) => {
-        if (typeof event.payload?.percent === 'number') {
-          setDownloadPercent(
-            Math.max(0, Math.min(99, Math.round(event.payload.percent))),
-          );
-        }
+    void onModelDownloadProgress((progress) => {
+      if (typeof progress?.percent === 'number') {
+        setDownloadPercent(
+          Math.max(0, Math.min(99, Math.round(progress.percent))),
+        );
+      }
+    })
+      .then((off) => {
+        if (disposed) off();
+        else unlisten = off;
       })
-        .then((off) => {
-          if (disposed) off();
-          else unlisten = off;
-        })
-        .catch(() => {
-          // Sin Tauri o sin permisos de eventos: la descarga sigue funcionando.
-        });
-    } catch {
-      // Entorno de navegador/pruebas: no hay bus de eventos de Tauri.
-    }
+      .catch(() => {
+        // Sin Tauri o sin permisos de eventos: la descarga sigue funcionando.
+      });
     return () => {
       disposed = true;
       unlisten?.();

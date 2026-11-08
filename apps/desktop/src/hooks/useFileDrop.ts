@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import { onWebviewDragDrop } from '../platform/tauri/webview';
+import type { UnlistenFn } from '../services/contracts/events';
 import { detectNativeRuntime } from '../services/project-service';
 
 /** Extensiones que la app sabe importar (mismo criterio que el diálogo nativo). */
@@ -69,27 +69,25 @@ export function useFileDrop(onDrop: (paths: string[]) => void | Promise<void>): 
     if (!detectNativeRuntime()) return;
     let unlisten: UnlistenFn | null = null;
     let active = true;
-    void getCurrentWebview()
-      .onDragDropEvent((event) => {
-        if (!active) return;
-        const payload = event.payload;
-        if (payload.type === 'enter' || payload.type === 'over') {
-          setHovering(true);
-          return;
-        }
-        if (payload.type === 'leave') {
-          setHovering(false);
-          return;
-        }
-        // drop
+    void onWebviewDragDrop((payload) => {
+      if (!active) return;
+      if (payload.type === 'enter' || payload.type === 'over') {
+        setHovering(true);
+        return;
+      }
+      if (payload.type === 'leave') {
         setHovering(false);
-        const paths = payload.paths ?? [];
-        const { accepted, ignored } = splitDroppedPaths(paths);
-        setLastIgnored(ignored);
-        if (accepted.length > 0) {
-          void dropRef(accepted);
-        }
-      })
+        return;
+      }
+      // drop
+      setHovering(false);
+      const paths = payload.paths ?? [];
+      const { accepted, ignored } = splitDroppedPaths(paths);
+      setLastIgnored(ignored);
+      if (accepted.length > 0) {
+        void dropRef(accepted);
+      }
+    })
       .then((off) => {
         if (!active) {
           off();

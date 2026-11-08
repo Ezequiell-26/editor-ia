@@ -24,10 +24,12 @@ import {
   type SubtitleCueSeconds,
 } from '../../state/subtitles';
 import {
+  CLONE_LANGUAGES,
   LOCALIZATION_LANGUAGES,
   chunkCues,
   estimateLocalizationTokens,
   formatLocalizationBytes,
+  isDubbingLanguage,
   isLocalProviderBaseUrl,
   localizationLanguage,
   subtitleTexts,
@@ -204,6 +206,8 @@ export function LocalizationView({
   );
   const audioAssets = (project?.assets ?? []).filter((asset) => asset.kind === 'audio');
   const translatedLanguages = Object.keys(translations) as LocalizationLanguageCode[];
+  const dubbableLanguages = translatedLanguages.filter(isDubbingLanguage);
+  const undubbableLanguages = translatedLanguages.filter((code) => !isDubbingLanguage(code));
   const dubTranslation = translations[dubLanguage] ?? null;
   const dubCues = dubTranslation?.cues ?? [];
   const matchingVoices = voices.filter((voice) =>
@@ -237,11 +241,17 @@ export function LocalizationView({
   }, [videos, audioAssets, lipVideoId, lipAudioId]);
 
   useEffect(() => {
-    if (translatedLanguages.length > 0 && !translatedLanguages.includes(dubLanguage)) {
-      setDubLanguage(translatedLanguages[0]!);
+    if (dubbableLanguages.length > 0 && !dubbableLanguages.includes(dubLanguage)) {
+      setDubLanguage(dubbableLanguages[0]!);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [translations]);
+
+  useEffect(() => {
+    if (!CLONE_LANGUAGES.some((language) => language.code === cloneLanguage)) {
+      setCloneLanguage(CLONE_LANGUAGES[0]!.code);
+    }
+  }, [cloneLanguage]);
 
   useEffect(() => {
     if (matchingVoices.length === 0) {
@@ -696,7 +706,7 @@ export function LocalizationView({
 
       <header className="compress-head">
         <div>
-          <h2>Un video, ocho idiomas</h2>
+          <h2>Un video, doce idiomas</h2>
           <p>
             Elegí los subtítulos originales, el idioma de destino y el formato. La
             traducción usa el proveedor que configuraste en Ajustes; los archivos se
@@ -1001,7 +1011,7 @@ export function LocalizationView({
                   }
                   disabled={dubBusy}
                 >
-                  {translatedLanguages.map((code) => (
+                  {dubbableLanguages.map((code) => (
                     <option key={code} value={code}>
                       {localizationLanguage(code)?.label ?? code}
                     </option>
@@ -1056,6 +1066,15 @@ export function LocalizationView({
                 </span>
               </div>
             </div>
+            {undubbableLanguages.length > 0 ? (
+              <p className="fine-print">
+                Sin doblaje SAPI por ahora:{' '}
+                {undubbableLanguages
+                  .map((code) => localizationLanguage(code)?.label ?? code)
+                  .join(', ')}
+                .
+              </p>
+            ) : null}
             {matchingVoices.length === 0 ? (
               <p className="notice notice-warning">
                 No hay una voz SAPI para {localizationLanguage(dubLanguage)?.label ?? dubLanguage}.
@@ -1156,13 +1175,16 @@ export function LocalizationView({
                 }
                 disabled={cloneBusy}
               >
-                {LOCALIZATION_LANGUAGES.map((language) => (
+                {CLONE_LANGUAGES.map((language) => (
                   <option key={language.code} value={language.code}>
                     {language.label} · {language.native}
                   </option>
                 ))}
               </select>
             </label>
+            <p className="fine-print">
+              El motor de clonación no incluye bengalí entre los idiomas de esta lista.
+            </p>
             <label className="field">
               <span>Clave del motor (opcional)</span>
               <input

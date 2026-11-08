@@ -101,6 +101,92 @@ describe('editor automático', () => {
     expect(screen.getAllByText(/1 subtítulo/i).length).toBeGreaterThan(0);
   });
 
+  it('pasa los umbrales de medición configurados al análisis', async () => {
+    const { service } = renderView();
+    const spy = vi.spyOn(service, 'analyzeMedia');
+    fireEvent.change(screen.getByLabelText(/Umbral de escena/i), { target: { value: '0.5' } });
+    fireEvent.change(screen.getByLabelText(/Umbral de silencio/i), { target: { value: '-40' } });
+    fireEvent.change(screen.getByLabelText(/Silencio mínimo/i), { target: { value: '0.8' } });
+    fireEvent.click(screen.getByRole('button', { name: /Analizar material/i }));
+    await screen.findByText('Pulso rápido');
+    expect(spy).toHaveBeenCalled();
+    const args = spy.mock.calls[0]!;
+    expect(typeof args[0]).toBe('string');
+    expect(args.slice(1)).toEqual([0.5, -40, 0.8, false]);
+  });
+
+  it('avisa y bloquea aplicar/exportar si los umbrales cambian tras analizar', async () => {
+    renderView();
+    await analyze();
+    const apply = () =>
+      screen.getAllByRole('button', { name: /Reemplazar timeline/i })[0]!;
+    expect(apply().hasAttribute('disabled')).toBe(false);
+
+    fireEvent.change(screen.getByLabelText(/Umbral de silencio/i), {
+      target: { value: '-40' },
+    });
+    expect(await screen.findByText(/Cambiaste los umbrales/i)).toBeTruthy();
+    expect(apply().hasAttribute('disabled')).toBe(true);
+
+    // Volver a medir con los umbrales nuevos levanta el bloqueo.
+    fireEvent.click(screen.getByRole('button', { name: /Volver a analizar/i }));
+    await screen.findByText('Pulso rápido');
+    await waitFor(() =>
+      expect(screen.queryByText(/Cambiaste los umbrales/i)).toBeNull(),
+    );
+    expect(apply().hasAttribute('disabled')).toBe(false);
+  });
+
+  it('muestra el mapa del material por video antes de aplicar', async () => {
+    renderView();
+    await analyze();
+    // Una tarjeta «Mapa del material» por variante, con la pista del video
+    // de 10 s que devuelve el servicio fake y los tramos conservados.
+    expect(screen.getAllByText('Mapa del material por video')).toHaveLength(4);
+    const tracks = screen.getAllByRole('button', { name: /clic en la barra/i });
+    expect(tracks).toHaveLength(4);
+    expect(screen.getAllByText(/de 10\.0 s/).length).toBeGreaterThan(0);
+    // El hueco medido (silencio 1–1.5 s del fake) se marca en la barra.
+    expect(document.querySelectorAll('.auto-src-hole').length).toBeGreaterThan(0);
+    expect(document.querySelectorAll('.auto-src-kept').length).toBeGreaterThan(0);
+  });
+
+  it('reproduce el metraje real y la barra salta al segundo clicado', async () => {
+    renderView();
+    await analyze();
+    // Un único reproductor por fuente, fuera de las tarjetas: con un solo
+    // video en el proyecto hay UN <video> aunque haya cuatro mapas.
+    const player = screen.getByLabelText('Reproductor del material');
+    const videos = player.querySelectorAll<HTMLVideoElement>('.auto-src-video');
+    expect(videos).toHaveLength(1);
+    expect(videos[0]!.getAttribute('src')).toBe('/editor_preview.jpg');
+    // Las filas del mapa ya no montan su propia copia del video.
+    expect(document.querySelectorAll('.auto-src-map .auto-src-video')).toHaveLength(0);
+
+    const playSpy = vi
+      .spyOn(HTMLMediaElement.prototype, 'play')
+      .mockResolvedValue(undefined);
+    const track = screen.getAllByRole('button', { name: /clic en la barra/i })[0]!;
+    track.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 14,
+        width: 100,
+        height: 14,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    // La barra dura 10 s en el fake: el 50 % del ancho son ~5 s.
+    fireEvent.click(track, { clientX: 50 });
+    const video = videos[0]!;
+    expect(video.currentTime).toBeCloseTo(5, 1);
+    expect(playSpy).toHaveBeenCalled();
+    playSpy.mockRestore();
+  });
+
   it('sin videos ofrece ir a Medios', () => {
     renderView(false);
     expect(screen.getByText(/No hay videos listos/i)).toBeTruthy();

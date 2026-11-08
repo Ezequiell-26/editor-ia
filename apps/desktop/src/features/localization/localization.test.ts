@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  CLONE_LANGUAGES,
+  CLONE_LANGUAGE_CODES,
+  DUBBING_LANGUAGES,
+  DUBBING_LANGUAGE_CODES,
   LOCALIZATION_LANGUAGES,
   chunkCues,
   estimateLocalizationTokens,
@@ -17,7 +21,7 @@ const cue = (text: string, start = 0) => ({
 });
 
 describe('Localization Studio helpers', () => {
-  it('ofrece los ocho idiomas y encuentra uno por código', () => {
+  it('ofrece los doce idiomas del backend y encuentra uno por código', () => {
     expect(LOCALIZATION_LANGUAGES.map((language) => language.code)).toEqual([
       'es',
       'en',
@@ -27,9 +31,26 @@ describe('Localization Studio helpers', () => {
       'pt',
       'bn',
       'ru',
+      'fr',
+      'de',
+      'it',
+      'ja',
     ]);
     expect(localizationLanguage('ar')?.direction).toBe('rtl');
-    expect(localizationLanguage('fr')).toBeNull();
+    expect(localizationLanguage('ja')?.native).toBe('日本語');
+    expect(localizationLanguage('tl')).toBeNull();
+  });
+
+  it('el doblaje SAPI excluye japonés y la clonación excluye bengalí', () => {
+    // Espejo de commands/dubbing.rs::normalize_language (sin `ja`) y de
+    // commands/voice_clone.rs::CLONE_LANGUAGES (sin `bn` entre los 12).
+    expect(DUBBING_LANGUAGE_CODES.has('ja')).toBe(false);
+    expect(DUBBING_LANGUAGE_CODES.has('bn')).toBe(true);
+    expect(DUBBING_LANGUAGES).toHaveLength(11);
+    expect(CLONE_LANGUAGE_CODES.has('bn')).toBe(false);
+    expect(CLONE_LANGUAGE_CODES.has('ja')).toBe(true);
+    expect(CLONE_LANGUAGES).toHaveLength(11);
+    expect(CLONE_LANGUAGES.every((language) => language.code !== 'bn')).toBe(true);
   });
 
   it('divide por cantidad de cues y por caracteres sin perder el orden', () => {

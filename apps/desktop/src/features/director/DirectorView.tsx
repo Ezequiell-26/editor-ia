@@ -118,6 +118,7 @@ function DirectorWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =
   const [autoExport, setAutoExport] = useState(true);
   const [silenceDb, setSilenceDb] = useState(-32);
   const [minSilence, setMinSilence] = useState(0.35);
+  const [sceneThreshold, setSceneThreshold] = useState(0.35);
 
   useEffect(() => {
     setFaceTrack(null);
@@ -232,7 +233,7 @@ function DirectorWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =
       setStage('Midiendo silencios, escenas, negros y loudness…');
       const measured = await store.service.analyzeMedia(
         selectedAsset.id,
-        0.35,
+        sceneThreshold,
         silenceDb,
         minSilence,
       );
@@ -635,9 +636,11 @@ function DirectorWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =
                     max={-10}
                     step={1}
                     value={silenceDb}
-                    onChange={(event) =>
-                      setSilenceDb(Math.max(-60, Math.min(-10, Number(event.target.value) || -32)))
-                    }
+                    onChange={(event) => {
+                      setSilenceDb(Math.max(-60, Math.min(-10, Number(event.target.value) || -32)));
+                      setPlan(null);
+                      setApplied(false);
+                    }}
                   />
                 </label>
                 <label className="field">
@@ -648,11 +651,30 @@ function DirectorWorkspace({ onNavigate }: { readonly onNavigate: (id: ViewId) =
                     max={3}
                     step={0.05}
                     value={minSilence}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setMinSilence(
                         Math.max(0.15, Math.min(3, Number(event.target.value) || 0.35)),
-                      )
-                    }
+                      );
+                      setPlan(null);
+                      setApplied(false);
+                    }}
+                  />
+                </label>
+                <label className="field">
+                  <span>Umbral de escena (0–1)</span>
+                  <input
+                    type="number"
+                    min={0.05}
+                    max={0.9}
+                    step={0.05}
+                    value={sceneThreshold}
+                    onChange={(event) => {
+                      setSceneThreshold(
+                        Math.max(0.05, Math.min(0.9, Number(event.target.value) || 0.35)),
+                      );
+                      setPlan(null);
+                      setApplied(false);
+                    }}
                   />
                 </label>
               </div>

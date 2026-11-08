@@ -12535,6 +12535,140 @@ textarea::placeholder {
   text-align: right;
 }
 
+.auto-cut-list.with-src li {
+  grid-template-columns: 92px minmax(0, 1fr) minmax(0, 1fr) 30px;
+}
+
+.auto-cut-src {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-src-details {
+  margin-bottom: 10px;
+}
+
+.auto-src-maps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 4px;
+}
+
+.auto-src-map-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.auto-src-map-name {
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-src-map-meta {
+  flex: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.auto-src-map-track {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 14px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-bg) 55%, #000);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.auto-src-map-track:hover {
+  border-color: var(--color-accent);
+}
+
+.auto-src-map-track:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.auto-src-video {
+  display: block;
+  width: 100%;
+  max-height: 140px;
+  margin-top: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: #000;
+}
+
+.auto-src-no-preview {
+  margin: 4px 0 0;
+}
+
+.auto-src-shared-hint {
+  margin: 4px 0 0;
+}
+
+.auto-src-player {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.auto-src-player h3 {
+  margin: 0;
+}
+
+.auto-src-player-item {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+}
+
+.auto-src-player-name {
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-src-kept {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+.auto-src-kept + .auto-src-kept {
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--color-bg) 80%, #000);
+}
+
+.auto-src-hole {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    color-mix(in srgb, var(--color-bg) 85%, #000) 0 3px,
+    color-mix(in srgb, var(--color-bg) 60%, #000) 3px 6px
+  );
+}
+
+.auto-src-legend {
+  margin: 4px 0 0;
+}
+
 .auto-director-proposal {
   display: grid;
   gap: 4px;

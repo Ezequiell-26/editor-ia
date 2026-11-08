@@ -245,7 +245,7 @@ export function PreviewTransformBox({
         className={`transform-box${dragging ? ' dragging' : ''}${hasKeyframes ? ' locked' : ''}`}
         style={style}
         role="group"
-        aria-label={`Encuadre de ${clip.label}`}
+        aria-label={`Encuadre de ${labelOverride ?? clip?.label ?? 'capa'}`}
         data-testid="transform-box"
         onPointerDown={(event) => begin('move', event)}
         onPointerMove={move}

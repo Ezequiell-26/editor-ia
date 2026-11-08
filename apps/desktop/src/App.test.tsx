@@ -433,8 +433,21 @@ describe('shell de Olyvia', () => {
     await nav('Creador');
     await hubTab('Localización');
     const main = screen.getByRole('main');
-    await waitFor(() => expect(main.textContent).toContain('Un video, ocho idiomas'));
-    for (const language of ['Español', 'Inglés', 'Chino', 'Hindi', 'Árabe', 'Portugués', 'Bengalí', 'Ruso']) {
+    await waitFor(() => expect(main.textContent).toContain('Un video, doce idiomas'));
+    for (const language of [
+      'Español',
+      'Inglés',
+      'Chino',
+      'Hindi',
+      'Árabe',
+      'Portugués',
+      'Bengalí',
+      'Ruso',
+      'Francés',
+      'Alemán',
+      'Italiano',
+      'Japonés',
+    ]) {
       expect(main.textContent).toContain(language);
     }
     await waitFor(() => expect(main.textContent).toContain('Proveedor simulado'));
@@ -1275,6 +1288,73 @@ describe('shell de Olyvia', () => {
     await waitFor(() =>
       expect(screen.getByText('Efecto Noir aplicado.')).toBeTruthy(),
     );
+  });
+
+  it('habilita las sub-pestañas de audio y reparte los controles reales', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(HTMLMediaElement.prototype, 'play').mockResolvedValue();
+    const service = createFakeService();
+    const base = ensureDelivery(createEmptyProject('Obra audio subtabs', '2025-01-01T00:00:00Z'));
+    const audio = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      label: 'Voz limpia',
+      kind: 'audio',
+      source: { type: 'local', path: 'media/voz.wav' },
+      status: 'ready',
+      integrity: { sha256: 'c'.repeat(64), bytes: 5_000 },
+      rights: {
+        license: { id: 'owned', commercialUse: 'allowed' },
+        provenance: { origin: 'user-imported', acquiredAt: '2025-01-01T00:00:00.000Z' },
+      },
+      media: { sampleRate: 48_000, channels: 1, durationFrames: 60 },
+    } as Asset;
+    const seeded = addClipFromAsset(addAsset(base, audio), audio, {
+      atFrame: 0,
+      durationFrames: 60,
+    }).project;
+    const seededOpened = {
+      project: seeded,
+      label: 'audio-subtabs.editoria.json',
+      path: 'C:\\tmp\\audio-subtabs.editoria.json',
+      root: 'C:\\tmp',
+    };
+    service.createProject = async () => seededOpened;
+    service.current = seededOpened;
+    render(<App service={service} />);
+    await createProject('Obra audio subtabs');
+    fireEvent.keyDown(document.querySelector('.timeline-clip.kind-audio') as Element, {
+      key: 'Enter',
+    });
+    const noiseTab = await screen.findByRole(
+      'tab',
+      { name: 'Eliminar Ruido' },
+      { timeout: 10_000 },
+    );
+    expect((noiseTab as HTMLButtonElement).disabled).toBe(false);
+    const voiceTab = screen.getByRole('tab', { name: 'Filtros de voz' });
+    expect((voiceTab as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(noiseTab);
+    await waitFor(() =>
+      expect(
+        document.querySelector('.clip-inspector')?.getAttribute('data-subtab'),
+      ).toBe('noise'),
+    );
+    const noiseSection = document.querySelector(
+      '.inspector-section[data-subtab~="noise"]',
+    );
+    expect(noiseSection?.textContent).toContain('Reducción de ruido');
+    expect(noiseSection?.textContent).toContain('Puerta de ruido');
+    fireEvent.click(voiceTab);
+    await waitFor(() =>
+      expect(
+        document.querySelector('.clip-inspector')?.getAttribute('data-subtab'),
+      ).toBe('voice'),
+    );
+    const voiceSection = document.querySelector(
+      '.inspector-section[data-subtab~="voice"]',
+    );
+    expect(voiceSection?.textContent).toContain('Filtros de voz');
+    expect(voiceSection?.textContent).toContain('Efecto de voz');
   });
 
   it('busca clips por nombre, atenúa el resto y salta al coincidente', async () => {

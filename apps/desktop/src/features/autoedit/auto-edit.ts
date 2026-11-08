@@ -574,6 +574,100 @@ export function reorderVariant(
   return withCuts(variant, cuts);
 }
 
+export interface AutoEditSourceSegment {
+  /** Segundos dentro del video original. */
+  readonly start: number;
+  readonly end: number;
+}
+
+/**
+ * Cómo queda cada fuente medida frente a los cortes elegidos de una variante:
+ * qué rangos del material entran al montaje y dónde están los huecos que el
+ * análisis ya descartó (silencio, negro, congelado). Es la vista previa del
+ * corte «sobre el material» antes de escribir la timeline.
+ */
+export interface AutoEditSourceUsage {
+  readonly assetId: string;
+  readonly label: string;
+  readonly durationSeconds: number;
+  /** Segundos del material que sobreviven con los cortes elegidos. */
+  readonly keptSeconds: number;
+  readonly kept: readonly AutoEditSourceSegment[];
+  readonly holes: readonly AutoEditSourceSegment[];
+}
+
+/** Une rangos que se solapan o se tocan; la entrada puede venir desordenada. */
+function mergeTimeRanges(
+  ranges: readonly AutoEditSourceSegment[],
+): AutoEditSourceSegment[] {
+  const sorted = [...ranges]
+    .filter((range) => range.end - range.start > 0.01)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged: AutoEditSourceSegment[] = [];
+  for (const range of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && range.start <= last.end + 0.01) {
+      merged[merged.length - 1] = { start: last.start, end: Math.max(last.end, range.end) };
+    } else {
+      merged.push({ start: range.start, end: range.end });
+    }
+  }
+  return merged;
+}
+
+/**
+ * Mapa de uso del material para una variante. Una fila por fuente que aporta
+ * al menos un corte a la variante completa; `kept` refleja sólo los cortes
+ * elegidos (`indices`), así que destildar un corte achica el tramo conservado.
+ */
+export function buildSourceUsage(
+  sources: readonly AutoEditSource[],
+  variant: AutoEditVariant,
+  indices: readonly number[],
+): AutoEditSourceUsage[] {
+  const contributing = new Set(variant.cuts.map((cut) => cut.assetId));
+  const chosen = new Set(
+    indices.filter(
+      (index) => Number.isInteger(index) && index >= 0 && index < variant.cuts.length,
+    ),
+  );
+  const byAsset = new Map<string, AutoEditSourceSegment[]>();
+  variant.cuts.forEach((cut, index) => {
+    if (!chosen.has(index)) return;
+    const list = byAsset.get(cut.assetId) ?? [];
+    list.push({ start: cut.startSeconds, end: cut.endSeconds });
+    byAsset.set(cut.assetId, list);
+  });
+  return sources
+    .filter((source) => contributing.has(source.assetId))
+    .map((source) => {
+      const duration = Math.max(0, source.analysis.durationSeconds);
+      const kept = mergeTimeRanges(byAsset.get(source.assetId) ?? []);
+      const holes = mergeTimeRanges(
+        [
+          ...source.analysis.silences,
+          ...source.analysis.blacks,
+          ...source.analysis.freezes,
+        ]
+          .map((range) => ({
+            start: clamp(range.startSeconds, 0, duration),
+            end: clamp(range.endSeconds, 0, duration),
+          }))
+          .sort((a, b) => a.start - b.start),
+      );
+      return {
+        assetId: source.assetId,
+        label: source.label,
+        durationSeconds: duration,
+        keptSeconds: Number(
+          kept.reduce((sum, range) => sum + (range.end - range.start), 0).toFixed(2),
+        ),
+        kept,
+        holes,
+      };
+    });
+}
+
 /**
  * Deja sólo los cortes elegidos. Los subtítulos se recortan y se reubican: un
  * corte descartado no puede dejar texto flotando sobre otro plano.

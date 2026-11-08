@@ -11,8 +11,12 @@ import {
   validFpsRange,
 } from'../../state/video-format';
 import { detectNativeRuntime } from'../../services/project-service';
-import { getCurrentWindow } from'@tauri-apps/api/window';
-import { LogicalSize } from'@tauri-apps/api/dpi';
+import {
+  closeMainWindow,
+  maximizeMainWindow,
+  minimizeMainWindow,
+  setupCompactWindow,
+} from '../../platform/tauri/window';
 import { SettingsWindow } from'../../components/SettingsWindow';
 import { AppUpdaterModal } from'../updater/AppUpdaterModal';
 import { CURRENT_APP_VERSION } from'../../app/version';
@@ -276,14 +280,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
   // Ensure compact window size on mount (DaVinci Project Manager style: 900x580)
   useEffect(() => {
     if (!native) return;
-    const appWindow = getCurrentWindow();
-    void appWindow
-      .unmaximize()
-      .then(() => appWindow.setResizable(false))
-      .then(() => appWindow.setMaximizable(false))
-      .then(() => appWindow.setSize(new LogicalSize(900, 580)))
-      .then(() => appWindow.center())
-      .catch(() => {});
+    setupCompactWindow();
   }, [native]);
 
   // Focus name input when create modal opens
@@ -324,10 +321,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
     (view: ViewId) => {
       setPhase('exit');
       if (native) {
-        const appWindow = getCurrentWindow();
-        void appWindow.maximize().catch(() => {
-          void appWindow.toggleMaximize().catch(() => {});
-        });
+        maximizeMainWindow();
       }
       const timer = window.setTimeout(() => onEnterApp(view), 80);
       return () => window.clearTimeout(timer);
@@ -540,9 +534,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   className="start-win-btn"
                   title="Minimizar"
                   aria-label="Minimizar"
-                  onClick={() => {
-                    void getCurrentWindow().minimize().catch(() => {});
-                  }}
+                  onClick={minimizeMainWindow}
                 >
                   <Icon name="minus"size={12} />
                 </button>
@@ -551,9 +543,7 @@ export function StartScreen({ onEnterApp, banner = null }: StartScreenProps) {
                   className="start-win-btn start-win-btn--close"
                   title="Cerrar"
                   aria-label="Cerrar"
-                  onClick={() => {
-                    void getCurrentWindow().close().catch(() => {});
-                  }}
+                  onClick={closeMainWindow}
                 >
                   <Icon name="close"size={12} />
                 </button>

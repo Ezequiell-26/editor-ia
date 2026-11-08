@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import {
+  closeMainWindow,
+  isWindowMaximized,
+  minimizeMainWindow,
+  onWindowResized,
+  toggleMaximizeWindow,
+} from '../platform/tauri/window';
 import { detectNativeRuntime } from '../services/project-service';
 import { Icon } from './Icon';
 
@@ -16,23 +22,17 @@ export function WindowControls() {
     if (!native) return;
     let active = true;
     let unlisten: (() => void) | null = null;
-    const appWindow = getCurrentWindow();
-    const sync = () => {
-      void appWindow
-        .isMaximized()
-        .then((value) => {
-          if (active) setMaximized(value);
-        })
-        .catch(() => {});
-    };
-    sync();
-    void appWindow
-      .onResized(sync)
-      .then((off) => {
-        if (active) unlisten = off;
-        else off();
-      })
-      .catch(() => {});
+    void isWindowMaximized().then((value) => {
+      if (active) setMaximized(value);
+    });
+    void onWindowResized(() => {
+      void isWindowMaximized().then((value) => {
+        if (active) setMaximized(value);
+      });
+    }).then((off) => {
+      if (active) unlisten = off;
+      else off();
+    });
     return () => {
       active = false;
       unlisten?.();
@@ -48,9 +48,7 @@ export function WindowControls() {
         className="window-control"
         aria-label="Minimizar"
         data-tooltip="Minimizar"
-        onClick={() => {
-          void getCurrentWindow().minimize().catch(() => {});
-        }}
+        onClick={minimizeMainWindow}
       >
         <Icon name="minus" size={14} />
       </button>
@@ -60,11 +58,7 @@ export function WindowControls() {
         aria-label={maximized ? 'Restaurar' : 'Maximizar'}
         data-tooltip={maximized ? 'Restaurar' : 'Maximizar'}
         onClick={() => {
-          void getCurrentWindow()
-            .toggleMaximize()
-            .then(() => getCurrentWindow().isMaximized())
-            .then(setMaximized)
-            .catch(() => {});
+          void toggleMaximizeWindow().then(setMaximized);
         }}
       >
         <Icon name={maximized ? 'restore' : 'maximize'} size={13} />
@@ -74,9 +68,7 @@ export function WindowControls() {
         className="window-control close"
         aria-label="Cerrar ventana"
         data-tooltip="Cerrar ventana"
-        onClick={() => {
-          void getCurrentWindow().close().catch(() => {});
-        }}
+        onClick={closeMainWindow}
       >
         <Icon name="close" size={14} />
       </button>

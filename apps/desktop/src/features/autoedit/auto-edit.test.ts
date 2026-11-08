@@ -7,6 +7,7 @@ import { applyAutoEditVariant } from './apply-auto-edit';
 import {
   DEFAULT_RECIPE,
   buildAutoEditVariants,
+  buildSourceUsage,
   clampRecipe,
   recipeSummary,
   reorderVariant,
@@ -505,5 +506,70 @@ describe('dirección asistida por IA', () => {
     ).toBeNull();
     expect(parseDirectorProposal('no es json', variant, 'm')).toBeNull();
     expect(parseDirectorProposal('{"title":"x"}', variant, 'm')).toBeNull();
+  });
+});
+
+describe('mapa del material por fuente', () => {
+  it('resume qué tramos entran y dónde están los huecos medidos', () => {
+    const sources = [source()];
+    const variant = buildAutoEditVariants(sources).find((item) => item.style === 'custom')!;
+    const usage = buildSourceUsage(
+      sources,
+      variant,
+      variant.cuts.map((_, index) => index),
+    );
+    expect(usage).toHaveLength(1);
+    const row = usage[0]!;
+    expect(row.assetId).toBe(ASSET_A);
+    expect(row.label).toBe('Entrevista');
+    expect(row.durationSeconds).toBe(60);
+    expect(row.holes).toEqual([
+      { start: 12, end: 14 },
+      { start: 32, end: 35 },
+    ]);
+    // Con todos los cortes elegidos, lo conservado es la duración de la variante.
+    expect(row.keptSeconds).toBe(variant.durationSeconds);
+    for (const hole of row.holes) {
+      for (const kept of row.kept) {
+        const overlap = Math.min(kept.end, hole.end) - Math.max(kept.start, hole.start);
+        expect(overlap).toBeLessThanOrEqual(0.01);
+      }
+    }
+  });
+
+  it('achica lo conservado al destildar cortes', () => {
+    const sources = [source()];
+    const variant = buildAutoEditVariants(sources).find((item) => item.style === 'custom')!;
+    const first = variant.cuts[0]!;
+    const usage = buildSourceUsage(sources, variant, [0]);
+    expect(usage[0]!.keptSeconds).toBeCloseTo(first.endSeconds - first.startSeconds, 2);
+    const empty = buildSourceUsage(sources, variant, [-1, 999]);
+    expect(empty[0]!.kept).toHaveLength(0);
+    expect(empty[0]!.keptSeconds).toBe(0);
+  });
+
+  it('con dos fuentes muestra una fila por video aunque uno quede sin cortes', () => {
+    const sources = [
+      source(),
+      source({
+        assetId: ASSET_B,
+        label: 'B-roll',
+        analysis: analysis({ assetId: ASSET_B, scenes: [5, 15, 25, 45] }),
+        transcript: null,
+      }),
+    ];
+    const variant = buildAutoEditVariants(sources).find((item) => item.style === 'custom')!;
+    const onlyA = variant.cuts
+      .map((cut, index) => (cut.assetId === ASSET_A ? index : -1))
+      .filter((index) => index >= 0);
+    const usage = buildSourceUsage(sources, variant, onlyA);
+    expect(usage).toHaveLength(2);
+    const rowA = usage.find((row) => row.assetId === ASSET_A)!;
+    const rowB = usage.find((row) => row.assetId === ASSET_B)!;
+    expect(rowA.keptSeconds).toBeGreaterThan(0);
+    // B aporta cortes a la variante pero ninguno elegido: entra con cero.
+    expect(rowB.kept).toHaveLength(0);
+    expect(rowB.keptSeconds).toBe(0);
+    expect(rowB.holes).toEqual(rowA.holes);
   });
 });

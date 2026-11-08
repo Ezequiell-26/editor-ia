@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { MouseEvent as ReactMouseEvent } from 'react';
 import type { Asset } from '@editor-ia/project-schema';
 import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
@@ -7,22 +8,43 @@ import { parseSubtitles } from '../../state/subtitles';
 import { useProjectStore } from '../../state/project-store';
 import { applyAutoEditVariant } from './apply-auto-edit';
 import {
+  autoEditExportSummary,
+  exportAutoEditVariants,
+  type AutoEditExportItem,
+  type AutoEditExportReport,
+} from './auto-edit-export';
+import {
   DEFAULT_RECIPE,
   MAX_CUT_SECONDS,
   MIN_CUT_SECONDS,
   buildAutoEditVariants,
+  buildSourceUsage,
   clampRecipe,
   recipeSummary,
   reorderVariant,
   subsetVariant,
   type AutoEditRecipe,
   type AutoEditSource,
+  type AutoEditSourceUsage,
   type AutoEditTransition,
   type AutoEditVariant,
 } from './auto-edit';
 import { buildDirectorMessages, parseDirectorProposal, type DirectorProposal } from './ai-director';
 
 const MAX_SOURCES = 6;
+
+/** Umbrales con los que se midió el material por última vez. */
+interface AnalysisParams {
+  readonly sceneThreshold: number;
+  readonly silenceDb: number;
+  readonly minSilence: number;
+}
+
+const DEFAULT_ANALYSIS: AnalysisParams = {
+  sceneThreshold: 0.35,
+  silenceDb: -32,
+  minSilence: 0.35,
+};
 
 function formatSeconds(value: number): string {
   const total = Math.max(0, Math.round(value));
@@ -33,6 +55,12 @@ function formatLufs(value: number | null | undefined): string {
   return value === null || value === undefined ? 'sin medir' : `${value.toFixed(1)} LUFS`;
 }
 
+/** Posición/ancho en % dentro de la barra del material original. */
+function pctOf(seconds: number, duration: number): string {
+  if (duration <= 0) return '0%';
+  return `${((seconds / duration) * 100).toFixed(3)}%`;
+}
+
 const REASON_LABEL: Record<string, string> = {
   hook: 'gancho',
   speech: 'voz',
@@ -40,6 +68,92 @@ const REASON_LABEL: Record<string, string> = {
   energy: 'energía',
   fill: 'relleno',
 };
+
+/**
+ * Una fila del mapa del material: la barra temporal es clickeable y salta el
+ * reproductor compartido de esa fuente al segundo correspondiente. El
+ * `<video>` vive una sola vez por fuente, fuera de las tarjetas
+ * («Reproductor del material»), para no montar una copia por variante.
+ */
+function SourceUsageRow({
+  row,
+  url,
+  assetMissing,
+  onPreviewSeek,
+}: {
+  readonly row: AutoEditSourceUsage;
+  readonly url: string | null;
+  readonly assetMissing: boolean;
+  readonly onPreviewSeek: (assetId: string, seconds: number) => void;
+}) {
+  function seekTo(event: ReactMouseEvent<HTMLButtonElement>): void {
+    if (!url || row.durationSeconds <= 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width));
+    onPreviewSeek(row.assetId, ratio * row.durationSeconds);
+  }
+
+  return (
+    <div className="auto-src-map">
+      <div className="auto-src-map-head">
+        <span className="auto-src-map-name" title={row.label}>
+          {row.label}
+        </span>
+        <span className="auto-src-map-meta">
+          {row.durationSeconds > 0
+            ? `${row.keptSeconds.toFixed(1)} s de ${row.durationSeconds.toFixed(1)} s`
+            : 'sin duración'}
+        </span>
+      </div>
+      {row.durationSeconds > 0 ? (
+        <button
+          type="button"
+          className="auto-src-map-track auto-src-seek"
+          aria-label={`${row.label}: ${row.keptSeconds.toFixed(
+            1,
+          )} de ${row.durationSeconds.toFixed(
+            1,
+          )} segundos conservados; clic en la barra para ver ese segundo`}
+          onClick={seekTo}
+        >
+          {row.kept.map((segment, index) => (
+            <span
+              key={`kept-${index}`}
+              className="auto-src-kept"
+              style={{
+                left: pctOf(segment.start, row.durationSeconds),
+                width: pctOf(segment.end - segment.start, row.durationSeconds),
+              }}
+            />
+          ))}
+          {row.holes.map((hole, index) => (
+            <span
+              key={`hole-${index}`}
+              className="auto-src-hole"
+              style={{
+                left: pctOf(hole.start, row.durationSeconds),
+                width: pctOf(hole.end - hole.start, row.durationSeconds),
+              }}
+            />
+          ))}
+        </button>
+      ) : null}
+      {url ? (
+        <p className="fine-print auto-src-shared-hint">
+          El metraje se reproduce una vez por video, en «Reproductor del material»;
+          la barra salta a ese segundo.
+        </p>
+      ) : (
+        <p className="fine-print auto-src-no-preview">
+          {assetMissing
+            ? 'El medio ya no está en el proyecto.'
+            : 'La vista previa del video está disponible en la app de escritorio.'}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** Convierte la onda medida en energía 0–1 lista para puntuar. */
 function energyFromPeaks(peaks: readonly { min: number; max: number }[]): number[] {
@@ -58,6 +172,19 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
       ),
     [project],
   );
+  const sessionRoot = store.state.opened?.root ?? null;
+
+  // URL reproducible por asset (mismo criterio que el monitor: proxy si hay).
+  // '' en modo navegador: la fila avisa en vez de simular un video.
+  const previewUrls = useMemo(() => {
+    const map = new Map<string, string | null>();
+    for (const asset of videoAssets) {
+      const proxy = 'proxy' in asset ? asset.proxy : undefined;
+      const path = proxy?.path ?? asset.source.path;
+      map.set(asset.id, sessionRoot ? store.service.mediaUrl(sessionRoot, path) : null);
+    }
+    return map;
+  }, [videoAssets, sessionRoot, store.service]);
 
   const [selectedIds, setSelectedIds] = useState<readonly string[]>([]);
   const [recipe, setRecipe] = useState<AutoEditRecipe>(DEFAULT_RECIPE);
@@ -79,6 +206,17 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
   const [directorFor, setDirectorFor] = useState<string | null>(null);
   const [directorBusy, setDirectorBusy] = useState(false);
   const [directorError, setDirectorError] = useState<string | null>(null);
+  const [exportDir, setExportDir] = useState(() => {
+    const root = store.state.opened?.root;
+    return root ? `${root}\\variantes-auto` : '';
+  });
+  const [exporting, setExporting] = useState(false);
+  const [exportStage, setExportStage] = useState('');
+  const [exportReport, setExportReport] = useState<AutoEditExportReport | null>(null);
+  const [sceneThreshold, setSceneThreshold] = useState(DEFAULT_ANALYSIS.sceneThreshold);
+  const [silenceDb, setSilenceDb] = useState(DEFAULT_ANALYSIS.silenceDb);
+  const [minSilence, setMinSilence] = useState(DEFAULT_ANALYSIS.minSilence);
+  const [measuredParams, setMeasuredParams] = useState<AnalysisParams | null>(null);
 
   // El motor es puro: mover un control reconstruye las variantes al instante,
   // sin volver a medir el video.
@@ -97,6 +235,36 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     [variants, orders],
   );
 
+  // Fuentes que aparecen en el mapa de material de alguna variante: el
+  // reproductor se monta una sola vez por fuente, fuera de las tarjetas.
+  const previewSources = useMemo(() => {
+    const contributing = new Set<string>();
+    for (const variant of finalVariants) {
+      for (const cut of variant.cuts) contributing.add(cut.assetId);
+    }
+    return sources.filter((source) => contributing.has(source.assetId));
+  }, [finalVariants, sources]);
+  const previewVideoRefs = useRef(new Map<string, HTMLVideoElement>());
+
+  function seekPreviewSource(assetId: string, seconds: number): void {
+    const video = previewVideoRefs.current.get(assetId);
+    if (!video) return;
+    video.currentTime = seconds;
+    if (typeof video.scrollIntoView === 'function') {
+      try {
+        video.scrollIntoView({ block: 'nearest' });
+      } catch {
+        // jsdom y WebViews viejos pueden no implementarlo: el seek ya ocurrió.
+      }
+    }
+    try {
+      const pending = video.play();
+      if (pending) void pending.catch(() => undefined);
+    } catch {
+      // La política de autoplay puede rechazar el play: quedan los controles.
+    }
+  }
+
   const selection =
     selectedIds.length > 0 ? selectedIds : videoAssets.slice(0, 1).map((asset) => asset.id);
 
@@ -111,6 +279,16 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     }),
     [sources],
   );
+
+  // Los umbrales sólo afectan la medición: si cambian después de analizar, las
+  // variantes que se ven fueron medidas con otros valores y no se pueden
+  // aplicar ni exportar hasta volver a medir.
+  const analysisStale =
+    sources.length > 0 &&
+    measuredParams !== null &&
+    (measuredParams.sceneThreshold !== sceneThreshold ||
+      measuredParams.silenceDb !== silenceDb ||
+      measuredParams.minSilence !== minSilence);
 
   function patch(next: Partial<AutoEditRecipe>): void {
     // Cambiar la receta invalida el orden de la IA: los cortes ya no son los mismos.
@@ -166,6 +344,7 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
     setIncluded({});
     setOrders({});
     setTitles({});
+    setMeasuredParams(null);
     try {
       const measured: AutoEditSource[] = [];
       const messages: string[] = [];
@@ -173,9 +352,9 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
         setStage(`Midiendo ${index + 1}/${picked.length}: ${asset.label}…`);
         const analysis = await store.service.analyzeMedia(
           asset.id,
-          undefined,
-          undefined,
-          undefined,
+          sceneThreshold,
+          silenceDb,
+          minSilence,
           false,
         );
         let energy: number[] | null = null;
@@ -235,6 +414,7 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
         });
       }
       setSources(measured);
+      setMeasuredParams({ sceneThreshold, silenceDb, minSilence });
       const built = buildAutoEditVariants(measured, clampRecipe(recipe));
       if (built.length === 0) {
         setError('No hay suficiente material limpio para armar variantes.');
@@ -335,6 +515,40 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
       onNavigate('editor');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'no se pudo aplicar la variante');
+    }
+  }
+
+  async function exportVariants(): Promise<void> {
+    if (exporting || !project || finalVariants.length === 0 || !exportDir.trim()) return;
+    setExporting(true);
+    setExportStage('');
+    setExportReport(null);
+    setError(null);
+    setNotice(null);
+    try {
+      const report = await exportAutoEditVariants(store.service, {
+        project,
+        assets: videoAssets,
+        entries: finalVariants.map((variant) => ({
+          variant,
+          indices: includedIndices(variant),
+          title: titles[variant.id],
+        })),
+        outputDir: exportDir.trim(),
+        analysis: sources[0]?.analysis ?? null,
+        improveAudio,
+        addCaptions,
+        onProgress: (item: AutoEditExportItem) => {
+          setExportStage(`${item.name}: ${item.message}`);
+        },
+      });
+      setExportReport(report);
+      store.setNotice(`Exportación de variantes: ${autoEditExportSummary(report)}`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'no se pudieron exportar las variantes');
+    } finally {
+      setExporting(false);
+      setExportStage('');
     }
   }
 
@@ -590,6 +804,69 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
             <div className="card">
               <div className="production-card-head">
                 <div>
+                  <p className="eyebrow">Medición</p>
+                  <h3>Umbrales del análisis</h3>
+                </div>
+              </div>
+              <p className="fine-print">
+                Con qué sensibilidad FFmpeg mide escenas y silencios. Si los cambiás después de
+                analizar, hay que volver a medir antes de aplicar o exportar.
+              </p>
+              <div className="auto-edit-options">
+                <label className="field">
+                  <span>Umbral de escena (0–1)</span>
+                  <input
+                    type="number"
+                    min={0.05}
+                    max={0.9}
+                    step={0.05}
+                    value={sceneThreshold}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setSceneThreshold(
+                        Math.max(0.05, Math.min(0.9, Number(event.target.value) || 0.35)),
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Umbral de silencio (dB)</span>
+                  <input
+                    type="number"
+                    min={-60}
+                    max={-10}
+                    step={1}
+                    value={silenceDb}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setSilenceDb(
+                        Math.max(-60, Math.min(-10, Number(event.target.value) || -32)),
+                      )
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>Silencio mínimo (s)</span>
+                  <input
+                    type="number"
+                    min={0.15}
+                    max={3}
+                    step={0.05}
+                    value={minSilence}
+                    disabled={busy}
+                    onChange={(event) =>
+                      setMinSilence(
+                        Math.max(0.15, Math.min(3, Number(event.target.value) || 0.35)),
+                      )
+                    }
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="card">
+              <div className="production-card-head">
+                <div>
                   <p className="eyebrow">Al aplicar</p>
                   <h3>Qué se escribe en la timeline</h3>
                 </div>
@@ -653,6 +930,57 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 </label>
               </div>
             </div>
+
+            <div className="card">
+              <div className="production-card-head">
+                <div>
+                  <p className="eyebrow">Entrega</p>
+                  <h3>Exportar variantes</h3>
+                </div>
+              </div>
+              <p className="fine-print">
+                Escribe un proyecto y un MP4 por variante en la carpeta de salida, con los cortes
+                elegidos en cada tarjeta. No toca la timeline abierta.
+              </p>
+              <label className="field">
+                <span>Carpeta de salida</span>
+                <input
+                  type="text"
+                  value={exportDir}
+                  placeholder="C:\\Users\\tu-usuario\\Videos\\variantes-auto"
+                  onChange={(event) => setExportDir(event.target.value)}
+                />
+              </label>
+              <div className="actions compact">
+                <button
+                  type="button"
+                  className="small primary"
+                  disabled={
+                    exporting || busy || finalVariants.length === 0 || !exportDir.trim() || analysisStale
+                  }
+                  onClick={() => void exportVariants()}
+                >
+                  {exporting
+                    ? 'Exportando…'
+                    : `Exportar ${finalVariants.length} variante${finalVariants.length === 1 ? '' : 's'}`}
+                </button>
+              </div>
+              {exportStage ? (
+                <p className="fine-print" role="status">
+                  {exportStage}
+                </p>
+              ) : null}
+              {exportReport && exportReport.items.length > 0 ? (
+                <ul className="keyframe-list folder-queue-results">
+                  {exportReport.items.map((item: AutoEditExportItem) => (
+                    <li key={item.name} className="fine-print">
+                      <strong>{item.name}</strong> · {item.message}
+                      {item.videoPath ? <span className="muted"> → {item.videoPath}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </div>
 
           <div className="auto-edit-results">
@@ -667,6 +995,12 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
               </p>
             ) : null}
             {notice ? <p className="fine-print">{notice}</p> : null}
+            {analysisStale ? (
+              <p className="notice notice-warning" role="status">
+                Cambiaste los umbrales después de analizar: estas variantes se midieron con los
+                valores anteriores. Volvé a analizar para aplicarlas o exportarlas.
+              </p>
+            ) : null}
             {directorError ? (
               <p className="notice notice-warning" role="alert">
                 {directorError}
@@ -708,6 +1042,7 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 const chosen = subsetVariant(variant, chosenIndices);
                 const title = titles[variant.id] ?? variant.name;
                 const proposal = directorFor === variant.id ? director : null;
+                const usage = buildSourceUsage(sources, variant, chosenIndices);
                 return (
                   <article className="card auto-edit-variant" key={variant.id}>
                     <header>
@@ -755,20 +1090,53 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                     </p>
                     <details className="auto-cut-details">
                       <summary>Ver los cortes</summary>
-                      <ol className="auto-cut-list">
-                        {variant.cuts.map((cut, index) => (
-                          <li
-                            key={`${cut.assetId}-${cut.startSeconds}-list-${index}`}
-                            className={chosenIndices.includes(index) ? '' : 'off'}
-                          >
-                            <span>
-                              {formatSeconds(cut.startSeconds)}–{formatSeconds(cut.endSeconds)}
-                            </span>
-                            <span>{REASON_LABEL[cut.reason] ?? cut.reason}</span>
-                            <span>{cut.score}</span>
-                          </li>
-                        ))}
+                      <ol
+                        className={`auto-cut-list${
+                          sources.length > 1 ? ' with-src' : ''
+                        }`}
+                      >
+                        {variant.cuts.map((cut, index) => {
+                          const sourceLabel =
+                            sources.find((source) => source.assetId === cut.assetId)?.label ??
+                            '';
+                          return (
+                            <li
+                              key={`${cut.assetId}-${cut.startSeconds}-list-${index}`}
+                              className={chosenIndices.includes(index) ? '' : 'off'}
+                            >
+                              <span>
+                                {formatSeconds(cut.startSeconds)}–{formatSeconds(cut.endSeconds)}
+                              </span>
+                              {sources.length > 1 ? (
+                                <span className="auto-cut-src" title={sourceLabel}>
+                                  {sourceLabel}
+                                </span>
+                              ) : null}
+                              <span>{REASON_LABEL[cut.reason] ?? cut.reason}</span>
+                              <span>{cut.score}</span>
+                            </li>
+                          );
+                        })}
                       </ol>
+                    </details>
+
+                    <details className="auto-cut-details auto-src-details">
+                      <summary>Mapa del material por video</summary>
+                      <div className="auto-src-maps">
+                        {usage.map((row) => (
+                          <SourceUsageRow
+                            key={row.assetId}
+                            row={row}
+                            url={previewUrls.get(row.assetId) ?? null}
+                            assetMissing={!previewUrls.has(row.assetId)}
+                            onPreviewSeek={seekPreviewSource}
+                          />
+                        ))}
+                      </div>
+                      <p className="fine-print auto-src-legend">
+                        Verde: entra al montaje · gris: se descarta · oscuro: hueco medido
+                        (silencio, negro o congelado). Se actualiza al destildar cortes.
+                      </p>
                     </details>
 
                     {proposal ? (
@@ -806,6 +1174,7 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       <button
                         type="button"
                         className="primary"
+                        disabled={analysisStale}
                         onClick={() => applyVariant(variant)}
                       >
                         {replaceTimeline ? 'Reemplazar timeline' : 'Agregar al final'} ·{' '}
@@ -814,7 +1183,7 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                       <button
                         type="button"
                         className="ghost icon-text"
-                        disabled={directorBusy || !approveCost}
+                        disabled={directorBusy || !approveCost || analysisStale}
                         title={
                           approveCost
                             ? 'La IA propone otro orden para estos cortes'
@@ -845,6 +1214,41 @@ export function AutoEditView({ onNavigate }: { readonly onNavigate: (id: ViewId)
                 );
               })
             )}
+
+            {previewSources.some((source) => previewUrls.get(source.assetId)) ? (
+              <section className="card auto-src-player" aria-label="Reproductor del material">
+                <h3>Reproductor del material</h3>
+                <p className="fine-print">
+                  Un reproductor por video, compartido por todas las variantes: la barra de cada
+                  mapa salta a ese segundo.
+                </p>
+                {previewSources.map((source) => {
+                  const url = previewUrls.get(source.assetId) ?? null;
+                  if (!url) return null;
+                  return (
+                    <figure className="auto-src-player-item" key={source.assetId}>
+                      <figcaption className="auto-src-player-name" title={source.label}>
+                        {source.label}
+                      </figcaption>
+                      <video
+                        ref={(element) => {
+                          if (element) {
+                            previewVideoRefs.current.set(source.assetId, element);
+                          } else {
+                            previewVideoRefs.current.delete(source.assetId);
+                          }
+                        }}
+                        className="auto-src-video"
+                        src={url}
+                        controls
+                        preload="metadata"
+                        playsInline
+                      />
+                    </figure>
+                  );
+                })}
+              </section>
+            ) : null}
           </div>
         </div>
       )}
