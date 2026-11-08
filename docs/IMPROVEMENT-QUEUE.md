@@ -185,6 +185,34 @@ reconstruye el instalador salvo que el ítem lo pida.
     globales — evaluar si corresponde moverlos enteros al final del
     critical path o repartirlos por vista).
 
+- `[done]` **CSS splitting fase 2 · slice 6: bloques editor de FÁBRICA +
+  refinamientos de ORGANIZACIÓN VISUAL al editor entry (2026-11-08)** —
+  el tramo grande de la fase.
+  - **Cambio**: (a) el resto de la sección FÁBRICA — timeline
+    markers/snapping/I-O, motion graphics, Lottie, mezclador Fairlight,
+    VFX, editor inmersivo y monitor de loudness (~1.55k líneas contiguas)
+    → `styles/editor-tools.css`; (b) las 33 reglas de la sección
+    ORGANIZACIÓN VISUAL que refinaban selectores movidos viajaron al
+    final del mismo archivo (30 enteras + 3 grupos mixtos divididos por
+    selector). La sección FÁBRICA quedó sin contenido y su header
+    huérfano se eliminó.
+  - **Cascada**: para cada selector movido el orden relativo quedó
+    idéntico (head app.css → bloques entry → refinamientos entry); las
+    reglas de ORGANIZACIÓN para selectores NO movidos quedaron intactas
+    en app.css. Verificado: 0 reglas de la sección org que toquen
+    selectores movidos permanece en app.css.
+  - **Verificación**: `postcss.parse` OK · multiset check — las
+    **1.708 reglas únicas** del app.css original (git HEAD) existen en
+    el nuevo conjunto app.css + 8 hojas de entries (**0 faltantes**) ·
+    sin medición visual (pendiente honesta).
+  - **Estado acumulado fase 2**: app.css 13.830 → **9.198 líneas
+    (−33,5 %)**. El critical path ahora contiene sólo shell + tokens +
+    primitivas compartidas + refinamientos globales no-editor.
+  - **Sigue vivo**: medición CDP/SSIM sobre la app real para cerrar la
+    fase con evidencia visual (la ola 2 lo exigía); evaluar si las
+    reglas org restantes para selectores editor-base (transport,
+    preview, rail) conviene moverlas también al editor entry.
+
 - `[done]` **CSS splitting fase 2 · slice 5: media organization
   partida por dueño de vista (2026-11-08)** — primer split a nivel
   selector dentro de un bloque mezclado.
