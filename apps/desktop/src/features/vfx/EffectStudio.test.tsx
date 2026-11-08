@@ -51,6 +51,22 @@ describe('estudio de efectos', () => {
     expect(screen.getByText(/1\.000 EV/)).toBeTruthy();
   });
 
+  it('keyframea un parámetro numérico desde el playhead', () => {
+    render(<Harness />);
+    addEffect(/^Exposición/);
+    const diamond = screen.getByRole('button', {
+      name: 'Clave de Pasos en el frame actual',
+    });
+    fireEvent.click(diamond);
+    // La primera clave crea la pista con una compañera plana (mínimo 2).
+    expect(diamond.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(diamond);
+    expect(diamond.getAttribute('aria-pressed')).toBe('false');
+    // Volver a clickear recrea la pista (quitó las dos claves).
+    fireEvent.click(diamond);
+    expect(diamond.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('apaga, reordena y quita', () => {
     render(<Harness />);
     addEffect(/^Exposición/);

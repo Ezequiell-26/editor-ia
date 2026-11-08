@@ -128,7 +128,7 @@ export function EffectStudio({
         </div>
 
         <div className="effect-studio-stack">
-          <EffectStackPanel stack={stack} onChange={onChange} />
+          <EffectStackPanel stack={stack} onChange={onChange} keyframeFrame={localFrame} />
           <EffectTemplates kind="video" stack={stack} onApply={(next) => onChange(next)} />
           {full ? (
             <p className="fine-print">

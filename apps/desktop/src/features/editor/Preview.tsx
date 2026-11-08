@@ -11,6 +11,7 @@ import {
   detachPreviewAudio,
   isTrackAudible,
   resumePreviewAudio,
+  setPreviewClipFx,
   setPreviewClipPan,
   syncPreviewAudioAtFrame,
   syncPreviewAudioFromProject,
@@ -25,6 +26,8 @@ import { MotionPreview } from '../motion/MotionPreview';
 import { templateById } from '../motion/templates';
 import { ScopesPanel } from './ScopesPanel';
 import { PreviewAudioScopes } from './PreviewAudioScopes';
+import { clipAudioFxSpec } from '../mixer/clip-audio-fx';
+import type { EffectStack } from '@editor-ia/effect-kit';
 import { perspectiveMatrix3d, type PerspectiveViewport } from './perspective';
 import type { PreviewFrameResult } from '../../services/project-service';
 import { applyGradeProjection, compileGrade, gradeFilterId, type GradeFilterSpec } from '../color/color-engine';
@@ -75,14 +78,27 @@ function volumeFromDb(gainDb: number | undefined): number {
 // el visor recuerda su encuadre). Storage protegido: ante error, defaults.
 const PREVIEW_FIT_KEY = 'editoria.preview-fit.v1';
 const PREVIEW_ZOOM_KEY = 'editoria.preview-zoom.v1';
+// Migración única: la implementación anterior de «Llenar» anclaba el lienzo a
+// la izquierda del panel y recortaba hasta ~42 % del fotograma. Ver medición
+// 2026-11-07: lienzo 661 px dentro de un stage de 380 px, desborde 281 px a la
+// derecha. Se corrige el encuadre guardado una sola vez; el usuario puede
+// volver a elegir «Llenar» de forma explícita y entonces el recorte queda
+// centrado en lugar de anclado.
+const PREVIEW_FIT_FIX_KEY = 'editoria.preview-fit.crop-fixed.v1';
 
-function readPreviewFill(): boolean {
+export function readPreviewFill(): boolean {
   try {
+    const stored = window.localStorage.getItem(PREVIEW_FIT_KEY);
+    if (stored === 'fill' && !window.localStorage.getItem(PREVIEW_FIT_FIX_KEY)) {
+      window.localStorage.setItem(PREVIEW_FIT_KEY, 'fit');
+      window.localStorage.setItem(PREVIEW_FIT_FIX_KEY, '1');
+      return false;
+    }
     // Por defecto «Ajustar»: el cuadro de la secuencia se ve completo y
     // centrado en el panel, como el player de Filmora (un proyecto 9:16 en un
     // panel ancho queda con franjas a los lados, no recortado). «Llenar»
-    // (cover) sigue disponible y se respeta la elección guardada.
-    return window.localStorage.getItem(PREVIEW_FIT_KEY) === 'fill';
+    // (cover) sigue disponible y se respeta la elección explícita guardada.
+    return stored === 'fill';
   } catch {
     return false;
   }
@@ -506,6 +522,14 @@ function VideoLayer({
     clip,
     Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
   );
+  // Efectos de audio del clip (subconjunto Web Audio del audioStack),
+  // muestreados en el frame local para que las keyframes suenen en preview.
+  const clipFx = clipAudioFxSpec(
+    ('effects' in clip ? clip.effects?.audioStack : undefined) as
+      | EffectStack
+      | undefined,
+    Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
+  );
   // Con Web Audio, la ganancia de pista la aplica el fader del grafo (sin el
   // tope de 1.0 del elemento) y el elemento sólo lleva la ganancia del clip.
   // Sin grafo, el volumen combinado va en `element.volume` como siempre.
@@ -521,18 +545,23 @@ function VideoLayer({
       setRouted(false);
       return;
     }
-    const ok = attachPreviewAudio(trackId, media, clip.audio?.pan ?? 0);
+    const ok = attachPreviewAudio(trackId, media, clip.audio?.pan ?? 0, clipFx);
     setRouted(ok);
     return () => {
       if (ok) detachPreviewAudio(trackId, media);
     };
+    // clipFx se recalcula por frame (keyframes); attach sólo necesita la
+    // versión del montaje — los cambios llegan por setPreviewClipFx.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackId, url]);
 
   useEffect(() => {
     const media = ref.current;
     if (!media) return;
     setPreviewClipPan(media, clip.audio?.pan ?? 0);
-  }, [clip.audio?.pan]);
+    setPreviewClipFx(media, clipFx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip.audio?.pan, clipFx]);
 
   useEffect(() => {
     const video = ref.current;
@@ -786,6 +815,12 @@ function AudioLayer({
     clip,
     Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
   );
+  const clipFx = clipAudioFxSpec(
+    ('effects' in clip ? clip.effects?.audioStack : undefined) as
+      | EffectStack
+      | undefined,
+    Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame)),
+  );
   const volume = clip.audio?.muted === true ? 0 : volumeFromDb(clipGainDb + (routed ? 0 : trackGain));
 
   // Enruta el elemento al grafo de audio de su pista (fader, paneo y EQ). Si
@@ -797,18 +832,21 @@ function AudioLayer({
       setRouted(false);
       return;
     }
-    const ok = attachPreviewAudio(trackId, media, clip.audio?.pan ?? 0);
+    const ok = attachPreviewAudio(trackId, media, clip.audio?.pan ?? 0, clipFx);
     setRouted(ok);
     return () => {
       if (ok) detachPreviewAudio(trackId, media);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trackId, url]);
 
   useEffect(() => {
     const media = ref.current;
     if (!media) return;
     setPreviewClipPan(media, clip.audio?.pan ?? 0);
-  }, [clip.audio?.pan]);
+    setPreviewClipFx(media, clipFx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clip.audio?.pan, clipFx]);
 
   useEffect(() => {
     const audio = ref.current;
@@ -1129,6 +1167,15 @@ export const Preview = memo(function Preview() {
       : 0;
   const frameWidth = monitorFill && !pixelPerfect ? fillWidth : fitWidth;
   const frameHeight = frameWidth > 0 ? frameWidth / aspect : 0;
+  // «Llenar» genera un lienzo mayor que el panel. El grid centra los hijos
+  // pequeños pero, por alineación segura, ancla a la izquierda los que
+  // desbordan: el fotograma quedaba cortado siempre del mismo lado. En ese
+  // caso se posiciona en el centro real del panel (left/top 50% +
+  // translate(-50%,-50%)) para que el recorte sea simétrico.
+  const oversized =
+    !pixelPerfect &&
+    stageSize.width > 0 &&
+    (frameWidth > stageSize.width + 1 || frameHeight > stageSize.height + 1);
   // En pixel-perfect el lienzo mide los píxeles reales del frame, no el
   // tamaño ajustado a la etapa: la homografía debe usar ese mismo cuadro.
   const canvasWidth = pixelPerfect ? (realFrame?.width ?? project.video.width) : frameWidth;
@@ -1444,8 +1491,9 @@ export const Preview = memo(function Preview() {
         <PreviewAudioScopes onClose={() => setShowAudioScopes(false)} />
       ) : null}
       <div
-        className={`preview-canvas${monitorZoom !== 1 ? ' zoomed' : ''}${panning ? ' panning' : ''}`}
+        className={`preview-canvas${monitorZoom !== 1 ? ' zoomed' : ''}${panning ? ' panning' : ''}${selectedClip && isTransformable(selectedClip) && frameWidth > 0 ? ' has-selection' : ''}`}
         style={{
+          ...(oversized ? { position: 'absolute' as const, left: '50%', top: '50%' } : {}),
           width: pixelPerfect
             ? (realFrame?.width ?? project.video.width)
             : frameWidth > 0
@@ -1460,7 +1508,7 @@ export const Preview = memo(function Preview() {
           backgroundColor: project.video.backgroundColor ?? '#0b0e13',
           transform: pixelPerfect
             ? undefined
-            : `scale(${monitorZoom}) translate(${monitorPan.x}px, ${monitorPan.y}px)`,
+            : `${oversized ? 'translate(-50%, -50%) ' : ''}scale(${monitorZoom}) translate(${monitorPan.x}px, ${monitorPan.y}px)`,
           cursor:
             !pixelPerfect && monitorZoom !== 1
               ? panning

@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createEmptyProject } from '@editor-ia/project-schema';
+import { createEmptyProject, type ProjectDocument } from '@editor-ia/project-schema';
 import { ExportDialog } from './ExportDialog';
 import type { HardwareEncoders } from '../../services/project-service';
 import { ProjectProvider } from '../../state/project-store';
 import {
   addAsset,
   addClipFromAsset,
+  applyCompression,
   ensureDelivery,
   updateProjectSettings,
 } from '../../state/project-actions';
@@ -15,16 +16,20 @@ import { createFakeService, readyAsset } from '../../test/fake-service';
 
 const NOW = '2026-10-19T00:00:00.000Z';
 
-function renderDialog(hardware?: HardwareEncoders) {
+function renderDialog(
+  hardware?: HardwareEncoders,
+  mutate?: (project: ProjectDocument) => ProjectDocument,
+) {
   const base = ensureDelivery(createEmptyProject('Lote masivo', NOW));
   const asset = readyAsset();
-  const project = addClipFromAsset(addAsset(base, asset), asset, {
+  const built = addClipFromAsset(addAsset(base, asset), asset, {
     atFrame: 0,
     durationFrames: 90,
   }).project;
+  const project = mutate ? mutate(built) : built;
   const service = createFakeService();
   service.hardwareEncoders = async () =>
-    hardware ?? { h264: null, hevc: null, checked: true };
+    hardware ?? { h264: null, hevc: null, av1: null, vp9: null, checked: true };
   render(
     <ProjectProvider
       service={service}
@@ -118,6 +123,8 @@ describe('ExportDialog · lote de variantes', () => {
     const { service } = renderDialog({
       h264: 'h264_amf',
       hevc: null,
+      av1: null,
+      vp9: null,
       checked: true,
     });
     const gpu = await screen.findByRole('checkbox', { name: /Acelerar con GPU/i });
@@ -135,6 +142,8 @@ describe('ExportDialog · lote de variantes', () => {
     const { service } = renderDialog({
       h264: 'h264_amf',
       hevc: null,
+      av1: null,
+      vp9: null,
       checked: true,
     });
     fireEvent.click(screen.getByRole('button', { name: /Máxima calidad/i }));
@@ -151,6 +160,8 @@ describe('ExportDialog · lote de variantes', () => {
     renderDialog({
       h264: 'h264_amf',
       hevc: null,
+      av1: null,
+      vp9: null,
       checked: true,
     });
     fireEvent.click(screen.getByRole('button', { name: /Máxima calidad/i }));
@@ -164,6 +175,22 @@ describe('ExportDialog · lote de variantes', () => {
       expect(gpu.hasAttribute('disabled')).toBe(true);
       expect((gpu as HTMLInputElement).checked).toBe(false);
     });
+  });
+
+  it('ofrece la GPU AV1 detectada y la pasa al lote WebM', async () => {
+    const { service } = renderDialog(
+      { h264: null, hevc: null, av1: 'av1_nvenc', vp9: null, checked: true },
+      (project) => applyCompression(project, 'equilibrado', 'av1'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Máxima calidad/i }));
+    const gpu = await screen.findByRole('checkbox', { name: /Acelerar con GPU/i });
+    await waitFor(() => expect(gpu.hasAttribute('disabled')).toBe(false));
+    expect(screen.getByText(/av1_nvenc/i)).toBeTruthy();
+    fireEvent.click(gpu);
+    const spy = vi.spyOn(service, 'startRenderTo');
+    fireEvent.click(screen.getByRole('button', { name: /Elegir carpeta y exportar lote/i }));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(spy.mock.calls[0]?.[4]).toBe('av1_nvenc');
   });
 
   it('se detiene si un render falla', async () => {

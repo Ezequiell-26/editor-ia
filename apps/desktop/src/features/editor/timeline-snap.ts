@@ -22,6 +22,9 @@ export interface TimelineSnapOptions {
   readonly scenes?: readonly { readonly frame: number; readonly label: string }[];
   readonly beats?: readonly number[];
   readonly beatLabel?: string;
+  /** Puntos in/out de la secuencia (port Kdenlive: la zona también atrae). */
+  readonly ioIn?: number | undefined;
+  readonly ioOut?: number | undefined;
 }
 
 export function collectTimelineSnapTargets(
@@ -44,6 +47,12 @@ export function collectTimelineSnapTargets(
       kind: 'marker',
       label: options.beatLabel ?? 'Beat',
     });
+  }
+  if (options.ioIn !== undefined && Number.isFinite(options.ioIn) && options.ioIn >= 0) {
+    targets.push({ frame: Math.round(options.ioIn), kind: 'marker', label: 'Entrada (in)' });
+  }
+  if (options.ioOut !== undefined && Number.isFinite(options.ioOut) && options.ioOut >= 0) {
+    targets.push({ frame: Math.round(options.ioOut), kind: 'marker', label: 'Salida (out)' });
   }
   return targets.sort((a, b) => a.frame - b.frame);
 }

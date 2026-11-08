@@ -200,6 +200,17 @@ export interface EffectKeyframe {
   readonly frame: number;
   readonly value: number;
   readonly easing?: 'linear' | 'hold' | 'ease-in' | 'ease-out' | 'ease-in-out';
+  /**
+   * Curva cúbica CSS-style (cp1/cp2 en 0..1). Si está presente gobierna el
+   * segmento que empieza en esta clave, igual que en los keyframes de
+   * transform; sin ella rige `easing`.
+   */
+  readonly bezier?: {
+    readonly cp1X: number;
+    readonly cp1Y: number;
+    readonly cp2X: number;
+    readonly cp2Y: number;
+  };
 }
 
 /**

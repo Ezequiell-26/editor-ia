@@ -6,6 +6,7 @@ import { ProjectProvider } from '../../state/project-store';
 import {
   addAsset,
   addClipFromAsset,
+  applyTransitionToCuts,
   ensureDelivery,
 } from '../../state/project-actions';
 import { createFakeService, readyAsset } from '../../test/fake-service';
@@ -423,5 +424,41 @@ describe('Timeline · atajos reasignables desde Ajustes', () => {
     await waitFor(() => {
       expect(container.querySelectorAll('.timeline-marker').length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('Timeline · marca de transición', () => {
+  it('dibuja la transición de entrada y pinta el color del dip', () => {
+    const base = ensureDelivery(createEmptyProject('Timeline', NOW));
+    const asset = readyAsset();
+    let project = addAsset(base, asset);
+    for (const at of [0, 300]) {
+      project = addClipFromAsset(project, asset, {
+        atFrame: at,
+        durationFrames: 300,
+      }).project;
+    }
+    project = applyTransitionToCuts(project, {
+      type: 'dip-color',
+      frames: 24,
+      color: '#2244aa',
+    }).project;
+    const service = createFakeService();
+    const opened = {
+      project,
+      label: 'timeline.editoria.json',
+      path: 'C:\tester\timeline.editoria.json',
+      root: 'C:\tester',
+    };
+    const view = render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <Timeline />
+      </ProjectProvider>,
+    );
+    const marker = view.container.querySelector('.clip-transition.transition-dip-color');
+    expect(marker).not.toBeNull();
+    expect((marker as HTMLElement).style.backgroundColor).toBe('rgb(34, 68, 170)');
+    expect(marker?.getAttribute('aria-label')).toContain('Fundido a color');
+    expect(marker?.getAttribute('aria-label')).toContain('24 frames');
   });
 });

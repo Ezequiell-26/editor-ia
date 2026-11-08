@@ -57,4 +57,26 @@ describe('validación con verifyExport (contrato nuevo)', () => {
     const report = validateExportVerification(verification({ bytes: 0 }), expected);
     expect(report.status).toBe('fail');
   });
+
+  it('avisa cuando el pixel format real no es el del perfil', () => {
+    const report = validateExportVerification(
+      verification({ pixelFormat: 'yuv420p' }),
+      { ...expected, pixelFormat: 'yuv444p' },
+    );
+    expect(report.status).toBe('warn');
+    const finding = report.findings.find((entry) => entry.label === 'Pixel format distinto');
+    expect(finding?.detail).toContain('yuv420p');
+    expect(finding?.detail).toContain('yuv444p');
+  });
+
+  it('pasa el check de pixel format cuando coincide con el perfil', () => {
+    const report = validateExportVerification(
+      verification({ pixelFormat: 'yuv444p' }),
+      { ...expected, pixelFormat: 'yuv444p' },
+    );
+    expect(report.status).toBe('pass');
+    expect(
+      report.findings.find((entry) => entry.label === 'Pixel format')?.detail,
+    ).toBe('yuv444p');
+  });
 });

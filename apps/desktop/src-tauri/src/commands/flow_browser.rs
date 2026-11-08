@@ -59,7 +59,11 @@ fn browser_candidates() -> Vec<(String, PathBuf)> {
             }
         }
     };
-    push("Google Chrome", "ProgramFiles", r"Google\Chrome\Application\chrome.exe");
+    push(
+        "Google Chrome",
+        "ProgramFiles",
+        r"Google\Chrome\Application\chrome.exe",
+    );
     push(
         "Google Chrome",
         "ProgramFiles(x86)",
@@ -70,7 +74,11 @@ fn browser_candidates() -> Vec<(String, PathBuf)> {
         "LOCALAPPDATA",
         r"Google\Chrome\Application\chrome.exe",
     );
-    push("Microsoft Edge", "ProgramFiles", r"Microsoft\Edge\Application\msedge.exe");
+    push(
+        "Microsoft Edge",
+        "ProgramFiles",
+        r"Microsoft\Edge\Application\msedge.exe",
+    );
     push(
         "Microsoft Edge",
         "ProgramFiles(x86)",
@@ -90,7 +98,11 @@ pub(crate) fn find_browser() -> Option<(String, PathBuf)> {
 
 fn profile_dir() -> PathBuf {
     std::env::var_os("LOCALAPPDATA")
-        .map(|base| PathBuf::from(base).join("Olyvia").join("flow-browser-profile"))
+        .map(|base| {
+            PathBuf::from(base)
+                .join("Olyvia")
+                .join("flow-browser-profile")
+        })
         .unwrap_or_else(|| PathBuf::from("flow-browser-profile"))
 }
 
@@ -129,8 +141,7 @@ fn validate_url(url: &str) -> Result<String, ProjectError> {
     if trimmed.is_empty() {
         return Ok(DEFAULT_URL.to_owned());
     }
-    if trimmed.len() > 2_048
-        || !(trimmed.starts_with("https://") || trimmed.starts_with("http://"))
+    if trimmed.len() > 2_048 || !(trimmed.starts_with("https://") || trimmed.starts_with("http://"))
     {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,

@@ -8,11 +8,16 @@ import {
   manifestNote,
   newInstanceId,
   paramGroups,
+  paramKeyframes,
   removeInstance,
   resetInstance,
+  sampleKeyframes,
   setInstanceEnabled,
   setInstanceParam,
+  setParamKeyframeAt,
   shiftInstance,
+  toggleParamKeyframe,
+  clearParamKeyframes,
   type EffectInstance,
   type EffectManifest,
   type EffectStack,
@@ -23,6 +28,12 @@ import {
 export interface EffectStackPanelProps {
   readonly stack: EffectStack;
   readonly onChange: (next: EffectStack) => void;
+  /**
+   * Frame local del clip bajo el playhead. Si está presente, los parámetros
+   * numéricos ganan el botón de keyframe (◆) y el slider escribe en la clave
+   * del frame — la misma semilla que usa el preview GPU.
+   */
+  readonly keyframeFrame?: number | undefined;
 }
 
 function displayValue(spec: ParamSpec, value: ParamValue): string {
@@ -40,14 +51,27 @@ function displayValue(spec: ParamSpec, value: ParamValue): string {
   }
 }
 
+interface ParamAnimation {
+  /** Hay una clave exactamente en el frame del playhead. */
+  readonly active: boolean;
+  /** La pista existe (aunque el playhead no caiga sobre una clave). */
+  readonly animated: boolean;
+  readonly onToggle: () => void;
+  readonly onClear: () => void;
+  /** Escribe/crea la clave del frame (auto-key del slider). */
+  readonly onKeyedValue: (next: number) => void;
+}
+
 function ParamControl({
   spec,
   value,
   onChange,
+  animation,
 }: {
   readonly spec: ParamSpec;
   readonly value: ParamValue;
   readonly onChange: (next: ParamValue) => void;
+  readonly animation?: ParamAnimation | undefined;
 }) {
   if (spec.type === 'bool') {
     return (
@@ -117,10 +141,46 @@ function ParamControl({
     );
   }
   const numeric = typeof value === 'number' ? value : spec.default;
+  const keyed = animation?.animated === true;
+  // Con keyframes los botones viven dentro del <label> y rompen el nombre
+  // accesible del slider (queda vacío): ahí el control pasa a <div> con
+  // aria-label explícito. Sin animación se conserva el <label> de siempre.
+  const ParamTag = animation ? 'div' : 'label';
   return (
-    <label className="effect-param">
+    <ParamTag className="effect-param">
       <span>
         {spec.label} <em>{displayValue(spec, value)}</em>
+        {animation ? (
+          <span className="effect-param-keyframes">
+            <button
+              type="button"
+              className={`icon-button effect-keyframe-toggle${animation.active ? ' on' : ''}`}
+              aria-pressed={animation.active}
+              aria-label={`Clave de ${spec.label} en el frame actual`}
+              title={
+                animation.active
+                  ? 'Quitar la clave de este frame'
+                  : keyed
+                    ? 'Agregar clave en este frame'
+                    : 'Animar este parámetro (crea la primera clave)'
+              }
+              onClick={animation.onToggle}
+            >
+              ◆
+            </button>
+            {keyed ? (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={`Quitar la animación de ${spec.label}`}
+                title="Quitar todas las claves de este parámetro"
+                onClick={animation.onClear}
+              >
+                ×
+              </button>
+            ) : null}
+          </span>
+        ) : null}
       </span>
       <input
         type="range"
@@ -128,9 +188,16 @@ function ParamControl({
         max={spec.max}
         step={spec.type === 'int' ? 1 : spec.step ?? 0.01}
         value={numeric}
-        onChange={(event) => onChange(Number(event.target.value))}
+        aria-label={animation ? spec.label : undefined}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          // Con pista de keyframes el slider auto-keya en el frame del
+          // playhead; sin ella edita el valor estático de siempre.
+          if (keyed) animation?.onKeyedValue(next);
+          else onChange(next);
+        }}
       />
-    </label>
+    </ParamTag>
   );
 }
 
@@ -141,6 +208,7 @@ function StackRow({
   total,
   stack,
   onChange,
+  keyframeFrame,
 }: {
   readonly instance: EffectInstance;
   readonly manifest: EffectManifest;
@@ -148,6 +216,7 @@ function StackRow({
   readonly total: number;
   readonly stack: EffectStack;
   readonly onChange: (next: EffectStack) => void;
+  readonly keyframeFrame?: number | undefined;
 }) {
   const [open, setOpen] = useState(index === total - 1);
   const groups = paramGroups(manifest);
@@ -228,16 +297,60 @@ function StackRow({
           {groups.map((group) => (
             <fieldset key={group.name ?? 'base'} className="effect-group">
               {group.name ? <legend>{group.name}</legend> : null}
-              {group.params.map((spec) => (
-                <ParamControl
-                  key={spec.id}
-                  spec={spec}
-                  value={instance.params[spec.id] ?? spec.default}
-                  onChange={(next) =>
-                    onChange(setInstanceParam(stack, manifest, instance.id, spec.id, next))
-                  }
-                />
-              ))}
+              {group.params.map((spec) => {
+                const baseValue = instance.params[spec.id] ?? spec.default;
+                const track =
+                  keyframeFrame !== undefined && (spec.type === 'float' || spec.type === 'int')
+                    ? paramKeyframes(instance, spec.id)
+                    : undefined;
+                const animated = (track?.length ?? 0) > 0;
+                // Con pista, el slider muestra el valor que la preview
+                // renderiza en este frame (muestreado), no el estático.
+                const value = animated
+                  ? (sampleKeyframes(track, keyframeFrame ?? 0) ?? baseValue)
+                  : baseValue;
+                const animation =
+                  keyframeFrame !== undefined && (spec.type === 'float' || spec.type === 'int')
+                    ? {
+                        active: track?.some((key) => key.frame === keyframeFrame) ?? false,
+                        animated,
+                        onToggle: () =>
+                          onChange(
+                            toggleParamKeyframe(
+                              stack,
+                              manifest,
+                              instance.id,
+                              spec.id,
+                              keyframeFrame,
+                            ),
+                          ),
+                        onClear: () =>
+                          onChange(clearParamKeyframes(stack, instance.id, spec.id)),
+                        onKeyedValue: (next: number) =>
+                          onChange(
+                            setParamKeyframeAt(
+                              stack,
+                              manifest,
+                              instance.id,
+                              spec.id,
+                              keyframeFrame,
+                              next,
+                            ),
+                          ),
+                      }
+                    : undefined;
+                return (
+                  <ParamControl
+                    key={spec.id}
+                    spec={spec}
+                    value={value}
+                    animation={animation}
+                    onChange={(next) =>
+                      onChange(setInstanceParam(stack, manifest, instance.id, spec.id, next))
+                    }
+                  />
+                );
+              })}
             </fieldset>
           ))}
           {note ? <p className="fine-print">{note}</p> : null}
@@ -254,7 +367,7 @@ function StackRow({
 }
 
 /** Pila ordenada de efectos del clip, con parámetros y orden de aplicación. */
-export function EffectStackPanel({ stack, onChange }: EffectStackPanelProps) {
+export function EffectStackPanel({ stack, onChange, keyframeFrame }: EffectStackPanelProps) {
   const resolved = stack
     .map((instance) => ({ instance, manifest: effectRegistry.get(instance.effectId) }))
     .filter((entry): entry is { instance: EffectInstance; manifest: EffectManifest } =>
@@ -284,6 +397,7 @@ export function EffectStackPanel({ stack, onChange }: EffectStackPanelProps) {
           total={resolved.length}
           stack={stack}
           onChange={onChange}
+          keyframeFrame={keyframeFrame}
         />
       ))}
     </ol>

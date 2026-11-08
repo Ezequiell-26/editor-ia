@@ -43,7 +43,7 @@ fn clamp_buckets(requested: u32) -> u32 {
 }
 
 /// Resuelve el asset y valida que tenga audio posible.
-fn resolve_audio_asset(
+pub(crate) fn resolve_audio_asset(
     session: &crate::state::Session,
     asset_id: &str,
 ) -> Result<(String, PathBuf), ProjectError> {
@@ -322,12 +322,16 @@ pub async fn audio_peaks_path(
 pub struct HardwareEncoders {
     pub h264: Option<String>,
     pub hevc: Option<String>,
+    pub av1: Option<String>,
+    pub vp9: Option<String>,
     pub checked: bool,
 }
 
 /// Encoders de hardware en orden de preferencia por marca.
 const HW_H264: &[&str] = &["h264_nvenc", "h264_qsv", "h264_amf", "h264_videotoolbox"];
 const HW_HEVC: &[&str] = &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"];
+const HW_AV1: &[&str] = &["av1_nvenc", "av1_qsv", "av1_amf"];
+const HW_VP9: &[&str] = &["vp9_qsv", "vp9_amf"];
 
 /// La detección inicializa encoders de verdad (hasta 2 s). El hardware no
 /// cambia durante la sesión, así que se guarda por ruta de FFmpeg; si el
@@ -406,6 +410,8 @@ pub(crate) fn detect_hardware(ffmpeg: &Path) -> HardwareEncoders {
         return HardwareEncoders {
             h264: None,
             hevc: None,
+            av1: None,
+            vp9: None,
             checked: false,
         };
     };
@@ -413,6 +419,8 @@ pub(crate) fn detect_hardware(ffmpeg: &Path) -> HardwareEncoders {
     HardwareEncoders {
         h264: first_working(ffmpeg, &text, HW_H264),
         hevc: first_working(ffmpeg, &text, HW_HEVC),
+        av1: first_working(ffmpeg, &text, HW_AV1),
+        vp9: first_working(ffmpeg, &text, HW_VP9),
         checked: true,
     }
 }
@@ -429,6 +437,8 @@ pub async fn hardware_encoders(
         return Ok(HardwareEncoders {
             h264: None,
             hevc: None,
+            av1: None,
+            vp9: None,
             checked: false,
         });
     };
@@ -557,6 +567,19 @@ mod tests {
         assert_eq!(first_available(list, HW_HEVC).as_deref(), Some("hevc_qsv"));
         let software_only = " V....D libx264              libx264 H.264";
         assert_eq!(first_available(software_only, HW_H264), None);
+    }
+
+    #[test]
+    fn detecta_encoders_av1_y_vp9_en_la_lista() {
+        let list =
+            " V....D av1_nvenc             NVIDIA AV1\n V....D vp9_qsv              Intel VP9";
+        assert_eq!(first_available(list, HW_AV1).as_deref(), Some("av1_nvenc"));
+        assert_eq!(first_available(list, HW_VP9).as_deref(), Some("vp9_qsv"));
+        // libsvtav1/libvpx-vp9 son software: no entran en las listas de GPU.
+        let software_only =
+            " V....D libsvtav1             SVT-AV1\n V....D libvpx-vp9            VP9";
+        assert_eq!(first_available(software_only, HW_AV1), None);
+        assert_eq!(first_available(software_only, HW_VP9), None);
     }
 
     #[test]

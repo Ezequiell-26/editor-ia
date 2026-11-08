@@ -56,20 +56,32 @@ fn read_scenes(state: &AppState) -> Result<Vec<ObsScene>, ProjectError> {
         return Ok(Vec::new());
     }
     let text = std::fs::read_to_string(&path).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo leer obs-scenes.json: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo leer obs-scenes.json: {e}"),
+        )
     })?;
     serde_json::from_str(&text).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::InvalidProject, &format!("obs-scenes.json corrupto: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            &format!("obs-scenes.json corrupto: {e}"),
+        )
     })
 }
 
 fn write_scenes(state: &AppState, scenes: &[ObsScene]) -> Result<(), ProjectError> {
     let path = scenes_path(state);
     let text = serde_json::to_string_pretty(scenes).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo serializar escenas: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo serializar escenas: {e}"),
+        )
     })?;
     std::fs::write(&path, text).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo guardar obs-scenes.json: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo guardar obs-scenes.json: {e}"),
+        )
     })
 }
 
@@ -131,9 +143,15 @@ pub async fn obs_scene_save(
         scene.id.clone()
     };
     if let Some(existing) = scenes.iter_mut().find(|s| s.id == id) {
-        *existing = ObsScene { id: id.clone(), ..scene };
+        *existing = ObsScene {
+            id: id.clone(),
+            ..scene
+        };
     } else {
-        scenes.push(ObsScene { id: id.clone(), ..scene });
+        scenes.push(ObsScene {
+            id: id.clone(),
+            ..scene
+        });
     }
     write_scenes(state.inner(), &scenes)?;
     Ok(scenes.into_iter().find(|s| s.id == id).unwrap())

@@ -43,6 +43,10 @@ pub struct Profile {
     pub min_output_bytes: u64,
     pub duration_tolerance_frames: u32,
     pub hardware_encoder: Option<String>,
+    /// Submuestreo de croma del vídeo de salida (`yuv420p` por defecto).
+    /// `yuv444p` sólo se admite en WebM VP9/AV1 por software: los encoders de
+    /// hardware y H.264/H.265 de este pipeline son 4:2:0.
+    pub pixel_format: String,
 }
 
 const HARDWARE_H264: [&str; 3] = ["h264_amf", "h264_nvenc", "h264_qsv"];
@@ -73,7 +77,11 @@ static ENCODER_CACHE: std::sync::Mutex<Option<(PathBuf, Vec<String>)>> =
 
 /// `ffmpeg` que acompaña al `ffprobe` configurado; si no existe, el del PATH.
 fn sibling_ffmpeg(ffprobe: &Path) -> PathBuf {
-    let name = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+    let name = if cfg!(windows) {
+        "ffmpeg.exe"
+    } else {
+        "ffmpeg"
+    };
     let candidate = ffprobe.with_file_name(name);
     if candidate.is_file() {
         candidate
@@ -138,25 +146,57 @@ pub(crate) fn encoder_names(ffmpeg: &Path) -> Vec<String> {
     available_encoders(ffmpeg)
 }
 
-pub(crate) fn software_encoder(ffprobe: &Path, codec: &str) -> String {
+/// Binario FFmpeg a sondear: el que acompaña al `ffprobe` configurado; si no
+/// existe, el `ffmpeg` del PATH. En pruebas no se sondea el PATH: el resultado
+/// dependería de la máquina y los planes esperados dejarían de ser
+/// deterministas.
+fn encoder_probe_target(ffprobe: &Path) -> Option<PathBuf> {
     let sibling = sibling_ffmpeg(ffprobe);
-    // En pruebas no se sondea el PATH: el resultado dependería de la máquina y
-    // los planes esperados dejarían de ser deterministas.
-    let target = if sibling.is_file() {
+    if sibling.is_file() {
         Some(sibling)
     } else if cfg!(test) {
         None
     } else {
         Some(PathBuf::from("ffmpeg"))
-    };
-    match target {
+    }
+}
+
+pub(crate) fn software_encoder(ffprobe: &Path, codec: &str) -> String {
+    match encoder_probe_target(ffprobe) {
         Some(ffmpeg) => choose_encoder(&available_encoders(&ffmpeg), codec),
         None => choose_encoder(&[], codec),
     }
 }
+
+/// Encoder de software según el perfil. 4:4:4 es la excepción: ni
+/// `libsvtav1` ni los encoders de hardware aceptan `yuv444p` (degradarían a
+/// 4:2:0 en silencio), así que VP9 exige `libvpx-vp9` y AV1 exige
+/// `libaom-av1`; si el binario no los tiene, se informa en vez de producir un
+/// archivo que no cumple el perfil.
+fn software_encoder_for(ffprobe: &Path, profile: &Profile) -> Result<String, ProjectError> {
+    if profile.pixel_format == "yuv444p" {
+        let (needed, label) = if profile.video_codec == "av1" {
+            ("libaom-av1", "AV1")
+        } else {
+            ("libvpx-vp9", "VP9")
+        };
+        let available = match encoder_probe_target(ffprobe) {
+            Some(ffmpeg) => available_encoders(&ffmpeg),
+            None => Vec::new(),
+        };
+        if available.iter().any(|name| name == needed) {
+            return Ok(needed.to_owned());
+        }
+        return Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            &format!("{label} 4:4:4 requiere {needed} y este FFmpeg no lo incluye; usá 4:2:0"),
+        ));
+    }
+    Ok(software_encoder(ffprobe, &profile.video_codec))
+}
 const HARDWARE_HEVC: [&str; 3] = ["hevc_amf", "hevc_nvenc", "hevc_qsv"];
 const HARDWARE_AV1: [&str; 3] = ["av1_amf", "av1_nvenc", "av1_qsv"];
-const HARDWARE_VP9: [&str; 1] = ["vp9_qsv"];
+const HARDWARE_VP9: [&str; 2] = ["vp9_qsv", "vp9_amf"];
 
 fn validate_hardware_encoder(
     video_codec: &str,
@@ -339,6 +379,12 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
     if let Some(encoder) = hardware_encoder.as_deref() {
         validate_hardware_encoder(&video_codec, encoder, width as u32, height as u32)?;
     }
+    let pixel_format = pixel_format_for(
+        &value,
+        &container,
+        &video_codec,
+        hardware_encoder.as_deref(),
+    )?;
     Ok(Profile {
         id: text(value, "id").unwrap_or_default().to_owned(),
         name: text(value, "name").unwrap_or("Render").to_owned(),
@@ -366,7 +412,43 @@ pub fn parse_profile(value: &Value) -> Result<Profile, ProjectError> {
             .as_u64()
             .unwrap_or(10) as u32,
         hardware_encoder,
+        pixel_format,
     })
+}
+
+/// Pixel format declarado por el perfil, validado contra lo que el pipeline
+/// puede emitir de verdad. `yuv444p` existe sólo en WebM VP9 (`libvpx-vp9`)
+/// y AV1 (`libaom-av1`): H.264/H.265, los encoders de hardware y `rgb24`
+/// (que ningún encoder de entrega acepta) se rechazan con motivo honesto.
+fn pixel_format_for(
+    value: &Value,
+    container: &str,
+    video_codec: &str,
+    hardware_encoder: Option<&str>,
+) -> Result<String, ProjectError> {
+    let requested = text(value, "pixelFormat").unwrap_or("yuv420p");
+    match requested {
+        "yuv420p" => Ok("yuv420p".to_owned()),
+        "yuv444p" => {
+            let webm_444 = container == "webm" && (video_codec == "vp9" || video_codec == "av1");
+            if webm_444 && hardware_encoder.is_none() {
+                Ok("yuv444p".to_owned())
+            } else {
+                Err(ProjectError::message(
+                    ProjectErrorCode::RenderFailed,
+                    "4:4:4 sólo se exporta en WebM VP9/AV1 por software; para MP4/MOV o hardware usá 4:2:0",
+                ))
+            }
+        }
+        "rgb24" => Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "rgb24 es un formato intermedio: ningún encoder de entrega lo acepta; elegí yuv420p o yuv444p",
+        )),
+        _ => Err(ProjectError::message(
+            ProjectErrorCode::RenderFailed,
+            "el perfil pide un pixel format desconocido",
+        )),
+    }
 }
 
 fn hardware_encoder_args(profile: &Profile) -> Option<Vec<String>> {
@@ -518,6 +600,56 @@ fn hex_color(raw: &str) -> String {
     } else {
         "0x0f1319".to_owned()
     }
+}
+
+/// `#rrggbb` → canales 0..1 para las curvas del dip-to-color congelado.
+fn hex_rgb01(raw: &str) -> Option<(f64, f64, f64)> {
+    let hex = raw.trim().trim_start_matches('#');
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let channel = |at: usize| {
+        u8::from_str_radix(&hex[at..at + 2], 16)
+            .ok()
+            .map(|byte| byte as f64 / 255.0)
+    };
+    Some((channel(0)?, channel(2)?, channel(4)?))
+}
+
+/// `wipe-*`: el clip entrante se revela por un borde que barre el cuadro
+/// durante el lead (port Kdenlive wipe). `geq` modula el alfa por píxel:
+/// progreso `p = min(1, N/lead_frames)` y cada dirección conserva el alfa
+/// original sólo del lado ya barrido. El clip saliente queda intacto
+/// debajo, igual que en Kdenlive.
+fn wipe_alpha_expr(kind: &str, p: &str) -> String {
+    let alpha = |condition: &str| format!("if({condition},alpha(X,Y),0)");
+    match kind {
+        // El barrido viaja hacia la izquierda: lo nuevo crece desde el
+        // borde derecho (X > W*(1-p)), igual que slide-left entra desde
+        // la derecha.
+        "wipe-left" => alpha(&format!("gt(X,W*(1-({p})))")),
+        "wipe-right" => alpha(&format!("lt(X,W*({p}))")),
+        // Hacia arriba: desde abajo (Y > H*(1-p)); hacia abajo: desde arriba.
+        "wipe-up" => alpha(&format!("gt(Y,H*(1-({p})))")),
+        "wipe-down" => alpha(&format!("lt(Y,H*({p}))")),
+        _ => "alpha(X,Y)".to_owned(),
+    }
+}
+
+fn wipe_geq(expr: &str) -> String {
+    format!("geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='{expr}'")
+}
+
+fn wipe_transition_filter(kind: &str, lead: f64, fps: f64) -> String {
+    let lead_frames = (lead.max(0.0) * fps.max(1.0)).round().max(1.0);
+    // Progreso en frames del stream local (0 = inicio del solape).
+    let p = format!("if(lt(N,{lead_frames:.0}),N/{lead_frames:.0},1)");
+    wipe_geq(&wipe_alpha_expr(kind, &p))
+}
+
+/// Versión de una ventana de un frame: `p` llega ya resuelto por el preview.
+fn wipe_frozen_filter(kind: &str, progress: f64) -> String {
+    wipe_geq(&wipe_alpha_expr(kind, &format!("{progress:.6}")))
 }
 
 fn has_audio_stream(ffprobe: &Path, path: &Path) -> bool {
@@ -1282,6 +1414,158 @@ pub(crate) fn apply_audio_effect_stack(
     }
 }
 
+/// Tope de tramos del audioStack animado (mismo criterio que el video: el
+/// grafo crece linealmente y pasado el tope se cae al valor estático).
+const MAX_AUDIO_STACK_SEGMENTS: usize = 32;
+
+/// Plan de tramos del audioStack animado: cortes en los frames de keyframes
+/// más los extremos del clip, en samples del stream ya resampleado.
+struct AudioStackPlan {
+    /// (sample_inicio, sample_fin, frame_local_medio) por tramo.
+    segments: Vec<(u64, u64, f64)>,
+}
+
+fn audio_stack_segment_plan(
+    instances: &[(&Value, Vec<EffectParamTrack>)],
+    clip_seconds: f64,
+    project_fps: f64,
+    audio_rate: u32,
+) -> Option<AudioStackPlan> {
+    let duration_frames = (clip_seconds * project_fps).round().max(2.0) as u32;
+    let mut bounds = std::collections::BTreeSet::from([0u32, duration_frames]);
+    for (_, tracks) in instances {
+        for track in tracks.iter() {
+            for (frame, _, _) in &track.keys {
+                bounds.insert((*frame).min(duration_frames));
+            }
+        }
+    }
+    let bounds: Vec<u32> = bounds.into_iter().collect();
+    if bounds.len() < 3 || bounds.len() - 1 > MAX_AUDIO_STACK_SEGMENTS {
+        // Menos de 2 cortes útiles o grafo desbordado: el llamador cae al
+        // stack estático.
+        return None;
+    }
+    let factor = audio_rate as f64 / project_fps.max(1.0);
+    let mut segments = Vec::with_capacity(bounds.len() - 1);
+    for pair in bounds.windows(2) {
+        let start = (pair[0] as f64 * factor).round() as u64;
+        let end = (pair[1] as f64 * factor).round() as u64;
+        if end <= start {
+            continue;
+        }
+        segments.push((start, end, (pair[0] + pair[1]) as f64 / 2.0));
+    }
+    if segments.len() < 2 || segments.len() > MAX_AUDIO_STACK_SEGMENTS {
+        return None;
+    }
+    Some(AudioStackPlan { segments })
+}
+
+/// Parámetros de una instancia de audio en un frame local: los keyframes
+/// muestrean sólo los parámetros animados; el resto queda como está.
+fn audio_params_at(instance: &Value, tracks: &[EffectParamTrack], frame: f64) -> Value {
+    let empty = Value::Object(serde_json::Map::new());
+    let base = instance.get("params").unwrap_or(&empty);
+    if tracks.is_empty() {
+        return base.clone();
+    }
+    let mut params = base.as_object().cloned().unwrap_or_default();
+    for track in tracks {
+        params.insert(
+            track.param.clone(),
+            Value::from(sample_effect_track(track, frame)),
+        );
+    }
+    Value::Object(params)
+}
+
+/// Arma los grafos del audioStack segmentado: la cadena pre-stack termina en
+/// `akp{input}`, `asplit` abre un tramo por segmento (`atrim` por samples +
+/// `asetpts` + filtros de la instancia con parámetros muestreados en el
+/// punto medio) y `concat` recompone en `astk{input}`.
+fn build_audio_stack_graphs(
+    input_index: usize,
+    pre_filters: Vec<String>,
+    instances: &[(&Value, Vec<EffectParamTrack>)],
+    plan: &AudioStackPlan,
+    audio_rate: u32,
+) -> Vec<String> {
+    let count = plan.segments.len();
+    let mut graphs = Vec::with_capacity(count + 3);
+    let split_in = if pre_filters.is_empty() {
+        format!("{input_index}:a")
+    } else {
+        let label = format!("akp{input_index}");
+        graphs.push(format!(
+            "[{input_index}:a]{}[{label}]",
+            pre_filters.join(",")
+        ));
+        label
+    };
+    let split_out: Vec<String> = (0..count)
+        .map(|k| format!("aks{input_index}_{k}"))
+        .collect();
+    graphs.push(format!(
+        "[{split_in}]asplit={count}{}",
+        split_out
+            .iter()
+            .map(|label| format!("[{label}]"))
+            .collect::<String>()
+    ));
+    let mut concat_ins: Vec<String> = Vec::with_capacity(count);
+    for (k, (start, end, mid_frame)) in plan.segments.iter().enumerate() {
+        let mut body = format!("atrim=start_sample={start}:end_sample={end},asetpts=PTS-STARTPTS");
+        for (instance, tracks) in instances {
+            let params = audio_params_at(instance, tracks, *mid_frame);
+            let Some(effect_id) = instance.get("effectId").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(recipe) = find_recipe(effect_id) else {
+                continue;
+            };
+            for template in recipe.audio_chain {
+                let filled = fill_audio_template(template, recipe, &params, audio_rate);
+                if !filled.is_empty() {
+                    body.push(',');
+                    body.push_str(&filled);
+                }
+            }
+        }
+        let out = format!("akso{input_index}_{k}");
+        graphs.push(format!("[{}]{body}[{out}]", split_out[k]));
+        concat_ins.push(format!("[{out}]"));
+    }
+    graphs.push(format!(
+        "{}concat=n={count}:v=0:a=1[astk{input_index}]",
+        concat_ins.concat()
+    ));
+    graphs
+}
+
+/// Cuerpo de filtros que aporta una instancia de efecto: sus plantillas de
+/// `chain` más el `graph` opcional (con `%A%` reemplazado por `token`, que debe
+/// ser único dentro del filter_complex). Vacío si la receta no produce nada.
+fn effect_instance_body(recipe: &Recipe, params: &Value, token: &str) -> String {
+    let mut body = String::new();
+    if !recipe.chain.is_empty() {
+        let filters: Vec<String> = recipe
+            .chain
+            .iter()
+            .map(|template| fill_recipe_template(template, recipe, params))
+            .collect();
+        body.push_str(&filters.join(","));
+    }
+    if let Some(graph) = recipe.graph {
+        let filled = fill_recipe_template(graph, recipe, params).replace("%A%", token);
+        if !body.is_empty() {
+            body.push(',');
+        }
+        body.push_str(&filled);
+    }
+    body
+}
+
 /// Aplica el stack declarativo del clip sobre la cola de su cadena.
 ///
 /// Cada paso termina en `[label]`, así el siguiente puede volver a recortar la
@@ -1313,23 +1597,7 @@ pub(crate) fn apply_effect_stack(chain: String, label: &str, effects: &Value) ->
             continue;
         };
         let params = instance.get("params").unwrap_or(&empty);
-        let mut body = String::new();
-        if !recipe.chain.is_empty() {
-            let filters: Vec<String> = recipe
-                .chain
-                .iter()
-                .map(|template| fill_recipe_template(template, recipe, params))
-                .collect();
-            body.push_str(&filters.join(","));
-        }
-        if let Some(graph) = recipe.graph {
-            let token = format!("{label}_{index}");
-            let filled = fill_recipe_template(graph, recipe, params).replace("%A%", &token);
-            if !body.is_empty() {
-                body.push(',');
-            }
-            body.push_str(&filled);
-        }
+        let body = effect_instance_body(recipe, params, &format!("{label}_{index}"));
         if body.is_empty() {
             continue;
         }
@@ -1339,6 +1607,307 @@ pub(crate) fn apply_effect_stack(chain: String, label: &str, effects: &Value) ->
         chain = format!("{prefix},{body}{output}");
     }
     chain
+}
+
+// ── Keyframes de efecto en export (render segmentado) ──────────────────────
+//
+// Los filtros de las recetas evalúan sus opciones una sola vez al init: no hay
+// expresión `t` que los anime (verificado con el ffmpeg real; `sendcmd` tampoco
+// comanda `eq`). La única vía general es renderizar el clip en tramos: se parte
+// el stream en los frames donde cambian los keyframes, cada tramo aplica los
+// parámetros estáticos evaluados en su punto medio y `concat` los recompone.
+// Es el mismo truco que usa MLT por dentro y funciona para el 100% de recetas.
+
+/// Tope de tramos por clip: cada keyframe extra parte el clip y agranda el
+/// filter_complex. Con más de `MAX_EFFECT_SEGMENTS` tramos se cae al valor
+/// estático (comportamiento anterior) en vez de generar un grafo inmanejable.
+const MAX_EFFECT_SEGMENTS: usize = 32;
+
+/// Pista de keyframes de un parámetro numérico de una instancia.
+struct EffectParamTrack {
+    param: String,
+    /// (frame local del clip, valor, easing) ordenado por frame.
+    keys: Vec<(u32, f64, SegmentEasing)>,
+}
+
+/// Pistas de keyframes de una instancia: `param -> [(frame, valor, easing)]`.
+/// `require_audio_chain` exige que la receta tenga cadena de audio (para el
+/// audioStack); el stack de video acepta cualquier receta renderizable.
+fn instance_keyframe_tracks(instance: &Value, require_audio_chain: bool) -> Vec<EffectParamTrack> {
+    let renderable = instance
+        .get("effectId")
+        .and_then(Value::as_str)
+        .and_then(find_recipe)
+        .map(|recipe| !require_audio_chain || !recipe.audio_chain.is_empty())
+        .unwrap_or(false);
+    if !renderable {
+        return Vec::new();
+    }
+    let Some(tracks) = instance.get("keyframes").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    tracks
+        .iter()
+        .filter_map(|(param, keys)| {
+            let mut parsed: Vec<(u32, f64, SegmentEasing)> = keys
+                .as_array()?
+                .iter()
+                .filter_map(|key| {
+                    let frame = key["frame"].as_u64()?;
+                    let value = key["value"].as_f64()?;
+                    Some((frame.min(u32::MAX as u64) as u32, value, parse_easing(key)))
+                })
+                .collect();
+            if parsed.len() < 2 {
+                return None;
+            }
+            parsed.sort_by_key(|(frame, _, _)| *frame);
+            Some(EffectParamTrack {
+                param: param.clone(),
+                keys: parsed,
+            })
+        })
+        .collect()
+}
+
+/// Recolecta las pistas de keyframes de las instancias habilitadas del stack
+/// de video. Una instancia sin receta FFmpeg no aporta cortes: sus keyframes
+/// no cambian nada en el export.
+fn effect_keyframe_tracks(effects: &Value) -> Vec<Vec<EffectParamTrack>> {
+    let Some(stack) = effects.get("stack").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    stack
+        .iter()
+        .map(|instance| {
+            if !instance
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+            {
+                return Vec::new();
+            }
+            instance_keyframe_tracks(instance, false)
+        })
+        .collect()
+}
+
+/// Instancias del `audioStack` con keyframes y su cadena de audio renderizable.
+/// Devuelve `(instance, tracks)` para poder muestrear los parámetros por tramo.
+fn audio_stack_keyframe_instances(effects: &Value) -> Vec<(&Value, Vec<EffectParamTrack>)> {
+    let Some(stack) = effects.get("audioStack").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    stack
+        .iter()
+        .filter(|instance| {
+            instance
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+        })
+        .filter_map(|instance| {
+            let tracks = instance_keyframe_tracks(instance, true);
+            if tracks.is_empty() {
+                None
+            } else {
+                Some((instance, tracks))
+            }
+        })
+        .collect()
+}
+
+/// Easing de la preview (`effect-kit/params.ts::ease`), no el cúbico de los
+/// keyframes de transform: son curvas distintas y el export tiene que seguir
+/// a la preview.
+fn effect_ease(t: f64, easing: &str) -> f64 {
+    match easing {
+        "hold" => 0.0,
+        "ease-in" => t * t,
+        "ease-out" => 1.0 - (1.0 - t) * (1.0 - t),
+        "ease-in-out" => {
+            if t < 0.5 {
+                2.0 * t * t
+            } else {
+                1.0 - 2.0 * (1.0 - t) * (1.0 - t)
+            }
+        }
+        _ => t,
+    }
+}
+
+/// Port de `sampleKeyframes` (effect-kit/params.ts): sostiene los extremos y
+/// interpola con el easing del keyframe anterior dentro de cada tramo.
+fn sample_effect_track(track: &EffectParamTrack, frame: f64) -> f64 {
+    let keys = &track.keys;
+    let first = &keys[0];
+    let last = &keys[keys.len() - 1];
+    let frame = frame.max(0.0);
+    if frame <= first.0 as f64 {
+        return first.1;
+    }
+    if frame >= last.0 as f64 {
+        return last.1;
+    }
+    for pair in keys.windows(2) {
+        let prev = &pair[0];
+        let next = &pair[1];
+        if frame <= next.0 as f64 {
+            let span = (next.0 - prev.0).max(1) as f64;
+            let progress = (frame - prev.0 as f64) / span;
+            let t = match &prev.2 {
+                SegmentEasing::Bezier(cp1_x, cp1_y, cp2_x, cp2_y) => {
+                    cubic_bezier_progress(progress, *cp1_x, *cp1_y, *cp2_x, *cp2_y)
+                }
+                SegmentEasing::Preset(easing) => effect_ease(progress, easing),
+            };
+            return prev.1 + (next.1 - prev.1) * t;
+        }
+    }
+    last.1
+}
+
+/// Parámetros de una instancia evaluados en un frame local del clip: los
+/// keyframes muestrean sólo los parámetros animados; el resto queda como está.
+fn effect_params_at(instance: &Value, tracks: &[EffectParamTrack], local_frame: f64) -> Value {
+    let empty = Value::Object(serde_json::Map::new());
+    let base = instance.get("params").unwrap_or(&empty);
+    if tracks.is_empty() {
+        return base.clone();
+    }
+    let mut params = base.as_object().cloned().unwrap_or_default();
+    for track in tracks {
+        params.insert(
+            track.param.clone(),
+            Value::from(sample_effect_track(track, local_frame)),
+        );
+    }
+    Value::Object(params)
+}
+
+/// Aplica el stack con keyframes mediante render segmentado.
+///
+/// `lead_seconds` es la ventana de transición que precede al inicio del clip
+/// dentro del stream (los keyframes son locales al clip: el frame `f` del clip
+/// vive en el frame `lead_frames + f` del stream). Devuelve `None` cuando no
+/// hay keyframes útiles o los tramos superan el tope: el llamador cae al
+/// stack estático.
+pub(crate) fn apply_effect_stack_animated(
+    chain: String,
+    label: &str,
+    effects: &Value,
+    lead_seconds: f64,
+    clip_seconds: f64,
+    fps: f64,
+) -> Option<String> {
+    let stack = effects.get("stack").and_then(Value::as_array)?;
+    if stack.is_empty() {
+        return None;
+    }
+    let tracks_per_instance = effect_keyframe_tracks(effects);
+    if !tracks_per_instance.iter().any(|tracks| !tracks.is_empty()) {
+        return None;
+    }
+    let output = format!("[{label}]");
+    let Some(prefix) = chain.strip_suffix(&output).map(str::to_owned) else {
+        return None;
+    };
+
+    let rate = fps.max(1.0);
+    let lead_frames = (lead_seconds.max(0.0) * rate).round() as i64;
+    let total_frames = ((lead_seconds.max(0.0) + clip_seconds.max(0.0)) * rate)
+        .round()
+        .max(1.0) as u64;
+
+    // Cortes del stream: 0, total y cada keyframe corrido por el lead.
+    let mut cuts: Vec<u64> = vec![0, total_frames];
+    for (instance_index, instance) in stack.iter().enumerate() {
+        if !instance
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        for track in &tracks_per_instance[instance_index] {
+            for (frame, _, _) in &track.keys {
+                let stream_frame = lead_frames + *frame as i64;
+                if stream_frame > 0 && (stream_frame as u64) < total_frames {
+                    cuts.push(stream_frame as u64);
+                }
+            }
+        }
+    }
+    cuts.sort_unstable();
+    cuts.dedup();
+    if cuts.len() < 3 {
+        // Todos los keyframes caen fuera del clip: no hay nada que animar.
+        return None;
+    }
+    let segment_count = cuts.len() - 1;
+    if segment_count > MAX_EFFECT_SEGMENTS {
+        return None;
+    }
+
+    let src = format!("kfsrc{label}");
+    let mut graph = format!("{prefix}[{src}];[{src}]split={segment_count}");
+    for index in 0..segment_count {
+        graph.push_str(&format!("[k{index}]"));
+    }
+
+    for (index, window) in cuts.windows(2).enumerate() {
+        let (start, end) = (window[0], window[1]);
+        if end <= start {
+            continue;
+        }
+        // Punto medio del tramo en frames locales del clip (puede ser
+        // negativo durante el lead: la pista sostiene el primer valor).
+        let local_mid = (start + end) as f64 / 2.0 - lead_frames as f64;
+        let mut body = String::new();
+        for (instance_index, instance) in stack.iter().enumerate() {
+            if !instance
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            let Some(effect_id) = instance.get("effectId").and_then(Value::as_str) else {
+                continue;
+            };
+            let Some(recipe) = find_recipe(effect_id) else {
+                continue;
+            };
+            let params =
+                effect_params_at(instance, &tracks_per_instance[instance_index], local_mid);
+            let segment_body = effect_instance_body(
+                recipe,
+                &params,
+                &format!("{label}s{index}_{instance_index}"),
+            );
+            if segment_body.is_empty() {
+                continue;
+            }
+            if !body.is_empty() {
+                body.push(',');
+            }
+            body.push_str(&segment_body);
+        }
+        if body.is_empty() {
+            // Tramo sin efectos renderizables: passthrough.
+            body.push_str("null");
+        }
+        graph.push_str(&format!(
+            ";[k{index}]trim=start_frame={start}:end_frame={end},setpts=PTS-STARTPTS,{body}[seg{index}]"
+        ));
+    }
+
+    graph.push_str(&format!(";"));
+    for index in 0..segment_count {
+        graph.push_str(&format!("[seg{index}]"));
+    }
+    graph.push_str(&format!("concat=n={segment_count}:v=1:a=0{output}"));
+    Some(graph)
 }
 
 fn motion_blur_weights(frames: usize, intensity: f64) -> String {
@@ -2945,6 +3514,16 @@ pub(crate) fn visual_filter(
             "dissolve" => filters.push(format!("fade=t=in:st=0:d={lead:.3}:alpha=1")),
             "fade-black" => filters.push(format!("fade=t=in:st=0:d={lead:.3}")),
             "fade-white" => filters.push(format!("fade=t=in:st=0:d={lead:.3}:color=white")),
+            "dip-color" => {
+                let color = clip["transitionIn"]["color"]
+                    .as_str()
+                    .map(hex_color)
+                    .unwrap_or_else(|| "0x000000".to_owned());
+                filters.push(format!("fade=t=in:st=0:d={lead:.3}:color={color}"));
+            }
+            wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down") => {
+                filters.push(wipe_transition_filter(wipe, lead, fps));
+            }
             _ => {}
         }
     }
@@ -3072,6 +3651,18 @@ pub(crate) fn visual_filter(
             .map(|value| value.clamp(0.0, 1.0))
             .unwrap_or(1.0);
         let mode = frozen.get("mode").and_then(Value::as_str).unwrap_or("");
+        // Wipe congelado: el progreso ya viene resuelto por el preview; la
+        // máscara es la misma `geq` del compuesto pero con `p` constante.
+        if mode == "wipe" {
+            if let Some(kind) = frozen.get("kind").and_then(Value::as_str) {
+                let progress = frozen
+                    .get("progress")
+                    .and_then(Value::as_f64)
+                    .unwrap_or(1.0)
+                    .clamp(0.0, 1.0);
+                filters.push(wipe_frozen_filter(kind, progress));
+            }
+        }
         if alpha < 0.999 {
             match mode {
                 "black" => filters.push(format!(
@@ -3085,6 +3676,24 @@ pub(crate) fn visual_filter(
                     filters.push(format!(
                         "curves=r='0/{floor:.6} 1/1':g='0/{floor:.6} 1/1':b='0/{floor:.6} 1/1'"
                     ));
+                }
+                "color" => {
+                    // Dip to color: cada canal mezcla hacia el color del
+                    // fundido (out = in*alpha + (1-alpha)*c) conservando el
+                    // alfa, misma ley afín que el blanco pero con intercepto
+                    // por canal.
+                    if let Some((r, g, b)) = frozen
+                        .get("color")
+                        .and_then(Value::as_str)
+                        .and_then(hex_rgb01)
+                    {
+                        let floor = 1.0 - alpha;
+                        let (ir, ig, ib) = (floor * r, floor * g, floor * b);
+                        let (yr, yg, yb) = (alpha + ir, alpha + ig, alpha + ib);
+                        filters.push(format!(
+                            "curves=r='0/{ir:.6} 1/{yr:.6}':g='0/{ig:.6} 1/{yg:.6}':b='0/{ib:.6} 1/{yb:.6}'"
+                        ));
+                    }
                 }
                 _ => filters.push(format!("colorchannelmixer=aa={alpha:.6}")),
             }
@@ -3362,7 +3971,36 @@ fn audio_filter(
     // Cadena declarativa de audio del clip. Va después de los presets de voz
     // (que son un atajo del mismo tipo de procesamiento) y antes del fader:
     // el stack es un insert, la ganancia es el control de mezcla.
-    apply_audio_effect_stack(&mut filters, effects, profile.audio_rate);
+    // Con keyframes el stack se renderiza segmentado (los filtros de audio
+    // evalúan opciones al init, igual que los de video): la cadena pre-stack
+    // cierra en `akp`, `asplit` abre un tramo por corte de keyframe y `concat`
+    // recompone en `astk`. El resto de la cadena (ganancia, pista, fades,
+    // paneo) sigue detrás del concat con el mismo `t` local del clip.
+    let anim_instances = audio_stack_keyframe_instances(effects);
+    let (stack_graphs, audio_head) = match audio_stack_segment_plan(
+        &anim_instances,
+        clip_seconds,
+        project_fps,
+        profile.audio_rate,
+    ) {
+        Some(plan) if !anim_instances.is_empty() => {
+            let pre = std::mem::take(&mut filters);
+            (
+                build_audio_stack_graphs(
+                    input_index,
+                    pre,
+                    &anim_instances,
+                    &plan,
+                    profile.audio_rate,
+                ),
+                format!("astk{input_index}"),
+            )
+        }
+        _ => {
+            apply_audio_effect_stack(&mut filters, effects, profile.audio_rate);
+            (Vec::new(), format!("{input_index}:a"))
+        }
+    };
 
     let gain_keyframes = audio["gainKeyframes"]
         .as_array()
@@ -3440,8 +4078,9 @@ fn audio_filter(
         } else {
             format!(",{}", after_pan.join(","))
         };
-        return [
-            format!("[{input_index}:a]{}[{split_label}]", filters.join(",")),
+        let mut graphs: Vec<String> = stack_graphs;
+        graphs.extend([
+            format!("[{audio_head}]{}[{split_label}]", filters.join(",")),
             format!("[{split_label}]channelsplit=channel_layout=stereo[{left_label}][{right_label}]"),
             format!(
                 "[{left_label}]volume=volume='{}':eval=frame[{left_gained}]",
@@ -3452,11 +4091,18 @@ fn audio_filter(
                 pan_graph.right
             ),
             format!("[{left_gained}][{right_gained}]join=inputs=2:channel_layout=stereo{tail}[a{input_index}]"),
-        ]
-        .join(";");
+        ]);
+        return graphs.join(";");
     }
     filters.extend(after_pan);
-    format!("[{input_index}:a]{}[a{input_index}]", filters.join(","))
+    let tail = format!("[{audio_head}]{}[a{input_index}]", filters.join(","));
+    if stack_graphs.is_empty() {
+        tail
+    } else {
+        let mut graphs = stack_graphs;
+        graphs.push(tail);
+        graphs.join(";")
+    }
 }
 
 pub struct BuildPlanInput<'a> {
@@ -4003,33 +4649,32 @@ pub(crate) fn build_plan_range(
         // ya generó el stem, su audio reemplaza al del material. El stem es el
         // wav del archivo completo, así que se le aplica la misma ventana
         // -ss/-t que al input de video para alinear el in-point del clip.
-        let stem_index = if !is_image
-            && clip["audio"]["voiceIsolation"]["enabled"].as_bool() == Some(true)
-        {
-            let stem = isolation_stem_path(input.root, asset_id);
-            if stem.is_file() {
-                let in_seconds =
-                    clip["source"]["inFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
-                let ratio = speed_num as f64 / speed_den as f64;
-                let source_seconds = (clip_seconds + lead_seconds) * ratio;
-                let seek_seconds = (in_seconds - lead_seconds * ratio).max(0.0);
-                args.extend([
-                    "-ss".into(),
-                    seconds(seek_seconds),
-                    "-t".into(),
-                    seconds(source_seconds),
-                    "-i".into(),
-                    stem.to_string_lossy().into_owned(),
-                ]);
-                let stem_index = inputs;
-                inputs += 1;
-                Some(stem_index)
+        let stem_index =
+            if !is_image && clip["audio"]["voiceIsolation"]["enabled"].as_bool() == Some(true) {
+                let stem = isolation_stem_path(input.root, asset_id);
+                if stem.is_file() {
+                    let in_seconds =
+                        clip["source"]["inFrame"].as_u64().unwrap_or(0) as f64 / project_fps;
+                    let ratio = speed_num as f64 / speed_den as f64;
+                    let source_seconds = (clip_seconds + lead_seconds) * ratio;
+                    let seek_seconds = (in_seconds - lead_seconds * ratio).max(0.0);
+                    args.extend([
+                        "-ss".into(),
+                        seconds(seek_seconds),
+                        "-t".into(),
+                        seconds(source_seconds),
+                        "-i".into(),
+                        stem.to_string_lossy().into_owned(),
+                    ]);
+                    let stem_index = inputs;
+                    inputs += 1;
+                    Some(stem_index)
+                } else {
+                    None
+                }
             } else {
                 None
-            }
-        } else {
-            None
-        };
+            };
         filters.push(visual_filter(
             index,
             clip,
@@ -4056,7 +4701,18 @@ pub(crate) fn build_plan_range(
         let chain = filters[position].clone();
         filters[position] = apply_glow_to_chain(chain, &format!("v{index}"), &clip["effects"]);
         let chain = filters[position].clone();
-        filters[position] = apply_effect_stack(chain, &format!("v{index}"), &clip["effects"]);
+        // Con keyframes de efecto el stack se hornea por tramos (split+trim+
+        // concat); sin ellos —o si los tramos superan el tope— queda el
+        // comportamiento estático de siempre.
+        filters[position] = apply_effect_stack_animated(
+            chain.clone(),
+            &format!("v{index}"),
+            &clip["effects"],
+            lead_seconds,
+            clip_seconds,
+            profile.fps(),
+        )
+        .unwrap_or_else(|| apply_effect_stack(chain, &format!("v{index}"), &clip["effects"]));
         let transform = &clip["transform"];
         let offset_x = offset_expression(clip, "offsetX", start_seconds, project_fps)
             .unwrap_or_else(|| {
@@ -4522,7 +5178,10 @@ pub(crate) fn build_plan_range(
         video_label = "motion".to_owned();
     }
     if ass.is_empty() {
-        filters.push(format!("[{video_label}]format=yuv420p[vout]"));
+        filters.push(format!(
+            "[{video_label}]format={}[vout]",
+            profile.pixel_format
+        ));
     } else {
         std::fs::write(input.temp_dir.join("captions.ass"), ass).map_err(|_| {
             ProjectError::message(
@@ -4531,7 +5190,8 @@ pub(crate) fn build_plan_range(
             )
         })?;
         filters.push(format!(
-            "[{video_label}]ass=captions.ass,format=yuv420p[vout]"
+            "[{video_label}]ass=captions.ass,format={}[vout]",
+            profile.pixel_format
         ));
     }
 
@@ -4545,7 +5205,7 @@ pub(crate) fn build_plan_range(
     if let Some(mut hardware) = hardware_encoder_args(&profile) {
         args.append(&mut hardware);
     } else {
-        let encoder = software_encoder(input.ffprobe, &profile.video_codec);
+        let encoder = software_encoder_for(input.ffprobe, &profile)?;
         args.extend(software_video_args(&encoder, &profile));
     }
     if profile.video_codec == "h265" {
@@ -4554,7 +5214,7 @@ pub(crate) fn build_plan_range(
     let (audio_encoder, audio_rate) = audio_encoder_for(&profile);
     args.extend([
         "-pix_fmt".into(),
-        "yuv420p".into(),
+        profile.pixel_format.clone(),
         "-r".into(),
         profile.fps_arg(),
         "-c:a".into(),
@@ -5032,6 +5692,361 @@ mod tests {
     }
 
     #[test]
+    fn effect_stack_expands_zoom_pulse_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "impact.zoom_pulse",
+                    "enabled": true,
+                    "params": { "amount": 0.2, "rate": 3, "center": [0.5, 0.5] }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{amount}"));
+        assert!(chain.contains("split=2[v0_0o][v0_0z]"));
+        assert!(chain.contains("eval=frame"));
+        assert!(chain.contains("overlay=x='0.5*(W-w)':y='0.5*(H-h)'"));
+        assert!(chain.contains("1+0.2*exp(-6*(t*3-floor(t*3)))"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_expands_blur_zoom_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "blur.zoom",
+                    "enabled": true,
+                    "params": { "amount": 0.4, "samples": 12, "center": [0.5, 0.5] }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{amount}"));
+        assert!(chain.contains("split=12[v0_0b0]"));
+        assert!(chain.contains("scale=w='trunc(iw/max(1-0.4*1,0.05)/2)*2'"));
+        assert!(chain.contains("overlay=x='0.5*(W-w)':y='0.5*(H-h)':format=auto[v0_0t5]"));
+        assert!(chain.contains("blend=all_mode=average[v0_0m1]"));
+        assert!(chain.ends_with("blend=all_mode=average[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_expands_glitch_wave_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "glitch.wave",
+                    "enabled": true,
+                    "params": { "amplitude": 0.1, "frequency": 4, "speed": 1.5 }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{amplitude}"));
+        assert!(chain.contains("format=gbrp,geq="));
+        assert!(chain.contains("r='r(clip(X+sin(Y/H*4*6.28318530718+T*1.5)*0.1*W,0,W-1),Y)'"));
+        assert!(chain.contains("g='g(clip(X+sin(Y/H*4*6.28318530718+T*1.5)*0.1*W,0,W-1),Y)'"));
+        assert!(chain.contains("b='b(clip(X+sin(Y/H*4*6.28318530718+T*1.5)*0.1*W,0,W-1),Y)'"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_expands_halftone_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "stylize.halftone",
+                    "enabled": true,
+                    "params": { "scale": 8, "angle": 45, "contrast": 1.4 }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{scale}"));
+        assert!(!chain.contains("{angle}"));
+        assert!(!chain.contains("{contrast}"));
+        assert!(chain.contains("format=gbrp,geq="));
+        assert!(chain.contains("cos(45*0.017453292519943295)"));
+        assert!(chain.contains("sin(45*0.017453292519943295)"));
+        assert!(chain.contains("(X+0.5)/max(8,1)"));
+        assert!(chain.contains("0.2126*r(X,Y)+0.7152*g(X,Y)+0.0722*b(X,Y)"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_expands_twirl_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "distort.twirl",
+                    "enabled": true,
+                    "params": { "angle": 90, "radius": 0.5, "center": [0.5, 0.5] }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{angle}"));
+        assert!(!chain.contains("{radius}"));
+        assert!(!chain.contains("{center"));
+        assert!(chain.contains("format=gbrp,geq="));
+        assert!(chain.contains("cos((90*0.017453292519943295)"));
+        assert!(chain.contains("sin((90*0.017453292519943295)"));
+        assert!(chain.contains("(X+0.5-0.5*W)"));
+        assert!(chain.contains("(Y+0.5-0.5*H)"));
+        assert!(chain.contains("max(0.5,0.000001)"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    #[test]
+    fn effect_stack_expands_flare_graph_with_filled_params() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "light.flare",
+                    "enabled": true,
+                    "params": { "position": [0.72, 0.28], "size": 0.18, "intensity": 0.4, "tint": "#ffd9a0" }
+                }
+            ]
+        });
+        let chain = apply_effect_stack("[0:v]null[v0]".to_owned(), "v0", &effects);
+        assert!(!chain.contains("%A%"));
+        assert!(!chain.contains("{position"));
+        assert!(!chain.contains("{size}"));
+        assert!(!chain.contains("{intensity}"));
+        assert!(!chain.contains("{tint"));
+        assert!(chain.contains("split=2[v0_0b][v0_0l]"));
+        assert!(chain.contains("format=gbrp,geq="));
+        assert!(chain.contains("clip(1*((clip(1-sqrt("));
+        assert!(chain.contains("(1-0.72)*W"));
+        assert!(chain.contains("*0.4*255,0,255)"));
+        assert!(chain.contains("blend=all_mode=screen"));
+        assert!(chain.ends_with("[v0]"));
+    }
+
+    fn keyframed_exposure(value_start: f64, value_end: f64) -> serde_json::Value {
+        serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "color.exposure",
+                    "enabled": true,
+                    "params": { "exposure": 0.9 },
+                    "keyframes": {
+                        "exposure": [
+                            { "frame": 0, "value": value_start },
+                            { "frame": 20, "value": value_end }
+                        ]
+                    }
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn effect_keyframes_sample_holds_ends_and_eases() {
+        let effects = keyframed_exposure(-0.5, 0.5);
+        let tracks = effect_keyframe_tracks(&effects);
+        assert_eq!(tracks.len(), 1);
+        let track = &tracks[0][0];
+        assert_eq!(track.param, "exposure");
+        assert_eq!(sample_effect_track(track, -10.0), -0.5);
+        assert_eq!(sample_effect_track(track, 0.0), -0.5);
+        assert_eq!(sample_effect_track(track, 10.0), 0.0);
+        assert_eq!(sample_effect_track(track, 20.0), 0.5);
+        assert_eq!(sample_effect_track(track, 999.0), 0.5);
+    }
+
+    #[test]
+    fn effect_keyframes_hold_easing_keeps_previous_value() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "color.exposure",
+                    "enabled": true,
+                    "params": {},
+                    "keyframes": {
+                        "exposure": [
+                            { "frame": 0, "value": 0.0, "easing": "hold" },
+                            { "frame": 10, "value": 1.0 }
+                        ]
+                    }
+                }
+            ]
+        });
+        let track = &effect_keyframe_tracks(&effects)[0][0];
+        // 'hold' devuelve el valor anterior durante todo el tramo.
+        assert_eq!(sample_effect_track(track, 5.0), 0.0);
+        assert_eq!(sample_effect_track(track, 15.0), 1.0);
+    }
+
+    #[test]
+    fn effect_keyframes_bezier_governs_the_segment() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "color.exposure",
+                    "enabled": true,
+                    "params": {},
+                    "keyframes": {
+                        "exposure": [
+                            // Bezier lineal (0,0)-(1,1): identidad en el tramo.
+                            { "frame": 0, "value": 0.0, "bezier": { "cp1X": 0.0, "cp1Y": 0.0, "cp2X": 1.0, "cp2Y": 1.0 } },
+                            { "frame": 10, "value": 1.0 },
+                            // Segundo tramo sin bezier: lineal por defecto.
+                            { "frame": 20, "value": 2.0 }
+                        ]
+                    }
+                }
+            ]
+        });
+        let track = &effect_keyframe_tracks(&effects)[0][0];
+        assert_eq!(sample_effect_track(track, 5.0), 0.5);
+        assert_eq!(sample_effect_track(track, 15.0), 1.5);
+    }
+
+    #[test]
+    fn effect_keyframes_bezier_slow_start_stays_below_linear() {
+        let effects = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "color.exposure",
+                    "enabled": true,
+                    "params": {},
+                    "keyframes": {
+                        "exposure": [
+                            { "frame": 0, "value": 0.0, "bezier": { "cp1X": 0.9, "cp1Y": 0.1, "cp2X": 0.9, "cp2Y": 0.1 } },
+                            { "frame": 10, "value": 1.0 }
+                        ]
+                    }
+                }
+            ]
+        });
+        let track = &effect_keyframe_tracks(&effects)[0][0];
+        let mid = sample_effect_track(track, 5.0);
+        assert!(mid < 0.5, "bezier lento debe quedar bajo la recta: {mid}");
+        assert!(mid > 0.0 && mid < 1.0);
+    }
+
+    #[test]
+    fn effect_keyframes_build_a_segmented_concat_graph() {
+        // 30 frames a 30 fps: cortes en los keyframes 0 y 20 → 3 tramos.
+        let effects = keyframed_exposure(-0.5, 0.5);
+        let graph =
+            apply_effect_stack_animated("[0:v]null[v0]".to_owned(), "v0", &effects, 0.0, 1.0, 30.0)
+                .expect("grafo segmentado");
+        assert!(graph.contains("[0:v]null[kfsrcv0]"), "{graph}");
+        // Keyframes en 0 y 20 → cortes {0,20,30} → 2 tramos.
+        assert!(graph.contains("[kfsrcv0]split=2[k0][k1]"), "{graph}");
+        assert!(graph.contains("trim=start_frame=0:end_frame=20"), "{graph}");
+        assert!(
+            graph.contains("trim=start_frame=20:end_frame=30"),
+            "{graph}"
+        );
+        assert!(graph.contains("concat=n=2:v=1:a=0[v0]"), "{graph}");
+        // Tramo 1 (frames 0-19, medio en 10): keyframe lineal → 0.0.
+        assert!(graph.contains("eq=brightness=0[seg0]"), "{graph}");
+        // Tramo 2 sostiene el último keyframe (0.5), no el param estático (0.9).
+        assert!(graph.contains("eq=brightness=0.5[seg1]"), "{graph}");
+        assert!(!graph.contains("eq=brightness=0.9"), "{graph}");
+    }
+
+    #[test]
+    fn effect_keyframes_shift_cuts_by_the_transition_lead() {
+        // Lead de 10 frames: keyframes locales 0 y 20 → cortes de stream 10 y
+        // 30 sobre un total de 40 → 3 tramos (lead, medio, cola).
+        let effects = keyframed_exposure(-0.5, 0.5);
+        let graph = apply_effect_stack_animated(
+            "[0:v]null[v0]".to_owned(),
+            "v0",
+            &effects,
+            10.0 / 30.0,
+            30.0 / 30.0,
+            30.0,
+        )
+        .expect("grafo segmentado con lead");
+        assert!(graph.contains("split=3"), "{graph}");
+        assert!(graph.contains("trim=start_frame=0:end_frame=10"), "{graph}");
+        assert!(
+            graph.contains("trim=start_frame=10:end_frame=30"),
+            "{graph}"
+        );
+        assert!(
+            graph.contains("trim=start_frame=30:end_frame=40"),
+            "{graph}"
+        );
+    }
+
+    #[test]
+    fn effect_keyframes_fall_back_without_keys_or_over_the_cap() {
+        // Sin keyframes: la rama segmentada no aplica.
+        let static_effects = serde_json::json!({
+            "stack": [
+                { "id": "a", "effectId": "color.exposure", "enabled": true, "params": { "exposure": 0.5 } }
+            ]
+        });
+        assert!(apply_effect_stack_animated(
+            "[0:v]null[v0]".to_owned(),
+            "v0",
+            &static_effects,
+            0.0,
+            1.0,
+            30.0,
+        )
+        .is_none());
+        // Instancia deshabilitada: sus keyframes no cuentan.
+        let mut disabled = keyframed_exposure(-0.5, 0.5);
+        disabled["stack"][0]["enabled"] = serde_json::json!(false);
+        assert!(apply_effect_stack_animated(
+            "[0:v]null[v0]".to_owned(),
+            "v0",
+            &disabled,
+            0.0,
+            1.0,
+            30.0,
+        )
+        .is_none());
+        // 40 keyframes → 39 cortes > 32 tramos: fallback al estático.
+        let many_keys: Vec<serde_json::Value> = (0..40)
+            .map(|frame| serde_json::json!({ "frame": frame, "value": frame as f64 / 40.0 }))
+            .collect();
+        let crowded = serde_json::json!({
+            "stack": [
+                {
+                    "id": "a",
+                    "effectId": "color.exposure",
+                    "enabled": true,
+                    "params": {},
+                    "keyframes": { "exposure": many_keys }
+                }
+            ]
+        });
+        assert!(apply_effect_stack_animated(
+            "[0:v]null[v0]".to_owned(),
+            "v0",
+            &crowded,
+            0.0,
+            4.0,
+            30.0,
+        )
+        .is_none());
+    }
+
+    #[test]
     fn effect_stack_leaves_the_chain_untouched_without_a_stack() {
         let chain = "[0:v]null[v0]".to_owned();
         assert_eq!(
@@ -5065,6 +6080,7 @@ mod tests {
             min_output_bytes: 100,
             duration_tolerance_frames: 10,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         }
     }
 
@@ -6402,6 +7418,79 @@ mod tests {
     }
 
     #[test]
+    fn pixel_format_sigue_la_matriz_real_del_pipeline() {
+        // yuv420p es el default y viaja aunque el perfil no lo declare.
+        let parsed = parse_profile(&webm_profile()).expect("VP9 por defecto");
+        assert_eq!(parsed.pixel_format, "yuv420p");
+
+        // 4:4:4 es válido en WebM VP9 y AV1 por software.
+        let mut vp9_444 = webm_profile();
+        vp9_444["pixelFormat"] = serde_json::json!("yuv444p");
+        let parsed = parse_profile(&vp9_444).expect("VP9 4:4:4");
+        assert_eq!(parsed.pixel_format, "yuv444p");
+
+        let mut av1_444 = webm_profile();
+        av1_444["videoCodec"] = serde_json::json!("av1");
+        av1_444["pixelFormat"] = serde_json::json!("yuv444p");
+        assert_eq!(
+            parse_profile(&av1_444).expect("AV1 4:4:4").pixel_format,
+            "yuv444p"
+        );
+
+        // H.264/H.265 y el hardware son 4:2:0: se rechaza con motivo.
+        let mut mp4_444 = webm_profile();
+        mp4_444["container"] = serde_json::json!("mp4");
+        mp4_444["videoCodec"] = serde_json::json!("h264");
+        mp4_444["audioCodec"] = serde_json::json!("aac");
+        mp4_444["pixelFormat"] = serde_json::json!("yuv444p");
+        assert!(parse_profile(&mp4_444).is_err(), "MP4/H.264 no emite 4:4:4");
+
+        let mut hw_444 = webm_profile();
+        hw_444["pixelFormat"] = serde_json::json!("yuv444p");
+        hw_444["hardwareEncoder"] = serde_json::json!("vp9_qsv");
+        assert!(parse_profile(&hw_444).is_err(), "VP9 hardware es 4:2:0");
+
+        // rgb24 no lo acepta ningún encoder de entrega.
+        let mut rgb = webm_profile();
+        rgb["pixelFormat"] = serde_json::json!("rgb24");
+        assert!(
+            parse_profile(&rgb).is_err(),
+            "rgb24 es intermedio, no de entrega"
+        );
+
+        let mut bogus = webm_profile();
+        bogus["pixelFormat"] = serde_json::json!("yuv411p");
+        assert!(parse_profile(&bogus).is_err());
+    }
+
+    #[test]
+    fn pixel_444_exige_el_encoder_software_que_lo_emite() {
+        // En tests no hay FFmpeg sondeable: 4:4:4 debe fallar con un motivo
+        // claro en vez de degradar a 4:2:0 en silencio.
+        let mut vp9 = profile();
+        vp9.video_codec = "vp9".into();
+        vp9.audio_codec = "opus".into();
+        vp9.container = "webm".into();
+        vp9.pixel_format = "yuv444p".into();
+        let error = software_encoder_for(Path::new("ffprobe"), &vp9)
+            .expect_err("sin libvpx-vp9 no hay VP9 4:4:4");
+        assert!(error.message.contains("libvpx-vp9"), "{}", error.message);
+
+        let mut av1 = vp9.clone();
+        av1.video_codec = "av1".into();
+        let error = software_encoder_for(Path::new("ffprobe"), &av1)
+            .expect_err("sin libaom-av1 no hay AV1 4:4:4");
+        assert!(error.message.contains("libaom-av1"), "{}", error.message);
+
+        // 4:2:0 conserva el comportamiento histórico aunque no haya sondeo.
+        vp9.pixel_format = "yuv420p".into();
+        assert_eq!(
+            software_encoder_for(Path::new("ffprobe"), &vp9).expect("VP9 4:2:0"),
+            "libvpx-vp9"
+        );
+    }
+
+    #[test]
     fn software_video_args_match_each_encoder_family() {
         let mut vp9 = profile();
         vp9.video_codec = "vp9".into();
@@ -6511,6 +7600,90 @@ mod tests {
         assert!(filter.contains("acompressor="));
         assert!(filter.contains("afade=t=in"));
         assert!(filter.contains("afade=t=out"));
+    }
+
+    #[test]
+    fn audio_stack_keyframes_build_a_segmented_concat_graph() {
+        // 3 s a 30 fps = 90 frames; keyframes en 0 y 45 → 2 tramos.
+        // 45 frames * 48000/30 = 72000 samples por tramo.
+        let effects = serde_json::json!({
+            "audioStack": [
+                {
+                    "id": "a",
+                    "effectId": "audio.tremolo",
+                    "enabled": true,
+                    "params": { "rate": 2.0, "depth": 0.5 },
+                    "keyframes": {
+                        "rate": [
+                            { "frame": 0, "value": 2.0 },
+                            { "frame": 45, "value": 8.0 }
+                        ]
+                    }
+                }
+            ]
+        });
+        let filter = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            3.0,
+            0.0,
+            0.0,
+            &serde_json::json!({}),
+            false,
+            1,
+            1,
+            0.0,
+            &serde_json::json!({}),
+            &effects,
+        );
+        assert!(filter.contains("asplit=2"), "{filter}");
+        assert!(
+            filter.contains("atrim=start_sample=0:end_sample=72000"),
+            "{filter}"
+        );
+        assert!(
+            filter.contains("atrim=start_sample=72000:end_sample=144000"),
+            "{filter}"
+        );
+        assert!(filter.contains("concat=n=2:v=0:a=1[astk0]"), "{filter}");
+        // Tramo 1 (medio en frame 22.5, lineal 2→8): rate ≈ 5; tramo 2 sostiene 8.
+        assert!(filter.contains("tremolo=f=5"), "{filter}");
+        assert!(filter.contains("tremolo=f=8"), "{filter}");
+        // La ganancia y el resto de la cadena siguen detrás del concat.
+        assert!(filter.contains("[astk0]"), "{filter}");
+    }
+
+    #[test]
+    fn audio_stack_without_keyframes_keeps_the_linear_chain() {
+        let effects = serde_json::json!({
+            "audioStack": [
+                {
+                    "id": "a",
+                    "effectId": "audio.tremolo",
+                    "enabled": true,
+                    "params": { "rate": 4.0, "depth": 0.5 }
+                }
+            ]
+        });
+        let filter = audio_filter(
+            0,
+            &profile(),
+            30.0,
+            1.0,
+            0.0,
+            0.0,
+            &serde_json::json!({}),
+            false,
+            1,
+            1,
+            0.0,
+            &serde_json::json!({}),
+            &effects,
+        );
+        assert!(!filter.contains("asplit"), "{filter}");
+        assert!(filter.contains("tremolo=f=4"), "{filter}");
+        assert!(filter.contains("[0:a]"), "{filter}");
     }
 
     #[test]
@@ -7031,6 +8204,70 @@ mod tests {
         let down = serde_json::json!({ "transitionIn": { "type": "slide-down", "frames": 6 } });
         let y_down = overlay_y_expression(&down, 2.0, 0.2, "0.000", None);
         assert!(y_down.contains("+(-H)*(1-"));
+
+        // Dip to color: el clip entrante funde desde el color elegido.
+        let dip = serde_json::json!({
+            "transitionIn": { "type": "dip-color", "frames": 6, "color": "#123456" }
+        });
+        let dip_filter = visual_filter(
+            0,
+            &dip,
+            &serde_json::json!({}),
+            &profile(),
+            2.0,
+            0.2,
+            0.0,
+            1,
+            1,
+            true,
+        );
+        assert!(dip_filter.contains("fade=t=in:st=0:d=0.200:color=0x123456"));
+
+        // Sin color cae a negro (default seguro).
+        let dip_plain = serde_json::json!({
+            "transitionIn": { "type": "dip-color", "frames": 6 }
+        });
+        let dip_plain_filter = visual_filter(
+            0,
+            &dip_plain,
+            &serde_json::json!({}),
+            &profile(),
+            2.0,
+            0.2,
+            0.0,
+            1,
+            1,
+            true,
+        );
+        assert!(dip_plain_filter.contains("color=0x000000"));
+
+        // Wipe: máscara geq progresiva por frame sobre el clip entrante.
+        for (kind, needle) in [
+            ("wipe-left", "gt(X,W*(1-("),
+            ("wipe-right", "lt(X,W*("),
+            ("wipe-up", "gt(Y,H*(1-("),
+            ("wipe-down", "lt(Y,H*("),
+        ] {
+            let wipe = serde_json::json!({
+                "transitionIn": { "type": kind, "frames": 6 }
+            });
+            let wipe_filter = visual_filter(
+                0,
+                &wipe,
+                &serde_json::json!({}),
+                &profile(),
+                2.0,
+                0.2,
+                0.0,
+                1,
+                1,
+                true,
+            );
+            assert!(
+                wipe_filter.contains("geq=r='r(X,Y)'") && wipe_filter.contains(needle),
+                "{kind} debería emitir su máscara geq, filtro: {wipe_filter}"
+            );
+        }
     }
 
     #[test]
@@ -8686,6 +9923,7 @@ mod tests {
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("out.mp4");
         let temp = root.join("temp");
@@ -8820,6 +10058,7 @@ mod tests {
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("alpha-out.mp4");
         let temp = root.join("temp");
@@ -8954,6 +10193,7 @@ mod tests {
             min_output_bytes: 500,
             duration_tolerance_frames: 5,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("textmask-out.mp4");
         let temp = root.join("temp");
@@ -9072,6 +10312,7 @@ mod tests {
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("glow-out.mp4");
         let temp = root.join("temp");
@@ -9179,6 +10420,7 @@ mod tests {
             min_output_bytes: 500,
             duration_tolerance_frames: 5,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("range-out.mp4");
         let temp = root.join("temp");
@@ -9297,6 +10539,7 @@ mod tests {
             min_output_bytes: 500,
             duration_tolerance_frames: 5,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let temp = root.join("temp");
         std::fs::create_dir_all(&temp).unwrap();
@@ -9468,6 +10711,7 @@ mod tests {
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("slow-out.mp4");
         let temp = root.join("temp");
@@ -9638,6 +10882,7 @@ mod tests {
             min_output_bytes: 1_000,
             duration_tolerance_frames: 10,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let output = root.join("out.mp4");
         let temp = root.join("temp");
@@ -11592,8 +12837,16 @@ mod tests {
             .iter()
             .find(|arg| arg.contains("[aout]"))
             .expect("falta el grafo de audio");
-        assert!(graph.contains("[2:a]"), "el audio del video debe venir del stem: {}", graph);
-        assert!(graph.contains("[3:a]"), "el clip de audio debe seguir sonando: {}", graph);
+        assert!(
+            graph.contains("[2:a]"),
+            "el audio del video debe venir del stem: {}",
+            graph
+        );
+        assert!(
+            graph.contains("[3:a]"),
+            "el clip de audio debe seguir sonando: {}",
+            graph
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -11633,11 +12886,13 @@ mod tests {
         // Sin stem generado el clip de audio usa el source original: no debe
         // aparecer ningun vocals.wav en los inputs.
         let joined = plan.args.join("\n");
-        assert!(!joined.contains("vocals.wav"), "sin stem no debe haber input extra");
+        assert!(
+            !joined.contains("vocals.wav"),
+            "sin stem no debe haber input extra"
+        );
         assert!(joined.contains("audio.wav"));
         let _ = std::fs::remove_dir_all(&root);
     }
-
 }
 
 #[cfg(test)]
@@ -11650,7 +12905,10 @@ mod encoder_tests {
 
     #[test]
     fn prefers_libx264_when_the_build_has_it() {
-        assert_eq!(choose_encoder(&list(&["libx264", "h264_mf"]), "h264"), "libx264");
+        assert_eq!(
+            choose_encoder(&list(&["libx264", "h264_mf"]), "h264"),
+            "libx264"
+        );
     }
 
     #[test]
@@ -11661,7 +12919,10 @@ mod encoder_tests {
 
     #[test]
     fn uses_openh264_when_it_is_the_only_one() {
-        assert_eq!(choose_encoder(&list(&["libopenh264"]), "h264"), "libopenh264");
+        assert_eq!(
+            choose_encoder(&list(&["libopenh264"]), "h264"),
+            "libopenh264"
+        );
     }
 
     #[test]
@@ -11672,6 +12933,9 @@ mod encoder_tests {
 
     #[test]
     fn picks_hevc_alternatives_for_h265() {
-        assert_eq!(choose_encoder(&list(&["hevc_mf", "hevc_nvenc"]), "h265"), "hevc_mf");
+        assert_eq!(
+            choose_encoder(&list(&["hevc_mf", "hevc_nvenc"]), "h265"),
+            "hevc_mf"
+        );
     }
 }

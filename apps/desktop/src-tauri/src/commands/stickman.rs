@@ -14,10 +14,10 @@
 //! cualquier articulación fotograma a fotograma.
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use tauri::State;
 
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -182,7 +182,8 @@ fn run_pose(t: f64) -> Pose {
     pose.thigh_l = DOWN + 0.95 * w.sin();
     pose.thigh_r = DOWN - 0.95 * w.sin();
     pose.shin_l = pose.thigh_l + 0.4 + 0.9 * (0.5 - 0.5 * (w + 1.0).sin()).max(0.0);
-    pose.shin_r = pose.thigh_r + 0.4 + 0.9 * (0.5 - 0.5 * (w + std::f64::consts::PI + 1.0).sin()).max(0.0);
+    pose.shin_r =
+        pose.thigh_r + 0.4 + 0.9 * (0.5 - 0.5 * (w + std::f64::consts::PI + 1.0).sin()).max(0.0);
     pose.upper_arm_l = DOWN - 0.9 * w.sin();
     pose.upper_arm_r = DOWN + 0.9 * w.sin();
     pose.fore_arm_l = DOWN + 0.9;
@@ -246,10 +247,16 @@ struct V2 {
 
 impl V2 {
     fn add(self, other: V2) -> V2 {
-        V2 { x: self.x + other.x, y: self.y + other.y }
+        V2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
     }
     fn from_angle(len: f64, angle: f64) -> V2 {
-        V2 { x: len * angle.cos(), y: len * angle.sin() }
+        V2 {
+            x: len * angle.cos(),
+            y: len * angle.sin(),
+        }
     }
 }
 
@@ -312,20 +319,84 @@ fn solve_skeleton(pose: &Pose, width: f64, height: f64) -> Skeleton {
             x: chest.x + sign * rig.shoulder_half,
             y: chest.y,
         };
-        let elbow = shoulder.add(V2::from_angle(rig.upper_arm, if side == "l" { pose.upper_arm_l } else { pose.upper_arm_r }));
+        let elbow = shoulder.add(V2::from_angle(
+            rig.upper_arm,
+            if side == "l" {
+                pose.upper_arm_l
+            } else {
+                pose.upper_arm_r
+            },
+        ));
         let hand = elbow.add(V2::from_angle(
             rig.fore_arm,
-            if side == "l" { pose.fore_arm_l } else { pose.fore_arm_r },
+            if side == "l" {
+                pose.fore_arm_l
+            } else {
+                pose.fore_arm_r
+            },
         ));
-        let hip = V2 { x: pelvis.x + sign * rig.hip_half, y: pelvis.y };
-        let knee = hip.add(V2::from_angle(rig.thigh, if side == "l" { pose.thigh_l } else { pose.thigh_r }));
-        let foot = knee.add(V2::from_angle(rig.shin, if side == "l" { pose.shin_l } else { pose.shin_r }));
-        joints.insert(match side { "l" => "shoulder_l", _ => "shoulder_r" }, shoulder);
-        joints.insert(match side { "l" => "elbow_l", _ => "elbow_r" }, elbow);
-        joints.insert(match side { "l" => "hand_l", _ => "hand_r" }, hand);
-        joints.insert(match side { "l" => "hip_l", _ => "hip_r" }, hip);
-        joints.insert(match side { "l" => "knee_l", _ => "knee_r" }, knee);
-        joints.insert(match side { "l" => "foot_l", _ => "foot_r" }, foot);
+        let hip = V2 {
+            x: pelvis.x + sign * rig.hip_half,
+            y: pelvis.y,
+        };
+        let knee = hip.add(V2::from_angle(
+            rig.thigh,
+            if side == "l" {
+                pose.thigh_l
+            } else {
+                pose.thigh_r
+            },
+        ));
+        let foot = knee.add(V2::from_angle(
+            rig.shin,
+            if side == "l" {
+                pose.shin_l
+            } else {
+                pose.shin_r
+            },
+        ));
+        joints.insert(
+            match side {
+                "l" => "shoulder_l",
+                _ => "shoulder_r",
+            },
+            shoulder,
+        );
+        joints.insert(
+            match side {
+                "l" => "elbow_l",
+                _ => "elbow_r",
+            },
+            elbow,
+        );
+        joints.insert(
+            match side {
+                "l" => "hand_l",
+                _ => "hand_r",
+            },
+            hand,
+        );
+        joints.insert(
+            match side {
+                "l" => "hip_l",
+                _ => "hip_r",
+            },
+            hip,
+        );
+        joints.insert(
+            match side {
+                "l" => "knee_l",
+                _ => "knee_r",
+            },
+            knee,
+        );
+        joints.insert(
+            match side {
+                "l" => "foot_l",
+                _ => "foot_r",
+            },
+            foot,
+        );
     }
     Skeleton { joints, rig }
 }
@@ -355,7 +426,14 @@ fn draw_bone(buf: &mut [u8], w: usize, h: usize, a: V2, b: V2, thick: f64, color
         for dy in -r..=r {
             for dx in -r..=r {
                 if dx * dx + dy * dy <= r * r + r {
-                    blend_px(buf, w, h, x.round() as i64 + dx, y.round() as i64 + dy, color);
+                    blend_px(
+                        buf,
+                        w,
+                        h,
+                        x.round() as i64 + dx,
+                        y.round() as i64 + dy,
+                        color,
+                    );
                 }
             }
         }
@@ -367,7 +445,14 @@ fn draw_head(buf: &mut [u8], w: usize, h: usize, head: V2, rig: &Rig, color: [u8
     for dy in -r..=r {
         for dx in -r..=r {
             if dx * dx + dy * dy <= r * r {
-                blend_px(buf, w, h, head.x.round() as i64 + dx, head.y.round() as i64 + dy, color);
+                blend_px(
+                    buf,
+                    w,
+                    h,
+                    head.x.round() as i64 + dx,
+                    head.y.round() as i64 + dy,
+                    color,
+                );
             }
         }
     }
@@ -380,7 +465,14 @@ fn draw_head(buf: &mut [u8], w: usize, h: usize, head: V2, rig: &Rig, color: [u8
         for dy in -er..=er {
             for dx in -er..=er {
                 if dx * dx + dy * dy <= er * er {
-                    blend_px(buf, w, h, ex.round() as i64 + dx, ey.round() as i64 + dy, eye);
+                    blend_px(
+                        buf,
+                        w,
+                        h,
+                        ex.round() as i64 + dx,
+                        ey.round() as i64 + dy,
+                        eye,
+                    );
                 }
             }
         }
@@ -406,23 +498,87 @@ fn render_frame(
     let thick = (height as f64 / 360.0 * 7.0).max(3.0);
     let get = |name: &str| *j.get(name).unwrap_or(&V2 { x: 0.0, y: 0.0 });
     // Core: pelvis → chest → cabeza
-    draw_bone(&mut buf, width, height, get("pelvis"), get("chest"), thick, bone_color);
-    draw_bone(&mut buf, width, height, get("chest"), get("head"), thick * 0.8, bone_color);
+    draw_bone(
+        &mut buf,
+        width,
+        height,
+        get("pelvis"),
+        get("chest"),
+        thick,
+        bone_color,
+    );
+    draw_bone(
+        &mut buf,
+        width,
+        height,
+        get("chest"),
+        get("head"),
+        thick * 0.8,
+        bone_color,
+    );
     draw_head(&mut buf, width, height, get("head"), &sk.rig, bone_color);
     // Brazos y piernas
     for (up, mid, end) in [
         ("shoulder_l", "elbow_l", "hand_l"),
         ("shoulder_r", "elbow_r", "hand_r"),
     ] {
-        draw_bone(&mut buf, width, height, get("chest"), get(up), thick * 0.75, bone_color);
+        draw_bone(
+            &mut buf,
+            width,
+            height,
+            get("chest"),
+            get(up),
+            thick * 0.75,
+            bone_color,
+        );
         // El hombro cuelga del pecho; lo dibujamos desde chest→shoulder→elbow→hand
-        draw_bone(&mut buf, width, height, get(up), get(mid), thick * 0.7, bone_color);
-        draw_bone(&mut buf, width, height, get(mid), get(end), thick * 0.65, bone_color);
+        draw_bone(
+            &mut buf,
+            width,
+            height,
+            get(up),
+            get(mid),
+            thick * 0.7,
+            bone_color,
+        );
+        draw_bone(
+            &mut buf,
+            width,
+            height,
+            get(mid),
+            get(end),
+            thick * 0.65,
+            bone_color,
+        );
     }
     for (hip, knee, foot) in [("hip_l", "knee_l", "foot_l"), ("hip_r", "knee_r", "foot_r")] {
-        draw_bone(&mut buf, width, height, get("pelvis"), get(hip), thick * 0.8, bone_color);
-        draw_bone(&mut buf, width, height, get(hip), get(knee), thick * 0.75, bone_color);
-        draw_bone(&mut buf, width, height, get(knee), get(foot), thick * 0.7, bone_color);
+        draw_bone(
+            &mut buf,
+            width,
+            height,
+            get("pelvis"),
+            get(hip),
+            thick * 0.8,
+            bone_color,
+        );
+        draw_bone(
+            &mut buf,
+            width,
+            height,
+            get(hip),
+            get(knee),
+            thick * 0.75,
+            bone_color,
+        );
+        draw_bone(
+            &mut buf,
+            width,
+            height,
+            get(knee),
+            get(foot),
+            thick * 0.7,
+            bone_color,
+        );
     }
     if let Some(spec) = particles {
         draw_particles(&mut buf, width, height, spec, frame, fps, bone_color);
@@ -481,7 +637,14 @@ fn draw_particles(
         for dy in -r..=r {
             for dx in -r..=r {
                 if dx * dx + dy * dy <= r * r {
-                    blend_px(buf, w, h, x.round() as i64 + dx, y.round() as i64 + dy, color);
+                    blend_px(
+                        buf,
+                        w,
+                        h,
+                        x.round() as i64 + dx,
+                        y.round() as i64 + dy,
+                        color,
+                    );
                 }
             }
         }
@@ -622,30 +785,36 @@ fn parse_hex(hex: &str, fallback: [u8; 3]) -> [u8; 3] {
 }
 
 fn resolve_ffmpeg(settings: &crate::state::Settings) -> Result<PathBuf, ProjectError> {
-    resolve_tools(settings)
-        .0
-        .ok_or_else(|| {
-            ProjectError::message(
-                ProjectErrorCode::ProviderUnavailable,
-                "no se encontró FFmpeg configurado",
-            )
-        })
+    resolve_tools(settings).0.ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "no se encontró FFmpeg configurado",
+        )
+    })
 }
 
 /// Medición real del MP4 con ffprobe (mismo helper que screen_record).
-fn probe_output(ffprobe: &Path, output: &Path) -> (Option<f64>, Option<u32>, Option<u32>, Option<bool>) {
+fn probe_output(
+    ffprobe: &Path,
+    output: &Path,
+) -> (Option<f64>, Option<u32>, Option<u32>, Option<bool>) {
     let probed = std::process::Command::new(ffprobe)
         .args([
-            "-v", "error",
-            "-show_entries", "format=duration:stream=codec_type,width,height",
-            "-of", "json",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=codec_type,width,height",
+            "-of",
+            "json",
             &output.to_string_lossy(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output();
-    let Ok(out) = probed else { return (None, None, None, None) };
+    let Ok(out) = probed else {
+        return (None, None, None, None);
+    };
     if !out.status.success() {
         return (None, None, None, None);
     }
@@ -654,7 +823,9 @@ fn probe_output(ffprobe: &Path, output: &Path) -> (Option<f64>, Option<u32>, Opt
         Ok(v) => v,
         Err(_) => return (None, None, None, None),
     };
-    let duration = json["format"]["duration"].as_str().and_then(|s| s.parse::<f64>().ok());
+    let duration = json["format"]["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok());
     let streams = json["streams"].as_array();
     let mut width = None;
     let mut height = None;
@@ -686,7 +857,11 @@ pub async fn stickman_render(
     if !ACTIONS.contains(&action.as_str()) && request.keyframes.is_empty() {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
-            &format!("acción desconocida «{}»; opciones: {} o keyframes", request.action, ACTIONS.join(", ")),
+            &format!(
+                "acción desconocida «{}»; opciones: {} o keyframes",
+                request.action,
+                ACTIONS.join(", ")
+            ),
         ));
     }
     let fps = request.fps.clamp(1, 60);
@@ -695,10 +870,16 @@ pub async fn stickman_render(
     let duration = request.duration_seconds.clamp(0.5, 120.0);
     let total_frames = (duration * fps as f64).round() as u64;
     if total_frames == 0 {
-        return Err(ProjectError::message(ProjectErrorCode::InvalidProject, "duración demasiado corta"));
+        return Err(ProjectError::message(
+            ProjectErrorCode::InvalidProject,
+            "duración demasiado corta",
+        ));
     }
     if let Some(spec) = &request.particles {
-        if !matches!(spec.kind.as_str(), "confetti" | "snow" | "sparks" | "bounce") {
+        if !matches!(
+            spec.kind.as_str(),
+            "confetti" | "snow" | "sparks" | "bounce"
+        ) {
             return Err(ProjectError::message(
                 ProjectErrorCode::InvalidProject,
                 "particles.kind debe ser confetti, snow, sparks o bounce",
@@ -740,16 +921,25 @@ pub async fn stickman_render(
     }
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
-            ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo crear la carpeta de salida: {e}"))
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo crear la carpeta de salida: {e}"),
+            )
         })?;
     }
 
-    let bone = parse_hex(request.bone_hex.as_deref().unwrap_or("#e8eaf0"), [232, 234, 240]);
+    let bone = parse_hex(
+        request.bone_hex.as_deref().unwrap_or("#e8eaf0"),
+        [232, 234, 240],
+    );
     let bg = parse_hex(request.bg_hex.as_deref().unwrap_or("#10131a"), [16, 19, 26]);
 
     let frames_dir = std::env::temp_dir().join(format!("stickman-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&frames_dir).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo crear el temporal: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo crear el temporal: {e}"),
+        )
     })?;
 
     // 1) Rasterizar cada cuadro a PNG.
@@ -766,13 +956,12 @@ pub async fn stickman_render(
             fps,
         );
         let path = frames_dir.join(format!("frame_{frame:05}.png"));
-        image::save_buffer(&path, &rgb, width, height, image::ColorType::Rgb8)
-            .map_err(|e| {
-                ProjectError::message(
-                    ProjectErrorCode::Io,
-                    &format!("no se pudo escribir el cuadro {frame}: {e}"),
-                )
-            })?;
+        image::save_buffer(&path, &rgb, width, height, image::ColorType::Rgb8).map_err(|e| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo escribir el cuadro {frame}: {e}"),
+            )
+        })?;
     }
 
     // 2) Codificar con FFmpeg del proyecto.
@@ -787,25 +976,39 @@ pub async fn stickman_render(
     for encoder in ["libopenh264", "h264_mf"] {
         let out = std::process::Command::new(&ffmpeg)
             .args([
-                "-hide_banner", "-loglevel", "error", "-y",
-                "-framerate", &fps.to_string(),
-                "-i", &pattern.to_string_lossy(),
-                "-c:v", encoder,
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-framerate",
+                &fps.to_string(),
+                "-i",
+                &pattern.to_string_lossy(),
+                "-c:v",
+                encoder,
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
                 &tmp_out.to_string_lossy(),
             ])
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
             .map_err(|e| {
-                ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo ejecutar FFmpeg: {e}"))
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("no se pudo ejecutar FFmpeg: {e}"),
+                )
             })?;
         if out.status.success() {
             encoded = true;
             break;
         }
-        last_err = String::from_utf8_lossy(&out.stderr).chars().take(400).collect();
+        last_err = String::from_utf8_lossy(&out.stderr)
+            .chars()
+            .take(400)
+            .collect();
         let _ = std::fs::remove_file(&tmp_out);
     }
     if !encoded {
@@ -815,13 +1018,19 @@ pub async fn stickman_render(
         ));
     }
     std::fs::rename(&tmp_out, &output).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo publicar el video: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo publicar el video: {e}"),
+        )
     })?;
 
     // 3) Verificar con ffprobe real (mismo patrón que screen_record).
     let (ffprobe, _, _) = (resolve_tools(&settings).1, (), ());
     let ffprobe = ffprobe.ok_or_else(|| {
-        ProjectError::message(ProjectErrorCode::ProviderUnavailable, "no se encontró FFprobe")
+        ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "no se encontró FFprobe",
+        )
     })?;
     let (duration_s, w_s, h_s, has_audio) = probe_output(&ffprobe, &output);
     let _ = std::fs::remove_dir_all(&frames_dir);
@@ -852,7 +1061,10 @@ mod tests {
         let sk = solve_skeleton(&p, 640.0, 360.0);
         let j = &sk.joints;
         let thigh_l = j["knee_l"].y - j["hip_l"].y;
-        assert!(thigh_l > 40.0, "el muslo debe apuntar hacia abajo: {thigh_l}");
+        assert!(
+            thigh_l > 40.0,
+            "el muslo debe apuntar hacia abajo: {thigh_l}"
+        );
         // El pie queda por debajo de la rodilla.
         assert!(j["foot_l"].y > j["knee_l"].y);
     }
@@ -861,20 +1073,35 @@ mod tests {
     fn walk_cycle_differs_between_frames() {
         let a = walk_pose(0.0);
         let b = walk_pose(0.4);
-        assert!((a.thigh_l - b.thigh_l).abs() > 0.1, "la caminata debe mover los muslos");
+        assert!(
+            (a.thigh_l - b.thigh_l).abs() > 0.1,
+            "la caminata debe mover los muslos"
+        );
     }
 
     #[test]
     fn keyframes_interpolate_between_poses() {
         let kfs = vec![
-            PoseKeyframe { frame: 0, pose: stand_pose() },
-            PoseKeyframe { frame: 24, pose: Pose { upper_arm_r: -1.5, ..stand_pose() } },
+            PoseKeyframe {
+                frame: 0,
+                pose: stand_pose(),
+            },
+            PoseKeyframe {
+                frame: 24,
+                pose: Pose {
+                    upper_arm_r: -1.5,
+                    ..stand_pose()
+                },
+            },
         ];
         let mid = pose_from_keyframes(&kfs, 12);
         let end = pose_from_keyframes(&kfs, 24);
         // stand_pose().upper_arm_r = π/2; el keyframe final fija -1.5.
         let expected_mid = (DOWN + (-1.5)) / 2.0;
-        assert!((mid.upper_arm_r - expected_mid).abs() < 0.01, "interpolación lineal a mitad");
+        assert!(
+            (mid.upper_arm_r - expected_mid).abs() < 0.01,
+            "interpolación lineal a mitad"
+        );
         assert!((end.upper_arm_r - (-1.5)).abs() < 0.01, "pose final exacta");
         // Fuera de rango se mantiene el extremo.
         let over = pose_from_keyframes(&kfs, 100);
@@ -883,11 +1110,23 @@ mod tests {
 
     #[test]
     fn render_frame_produces_non_empty_image() {
-        let rgb = render_frame(&walk_pose(0.3), 320, 180, [255, 255, 255], [16, 19, 26], None, 7, 24);
+        let rgb = render_frame(
+            &walk_pose(0.3),
+            320,
+            180,
+            [255, 255, 255],
+            [16, 19, 26],
+            None,
+            7,
+            24,
+        );
         assert_eq!(rgb.len(), 320 * 180 * 3);
         // El fondo domina; debe haber píxeles claros del cuerpo.
         let light = rgb.chunks_exact(3).filter(|p| p[0] > 200).count();
-        assert!(light > 500, "el stickman debe dibujar muchos píxeles claros, hay {light}");
+        assert!(
+            light > 500,
+            "el stickman debe dibujar muchos píxeles claros, hay {light}"
+        );
     }
 
     #[test]
@@ -924,7 +1163,10 @@ mod particle_tests {
         let (_, late, radius) = bounce_pos(7, 30.0, 640.0, 360.0, &spec);
         assert!(early < 300.0, "a 0.1s debería seguir cayendo, y={early}");
         let floor = 360.0 - radius - 1.0;
-        assert!((late - floor).abs() < 0.01, "a los 30s debe estar en el piso, y={late} floor={floor}");
+        assert!(
+            (late - floor).abs() < 0.01,
+            "a los 30s debe estar en el piso, y={late} floor={floor}"
+        );
         // fps no influye: la simulación usa dt fijo.
         let (_, y24, _) = bounce_pos(3, 2.0, 640.0, 360.0, &spec);
         let (_, y60, _) = bounce_pos(3, 2.0, 640.0, 360.0, &spec);
@@ -933,26 +1175,80 @@ mod particle_tests {
 
     #[test]
     fn bounce_kind_renders_pixels() {
-        let rgb = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec("bounce")), 5, 24);
-        let gold = rgb.chunks_exact(3).filter(|p| p[0] > 200 && p[1] > 150).count();
+        let rgb = render_frame(
+            &stand_pose(),
+            200,
+            120,
+            [255, 255, 255],
+            [0, 0, 0],
+            Some(&spec("bounce")),
+            5,
+            24,
+        );
+        let gold = rgb
+            .chunks_exact(3)
+            .filter(|p| p[0] > 200 && p[1] > 150)
+            .count();
         assert!(gold > 30, "bounce debe dibujar partículas, hay {gold}");
     }
 
     #[test]
     fn particles_are_deterministic_across_frames() {
-        let a = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec("confetti")), 10, 24);
-        let b = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec("confetti")), 10, 24);
+        let a = render_frame(
+            &stand_pose(),
+            200,
+            120,
+            [255, 255, 255],
+            [0, 0, 0],
+            Some(&spec("confetti")),
+            10,
+            24,
+        );
+        let b = render_frame(
+            &stand_pose(),
+            200,
+            120,
+            [255, 255, 255],
+            [0, 0, 0],
+            Some(&spec("confetti")),
+            10,
+            24,
+        );
         assert_eq!(a, b, "mismo frame debe producir los mismos píxeles");
-        let c = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec("confetti")), 11, 24);
+        let c = render_frame(
+            &stand_pose(),
+            200,
+            120,
+            [255, 255, 255],
+            [0, 0, 0],
+            Some(&spec("confetti")),
+            11,
+            24,
+        );
         assert_ne!(a, c, "frames distintos deben diferir");
     }
 
     #[test]
     fn each_particle_kind_renders_pixels() {
         for kind in ["confetti", "snow", "sparks", "bounce"] {
-            let rgb = render_frame(&stand_pose(), 200, 120, [255, 255, 255], [0, 0, 0], Some(&spec(kind)), 5, 24);
-            let gold = rgb.chunks_exact(3).filter(|p| p[0] > 200 && p[1] > 150).count();
-            assert!(gold > 50, "{kind} debe dibujar partículas doradas, hay {gold}");
+            let rgb = render_frame(
+                &stand_pose(),
+                200,
+                120,
+                [255, 255, 255],
+                [0, 0, 0],
+                Some(&spec(kind)),
+                5,
+                24,
+            );
+            let gold = rgb
+                .chunks_exact(3)
+                .filter(|p| p[0] > 200 && p[1] > 150)
+                .count();
+            assert!(
+                gold > 50,
+                "{kind} debe dibujar partículas doradas, hay {gold}"
+            );
         }
     }
 }

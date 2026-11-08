@@ -22,6 +22,7 @@ import {
   detachPreviewAudio,
   readPreviewAudioLevels,
   resetPreviewAudio,
+  setPreviewClipFx,
   syncPreviewAudioAtFrame,
   syncPreviewAudioFromProject,
   syncPreviewAudioPanAtFrame,
@@ -49,6 +50,12 @@ if (typeof window.requestAnimationFrame !== 'function') {
 
 class FakeAudioParam {
   constructor(public value = 1) {}
+  setTargetAtTime(value: number): void {
+    this.value = value;
+  }
+  setValueAtTime(value: number): void {
+    this.value = value;
+  }
 }
 
 class FakeNodeBase {
@@ -73,6 +80,33 @@ class FakeGain extends FakeNodeBase {
 class FakeBiquad extends FakeGain {
   type: BiquadFilterType = 'peaking';
   readonly frequency = new FakeAudioParam();
+}
+
+class FakeWaveShaper extends FakeNodeBase {
+  curve: Float32Array | null = null;
+}
+
+class FakeStereoPanner extends FakeNodeBase {
+  readonly pan = new FakeAudioParam(0);
+}
+
+class FakeDelay extends FakeNodeBase {
+  readonly delayTime = new FakeAudioParam();
+}
+
+class FakeOscillator extends FakeNodeBase {
+  type: OscillatorType = 'sine';
+  readonly frequency = new FakeAudioParam();
+  start = vi.fn();
+  stop = vi.fn();
+}
+
+class FakeDynamicsCompressor extends FakeNodeBase {
+  readonly threshold = new FakeAudioParam();
+  readonly knee = new FakeAudioParam();
+  readonly ratio = new FakeAudioParam();
+  readonly attack = new FakeAudioParam();
+  readonly release = new FakeAudioParam();
 }
 
 class FakeAnalyser extends FakeNodeBase {
@@ -110,6 +144,21 @@ class FakeAudioContext {
   }
   createBiquadFilter(): FakeBiquad {
     return this.record(new FakeBiquad());
+  }
+  createDynamicsCompressor(): FakeDynamicsCompressor {
+    return this.record(new FakeDynamicsCompressor());
+  }
+  createStereoPanner(): FakeStereoPanner {
+    return this.record(new FakeStereoPanner());
+  }
+  createWaveShaper(): FakeWaveShaper {
+    return this.record(new FakeWaveShaper());
+  }
+  createDelay(): FakeDelay {
+    return this.record(new FakeDelay());
+  }
+  createOscillator(): FakeOscillator {
+    return this.record(new FakeOscillator());
   }
   createChannelSplitter(): FakeNodeBase {
     return this.record(new FakeNodeBase());
@@ -298,6 +347,341 @@ describe('medidores en vivo con AudioContext simulado', () => {
     // Attach repetido (React StrictMode monta dos veces) reutiliza el nodo.
     expect(attachPreviewAudio(musicTrackId, element)).toBe(true);
     expect(mediaSourcesOf(ctx)).toHaveLength(1);
+  });
+
+  it('inserta la cadena FX del clip entre el elemento y la pista', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    const specs = [
+      {
+        effectId: 'audio.eq',
+        params: { low: -6, lowFreq: 100, high: 4, highFreq: 9_000 },
+      },
+      {
+        effectId: 'audio.compressor',
+        params: { threshold: -20, ratio: 6, attack: 3, release: 60, makeup: 3 },
+      },
+    ];
+    expect(attachPreviewAudio(musicTrackId, element, 0, specs)).toBe(true);
+
+    const ctx = lastFakeContext();
+    // Topología: elemento → input FX → EQ clip (lowshelf+highshelf) →
+    // compresor → makeup → output FX → entrada de pista → EQ de pista…
+    const source = mediaSourcesOf(ctx)[0]!;
+    const fxInput = source.connections[0] as FakeGain;
+    const eqLow = fxInput.connections[0] as FakeBiquad;
+    expect(eqLow.type).toBe('lowshelf');
+    expect(eqLow.frequency.value).toBe(100);
+    expect(eqLow.gain.value).toBe(-6);
+    const eqHigh = eqLow.connections[0] as FakeBiquad;
+    expect(eqHigh.type).toBe('highshelf');
+    expect(eqHigh.frequency.value).toBe(9_000);
+    expect(eqHigh.gain.value).toBe(4);
+    const compressor = eqHigh.connections[0] as FakeDynamicsCompressor;
+    expect(compressor.threshold.value).toBe(-20);
+    expect(compressor.ratio.value).toBe(6);
+    expect(compressor.attack.value).toBeCloseTo(0.003);
+    expect(compressor.release.value).toBeCloseTo(0.06);
+    const makeup = compressor.connections[0] as FakeGain;
+    expect(makeup.gain.value).toBeCloseTo(10 ** (3 / 20));
+    const fxOutput = makeup.connections[0] as FakeGain;
+    // El output FX alimenta la entrada de la cadena de pista.
+    const trackInput = fxOutput.connections[0]!;
+    expect(trackInput).not.toBe(ctx.destination);
+
+    // Mismos efectos con otros params: actualiza sin reconstruir nodos.
+    const createdBefore = ctx.created.length;
+    setPreviewClipFx(element, [
+      {
+        effectId: 'audio.eq',
+        params: { low: 2, lowFreq: 90, high: -1, highFreq: 10_000 },
+      },
+      {
+        effectId: 'audio.compressor',
+        params: { threshold: -12, ratio: 3, attack: 10, release: 100, makeup: 0 },
+      },
+    ]);
+    expect(ctx.created.length).toBe(createdBefore);
+    expect(eqLow.gain.value).toBe(2);
+    expect(compressor.threshold.value).toBe(-12);
+
+    // Secuencia distinta: reconstruye la cadena.
+    setPreviewClipFx(element, [
+      { effectId: 'audio.limiter', params: { limit: 0.5, attack: 5, release: 50 } },
+    ]);
+    const compressors = ctx.created.filter(
+      (node): node is FakeDynamicsCompressor => node instanceof FakeDynamicsCompressor,
+    );
+    expect(compressors.length).toBeGreaterThanOrEqual(2);
+    const limiter = compressors.at(-1)!;
+    expect(limiter.threshold.value).toBeCloseTo(20 * Math.log10(0.5));
+    expect(limiter.ratio.value).toBe(20);
+  });
+
+  it('mapea eco a DelayNode con realimentación y trémolo a LFO+GainNode', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.echo', params: { delay: 250, decay: 0.5 } },
+        { effectId: 'audio.tremolo', params: { rate: 6, depth: 0.8 } },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    const delays = ctx.created.filter(
+      (node): node is FakeDelay => node instanceof FakeDelay,
+    );
+    expect(delays).toHaveLength(1);
+    expect(delays[0]!.delayTime.value).toBeCloseTo(0.25);
+    // Realimentación: delay → feedback(gain=decay) → delay.
+    const feedback = delays[0]!.connections[0] as FakeGain;
+    expect(feedback.gain.value).toBeCloseTo(0.5);
+    expect(feedback.connections[0]).toBe(delays[0]);
+
+    const oscillators = ctx.created.filter(
+      (node): node is FakeOscillator => node instanceof FakeOscillator,
+    );
+    expect(oscillators).toHaveLength(1);
+    expect(oscillators[0]!.frequency.value).toBe(6);
+    expect(oscillators[0]!.start).toHaveBeenCalled();
+    // Trémolo tras el eco: amp.gain = 1 - depth/2 = 0.6, igual que el wet
+    // del eco — los dos GainNode de mezcla quedan en 0.6.
+    const amps = gainsOf(ctx).filter((node) => node.gain.value === 0.6);
+    expect(amps).toHaveLength(2);
+  });
+
+  it('mapea coro y flanger a delay modulada por LFO', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.chorus', params: { delay: 55, speed: 0.4, depth: 2.5 } },
+        {
+          effectId: 'audio.flanger',
+          params: { delay: 2, depth: 3, regen: 40, width: 70, speed: 0.4 },
+        },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    const delays = ctx.created.filter(
+      (node): node is FakeDelay => node instanceof FakeDelay,
+    );
+    expect(delays).toHaveLength(2);
+    // Coro: retardo base 55 ms; flanger: 2 ms.
+    expect(delays[0]!.delayTime.value).toBeCloseTo(0.055);
+    expect(delays[1]!.delayTime.value).toBeCloseTo(0.002);
+    // El LFO del coro barre ±depth/2 = ±1.25 ms → gain 0.00125.
+    const lfoGains = gainsOf(ctx).filter(
+      (node) => Math.abs(node.gain.value - 0.00125) < 1e-6,
+    );
+    expect(lfoGains.length).toBeGreaterThanOrEqual(1);
+    // Flanger: realimentación regen 40 % → gain 0.4 con realce al delay.
+    const regen = gainsOf(ctx).find((node) => node.gain.value === 0.4);
+    expect(regen).toBeTruthy();
+    expect(regen!.connections[0]).toBe(delays[1]);
+  });
+
+  it('mapea phaser a cadena de allpass con LFO', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        {
+          effectId: 'audio.phaser',
+          params: { delay: 3, decay: 0.5, speed: 0.8, type: 1 },
+        },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    // 4 etapas allpass en serie.
+    const allpass = biquadsOf(ctx).filter((node) => node.type === 'allpass');
+    expect(allpass).toHaveLength(4);
+    for (const stage of allpass) {
+      expect(stage.connections.length).toBeGreaterThan(0);
+    }
+    // Retardo base 3 ms, mezcla húmeda por decay, LFO triangular a 0.8 Hz.
+    const delayNode = ctx.created.find(
+      (node): node is FakeDelay => node instanceof FakeDelay,
+    );
+    expect(delayNode!.delayTime.value).toBeCloseTo(0.003);
+    const oscillators = ctx.created.filter(
+      (node): node is FakeOscillator => node instanceof FakeOscillator,
+    );
+    expect(oscillators[0]!.type).toBe('triangle');
+    expect(oscillators[0]!.frequency.value).toBeCloseTo(0.8);
+    // El LFO modula la frequency de las 4 etapas.
+    const lfoGain = gainsOf(ctx).find(
+      (node) => node.gain.value === 400,
+    );
+    expect(lfoGain).toBeTruthy();
+    expect(lfoGain!.connections).toEqual(
+      expect.arrayContaining(allpass.map((stage) => stage.frequency)),
+    );
+  });
+
+  it('mapea autopan a StereoPanner con LFO triangular y widen a mid/side', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.autopan', params: { rate: 1.5, depth: 0.8 } },
+        { effectId: 'audio.widen', params: { width: 3 } },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    const panner = ctx.created.find(
+      (node): node is FakeStereoPanner => node instanceof FakeStereoPanner,
+    );
+    expect(panner).toBeTruthy();
+    expect(panner!.pan.value).toBe(0);
+    // LFO triangular a rate Hz modulando pan con depth.
+    const oscillators = ctx.created.filter(
+      (node): node is FakeOscillator => node instanceof FakeOscillator,
+    );
+    expect(oscillators[0]!.type).toBe('triangle');
+    expect(oscillators[0]!.frequency.value).toBeCloseTo(1.5);
+    const lfoGain = gainsOf(ctx).find((node) => node.gain.value === 0.8);
+    expect(lfoGain!.connections).toContain(panner!.pan);
+
+    // widen width=3 → c=1.5 → a=1.25, b=-0.25 en las 4 ganancias,
+    // y todas confluyen en el merger.
+    const widenGains = gainsOf(ctx).filter(
+      (node) =>
+        node.gain.value === 1.25 || Math.abs(node.gain.value - -0.25) < 1e-9,
+    );
+    expect(widenGains).toHaveLength(4);
+    const targets = new Set(widenGains.map((node) => node.connections[0]));
+    expect(targets.size).toBe(1);
+  });
+
+  it('mapea texturas y transmisión a biquads, compresor y waveshaper', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.bitcrush', params: { bits: 8, mix: 0.8 } },
+        { effectId: 'audio.telephone', params: { low: 350, high: 3200 } },
+        { effectId: 'audio.muffled', params: { cutoff: 800, level: -3 } },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    // bitcrush → waveshaper con curva de 1024 muestras.
+    const shapers = ctx.created.filter(
+      (node): node is FakeWaveShaper => node instanceof FakeWaveShaper,
+    );
+    expect(shapers).toHaveLength(1);
+    expect(shapers[0]!.curve).not.toBeNull();
+    expect(shapers[0]!.curve).toHaveLength(1024);
+    // telephone → HP 350 + LP 3200; muffled → LP 800 + gain −3 dB ≈ 0.708.
+    const bandpass = biquadsOf(ctx).filter(
+      (node) => node.type === 'highpass' || node.type === 'lowpass',
+    );
+    const hp350 = bandpass.find(
+      (node) => node.type === 'highpass' && node.frequency.value === 350,
+    );
+    const lp3200 = bandpass.find(
+      (node) => node.type === 'lowpass' && node.frequency.value === 3200,
+    );
+    const lp800 = bandpass.find(
+      (node) => node.type === 'lowpass' && node.frequency.value === 800,
+    );
+    expect(hp350).toBeTruthy();
+    expect(lp3200).toBeTruthy();
+    expect(lp800).toBeTruthy();
+    const makeup = gainsOf(ctx).find(
+      (node) => Math.abs(node.gain.value - 10 ** (-3 / 20)) < 0.01,
+    );
+    expect(makeup).toBeTruthy();
+  });
+
+  it('mapea gate/leveler/deesser con seguidores de envolvente', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.gate', params: { threshold: 0.05, range: 0.06 } },
+        { effectId: 'audio.leveler', params: { peak: 0.95, maxGain: 10 } },
+        { effectId: 'audio.deesser', params: { intensity: 0.5, max: 0.5, freq: 0.5 } },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    // Cada efecto de dinámica crea su AnalyserNode (gate, leveler y la
+    // banda del deesser) — las pistas/master suman los suyos.
+    const analysers = ctx.created.filter(
+      (node): node is FakeAnalyser => node instanceof FakeAnalyser,
+    );
+    expect(analysers.length).toBeGreaterThanOrEqual(3);
+    // deesser → HP en la banda sibilante 3.5–8 kHz (freq 0.5 → 5.75 kHz).
+    const sibilance = biquadsOf(ctx).find(
+      (node) => node.type === 'highpass' && node.frequency.value === 5750,
+    );
+    expect(sibilance).toBeTruthy();
+  });
+
+  it('mapea voz robot y wobble con LFO sobre delay y amp', () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.voice_robot', params: { rate: 32, depth: 0.45 } },
+        { effectId: 'audio.voice_wobble', params: { rate: 6, depth: 0.6, trem: 0.5 } },
+      ]),
+    ).toBe(true);
+
+    const ctx = lastFakeContext();
+    const delays = ctx.created.filter(
+      (node): node is FakeDelay => node instanceof FakeDelay,
+    );
+    // robot: vibrato 15 ms + eco 18 ms; wobble: vibrato 12 ms.
+    const delayTimes = delays.map((node) => node.delayTime.value).sort();
+    expect(delayTimes).toEqual([0.012, 0.015, 0.018]);
+    // wobble: amp.gain = 1 − trem/2 = 0.75.
+    const amps = gainsOf(ctx).filter((node) => node.gain.value === 0.75);
+    expect(amps).toHaveLength(1);
+    // Dos osciladores: robot a 32 Hz y wobble a 6 Hz.
+    const oscillators = ctx.created.filter(
+      (node): node is FakeOscillator => node instanceof FakeOscillator,
+    );
+    const rates = oscillators
+      .map((node) => node.frequency.value)
+      .sort((a, b) => a - b);
+    expect(rates).toEqual([6, 32]);
+  });
+
+  it('voice_deep inserta el stage de pitch con fallback seco sin audioWorklet', async () => {
+    const { project, musicTrackId } = buildProject();
+    syncPreviewAudioFromProject(project);
+    const element = document.createElement('audio');
+    expect(
+      attachPreviewAudio(musicTrackId, element, 0, [
+        { effectId: 'audio.voice_deep', params: { pitch: 0.8 } },
+      ]),
+    ).toBe(true);
+
+    // Sin audioWorklet en el fake, ensurePitchModule resuelve false y el
+    // stage conecta inlet→outlet (passthrough seco) en el microtask.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const ctx = lastFakeContext();
+    const gains = gainsOf(ctx);
+    // Hay un GainNode cuya salida es otro GainNode (inlet→outlet).
+    const passthrough = gains.some((node) =>
+      node.connections.some((dest) => dest instanceof FakeGain),
+    );
+    expect(passthrough).toBe(true);
   });
 
   it('cambia fader, paneo y EQ cuando el proyecto se sincroniza de nuevo', () => {

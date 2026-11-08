@@ -22,6 +22,7 @@ import { PluginsCard } from './PluginsCard';
 import { BackupCard } from './BackupCard';
 import { EditorPreferencesCard } from './EditorPreferencesCard';
 import { ShortcutsCard } from './ShortcutsCard';
+import { VpnCard } from './VpnCard';
 import {
   DEFAULT_ASSISTANT_TOKEN_BUDGET,
   MAX_ASSISTANT_TOKEN_BUDGET,
@@ -707,6 +708,7 @@ export function SettingsHome({
                 medido ni se verifica un render.
               </p>
             </article>
+            <VpnCard />
           </SettingsSection>
 
           <SettingsSection section={sectionById('datos')} active={activeSection === 'datos'}>

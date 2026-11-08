@@ -15,6 +15,7 @@ import {
 import { updateAudioMix, updateTrack } from '../../state/project-actions';
 import { useProjectStore } from '../../state/project-store';
 import { LoudnessMonitor } from './LoudnessMonitor';
+import { AudioScopesPanel } from './AudioScopesPanel';
 import { LiveMeters } from './LiveMeters';
 import { TrackAutomationPanel } from './TrackAutomationPanel';
 
@@ -432,6 +433,8 @@ export function MixerView({ onNavigate }: MixerViewProps) {
       <LiveMeters tracks={tracks} />
 
       <LoudnessMonitor />
+
+      <AudioScopesPanel />
 
       <footer className="mixer-footer">
         <span>

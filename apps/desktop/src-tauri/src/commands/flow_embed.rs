@@ -135,8 +135,7 @@ fn validate_url(url: &str) -> Result<String, ProjectError> {
     if trimmed.is_empty() {
         return Ok(DEFAULT_URL.to_owned());
     }
-    if trimmed.len() > 2_048
-        || !(trimmed.starts_with("https://") || trimmed.starts_with("http://"))
+    if trimmed.len() > 2_048 || !(trimmed.starts_with("https://") || trimmed.starts_with("http://"))
     {
         return Err(ProjectError::message(
             ProjectErrorCode::InvalidProject,
@@ -181,14 +180,12 @@ fn embed_window(app: &AppHandle, slot: &str) -> Result<tauri::WebviewWindow, Pro
 }
 
 fn session_info(app: &AppHandle, name: String) -> Option<WebSessionInfo> {
-    app.get_webview_window(&window_label(&name)).map(|window| WebSessionInfo {
-        name: name.clone(),
-        url: window.url().map(|u| u.to_string()).ok(),
-        cdp_url: Some(format!(
-            "http://127.0.0.1:{}",
-            slot_port_or_default(&name)
-        )),
-    })
+    app.get_webview_window(&window_label(&name))
+        .map(|window| WebSessionInfo {
+            name: name.clone(),
+            url: window.url().map(|u| u.to_string()).ok(),
+            cdp_url: Some(format!("http://127.0.0.1:{}", slot_port_or_default(&name))),
+        })
 }
 
 /// Estado de todas las sesiones web abiertas (multi-web).
@@ -331,15 +328,16 @@ pub async fn web_session_eval(
     let name = sanitize_slot(slot.as_deref().unwrap_or(DEFAULT_SLOT))?;
     let window = embed_window(&app, &name)?;
     let (tx, rx) = std::sync::mpsc::channel::<String>();
-    window.eval_with_callback(js, move |result| {
-        let _ = tx.send(result);
-    })
-    .map_err(|error| {
-        ProjectError::message(
-            ProjectErrorCode::Io,
-            format!("no se pudo evaluar el script: {error}").as_str(),
-        )
-    })?;
+    window
+        .eval_with_callback(js, move |result| {
+            let _ = tx.send(result);
+        })
+        .map_err(|error| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                format!("no se pudo evaluar el script: {error}").as_str(),
+            )
+        })?;
     tauri::async_runtime::spawn_blocking(move || {
         rx.recv_timeout(EVAL_TIMEOUT).map_err(|_| {
             ProjectError::message(
@@ -397,8 +395,7 @@ pub fn flow_embed_open(
 
 #[tauri::command]
 pub fn flow_embed_close(app: AppHandle) -> bool {
-    web_session_close(app, Some(DEFAULT_SLOT.to_owned()))
-        .unwrap_or(false)
+    web_session_close(app, Some(DEFAULT_SLOT.to_owned())).unwrap_or(false)
 }
 
 #[tauri::command]

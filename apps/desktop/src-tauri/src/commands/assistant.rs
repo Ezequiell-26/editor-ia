@@ -15,8 +15,8 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::providers::{
-    chat_completion, chat_endpoint, extract_json, is_local_endpoint, json_repair_messages, read_key,
-    validate_provider_base_url, ChatRequest,
+    chat_completion, chat_endpoint, extract_json, is_local_endpoint, json_repair_messages,
+    read_key, validate_provider_base_url, ChatRequest,
 };
 use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
@@ -1025,10 +1025,7 @@ fn run_stream_worker(
             emit_stream_failed(
                 &app,
                 &stream_id,
-                &format!(
-                    "el proveedor rechazó el mensaje (HTTP {})",
-                    status.as_u16()
-                ),
+                &format!("el proveedor rechazó el mensaje (HTTP {})", status.as_u16()),
                 false,
             );
             return;
@@ -1977,7 +1974,10 @@ mod tests {
         // Al terminar el trabajo el registro se limpia: cancelar ya no encuentra nada.
         assert!(!cancel_assistant_stream("stream-test-1".to_owned()));
         assert!(!cancel_assistant_stream("id con espacios".to_owned()));
-        assert_eq!(clean_stream_id(" abc-123_ok:1 ").as_deref(), Some("abc-123_ok:1"));
+        assert_eq!(
+            clean_stream_id(" abc-123_ok:1 ").as_deref(),
+            Some("abc-123_ok:1")
+        );
         assert!(clean_stream_id("").is_none());
         assert!(clean_stream_id("x".repeat(MAX_STREAM_ID_CHARS + 1).as_str()).is_none());
     }

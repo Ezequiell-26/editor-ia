@@ -175,21 +175,70 @@ describe('compilación a FFmpeg', () => {
     expect(graph.template).not.toMatch(/\{[a-zA-Z0-9_]/);
   });
 
+  it('distort.twirl exporta con geq de remolino y parámetros resueltos', () => {
+    const manifest = effectRegistry.get('distort.twirl');
+    expect(manifest).toBeTruthy();
+    if (!manifest) return;
+    const compiled = compileInstance(
+      effectRegistry,
+      createInstance(manifest, {
+        params: { angle: 90, radius: 0.5, center: [0.5, 0.5] },
+      }),
+    );
+    const graph = compiled.steps.find((step) => step.kind === 'graph');
+    expect(graph?.kind).toBe('graph');
+    if (graph?.kind !== 'graph') return;
+    expect(compiled.fidelity).toBe('approximate');
+    expect(graph.template).toContain('format=gbrp,geq=');
+    expect(graph.template).toContain('r(clip(cos(');
+    expect(graph.template).toContain('(90*0.017453292519943295)');
+    expect(graph.template).toContain('+0.5*W-0.5');
+    expect(graph.template).not.toMatch(/\{[a-zA-Z0-9_]/);
+  });
+
+  it('light.flare exporta con geq especular + blend screen y parámetros resueltos', () => {
+    const manifest = effectRegistry.get('light.flare');
+    expect(manifest).toBeTruthy();
+    if (!manifest) return;
+    const compiled = compileInstance(
+      effectRegistry,
+      createInstance(manifest, {
+        params: {
+          position: [0.72, 0.28],
+          size: 0.18,
+          intensity: 0.4,
+          tint: '#ffd9a0',
+        },
+      }),
+    );
+    const graph = compiled.steps.find((step) => step.kind === 'graph');
+    expect(graph?.kind).toBe('graph');
+    if (graph?.kind !== 'graph') return;
+    expect(compiled.fidelity).toBe('approximate');
+    expect(graph.template).toContain('split=2[%A%b][%A%l]');
+    expect(graph.template).toContain('format=gbrp,geq=');
+    expect(graph.template).toContain("r='clip(1*((clip(1-sqrt(");
+    expect(graph.template).toContain('(1-0.72)*W');
+    expect(graph.template).toContain('*0.4*255,0,255)');
+    expect(graph.template).toContain('blend=all_mode=screen');
+    expect(graph.template).not.toMatch(/\{[a-zA-Z0-9_]/);
+  });
+
   it('el stack compila en orden y reporta la peor fidelidad', () => {
     const grade = effectRegistry.get('color.grade');
     const vignette = effectRegistry.get('light.vignette');
-    const flare = effectRegistry.get('light.flare');
-    expect(grade && vignette && flare).toBeTruthy();
-    if (!grade || !vignette || !flare) return;
+    const leak = effectRegistry.get('light.leak');
+    expect(grade && vignette && leak).toBeTruthy();
+    if (!grade || !vignette || !leak) return;
     const stack = [
       createInstance(grade),
       createInstance(vignette),
-      createInstance(flare),
+      createInstance(leak),
     ];
     const compiled = compileStack(effectRegistry, stack);
     expect(compiled.effects).toBe(3);
     expect(compiled.fidelity).toBe('preview-only');
-    expect(compiled.previewOnly).toEqual(['light.flare']);
+    expect(compiled.previewOnly).toEqual(['light.leak']);
     expect(compiled.steps.length).toBeGreaterThanOrEqual(2);
   });
 

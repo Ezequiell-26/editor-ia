@@ -97,7 +97,47 @@ export function secondsToFrames(seconds: number, fps: number): number {
   return Math.max(1, Math.round(seconds * Math.max(1, fps)));
 }
 
+/** Tasas fraccionarias de broadcast con timecode drop-frame (SMPTE). */
+const DF_RATES = [30000 / 1001, 60000 / 1001] as const;
+
+export function isDropFrameFps(fps: number): boolean {
+  return DF_RATES.some((rate) => Math.abs(fps - rate) < 0.005);
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+/**
+ * frames → `H:MM:SS;FF` drop-frame. Mismo algoritmo que el export EDL
+ * (`commands/edl.rs`) y que Kdenlive `Timecode::getTimecodeDropFrame`: las
+ * etiquetas corren al fps nominal (30/60) y saltan `drop` números por minuto,
+ * salvo en los minutos múltiplos de 10.
+ */
+function formatDropTimecode(frames: number, fps: number): string {
+  const displayed = Math.round(fps);
+  const drop = Math.round(fps * 0.066666);
+  const framesPer10Minutes = Math.round(fps * 600);
+  const perMinuteDivisor = Math.round(fps * 60) - drop;
+  let adjusted = Math.max(0, Math.round(frames));
+  const d = Math.floor(adjusted / framesPer10Minutes);
+  const m = adjusted % framesPer10Minutes;
+  adjusted += drop * 9 * d;
+  if (m > drop) {
+    adjusted += drop * Math.floor((m - drop) / perMinuteDivisor);
+  }
+  const ff = adjusted % displayed;
+  const totalSeconds = Math.floor(adjusted / displayed);
+  const ss = totalSeconds % 60;
+  const mm = Math.floor(totalSeconds / 60) % 60;
+  const hh = Math.floor(totalSeconds / 3600);
+  return `${hh}:${pad2(mm)}:${pad2(ss)};${pad2(ff)}`;
+}
+
 export function formatTimecode(frames: number, fps: number): string {
+  if (isDropFrameFps(fps)) {
+    return formatDropTimecode(frames, fps);
+  }
   const totalSeconds = Math.max(0, frames) / Math.max(1, fps);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -380,6 +420,12 @@ export function applyCompression(
       profile.videoCodec = videoCodec;
       profile.container = webm ? 'webm' : 'mp4';
       profile.audioCodec = webm ? 'opus' : 'aac';
+      // 4:4:4 sólo lo emiten WebM VP9/AV1 por software; al salir de WebM el
+      // perfil vuelve a 4:2:0 en vez de quedar en una combinación que el
+      // backend rechazaría al renderizar.
+      if (profile.pixelFormat === 'yuv444p' && !webm) {
+        profile.pixelFormat = 'yuv420p';
+      }
     }
   }
   touch(next);
@@ -393,6 +439,23 @@ export function applyProfileFit(
 ): ProjectDocument {
   const next = cloneProject(project);
   for (const profile of next.renderProfiles) profile.fit = fit;
+  touch(next);
+  return next;
+}
+
+/**
+ * Apply the pixel format to every delivery profile. `yuv444p` sólo lo emiten
+ * de verdad WebM VP9 (`libvpx-vp9`) y AV1 (`libaom-av1`) por software — el
+ * backend lo valida por perfil en `parse_profile`, así que la UI sólo debe
+ * ofrecerlo cuando todos los perfiles son WebM VP9/AV1 sin encoder de
+ * hardware (ver `pixel444Eligible` en ExportDialog).
+ */
+export function applyPixelFormat(
+  project: ProjectDocument,
+  pixelFormat: 'yuv420p' | 'yuv444p',
+): ProjectDocument {
+  const next = cloneProject(project);
+  for (const profile of next.renderProfiles) profile.pixelFormat = pixelFormat;
   touch(next);
   return next;
 }
@@ -1952,11 +2015,16 @@ export function applyTransitionToCuts(
   options: {
     type?: ClipTransition['type'];
     frames?: number;
+    color?: string | undefined;
     trackIds?: readonly string[];
   } = {},
 ): { project: ProjectDocument; applied: number } {
   const type = options.type ?? 'dissolve';
   const frames = Math.max(1, Math.round(options.frames ?? 12));
+  const color =
+    options.color && /^#[0-9a-f]{3}(?:[0-9a-f]{3})?$/i.test(options.color)
+      ? options.color.toLowerCase()
+      : undefined;
   const next = cloneProject(project);
   let applied = 0;
   for (const track of next.timeline.tracks) {
@@ -1983,10 +2051,14 @@ export function applyTransitionToCuts(
       ) {
         continue;
       }
+      // dip-color exige color válido (el schema lo requiere); sin él el
+      // documento quedaría inválido, así que el corte se salta.
+      if (type === 'dip-color' && color === undefined) continue;
       const target = clip as Clip & { transitionIn?: ClipTransition };
       target.transitionIn = {
         type,
         frames: Math.min(frames, clip.durationFrames),
+        ...(type === 'dip-color' && color ? { color } : {}),
       };
       applied += 1;
     }

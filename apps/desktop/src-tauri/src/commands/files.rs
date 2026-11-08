@@ -117,13 +117,14 @@ fn invalid(message: &str) -> ProjectError {
 pub fn fs_list(path: String) -> Result<FsListing, ProjectError> {
     let directory = PathBuf::from(path.trim());
     if sensitive_component(&directory) {
-        return Err(invalid("esa ruta contiene credenciales y no se puede listar"));
+        return Err(invalid(
+            "esa ruta contiene credenciales y no se puede listar",
+        ));
     }
     if !directory.is_dir() {
         return Err(invalid("la ruta no es una carpeta existente"));
     }
-    let read = std::fs::read_dir(&directory)
-        .map_err(|_| invalid("no se pudo leer la carpeta"))?;
+    let read = std::fs::read_dir(&directory).map_err(|_| invalid("no se pudo leer la carpeta"))?;
     let mut dirs = Vec::new();
     let mut files = Vec::new();
     let mut truncated = false;
@@ -173,13 +174,9 @@ pub fn fs_read(path: String) -> Result<FsFileContent, ProjectError> {
     if !file.is_file() {
         return Err(invalid("la ruta no es un archivo existente"));
     }
-    let bytes = file
-        .metadata()
-        .map(|meta| meta.len())
-        .unwrap_or(0);
+    let bytes = file.metadata().map(|meta| meta.len()).unwrap_or(0);
     let truncated = bytes > FS_READ_MAX_BYTES;
-    let read = std::fs::File::open(&file)
-        .map_err(|_| invalid("no se pudo abrir el archivo"))?;
+    let read = std::fs::File::open(&file).map_err(|_| invalid("no se pudo abrir el archivo"))?;
     use std::io::Read;
     let mut buffer = Vec::new();
     read.take(FS_READ_MAX_BYTES)
@@ -388,8 +385,7 @@ pub fn fs_mkdir(path: String, recursive: Option<bool>) -> Result<FsWriteResult, 
     }
     let recursive = recursive.unwrap_or(true);
     if recursive {
-        std::fs::create_dir_all(&target)
-            .map_err(|_| invalid("no se pudo crear la carpeta"))?;
+        std::fs::create_dir_all(&target).map_err(|_| invalid("no se pudo crear la carpeta"))?;
     } else {
         std::fs::create_dir(&target).map_err(|_| invalid("no se pudo crear la carpeta"))?;
     }
@@ -434,7 +430,9 @@ pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> 
     let source = normalize_target(&from)?;
     let target = normalize_target(&to)?;
     if protected_delete_target(&source) || sensitive_component(&source) {
-        return Err(invalid("el origen es una ruta protegida y no se puede mover"));
+        return Err(invalid(
+            "el origen es una ruta protegida y no se puede mover",
+        ));
     }
     if !source.exists() {
         return Err(invalid("el origen no existe"));
@@ -451,9 +449,8 @@ pub fn fs_move(from: String, to: String) -> Result<FsWriteResult, ProjectError> 
                 .map_err(|_| invalid("no se pudieron crear las carpetas padre"))?;
         }
     }
-    std::fs::rename(&source, &target).map_err(|_| {
-        invalid("no se pudo mover (¿cruzando unidades o permisos?)")
-    })?;
+    std::fs::rename(&source, &target)
+        .map_err(|_| invalid("no se pudo mover (¿cruzando unidades o permisos?)"))?;
     Ok(FsWriteResult {
         path: target.to_string_lossy().into_owned(),
         bytes: 0,
@@ -495,7 +492,8 @@ mod tests {
 
     #[test]
     fn fs_read_returns_text_and_marks_truncation() {
-        let file = std::env::temp_dir().join(format!("olyvia-fs-read-{}.txt", uuid::Uuid::new_v4()));
+        let file =
+            std::env::temp_dir().join(format!("olyvia-fs-read-{}.txt", uuid::Uuid::new_v4()));
         std::fs::write(&file, "hola mundo").unwrap();
         let content = fs_read(file.to_string_lossy().into_owned()).unwrap();
         assert_eq!(content.content, "hola mundo");
@@ -568,30 +566,35 @@ mod tests {
     fn fs_delete_rejects_protected_paths_and_missing() {
         assert!(fs_delete("C:\\".to_owned(), None).is_err());
         assert!(fs_delete("C:\\Windows".to_owned(), Some(true)).is_err());
-        assert!(fs_delete(
-            "C:\\no\\existe\\archivo-xyz.txt".to_owned(),
-            None
-        )
-        .is_err());
+        assert!(fs_delete("C:\\no\\existe\\archivo-xyz.txt".to_owned(), None).is_err());
     }
 
     #[test]
     fn fs_write_mkdir_reject_system_dirs() {
         let windows = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_owned());
         assert!(fs_write(
-            Path::new(&windows).join("editoria-test.txt").to_string_lossy().into_owned(),
+            Path::new(&windows)
+                .join("editoria-test.txt")
+                .to_string_lossy()
+                .into_owned(),
             "x".to_owned()
         )
         .is_err());
         assert!(fs_mkdir(
-            Path::new(&windows).join("editoria-test-dir").to_string_lossy().into_owned(),
+            Path::new(&windows)
+                .join("editoria-test-dir")
+                .to_string_lossy()
+                .into_owned(),
             None
         )
         .is_err());
-        let program_files = std::env::var("ProgramFiles")
-            .unwrap_or_else(|_| "C:\\Program Files".to_owned());
+        let program_files =
+            std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".to_owned());
         assert!(fs_write(
-            Path::new(&program_files).join("editoria-test.txt").to_string_lossy().into_owned(),
+            Path::new(&program_files)
+                .join("editoria-test.txt")
+                .to_string_lossy()
+                .into_owned(),
             "x".to_owned()
         )
         .is_err());
@@ -673,8 +676,10 @@ mod tests {
         // canonicaliza y el segmento faltante se re-acopla.
         let deep = root.join("a").join("b").join("c.txt");
         let resolved = resolved_for_check(&deep);
-        assert!(resolved.to_string_lossy().ends_with("a\\b\\c.txt")
-            || resolved.to_string_lossy().ends_with("a/b/c.txt"));
+        assert!(
+            resolved.to_string_lossy().ends_with("a\\b\\c.txt")
+                || resolved.to_string_lossy().ends_with("a/b/c.txt")
+        );
         // Sin prefijo \\?\ verbatim: las comparaciones de texto asumen rutas
         // normales de Windows.
         assert!(!resolved.to_string_lossy().starts_with(r"\\?\"));

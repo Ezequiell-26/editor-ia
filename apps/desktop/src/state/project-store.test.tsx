@@ -4,7 +4,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { createEmptyProject } from '@editor-ia/project-schema';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createFakeService } from '../test/fake-service';
-import { addCaptionCue, addTrack, ensureDelivery } from './project-actions';
+import { addCaptionCue, addClipFromAsset, addAsset, addTrack, ensureDelivery } from './project-actions';
+import { readyAsset } from '../test/fake-service';
+import { projectWithIoRange } from './io-range';
 import {
   ProjectProvider,
   usePlayheadFrame,
@@ -179,5 +181,119 @@ describe('solicitud de exportación', () => {
     expect(screen.getByTestId('export-requested').textContent).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: 'consumir export' }));
     expect(screen.getByTestId('export-requested').textContent).toBe('false');
+  });
+});
+
+function IoHarness() {
+  const store = useProjectStore();
+  return (
+    <div>
+      <button type="button" onClick={() => store.setPlayhead(42)}>ir a 42</button>
+      <button type="button" onClick={() => store.setIoPoint('in')}>in</button>
+      <button type="button" onClick={() => store.setIoPoint('out')}>out</button>
+      <button type="button" onClick={() => store.clearIoRange()}>limpiar</button>
+      <span data-testid="io">
+        {store.state.ioRange
+          ? `${store.state.ioRange.inFrame ?? '-'}→${store.state.ioRange.outFrame ?? '-'}`
+          : 'none'}
+      </span>
+      <span data-testid="io-doc">
+        {JSON.stringify(store.state.project?.['x-ioRange'] ?? null)}
+      </span>
+    </div>
+  );
+}
+
+describe('puntos in/out de la secuencia', () => {
+  it('marca in/out en el playhead y limpia el rango', async () => {
+    const service = createFakeService();
+    let project = ensureDelivery(createEmptyProject('IO', '2025-01-01T00:00:00Z'));
+    const track = addTrack(project, 'video', 'V1');
+    const asset = readyAsset({
+      label: 'Clip',
+      kind: 'video',
+      source: { type: 'local', path: 'media/clip.mp4' },
+      media: { width: 1920, height: 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } },
+    });
+    project = addClipFromAsset(addAsset(track.project, asset), asset, {
+      trackId: track.trackId,
+      atFrame: 0,
+      durationFrames: 200,
+    }).project;
+    const opened = {
+      project,
+      label: 'io.editoria.json',
+      path: 'C:\tmp\io.editoria.json',
+      root: 'C:\tmp',
+    };
+    render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <IoHarness />
+      </ProjectProvider>,
+    );
+    expect(screen.getByTestId('io').textContent).toBe('none');
+    fireEvent.click(screen.getByRole('button', { name: 'ir a 42' }));
+    fireEvent.click(screen.getByRole('button', { name: 'in' }));
+    expect(screen.getByTestId('io').textContent).toBe('42→-');
+    fireEvent.click(screen.getByRole('button', { name: 'out' }));
+    expect(screen.getByTestId('io').textContent).toBe('42→42');
+    fireEvent.click(screen.getByRole('button', { name:'limpiar' }));
+    expect(screen.getByTestId('io').textContent).toBe('none');
+  });
+
+  it('persiste el rango en el documento como x-ioRange y lo restaura al abrir', async () => {
+    const service = createFakeService();
+    let project = ensureDelivery(createEmptyProject('IO doc', '2025-01-01T00:00:00Z'));
+    const track = addTrack(project, 'video', 'V1');
+    const asset = readyAsset({
+      label: 'Clip',
+      kind: 'video',
+      source: { type: 'local', path: 'media/clip.mp4' },
+      media: { width: 1920, height: 1080, durationFrames: 300, frameRate: { num: 30, den: 1 } },
+    });
+    project = addClipFromAsset(addAsset(track.project, asset), asset, {
+      trackId: track.trackId,
+      atFrame: 0,
+      durationFrames: 200,
+    }).project;
+    const opened = {
+      project,
+      label: 'io-doc.editoria.json',
+      path: 'C:\tmp\io-doc.editoria.json',
+      root: 'C:\tmp',
+    };
+    const { unmount } = render(
+      <ProjectProvider service={service} initial={{ project, opened }}>
+        <IoHarness />
+      </ProjectProvider>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ir a 42' }));
+    fireEvent.click(screen.getByRole('button', { name: 'in' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ir a 42' }));
+    fireEvent.click(screen.getByRole('button', { name: 'out' }));
+    await waitFor(() => {
+      expect(screen.getByTestId('io-doc').textContent).toBe(
+        '{"inFrame":42,"outFrame":42}',
+      );
+    });
+    // El documento escrito debe pasar la validación del schema (x- es válido).
+    const saved = screen.getByTestId('io-doc').textContent;
+    expect(saved).not.toBe('null');
+    unmount();
+
+    // Al reabrir un documento con x-ioRange, el estado lo restaura.
+    const persisted = JSON.parse(saved ?? 'null') as { inFrame: number; outFrame: number } | null;
+    expect(persisted).not.toBeNull();
+    const reopened = projectWithIoRange(project, {
+      inFrame: persisted!.inFrame,
+      outFrame: persisted!.outFrame,
+    });
+    const reopenedOpened = { ...opened, project: reopened };
+    render(
+      <ProjectProvider service={service} initial={{ project: reopened, opened: reopenedOpened }}>
+        <IoHarness />
+      </ProjectProvider>,
+    );
+    expect(screen.getByTestId('io').textContent).toBe('42→42');
   });
 });

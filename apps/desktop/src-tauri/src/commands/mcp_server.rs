@@ -997,45 +997,52 @@ pub async fn mcp_server_autoconnect(
     client: String,
 ) -> Result<AutoconnectResult, ProjectError> {
     type EntryBuilder = fn(&McpServerInfo) -> Value;
-    let (path, installed, download_url, build_entry): (std::path::PathBuf, bool, &str, EntryBuilder) =
-        match client.as_str() {
-            "claude-desktop" => (
-                claude_desktop_config_path().ok_or_else(|| {
-                    ProjectError::message(ProjectErrorCode::Io, "no se encontró %APPDATA% en este equipo")
-                })?,
-                claude_desktop_installed(),
-                "https://claude.ai/download",
-                |info| {
-                    json!({
-                        "type": "http",
-                        "url": info.url,
-                        "headers": { "Authorization": format!("Bearer {}", info.token) }
-                    })
-                },
-            ),
-            "antigravity" => (
-                antigravity_config_path().ok_or_else(|| {
-                    ProjectError::message(
-                        ProjectErrorCode::Io,
-                        "no se encontró %USERPROFILE% en este equipo",
-                    )
-                })?,
-                antigravity_installed(),
-                "https://antigravity.google/",
-                |info| {
-                    json!({
-                        "serverUrl": info.url,
-                        "headers": { "Authorization": format!("Bearer {}", info.token) }
-                    })
-                },
-            ),
-            other => {
-                return Err(ProjectError::message(
-                    ProjectErrorCode::InvalidProject,
-                    &format!("cliente MCP desconocido: {other}"),
-                ));
-            }
-        };
+    let (path, installed, download_url, build_entry): (
+        std::path::PathBuf,
+        bool,
+        &str,
+        EntryBuilder,
+    ) = match client.as_str() {
+        "claude-desktop" => (
+            claude_desktop_config_path().ok_or_else(|| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "no se encontró %APPDATA% en este equipo",
+                )
+            })?,
+            claude_desktop_installed(),
+            "https://claude.ai/download",
+            |info| {
+                json!({
+                    "type": "http",
+                    "url": info.url,
+                    "headers": { "Authorization": format!("Bearer {}", info.token) }
+                })
+            },
+        ),
+        "antigravity" => (
+            antigravity_config_path().ok_or_else(|| {
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    "no se encontró %USERPROFILE% en este equipo",
+                )
+            })?,
+            antigravity_installed(),
+            "https://antigravity.google/",
+            |info| {
+                json!({
+                    "serverUrl": info.url,
+                    "headers": { "Authorization": format!("Bearer {}", info.token) }
+                })
+            },
+        ),
+        other => {
+            return Err(ProjectError::message(
+                ProjectErrorCode::InvalidProject,
+                &format!("cliente MCP desconocido: {other}"),
+            ));
+        }
+    };
 
     if !installed {
         return Err(ProjectError::message(
@@ -1128,7 +1135,10 @@ mod tests {
             },
             "theme": "dark"
         });
-        merge_olyvia_entry(&mut root, json!({ "type": "http", "url": "http://127.0.0.1:1" }));
+        merge_olyvia_entry(
+            &mut root,
+            json!({ "type": "http", "url": "http://127.0.0.1:1" }),
+        );
         assert_eq!(root["theme"], "dark");
         assert_eq!(root["mcpServers"]["otro-servidor"]["command"], "npx");
         assert_eq!(root["mcpServers"]["olyvia"]["type"], "http");

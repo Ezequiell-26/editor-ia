@@ -62,10 +62,7 @@ fn status() -> &'static VoiceIsolationStatus {
         let env_python = std::env::var_os("EDITORIA_DEMUCS_PYTHON")
             .map(PathBuf::from)
             .filter(|path| path.is_file());
-        let candidates: Vec<PathBuf> = ["python", "python3"]
-            .iter()
-            .map(PathBuf::from)
-            .collect();
+        let candidates: Vec<PathBuf> = ["python", "python3"].iter().map(PathBuf::from).collect();
         let mut found = env_python;
         if found.is_none() {
             found = candidates.into_iter().find(|path| real_probe(path));
@@ -313,7 +310,11 @@ fn resolve_project_asset(
     let opened = service::open_project(&session.path)?;
     let asset = opened.project["assets"]
         .as_array()
-        .and_then(|assets| assets.iter().find(|asset| asset["id"].as_str() == Some(asset_id)))
+        .and_then(|assets| {
+            assets
+                .iter()
+                .find(|asset| asset["id"].as_str() == Some(asset_id))
+        })
         .ok_or_else(|| {
             ProjectError::message(
                 ProjectErrorCode::NotFound,

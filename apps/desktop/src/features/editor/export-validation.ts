@@ -23,6 +23,8 @@ export interface ExportExpectation {
   readonly height: number;
   readonly durationSeconds: number;
   readonly expectedBytes?: number | null;
+  /** Pixel format del perfil; si FFprobe reporta otro, se avisa (degradación). */
+  readonly pixelFormat?: string | undefined;
 }
 
 export type ExportValidationLevel = 'ok' | 'warn' | 'error';
@@ -207,7 +209,22 @@ export function validateExportVerification(
   if (verification.fpsDen > 0 && verification.fpsNum > 0) {
     push('ok', 'FPS', `${(verification.fpsNum / verification.fpsDen).toFixed(3)} fps`);
   }
-  if (verification.pixelFormat) push('ok', 'Pixel format', verification.pixelFormat);
+  if (verification.pixelFormat) {
+    if (
+      expected.pixelFormat &&
+      verification.pixelFormat !== expected.pixelFormat
+    ) {
+      push(
+        'warn',
+        'Pixel format distinto',
+        `FFprobe ${verification.pixelFormat} · perfil ${expected.pixelFormat}`,
+      );
+    } else {
+      push('ok', 'Pixel format', verification.pixelFormat);
+    }
+  } else if (expected.pixelFormat) {
+    push('warn', 'Pixel format', 'FFprobe no reportó pixel format');
+  }
   if (verification.colorSpace || verification.colorPrimaries) {
     push('ok', 'Color', `${verification.colorSpace ?? '—'} · ${verification.colorPrimaries ?? '—'}`);
   }

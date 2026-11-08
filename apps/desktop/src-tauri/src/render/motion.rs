@@ -173,6 +173,15 @@ fn validate_plan(plan: &Value, clip_id: &str) -> Result<(), ProjectError> {
                 if !valid_color(color) {
                     return Err(fail(format!("{label}: color inválido")));
                 }
+                if let Some(shape) = text_field(layer, "shape") {
+                    if !matches!(
+                        shape,
+                        "rect" | "ellipse" | "triangle" | "diamond" | "star" | "pentagon"
+                            | "hexagon" | "arrow"
+                    ) {
+                        return Err(fail(format!("{label}: forma inválida")));
+                    }
+                }
                 let Some(opacity) = number(layer, "opacity") else {
                     return Err(fail(format!("{label}: falta opacity")));
                 };
@@ -250,6 +259,74 @@ fn animation_tags(
     let _ = width;
     let _ = height;
     tags
+}
+
+/// Dibujo `\p1` de las formas del titler. ASS no tiene curvas: la elipse se
+/// aproxima con 32 lados y triángulo/rombo son polúgonos regulares inscriptos
+/// en el rectángulo de la capa — las mismas coordenadas que el `clip-path`
+/// del preview, así ambas vistas coinciden.
+fn polygon_drawing(shape: &str, width: f64, height: f64) -> String {
+    let cx = width / 2.0;
+    let cy = height / 2.0;
+    let rx = width / 2.0;
+    let ry = height / 2.0;
+    // Vértices en coordenadas de capa (origen arriba-izquierda), en el mismo
+    // orden que el clip-path CSS del preview.
+    let vertices: Vec<(f64, f64)> = match shape {
+        "triangle" => vec![(cx, 0.0), (width, height), (0.0, height)],
+        "diamond" => vec![(cx, 0.0), (width, cy), (cx, height), (0.0, cy)],
+        "star" => (0..10)
+            .map(|index| {
+                // 5 puntas: vértices alternan radio externo (100%) e interno
+                // (50%) sobre la elipse inscripta, empezando arriba — los
+                // mismos puntos que el clip-path del preview.
+                let angle = -std::f64::consts::FRAC_PI_2 + index as f64 * std::f64::consts::PI / 5.0;
+                let radius = if index % 2 == 0 { 1.0 } else { 0.5 };
+                (cx + rx * radius * angle.cos(), cy + ry * radius * angle.sin())
+            })
+            .collect(),
+        "pentagon" | "hexagon" => {
+            let sides = if shape == "pentagon" { 5.0 } else { 6.0 };
+            (0..sides as usize)
+                .map(|index| {
+                    let angle =
+                        -std::f64::consts::FRAC_PI_2 + index as f64 * std::f64::consts::TAU / sides;
+                    (cx + rx * angle.cos(), cy + ry * angle.sin())
+                })
+                .collect()
+        }
+        "arrow" => vec![
+            (0.5 * width, 0.0),
+            (0.85 * width, 0.38 * height),
+            (0.66 * width, 0.38 * height),
+            (0.66 * width, height),
+            (0.34 * width, height),
+            (0.34 * width, 0.38 * height),
+            (0.15 * width, 0.38 * height),
+        ],
+        _ => {
+            // Elipse: 32 lados paramétricos, primer punto a la derecha.
+            let segments = 32;
+            (0..segments)
+                .map(|index| {
+                    let angle = std::f64::consts::TAU * index as f64 / segments as f64;
+                    (cx + rx * angle.cos(), cy + ry * angle.sin())
+                })
+                .collect()
+        }
+    };
+    let mut drawing = String::new();
+    for (index, (px, py)) in vertices.iter().enumerate() {
+        if index == 0 {
+            drawing.push_str(&format!("m {px:.1} {py:.1}"));
+        } else {
+            drawing.push_str(&format!(" l {px:.1} {py:.1}"));
+        }
+    }
+    if let Some((fx, fy)) = vertices.first() {
+        drawing.push_str(&format!(" l {fx:.1} {fy:.1}{{\\p0}}"));
+    }
+    drawing
 }
 
 fn graphic_clips<'a>(project: &'a Value) -> Vec<&'a Value> {
@@ -411,8 +488,24 @@ pub fn build_motion_ass(input: MotionAssInput<'_>) -> Result<String, ProjectErro
                 let color = override_color(text_field(&layer, "color").unwrap_or("#000000"));
                 let opacity = number(&layer, "opacity").unwrap_or(1.0).clamp(0.0, 1.0);
                 let alpha = ((1.0 - opacity) * 255.0).round().clamp(0.0, 255.0) as u8;
+                let drawing = match text_field(&layer, "shape") {
+                    Some("ellipse")
+                    | Some("triangle")
+                    | Some("diamond")
+                    | Some("star")
+                    | Some("pentagon")
+                    | Some("hexagon")
+                    | Some("arrow") => {
+                        polygon_drawing(
+                            text_field(&layer, "shape").unwrap_or("ellipse"),
+                            width,
+                            height,
+                        )
+                    }
+                    _ => format!("m 0 0 l {width:.1} 0 {width:.1} {height:.1} 0 {height:.1} l 0 0{{\\p0}}"),
+                };
                 format!(
-                    "{{\\an7\\pos({x:.1},{y:.1})\\p1\\c{color}\\alpha&H{alpha:02X}&{tags}}}m 0 0 l {width:.1} 0 {width:.1} {height:.1} 0 {height:.1} l 0 0{{\\p0}}"
+                    "{{\\an7\\pos({x:.1},{y:.1})\\p1\\c{color}\\alpha&H{alpha:02X}&{tags}}}{drawing}"
                 )
             };
             output.push_str(&format!(
@@ -499,6 +592,70 @@ mod tests {
         plan["clip-g"]["layers"][1]["color"] = json!("rojo");
         let error = build_motion_ass(input(&project, &plan)).expect_err("error");
         assert!(error.message.contains("color"));
+    }
+
+    #[test]
+    fn ellipse_shape_draws_a_polygon_instead_of_a_rect() {
+        let project = project_with_graphic();
+        let mut plan = plans();
+        plan["clip-g"]["layers"][0]["shape"] = json!("ellipse");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        // Polígono de 32 lados: 1 moveto + 31 líneas + cierre = 33 comandos.
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        // 1 moveto + 32 líneas (31 vértices + cierre al primero).
+        assert!(drawing.contains("m "));
+        assert_eq!(drawing.matches(" l ").count(), 32);
+    }
+
+    #[test]
+    fn triangle_and_diamond_draw_their_own_polygons() {
+        let project = project_with_graphic();
+        let mut plan = plans();
+        // Capa rect: x=0.1,y=0.7,w=0.5,h=0.15 de 1920x1080 → 960x162 px.
+        plan["clip-g"]["layers"][0]["shape"] = json!("triangle");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        assert_eq!(drawing.matches(" l ").count(), 3);
+        assert!(drawing.contains("m 480.0 0.0 l 960.0 162.0 l 0.0 162.0"));
+
+        plan["clip-g"]["layers"][0]["shape"] = json!("diamond");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        assert_eq!(drawing.matches(" l ").count(), 4);
+        assert!(drawing.contains("m 480.0 0.0 l 960.0 81.0 l 480.0 162.0 l 0.0 81.0"));
+
+        plan["clip-g"]["layers"][0]["shape"] = json!("star");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        // 10 vértices + cierre.
+        assert_eq!(drawing.matches(" l ").count(), 10);
+        // Primera punta arriba al centro (480, 0).
+        assert!(drawing.contains("}m 480.0 0.0"));
+
+        plan["clip-g"]["layers"][0]["shape"] = json!("pentagon");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        assert_eq!(drawing.matches(" l ").count(), 5);
+
+        plan["clip-g"]["layers"][0]["shape"] = json!("hexagon");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        assert_eq!(drawing.matches(" l ").count(), 6);
+
+        plan["clip-g"]["layers"][0]["shape"] = json!("arrow");
+        let ass = build_motion_ass(input(&project, &plan)).expect("ass");
+        let drawing = ass.lines().find(|line| line.contains("\\p1")).expect("dibujo");
+        assert_eq!(drawing.matches(" l ").count(), 7);
+        assert!(drawing.contains("}m 480.0 0.0"));
+    }
+
+    #[test]
+    fn rejects_unknown_shape() {
+        let project = project_with_graphic();
+        let mut plan = plans();
+        plan["clip-g"]["layers"][0]["shape"] = json!("circle");
+        let error = build_motion_ass(input(&project, &plan)).expect_err("error");
+        assert!(error.message.contains("forma"));
     }
 
     #[test]

@@ -172,7 +172,11 @@ pub async fn flow_generate_image(
 
     // 1) Sesión web abierta y CDP vivo.
     let app_for_open = app.clone();
-    let open_url = if target_url.is_empty() { None } else { Some(target_url) };
+    let open_url = if target_url.is_empty() {
+        None
+    } else {
+        Some(target_url)
+    };
     let open_slot = Some(name.clone());
     tauri::async_runtime::spawn_blocking(move || {
         flow_embed::web_session_open(app_for_open, open_url, open_slot)
@@ -237,9 +241,9 @@ pub async fn flow_generate_image(
         loop {
             match child.try_wait()? {
                 Some(_) => {
-                    return child
-                        .wait_with_output()
-                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()));
+                    return child.wait_with_output().map_err(|e| {
+                        std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+                    });
                 }
                 None if Instant::now() >= deadline => {
                     let _ = child.kill();

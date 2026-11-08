@@ -1688,6 +1688,8 @@ mod tests {
         HardwareEncoders {
             h264: None,
             hevc: None,
+            av1: None,
+            vp9: None,
             checked: true,
         }
     }
@@ -1790,6 +1792,8 @@ mod tests {
         let hardware = crate::commands::audio::HardwareEncoders {
             h264: None,
             hevc: None,
+            av1: None,
+            vp9: None,
             checked: true,
         };
         let params = CompressParams {
@@ -2033,6 +2037,8 @@ mod tests {
         let hardware = HardwareEncoders {
             h264: Some("h264_nvenc".into()),
             hevc: Some("hevc_nvenc".into()),
+            av1: None,
+            vp9: None,
             checked: true,
         };
         let (args, encoder) = build_args(

@@ -641,6 +641,7 @@ mod tests {
             min_output_bytes: 1,
             duration_tolerance_frames: 2,
             hardware_encoder: None,
+            pixel_format: "yuv420p".into(),
         };
         let plan = crate::render::ffmpeg::build_plan(BuildPlanInput {
             project: &project,

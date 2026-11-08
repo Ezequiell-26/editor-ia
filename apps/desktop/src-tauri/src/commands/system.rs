@@ -281,6 +281,8 @@ pub async fn system_info(state: State<'_, AppState>) -> Result<SystemInfo, Proje
                 .as_deref()
                 .and_then(crate::commands::audio::hardware_h264),
             hevc: None,
+            av1: None,
+            vp9: None,
             checked: ffmpeg.is_some(),
         },
         config_dir: state.config_dir.to_string_lossy().into_owned(),

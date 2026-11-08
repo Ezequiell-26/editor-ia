@@ -3,8 +3,10 @@ import type { ViewId } from '../../app/navigation';
 import { Icon } from '../../components/Icon';
 import { useProjectStore } from '../../state/project-store';
 import type { StickmanRenderResult } from '../../services/project-service';
+import { StickmanRigEditor } from './StickmanRigEditor';
+import { STAND_POSE, type StickmanKeyframe } from './stickman-rig';
 
-const ACTIONS = ['idle', 'walk', 'run', 'wave', 'jump'] as const;
+const ACTIONS = ['idle', 'walk', 'run', 'wave', 'jump', 'custom'] as const;
 const PARTICLES = ['none', 'confetti', 'snow', 'sparks', 'bounce'] as const;
 
 function messageOf(error: unknown): string {
@@ -31,6 +33,9 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [boneHex, setBoneHex] = useState('#f8fafc');
   const [bgHex, setBgHex] = useState('#0f172a');
   const [particles, setParticles] = useState<(typeof PARTICLES)[number]>('none');
+  const [keyframes, setKeyframes] = useState<StickmanKeyframe[]>([
+    { frame: 0, ...STAND_POSE },
+  ]);
   const [particleColor, setParticleColor] = useState('#facc15');
   const [particleCount, setParticleCount] = useState(300);
   const [particleGravity, setParticleGravity] = useState(900);
@@ -40,6 +45,10 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
   const [result, setResult] = useState<StickmanRenderResult | null>(null);
 
   async function render(): Promise<void> {
+    if (action === 'custom' && keyframes.length === 0) {
+      setError('La acción «custom» necesita al menos un keyframe: fijá una pose en el editor.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setResult(null);
@@ -71,6 +80,7 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
               },
             }
           : {}),
+        ...(action === 'custom' && keyframes.length > 0 ? { keyframes } : {}),
       });
       setResult(rendered);
       if (!rendered.ok) setError('El render no se verificó; revisá los datos del equipo.');
@@ -168,6 +178,14 @@ export function StickmanPanel({ onNavigate }: { readonly onNavigate: (id: ViewId
             ))}
           </select>
         </label>
+        {action === 'custom' ? (
+          <StickmanRigEditor
+            keyframes={keyframes}
+            onKeyframesChange={setKeyframes}
+            maxFrame={Math.round(duration * fps)}
+            boneColor={boneHex}
+          />
+        ) : null}
         {particles !== 'none' ? (
           <>
             <label className="field">

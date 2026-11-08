@@ -14,22 +14,45 @@ export type TimecodeParseResult =
 
 const TC_PATTERN = /^(\d{1,2}):([0-5]\d):([0-5]\d)([:;])(\d{1,2})$/;
 
+/** Tasas fraccionarias de broadcast donde SMPTE define drop-frame. */
+const DF_RATES = [30000 / 1001, 60000 / 1001] as const;
+
+function isDropFrameRate(fps: number): boolean {
+  return DF_RATES.some((rate) => Math.abs(fps - rate) < 0.005);
+}
+
 /**
  * Convierte un timecode SMPTE a frames absolutos en la base del fps dado.
- * Soporta NDF (`HH:MM:SS:FF`); los drop-frame (`HH:MM:SS;FF`) se rechazan con
- * su motivo: su conteo no es lineal y derivar offsets con ellos corrompería la
- * sincronía. FPS no enteros se redondean (el timecode cuenta frames, no
- * segundos fraccionarios).
+ * NDF (`HH:MM:SS:FF`) es lineal; drop-frame (`HH:MM:SS;FF`) usa la fórmula
+ * inversa de Kdenlive `Timecode::getFrameCount` (las etiquetas corren al fps
+ * nominal y saltan `drop` números por minuto salvo en minutos múltiplos de 10).
+ * El drop-frame sólo se acepta si el fps del proyecto es una tasa DF real
+ * (29.97/59.94): con fps entero el `;` se rechaza con su motivo.
  */
 export function timecodeToFrames(timecode: string, fps: number): TimecodeParseResult {
   const match = TC_PATTERN.exec(timecode.trim());
   if (!match) return { ok: false, reason: 'formato' };
   const [, hh, mm, ss, separator, ff] = match as unknown as [string, string, string, string, string, string];
-  if (separator === ';') return { ok: false, reason: 'drop-frame' };
   const integerFps = Math.round(fps);
   if (!Number.isFinite(integerFps) || integerFps <= 0) return { ok: false, reason: 'fuera-de-rango' };
   const framesField = Number(ff);
   if (framesField >= integerFps) return { ok: false, reason: 'fuera-de-rango' };
+  if (separator === ';') {
+    if (!isDropFrameRate(fps)) return { ok: false, reason: 'drop-frame' };
+    const displayed = integerFps;
+    const drop = Math.round(fps * 0.066666);
+    const hours = Number(hh);
+    const minutes = Number(mm);
+    const seconds = Number(ss);
+    const totalMinutes = hours * 60 + minutes;
+    const frames =
+      displayed * 3600 * hours +
+      displayed * 60 * minutes +
+      displayed * seconds +
+      framesField -
+      drop * (totalMinutes - Math.floor(totalMinutes / 10));
+    return frames >= 0 ? { ok: true, frames } : { ok: false, reason: 'fuera-de-rango' };
+  }
   const frames =
     (Number(hh) * 3600 + Number(mm) * 60 + Number(ss)) * integerFps + framesField;
   return { ok: true, frames };

@@ -34,6 +34,16 @@ export interface MotionRectLayer {
   readonly height: number;
   readonly color: string;
   readonly opacity: number;
+  /** Formas no rectangulares del titler (polígono ASS / clip-path CSS). */
+  readonly shape?:
+    | 'rect'
+    | 'ellipse'
+    | 'triangle'
+    | 'diamond'
+    | 'star'
+    | 'pentagon'
+    | 'hexagon'
+    | 'arrow';
   readonly animation: MotionAnimation;
 }
 
@@ -191,6 +201,7 @@ function rect(
   color: string,
   opacity: number,
   anim: MotionAnimation,
+  shape?: MotionRectLayer['shape'],
 ): MotionRectLayer {
   return {
     kind: 'rect',
@@ -200,6 +211,7 @@ function rect(
     height: clamp(height),
     color,
     opacity: clamp(opacity),
+    ...(shape ? { shape } : {}),
     animation: anim,
   };
 }
@@ -994,6 +1006,84 @@ export const cinematicTitleTemplate: MotionTemplate = {
   },
 };
 
+const badgeSchema = z
+  .object({
+    text: z.string().trim().min(1).max(60),
+    color: hexColor.default('#7c3aed'),
+    textColor: hexColor.default('#ffffff'),
+    shape: z
+      .enum(['ellipse', 'triangle', 'diamond', 'star', 'pentagon', 'hexagon', 'arrow'])
+      .default('ellipse'),
+    animation: animationSchema.default('pop'),
+  })
+  .strict();
+type BadgeProps = z.infer<typeof badgeSchema>;
+
+export const badgeTemplate: MotionTemplate = {
+  id: 'badge',
+  version: '1.0.0',
+  label: 'Insignia elíptica',
+  description: 'Etiqueta ovalada con texto centrado (primera forma no rectangular del titler).',
+  category: 'dato',
+  defaults: {
+    text: 'NUEVO',
+    color: '#7c3aed',
+    textColor: '#ffffff',
+    shape: 'ellipse',
+    animation: 'pop',
+  },
+  fields: [
+    { id: 'text', label: 'Texto', kind: 'text' },
+    { id: 'color', label: 'Fondo', kind: 'color' },
+    { id: 'textColor', label: 'Color del texto', kind: 'color' },
+    {
+      id: 'shape',
+      label: 'Forma',
+      kind: 'select',
+      options: [
+        { value: 'ellipse', label: 'Elipse' },
+        { value: 'triangle', label: 'Triángulo' },
+        { value: 'diamond', label: 'Rombo' },
+        { value: 'star', label: 'Estrella' },
+        { value: 'pentagon', label: 'Pentágono' },
+        { value: 'hexagon', label: 'Hexágono' },
+        { value: 'arrow', label: 'Flecha' },
+      ],
+    },
+    { id: 'animation', label: 'Animación', kind: 'select', options: ANIMATION_OPTIONS },
+  ],
+  propsSchema: badgeSchema,
+  buildLayers(raw, context) {
+    const props = raw as BadgeProps;
+    const unit = context.height / 1080;
+    const fps = context.fpsNum / Math.max(1, context.fpsDen);
+    const anim = animation(props.animation, fps, 0.04);
+    const badgeWidth = 0.44;
+    const badgeHeight = 0.13;
+    const badgeX = (1 - badgeWidth) / 2;
+    const badgeY = 0.44;
+    const fontSize = proFontSize(44, unit);
+    const lineHeight = (fontSize * 1.3) / context.height;
+    return [
+      rect(badgeX, badgeY, badgeWidth, badgeHeight, props.color, 0.94, anim, props.shape),
+      {
+        kind: 'text',
+        x: badgeX,
+        y: badgeY + badgeHeight / 2 - lineHeight / 2,
+        width: badgeWidth,
+        height: lineHeight,
+        text: props.text,
+        fontFamily,
+        fontSizePx: fontSize,
+        weight: 700,
+        color: props.textColor,
+        align: 'center',
+        animation: anim,
+      } satisfies MotionTextLayer,
+    ].slice(0, 16);
+  },
+};
+
 export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   titleCardTemplate,
   freeTextTemplate,
@@ -1005,6 +1095,7 @@ export const MOTION_TEMPLATES: readonly MotionTemplate[] = [
   zoomPunchTemplate,
   glitchTextTemplate,
   cinematicTitleTemplate,
+  badgeTemplate,
 ];
 
 export function templateById(id: string): MotionTemplate | null {

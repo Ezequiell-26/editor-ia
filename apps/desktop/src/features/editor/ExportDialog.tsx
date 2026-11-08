@@ -10,6 +10,7 @@ import { basename } from '../../lib/format';
 import {
   COMPRESSION_PRESETS,
   applyCompression,
+  applyPixelFormat,
   applyProfileFit,
   compressionPresetOf,
   ensureDelivery,
@@ -192,9 +193,23 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   useEffect(() => {
     if (!open) return;
     const total = store.durationFrames;
-    setRangeStart(0);
-    setRangeEnd(total);
-  }, [open, store.durationFrames]);
+    // Los puntos in/out de la secuencia (I/O en la timeline, como Kdenlive)
+    // pre-cargan el rango de exportación cuando son un rango válido.
+    const io = store.state.ioRange;
+    if (
+      io?.inFrame != null &&
+      io.outFrame != null &&
+      io.outFrame > io.inFrame &&
+      io.inFrame >= 0 &&
+      io.outFrame <= total
+    ) {
+      setRangeStart(io.inFrame);
+      setRangeEnd(io.outFrame);
+    } else {
+      setRangeStart(0);
+      setRangeEnd(total);
+    }
+  }, [open, store.durationFrames, store.state.ioRange]);
 
   function setExportRange(start: number, end: number): void {
     const total = Math.max(1, store.durationFrames);
@@ -220,14 +235,26 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
 
   function availableHardware(
     profile:
-      | { readonly videoCodec: string; readonly resolution: { readonly width: number; readonly height: number } }
+      | {
+          readonly videoCodec: string;
+          readonly pixelFormat?: string;
+          readonly resolution: { readonly width: number; readonly height: number };
+        }
       | undefined,
   ): string | null {
-    if (!hardware || !profile) return null;
-    // La sonda de hardware sólo mide H.264/H.265: VP9/AV1 van por software
-    // (libvpx-vp9/libsvtav1) hasta que se agreguen sondas propias.
-    if (profile.videoCodec !== 'h264' && profile.videoCodec !== 'h265') return null;
-    const encoder = profile.videoCodec === 'h265' ? hardware.hevc : hardware.h264;
+    // Los encoders de hardware degradan 4:4:4 a 4:2:0 en silencio; para ese
+    // perfil el render siempre usa el camino de software.
+    if (!hardware || !profile || profile.pixelFormat === 'yuv444p') return null;
+    const encoder =
+      profile.videoCodec === 'h264'
+        ? hardware.h264
+        : profile.videoCodec === 'h265'
+          ? hardware.hevc
+          : profile.videoCodec === 'av1'
+            ? hardware.av1
+            : profile.videoCodec === 'vp9'
+              ? hardware.vp9
+              : null;
     if (!encoder) return null;
     const maxSide = profile.videoCodec === 'h265' ? 8192 : 4096;
     if (profile.resolution.width > maxSide || profile.resolution.height > maxSide) return null;
@@ -238,6 +265,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
     profile:
       | {
           readonly videoCodec: string;
+          readonly pixelFormat?: string;
           readonly resolution: { readonly width: number; readonly height: number };
           readonly videoPreset: string;
         }
@@ -290,7 +318,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
         if (active) setHardware(result);
       })
       .catch(() => {
-        if (active) setHardware({ h264: null, hevc: null, checked: false });
+        if (active) setHardware({ h264: null, hevc: null, av1: null, vp9: null, checked: false });
       });
     return () => {
       active = false;
@@ -539,6 +567,7 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
       height: finished.height ?? profile?.resolution.height ?? 0,
       durationSeconds: finished.durationSeconds ?? rangeSeconds,
       expectedBytes: finished.outputBytes,
+      pixelFormat: profile?.pixelFormat,
     };
     void (async () => {
       // Si `render-finished` ya trae el reporte FFprobe, se usa directo (evita
@@ -597,6 +626,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
   const fps = fpsOf(project);
   const selectedBatchProfiles = profiles.filter((profile) => batchProfiles.has(profile.id));
   const compression = selected ? compressionPresetOf(selected) : 'custom';
+  // 4:4:4 sólo se ofrece si el FFmpeg sondeado tiene un encoder que lo emite de
+  // verdad (libvpx-vp9 o libaom-av1) y TODOS los perfiles son WebM VP9/AV1:
+  // applyPixelFormat toca todos los perfiles y el backend valida cada uno.
+  const pixel444Capable =
+    Boolean(capabilities?.pixelFormats.includes('yuv444p')) &&
+    profiles.every(
+      (profile) =>
+        profile.container === 'webm' &&
+        (profile.videoCodec === 'vp9' || profile.videoCodec === 'av1'),
+    );
   const selectedHardware = availableHardware(selected);
   const durationSeconds = store.durationFrames / fps;
   const gpuDecision = selected
@@ -1090,6 +1129,16 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                       Elegí otro perfil o regenerá el proyecto con el formato disponible.
                     </p>
                   ) : null}
+                  {selected &&
+                  selected.pixelFormat === 'yuv444p' &&
+                  capabilities &&
+                  !capabilities.pixelFormats.includes('yuv444p') ? (
+                    <p className="notice notice-warning">
+                      El perfil «{selected.name}» pide pixel format 4:4:4 pero este
+                      FFmpeg no tiene libvpx-vp9 ni libaom-av1; el render va a
+                      fallar. Cambialo a 4:2:0.
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               {selected ? (
@@ -1161,6 +1210,32 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                         <option value="cover">Recortar para llenar · sin barras</option>
                       </select>
                     </label>
+                    <label className="field">
+                      <span>Pixel format</span>
+                      <select
+                        value={selected.pixelFormat}
+                        disabled={running}
+                        onChange={(event) =>
+                          store.update((current) =>
+                            applyPixelFormat(
+                              current,
+                              event.target.value === 'yuv444p' ? 'yuv444p' : 'yuv420p',
+                            ),
+                          )
+                        }
+                      >
+                        <option value="yuv420p">4:2:0 · compatible</option>
+                        <option value="yuv444p" disabled={!pixel444Capable}>
+                          4:4:4 · más nitidez en texto
+                        </option>
+                        {selected.pixelFormat !== 'yuv420p' &&
+                        selected.pixelFormat !== 'yuv444p' ? (
+                          <option value={selected.pixelFormat}>
+                            {selected.pixelFormat} · sin soporte de entrega
+                          </option>
+                        ) : null}
+                      </select>
+                    </label>
                     <div className="compression-readout">
                       <span>Encoder</span>
                       <code>{selected.videoPreset}</code>
@@ -1174,6 +1249,9 @@ export function ExportDialog({ open, onClose }: ExportDialogProps) {
                       : selected.videoCodec === 'h265'
                         ? 'H.265 reduce el tamaño, pero algunos reproductores y plataformas lo recomprimen o no lo aceptan. Para publicar sin sorpresas, H.264 es la opción segura. '
                         : 'Los tamaños reales dependen del contenido. “Compacto” usa CRF 27 y audio de 96 kbps; “Rápido” usa ultrafast para terminar antes. '}
+                    {selected.pixelFormat === 'yuv444p'
+                      ? '4:4:4 conserva más nitidez en texto y gráficos, pero sólo lo emiten WebM VP9/AV1 por software (nunca con GPU) y el archivo pesa más. '
+                      : ''}
                     “Recortar para llenar” hace un recorte centrado en el render; no es smart reframe por IA.
                   </p>
                 </div>

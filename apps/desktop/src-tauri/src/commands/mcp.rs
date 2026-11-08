@@ -1417,4 +1417,3 @@ rl.on('line', (line) => {
         let _ = std::fs::remove_dir_all(&workdir);
     }
 }
-

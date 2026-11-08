@@ -45,6 +45,9 @@ export type ShortcutId =
   | 'playback.goToEnd'
   | 'timeline.splitAtPlayhead'
   | 'timeline.toggleMarker'
+  | 'timeline.setInPoint'
+  | 'timeline.setOutPoint'
+  | 'timeline.clearInOut'
   | 'timeline.trimIn'
   | 'timeline.trimOut'
   | 'timeline.zoomIn'
@@ -103,6 +106,9 @@ export const SHORTCUT_LABELS: Record<ShortcutId, string> = {
   'playback.goToEnd': 'Ir al final de la timeline',
   'timeline.splitAtPlayhead': 'Dividir clip en el playhead',
   'timeline.toggleMarker': 'Marcador en el playhead',
+  'timeline.setInPoint': 'Punto de entrada (in) de la secuencia en el playhead',
+  'timeline.setOutPoint': 'Punto de salida (out) de la secuencia en el playhead',
+  'timeline.clearInOut': 'Quitar puntos de entrada/salida de la secuencia',
   'timeline.trimIn': 'Recortar entrada del clip al playhead',
   'timeline.trimOut': 'Recortar salida del clip al playhead',
   'timeline.zoomIn': 'Acercar timeline',
@@ -157,6 +163,9 @@ export const SHORTCUT_CATEGORIES: Record<ShortcutId, string> = {
   'playback.goToEnd': 'Reproducción',
   'timeline.splitAtPlayhead': 'Timeline',
   'timeline.toggleMarker': 'Timeline',
+  'timeline.setInPoint': 'Timeline',
+  'timeline.setOutPoint': 'Timeline',
+  'timeline.clearInOut': 'Timeline',
   'timeline.trimIn': 'Timeline',
   'timeline.trimOut': 'Timeline',
   'timeline.zoomIn': 'Timeline',
@@ -215,6 +224,10 @@ export const DEFAULT_SHORTCUTS: Record<ShortcutId, string> = {
   // Timeline); el registro documenta esa tecla y permite reasignarla.
   'timeline.splitAtPlayhead': 'S',
   'timeline.toggleMarker': 'M',
+  // I/O como en Kdenlive: puntos de entrada/salida de la secuencia.
+  'timeline.setInPoint': 'I',
+  'timeline.setOutPoint': 'O',
+  'timeline.clearInOut': 'Alt+X',
   'timeline.trimIn': '[',
   'timeline.trimOut': ']',
   'timeline.zoomIn': '+',

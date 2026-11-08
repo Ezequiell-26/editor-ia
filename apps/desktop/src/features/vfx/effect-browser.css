@@ -138,3 +138,11 @@
 .chip:active {
   animation: chipPulse 0.3s ease;
 }
+
+.effect-browser-notice {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary, #9aa4b2);
+  border-bottom: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+}

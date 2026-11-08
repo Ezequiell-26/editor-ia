@@ -14,6 +14,7 @@ import {
   addTrack,
   applyCompression,
   applyAudioPresetToAll,
+  applyPixelFormat,
   applySpeedCurve,
   applyFaceCenter,
   applySpeedRamp,
@@ -69,6 +70,8 @@ import {
   updateMotionProps,
   updateAudioMix,
   toggleAssetFavorite,
+  formatTimecode,
+  isDropFrameFps,
   updateProjectLook,
   setProjectLook,
   updateProjectSettings,
@@ -780,6 +783,40 @@ describe('transiciones en lote', () => {
       frames: 12,
     });
     expect(clips[3]?.kind === 'video' ? clips[3].transitionIn : undefined).toBeUndefined();
+  });
+
+  it('dip-color escribe el color elegido y lo omite si es inválido', () => {
+    const asset = videoAsset(300);
+    let project = addAsset(base(), asset);
+    for (const at of [0, 30]) {
+      project = addClipFromAsset(project, asset, {
+        atFrame: at,
+        durationFrames: 30,
+      }).project;
+    }
+    const dip = applyTransitionToCuts(project, {
+      type: 'dip-color',
+      frames: 12,
+      color: '#2244AA',
+    });
+    const next = validated(dip.project);
+    expect(dip.applied).toBe(1);
+    const clip = next.timeline.clips.find((item) => item.startFrame === 30);
+    expect(clip && 'transitionIn' in clip ? clip.transitionIn : undefined).toEqual({
+      type: 'dip-color',
+      frames: 12,
+      color: '#2244aa',
+    });
+
+    // Sin color válido el corte se salta: el schema exige `color` en
+    // dip-color y escribirla sin él dejaría el documento inválido.
+    const bad = applyTransitionToCuts(project, {
+      type: 'dip-color',
+      frames: 12,
+      color: 'not-a-color',
+    });
+    expect(bad.applied).toBe(0);
+    expect(bad.project).toBe(project);
   });
 
   it('salta pistas bloqueadas', () => {
@@ -2008,6 +2045,23 @@ describe('velocidad y efectos de clip', () => {
     validated(back);
   });
 
+  it('aplica pixel format a todos los perfiles y lo resetea al salir de WebM', () => {
+    const webm = applyCompression(base(), 'equilibrado', 'vp9');
+    const hd = applyPixelFormat(webm, 'yuv444p');
+    expect(hd.renderProfiles.every((profile) => profile.pixelFormat === 'yuv444p')).toBe(true);
+    validated(hd);
+
+    // Volver a 4:2:0 es explícito.
+    const sd = applyPixelFormat(hd, 'yuv420p');
+    expect(sd.renderProfiles.every((profile) => profile.pixelFormat === 'yuv420p')).toBe(true);
+    validated(sd);
+
+    // Cambiar el códec a MP4 no puede dejar un 4:4:4 que el backend rechaza.
+    const mp4 = applyCompression(applyPixelFormat(webm, 'yuv444p'), 'equilibrado', 'h264');
+    expect(mp4.renderProfiles.every((profile) => profile.pixelFormat === 'yuv420p')).toBe(true);
+    validated(mp4);
+  });
+
   it('rechaza velocidad en imágenes y limita el rango', () => {
     const project = base();
     const image = imageAsset();
@@ -2404,5 +2458,38 @@ describe('motion graphics', () => {
     expect(second.trackId).toBe(first.trackId);
     expect(second.startFrame).toBe(30);
     expect(validated(second.project).timeline.clips).toHaveLength(2);
+  });
+});
+
+describe('formatTimecode drop-frame', () => {
+  const fps2997 = 30000 / 1001;
+
+  it('detecta sólo las tasas DF de broadcast', () => {
+    expect(isDropFrameFps(fps2997)).toBe(true);
+    expect(isDropFrameFps(60000 / 1001)).toBe(true);
+    expect(isDropFrameFps(30)).toBe(false);
+    expect(isDropFrameFps(24)).toBe(false);
+    expect(isDropFrameFps(25)).toBe(false);
+  });
+
+  it('etiqueta frames reales con saltos DF (mismo algoritmo que el EDL)', () => {
+    expect(formatTimecode(0, fps2997)).toBe('0:00:00;00');
+    // 1798 frames reales = 1 minuto exacto en 29.97 DF.
+    expect(formatTimecode(1798, fps2997)).toBe('0:01:00;00');
+    // El frame anterior es el último label válido del minuto (;28/;29 no existen).
+    expect(formatTimecode(1797, fps2997)).toBe('0:00:59;27');
+    // Minuto múltiplo de 10 no pierde frames.
+    expect(formatTimecode(17982, fps2997)).toBe('0:10:00;00');
+  });
+
+  it('59.94 usa drop=4 y el mismo criterio', () => {
+    const fps = 60000 / 1001;
+    expect(formatTimecode(3596, fps)).toBe('0:01:00;00');
+    expect(formatTimecode(0, fps)).toBe('0:00:00;00');
+  });
+
+  it('fps enteros siguen en NDF con dos puntos', () => {
+    expect(formatTimecode(45, 30)).toBe('0:00:01:15');
+    expect(formatTimecode(90, 30)).toBe('0:00:03:00');
   });
 });

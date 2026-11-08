@@ -102,6 +102,7 @@ fn profile_for(project: &Value) -> Result<Profile, ProjectError> {
         container: "mp4".to_owned(),
         audio_rate: 48_000,
         audio_channels: 2,
+        pixel_format: "yuv420p".to_owned(),
         min_output_bytes: 1,
         duration_tolerance_frames: 1,
         hardware_encoder: None,
@@ -760,10 +761,15 @@ fn freezable_transition(kind: &str) -> bool {
         "dissolve"
             | "fade-black"
             | "fade-white"
+            | "dip-color"
             | "slide-left"
             | "slide-right"
             | "slide-up"
             | "slide-down"
+            | "wipe-left"
+            | "wipe-right"
+            | "wipe-up"
+            | "wipe-down"
     )
 }
 
@@ -896,6 +902,12 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                     "fade-white" if remaining > 0.0005 => Some(serde_json::json!({
                         "mode": "white", "alpha": transition_progress
                     })),
+                    "dip-color" if remaining > 0.0005 => {
+                        let color = clip["transitionIn"]["color"].as_str().unwrap_or("#000000");
+                        Some(serde_json::json!({
+                            "mode": "color", "color": color, "alpha": transition_progress
+                        }))
+                    }
                     "slide-left" if remaining > 0.0005 => Some(serde_json::json!({
                         "x": frame_width * remaining, "y": 0.0
                     })),
@@ -905,9 +917,27 @@ fn window_project(project: &Value, frame: u64) -> Result<Value, ProjectError> {
                     "slide-up" if remaining > 0.0005 => Some(serde_json::json!({
                         "x": 0.0, "y": frame_height * remaining
                     })),
+                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down")
+                        if remaining > 0.0005 =>
+                    {
+                        Some(serde_json::json!({
+                            "mode": "wipe",
+                            "kind": wipe,
+                            "progress": transition_progress
+                        }))
+                    }
                     "slide-down" if remaining > 0.0005 => Some(serde_json::json!({
                         "x": 0.0, "y": -frame_height * remaining
                     })),
+                    wipe @ ("wipe-left" | "wipe-right" | "wipe-up" | "wipe-down")
+                        if remaining > 0.0005 =>
+                    {
+                        Some(serde_json::json!({
+                            "mode": "wipe",
+                            "kind": wipe,
+                            "progress": transition_progress
+                        }))
+                    }
                     _ => None,
                 };
                 // El Ken Burns se mide desde el inicio del solape; si un lead
@@ -2296,6 +2326,18 @@ mod tests {
         assert_eq!(later["transitionFrozen"]["mode"], "black");
         assert!((later["transitionFrozen"]["alpha"].as_f64().unwrap() - 0.5).abs() < 1e-6);
         assert!(window_project(&preview_copy(&fade), 22).is_ok());
+
+        let mut dip = preview_project();
+        dip["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
+        dip["timeline"]["clips"][1]["transitionIn"] = serde_json::json!({
+            "type": "dip-color", "frames": 12, "color": "#2244aa"
+        });
+        let window = window_project(&preview_copy(&dip), 16).expect("dip-color en lead");
+        let later = later_clip(&window);
+        assert_eq!(later["transitionFrozen"]["mode"], "color");
+        assert_eq!(later["transitionFrozen"]["color"], "#2244aa");
+        assert!((later["transitionFrozen"]["alpha"].as_f64().unwrap() - 0.5).abs() < 1e-6);
+        assert!(window_project(&preview_copy(&dip), 22).is_ok());
 
         let mut motion = preview_project();
         motion["timeline"]["clips"][1]["startFrame"] = serde_json::json!(22);
@@ -4661,6 +4703,7 @@ mod tests {
             container: "mp4".into(),
             audio_rate: 48_000,
             audio_channels: 2,
+            pixel_format: "yuv420p".into(),
             min_output_bytes: 1,
             duration_tolerance_frames: 1,
             hardware_encoder: None,

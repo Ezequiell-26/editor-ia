@@ -322,10 +322,7 @@ pub fn run() {
                     let marker = std::env::temp_dir().join("olyvia-embed-test.txt");
                     let _ = embed_handle.run_on_main_thread(move || {
                         let result = commands::flow_embed::flow_embed_open(inner, url);
-                        let _ = std::fs::write(
-                            &marker,
-                            format!("{result:?}"),
-                        );
+                        let _ = std::fs::write(&marker, format!("{result:?}"));
                     });
                 });
             }
@@ -364,6 +361,7 @@ pub fn run() {
             commands::lottie::alpha_frames_to_asset,
             commands::lottie::discard_alpha_frames,
             commands::upscale::upscale_image,
+            commands::upscale::upscale_video,
             commands::analysis::detect_scenes,
             commands::analysis::analyze_stabilization,
             commands::intelligence::analyze_media,
@@ -493,6 +491,13 @@ pub fn run() {
             commands::voice_isolation::voice_isolation_status,
             commands::voice_isolation::voice_isolate_media,
             commands::voice_isolation::prepare_voice_isolation,
+            commands::vpn::vpn_list,
+            commands::audio_scopes::audio_scope_analyze,
+            commands::audio_scopes::audio_scope_analyze_asset,
+            commands::vpn::vpn_connect,
+            commands::vpn::vpn_disconnect,
+            commands::vpn::vpn_wireguard,
+            commands::vpn::vpn_wireguard_open,
             commands::flow_browser::flow_browser_status,
             commands::flow_browser::flow_browser_launch,
             commands::flow_browser::flow_browser_stop,

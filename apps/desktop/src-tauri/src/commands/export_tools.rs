@@ -110,7 +110,7 @@ fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
         &["libx265", "hevc_mf"],
         &["hevc_nvenc", "hevc_qsv", "hevc_amf", "hevc_videotoolbox"],
     );
-    let vp9 = codec_availability(encoders, &["libvpx-vp9"], &["vp9_qsv"]);
+    let vp9 = codec_availability(encoders, &["libvpx-vp9"], &["vp9_qsv", "vp9_amf"]);
     let av1 = codec_availability(
         encoders,
         &["libsvtav1", "libaom-av1"],
@@ -120,6 +120,15 @@ fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
         .iter()
         .any(|encoder| has(encoders, encoder));
     let opus_available = has(encoders, "libopus");
+    // Pixel formats que el renderer emite de verdad: 4:2:0 siempre; 4:4:4
+    // sólo cuando hay un encoder de software que lo acepte (libvpx-vp9 para
+    // VP9, libaom-av1 para AV1 — libsvtav1 y el hardware degradan a 4:2:0).
+    let mut pixel_formats = vec!["yuv420p".to_owned()];
+    let has_444 = vp9.software.iter().any(|e| e == "libvpx-vp9")
+        || av1.software.iter().any(|e| e == "libaom-av1");
+    if has_444 {
+        pixel_formats.push("yuv444p".to_owned());
+    }
     let mut video = HashMap::new();
     let mut mp4_video = Vec::new();
     if !h264.software.is_empty() || !h264.hardware.is_empty() {
@@ -171,7 +180,7 @@ fn matrix_from_encoders(encoders: &[String]) -> ExportCapabilities {
     }
     ExportCapabilities {
         containers,
-        pixel_formats: vec!["yuv420p".to_owned()],
+        pixel_formats,
         video_codecs: video,
         audio_codecs: audio.into_iter().chain(webm_audio).collect(),
         hdr: false,
@@ -413,6 +422,30 @@ mod tests {
             .unwrap();
         assert_eq!(webm.video_codecs, vec!["vp9"]);
         assert_eq!(webm.audio_codecs, vec!["opus"]);
+        // libvpx-vp9 está en la lista: el build puede emitir 4:4:4.
+        assert_eq!(matrix.pixel_formats, vec!["yuv420p", "yuv444p"]);
+    }
+
+    #[test]
+    fn pixel_444_solo_cuando_hay_encoder_software_que_lo_acepte() {
+        // Sin libvpx-vp9 ni libaom-av1 no se ofrece 4:4:4.
+        let list = vec!["aac".to_owned(), "libopenh264".to_owned()];
+        let matrix = matrix_from_encoders(&list);
+        assert_eq!(matrix.pixel_formats, vec!["yuv420p"]);
+
+        // libsvtav1 degrada 4:4:4 a 4:2:0 en silencio: no cuenta.
+        let mut list = encoders();
+        list.retain(|name| name != "libvpx-vp9");
+        list.push("libsvtav1".to_owned());
+        let matrix = matrix_from_encoders(&list);
+        assert_eq!(matrix.pixel_formats, vec!["yuv420p"]);
+
+        // libaom-av1 sí emite 4:4:4 de verdad.
+        let mut list = encoders();
+        list.retain(|name| name != "libvpx-vp9");
+        list.push("libaom-av1".to_owned());
+        let matrix = matrix_from_encoders(&list);
+        assert_eq!(matrix.pixel_formats, vec!["yuv420p", "yuv444p"]);
     }
 
     #[test]

@@ -437,6 +437,8 @@ export const EffectKeyframeSchema = z
     frame: z.number().int().gte(0).lte(1_000_000),
     value: z.number(),
     easing: z.enum(EFFECT_EASINGS).optional(),
+    /** Curva cúbica CSS-style; gobierna el segmento que empieza en esta clave. */
+    bezier: CubicBezierSchema.optional(),
   })
   .strict();
 export type EffectKeyframe = z.infer<typeof EffectKeyframeSchema>;
@@ -786,14 +788,33 @@ export const ClipTransitionSchema = z
       'dissolve',
       'fade-black',
       'fade-white',
+      'dip-color',
       'slide-left',
       'slide-right',
       'slide-up',
       'slide-down',
+      'wipe-left',
+      'wipe-right',
+      'wipe-up',
+      'wipe-down',
     ]),
     frames: z.number().int().min(1).max(MAX_TRANSITION_FRAMES),
+    /** Color del fundido para `dip-color` (port Kdenlive dip to color). */
+    color: z
+      .string()
+      .regex(/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i, 'transition colour must be a hex triplet')
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.type === 'dip-color' && value.color === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['color'],
+        message: 'a dip-to-color transition needs a colour',
+      });
+    }
+  });
 
 /**
  * Entrance or exit animation owned by the clip itself. Unlike a transition,

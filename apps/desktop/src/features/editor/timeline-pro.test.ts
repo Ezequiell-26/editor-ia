@@ -282,3 +282,19 @@ describe('timeline-edits · ripple, insert y multi-move', () => {
     expect(rippleTrim(locked, ids[0]!, 'end', 20)).toBeNull();
   });
 });
+
+describe('snap a puntos in/out de la secuencia', () => {
+  it('atrae el clip a los bordes ioIn/ioOut', () => {
+    const { project } = projectWithThreeClips();
+    const targets = collectTimelineSnapTargets(project, {
+      ioIn: 50,
+      ioOut: 200,
+    });
+    expect(targets.some((target) => target.label === 'Entrada (in)')).toBe(true);
+    expect(targets.some((target) => target.label === 'Salida (out)')).toBe(true);
+    const snapped = snapFrameTo(198, targets, 5);
+    expect(snapped.frame).toBe(200);
+    const snappedIn = snapFrameTo(52, targets, 5);
+    expect(snappedIn.frame).toBe(50);
+  });
+});

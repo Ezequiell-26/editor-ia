@@ -36,7 +36,53 @@ fn nominal_fps(project: &Value) -> u32 {
     (num / den.max(1.0)).round().max(1.0) as u32
 }
 
-fn timecode(frames: u64, fps: u32) -> String {
+/// fps real del proyecto (p.ej. 30000/1001 = 29.97), sin redondear.
+fn real_fps(project: &Value) -> f64 {
+    let num = project["video"]["frameRate"]["num"]
+        .as_f64()
+        .unwrap_or(30.0);
+    let den = project["video"]["frameRate"]["den"].as_f64().unwrap_or(1.0);
+    num / den.max(1.0)
+}
+
+/// Drop-frame aplica a las tasas fraccionarias de broadcast: 29.97 y 59.94
+/// (mismo criterio que Kdenlive `utils/timecode.cpp`: sólo 30000/1001; acá se
+/// extiende también a 60000/1001, que usa la misma regla SMPTE).
+fn is_drop_frame(fps: f64) -> bool {
+    const DF_RATES: [f64; 2] = [30000.0 / 1001.0, 60000.0 / 1001.0];
+    DF_RATES.iter().any(|rate| (fps - rate).abs() < 0.005)
+}
+
+/// frames → timecode drop-frame `HH:MM:SS;FF`.
+///
+/// Port del algoritmo de Kdenlive `Timecode::getTimecodeDropFrame`
+/// (`utils/timecode.cpp`, basado en David Heidelberger / Andrew Duncan): las
+/// etiquetas corren al fps nominal (30/60) pero se saltan `drop` números por
+/// minuto, salvo en los minutos múltiplos de 10.
+fn drop_timecode(frames: u64, real_fps: f64) -> String {
+    let displayed = real_fps.round().max(1.0) as i64;
+    let drop = (real_fps * 0.066666).round() as i64;
+    let frames_per_10_minutes = (real_fps * 600.0).round() as i64;
+    let per_minute_divisor = (real_fps * 60.0).round() as i64 - drop;
+    let mut adjusted = frames as i64;
+    let d = adjusted / frames_per_10_minutes;
+    let m = adjusted % frames_per_10_minutes;
+    adjusted += drop * 9 * d;
+    if m > drop {
+        adjusted += drop * ((m - drop) / per_minute_divisor);
+    }
+    let ff = adjusted % displayed;
+    let total_seconds = adjusted / displayed;
+    let ss = total_seconds % 60;
+    let mm = (total_seconds / 60) % 60;
+    let hh = total_seconds / 3600;
+    format!("{hh:02}:{mm:02}:{ss:02};{ff:02}")
+}
+
+fn timecode(frames: u64, fps: u32, real: f64) -> String {
+    if is_drop_frame(real) {
+        return drop_timecode(frames, real);
+    }
     let fps = fps.max(1) as u64;
     let total_seconds = frames / fps;
     let f = frames % fps;
@@ -61,6 +107,8 @@ fn reel(name: &str) -> String {
 
 fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
     let fps = nominal_fps(project);
+    let real = real_fps(project);
+    let drop_frame = is_drop_frame(real);
     let title = project["name"]
         .as_str()
         .unwrap_or("Editor IA")
@@ -101,7 +149,11 @@ fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
     clips.sort_by_key(|clip| clip["startFrame"].as_u64().unwrap_or(0));
     let mut lines = vec![
         format!("TITLE: {title}"),
-        "FCM: NON-DROP FRAME".to_owned(),
+        if drop_frame {
+            "FCM: DROP FRAME".to_owned()
+        } else {
+            "FCM: NON-DROP FRAME".to_owned()
+        },
         String::new(),
     ];
     let mut warnings = Vec::new();
@@ -151,10 +203,10 @@ fn build_edl(project: &Value) -> (String, usize, Vec<String>) {
         lines.push(format!(
             "{events:03}  {:<8} V     C        {} {} {} {}",
             reel(&name),
-            timecode(source_in, fps),
-            timecode(source_out, fps),
-            timecode(start, fps),
-            timecode(start + duration, fps)
+            timecode(source_in, fps, real),
+            timecode(source_out, fps, real),
+            timecode(start, fps, real),
+            timecode(start + duration, fps, real)
         ));
         lines.push(format!(
             "* FROM CLIP NAME: {}",
@@ -233,6 +285,41 @@ pub fn export_edl(request: EdlRequest) -> Result<EdlResult, ProjectError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn drop_timecode_matches_smpte_labels() {
+        let fps = 30000.0 / 1001.0;
+        assert!(is_drop_frame(fps));
+        assert!(!is_drop_frame(30.0));
+        assert!(!is_drop_frame(24.0));
+        assert!(is_drop_frame(60000.0 / 1001.0));
+        // 1798 frames reales @29.97 = exactamente 1 minuto → etiqueta ;00.
+        assert_eq!(drop_timecode(1798, fps), "00:01:00;00");
+        // El frame anterior es el último válido del minuto 0 (los ;28 ;29 se saltan).
+        assert_eq!(drop_timecode(1797, fps), "00:00:59;27");
+        assert_eq!(drop_timecode(0, fps), "00:00:00;00");
+        // 10 minutos no pierden frames: 17982 reales → 00:10:00;00.
+        assert_eq!(drop_timecode(17982, fps), "00:10:00;00");
+    }
+
+    #[test]
+    fn edl_uses_drop_frame_for_2997_projects() {
+        let project = serde_json::json!({
+            "name": "DF",
+            "video": { "frameRate": { "num": 30000, "den": 1001 } },
+            "assets": [{ "id": "a", "source": { "path": "media/toma.mp4" } }],
+            "timeline": { "clips": [{
+                "id": "c", "kind": "video", "label": "Toma", "startFrame": 1798,
+                "durationFrames": 30,
+                "source": { "type": "asset", "assetId": "a", "inFrame": 0, "outFrame": 30 }
+            }] }
+        });
+        let (text, _, _) = build_edl(&project);
+        assert!(text.contains("FCM: DROP FRAME"));
+        // El clip arranca en el frame real 1798 → etiqueta 00:01:00;00.
+        assert!(text.contains("00:01:00;00"));
+        assert!(text.contains("00:01:01;00"));
+    }
 
     #[test]
     fn edl_contains_events_and_timecodes() {

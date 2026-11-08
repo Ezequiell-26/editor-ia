@@ -13,8 +13,22 @@ describe('timecodeToFrames', () => {
     expect(timecodeToFrames(' 1:00:00:00 ', 25)).toEqual({ ok: true, frames: 90_000 });
   });
 
-  it('rechaza drop-frame con su motivo (no es lineal)', () => {
+  it('rechaza drop-frame con fps entero (no es lineal para esa base)', () => {
     expect(timecodeToFrames('01:00:00;15', 30)).toEqual({ ok: false, reason: 'drop-frame' });
+  });
+
+  it('convierte drop-frame a frames reales en proyectos 29.97/59.94', () => {
+    const fps = 30000 / 1001;
+    expect(timecodeToFrames('00:00:00;00', fps)).toEqual({ ok: true, frames: 0 });
+    // Inversa del export EDL: 1798 reales = etiqueta 00:01:00;00.
+    expect(timecodeToFrames('00:01:00;00', fps)).toEqual({ ok: true, frames: 1798 });
+    expect(timecodeToFrames('00:00:59;27', fps)).toEqual({ ok: true, frames: 1797 });
+    // Los minutos múltiplos de 10 no pierden frames: 00:10:00;00 = 17982.
+    expect(timecodeToFrames('00:10:00;00', fps)).toEqual({ ok: true, frames: 17982 });
+    expect(timecodeToFrames('00:01:00;00', 60000 / 1001)).toEqual({
+      ok: true,
+      frames: 3596,
+    });
   });
 
   it('rechaza formatos ilegibles', () => {

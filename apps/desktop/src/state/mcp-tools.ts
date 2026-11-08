@@ -829,14 +829,28 @@ export async function executeMcpTool(
             })()
           : undefined;
       const rawKf = args.keyframes;
+      const POSE_FIELDS = [
+        'spine', 'head', 'upper_arm_l', 'fore_arm_l', 'upper_arm_r', 'fore_arm_r',
+        'thigh_l', 'shin_l', 'thigh_r', 'shin_r', 'pelvis_dy',
+      ] as const;
       const keyframes = Array.isArray(rawKf)
         ? rawKf
             .filter((k): k is Record<string, unknown> => typeof k === 'object' && k !== null)
-            .map((k) => ({ frame: typeof k.frame === 'number' ? k.frame : 0 }))
+            .map((k): import('../services/project-service').StickmanKeyframeInput => {
+              const out: { frame: number } & Record<string, number> = {
+                frame: typeof k.frame === 'number' ? k.frame : 0,
+              };
+              for (const f of POSE_FIELDS) {
+                const v = k[f];
+                if (typeof v === 'number') out[f] = v;
+              }
+              return out;
+            })
         : undefined;
       const result = await context.store.service.stickmanRender({
         outputPath,
-        ...(action === 'idle' || action === 'walk' || action === 'run' || action === 'wave' || action === 'jump'
+        ...(action === 'idle' || action === 'walk' || action === 'run' || action === 'wave' ||
+        action === 'jump' || action === 'custom'
           ? { action }
           : {}),
         ...(durationSeconds !== undefined ? { durationSeconds } : {}),

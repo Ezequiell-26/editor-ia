@@ -60,7 +60,9 @@ fn read_proxies() -> BTreeMap<String, String> {
 }
 
 #[tauri::command]
-pub fn get_flow_proxies(_state: State<'_, AppState>) -> Result<BTreeMap<String, String>, ProjectError> {
+pub fn get_flow_proxies(
+    _state: State<'_, AppState>,
+) -> Result<BTreeMap<String, String>, ProjectError> {
     Ok(read_proxies())
 }
 

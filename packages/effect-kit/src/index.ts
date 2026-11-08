@@ -47,21 +47,26 @@ export {
 export type { ParamGroup } from './params.ts';
 
 export {
+  MAX_PARAM_KEYFRAMES,
   MAX_STACK_EFFECTS,
   activeInstances,
   addInstance,
+  clearParamKeyframes,
   clearStack,
   createInstance,
   duplicateInstance,
   findInstance,
   moveInstance,
   newInstanceId,
+  paramKeyframes,
   removeInstance,
   resetInstance,
   setInstanceEnabled,
   setInstanceParam,
+  setParamKeyframeAt,
   shiftInstance,
   toggleInstance,
+  toggleParamKeyframe,
 } from './stack.ts';
 export type { EffectStack } from './stack.ts';
 
@@ -90,8 +95,58 @@ export { TRANSITIONS } from './catalog/transitions.ts';
 export { AUDIO_EFFECTS } from './catalog/audio.ts';
 export { ALL_EFFECTS } from './catalog/index.ts';
 
+export { parseEffectPackage, validateShaderSource } from './package-import.ts';
+export type { PackageImportResult } from './package-import.ts';
+
 import { createRegistry } from './registry.ts';
+import type { EffectRegistry } from './registry.ts';
+import type { EffectManifest } from './types.ts';
 import { ALL_EFFECTS } from './catalog/index.ts';
 
-/** Registro con todo el catálogo incluido. La UI lo usa tal cual. */
-export const effectRegistry = createRegistry(ALL_EFFECTS);
+const customManifests: EffectManifest[] = [];
+let innerRegistry = createRegistry(ALL_EFFECTS);
+
+/**
+ * Registro con todo el catálogo incluido. La UI lo usa tal cual. Los
+ * efectos de terceros se suman con `registerCustomEffects`: el objeto
+ * delega en un registry interno que se reconstruye al registrar, así
+ * los consumidores que guardaron la referencia ven los nuevos efectos
+ * sin reiniciar la app.
+ */
+export const effectRegistry: EffectRegistry = {
+  get all() {
+    return innerRegistry.all;
+  },
+  get: (id) => innerRegistry.get(id),
+  byKind: (kind) => innerRegistry.byKind(kind),
+  byCategory: (category, kind) => innerRegistry.byCategory(category, kind),
+  search: (query, kind) => innerRegistry.search(query, kind),
+  categories: (kind) => innerRegistry.categories(kind),
+};
+
+/**
+ * Registra efectos de terceros (paquetes `.driftfx`/JSON ya parseados por
+ * `parseEffectPackage`). Los ids repetidos se ignoran: el primero gana.
+ */
+export function registerCustomEffects(manifests: readonly EffectManifest[]): void {
+  let changed = false;
+  for (const manifest of manifests) {
+    if (customManifests.some((existing) => existing.id === manifest.id)) continue;
+    if (ALL_EFFECTS.some((existing) => existing.id === manifest.id)) continue;
+    customManifests.push(manifest);
+    changed = true;
+  }
+  if (changed) innerRegistry = createRegistry([...ALL_EFFECTS, ...customManifests]);
+}
+
+/** Quita todos los efectos de terceros (tests y restablecimiento). */
+export function clearCustomEffects(): void {
+  if (customManifests.length === 0) return;
+  customManifests.length = 0;
+  innerRegistry = createRegistry(ALL_EFFECTS);
+}
+
+/** Ids de los efectos de terceros registrados, para persistencia. */
+export function customEffectIds(): readonly string[] {
+  return customManifests.map((manifest) => manifest.id);
+}

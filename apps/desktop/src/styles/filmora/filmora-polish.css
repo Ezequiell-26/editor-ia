@@ -653,3 +653,44 @@
   outline-width: 1px !important;
   outline-color: var(--fm-accent) !important;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Monitor de vídeo · fotograma completo, centrado y marco verde (2026-11-07)
+
+   Medición previa (1360×768): con «Llenar» el lienzo medía 661×372 dentro de
+   un stage de 380×373, anclado a la izquierda por la alineación segura del
+   grid → se recortaban 281 px (42 %) siempre del lado derecho. Preview.tsx
+   migra esa preferencia a «Ajustar» una vez y centra el desborde cuando el
+   usuario elige «Llenar» de forma explícita.
+   ══════════════════════════════════════════════════════════════════════════ */
+:root .app-shell .preview-stage { overflow: hidden !important; }
+:root .app-shell .preview-stage > .preview-canvas {
+  justify-self: center !important;
+  align-self: center !important;
+}
+
+/* Marco verde COMPLETO del fotograma cuando hay un clip seleccionado: los
+   cuatro lados se dibujan por DENTRO del lienzo, así no los recorta ni el
+   overflow del panel ni la barra HUD superior. */
+:root .app-shell .preview-canvas.has-selection {
+  box-shadow: inset 0 0 0 1px var(--fm-accent) !important;
+}
+
+/* La caja de manipulación heredaba --color-accent, que con otros presets de
+   apariencia puede ser magenta. Se unifica al acento verde del estudio para
+   que el recuadro sea verde, completo y coherente con el resto del editor. */
+:root .app-shell .preview-stage .transform-box {
+  border-color: var(--fm-accent) !important;
+}
+:root .app-shell .preview-stage .transform-handle,
+:root .app-shell .preview-stage .transform-rotate {
+  border-color: var(--fm-accent) !important;
+  background: var(--fm-accent) !important;
+}
+:root .app-shell .preview-stage .transform-rotate::before {
+  background: var(--fm-accent) !important;
+}
+:root .app-shell .preview-stage .transform-size {
+  background: var(--fm-accent) !important;
+  color: var(--fm-accent-ink) !important;
+}

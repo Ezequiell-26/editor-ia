@@ -565,14 +565,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const audioStack = ('effects' in clip ? clip.effects?.audioStack : undefined) ?? [];
   const transitionIn =
     'transitionIn' in clip
-      ? (
-          clip as Clip & {
-            transitionIn?: {
-              type: ClipTransition['type'];
-              frames: number;
-            };
-          }
-        ).transitionIn
+      ? (clip as Clip & { transitionIn?: ClipTransition }).transitionIn
       : undefined;
   const reverse =
     'reverse' in clip ? Boolean((clip as Clip & { reverse?: boolean }).reverse) : false;
@@ -2164,10 +2157,14 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                     store.update((current) =>
                       updateClip(current, clip.id, {
                         transitionIn: {
+                          ...transitionIn,
                           type: event.target.value as NonNullable<
                             typeof transitionIn
                           >['type'],
                           frames: transitionIn?.frames ?? Math.min(12, clip.durationFrames),
+                          ...(event.target.value === 'dip-color' && !transitionIn?.color
+                            ? { color: '#1b2a4a' }
+                            : {}),
                         },
                       }),
                     );
@@ -2178,10 +2175,15 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 <option value="dissolve">Disolvencia</option>
                 <option value="fade-black">Fundido a negro</option>
                 <option value="fade-white">Fundido a blanco</option>
+                <option value="dip-color">Fundido a color</option>
                 <option value="slide-left">Deslizar desde la derecha</option>
                 <option value="slide-right">Deslizar desde la izquierda</option>
                 <option value="slide-up">Deslizar desde abajo</option>
                 <option value="slide-down">Deslizar desde arriba</option>
+                <option value="wipe-left">Barrido hacia la izquierda</option>
+                <option value="wipe-right">Barrido hacia la derecha</option>
+                <option value="wipe-up">Barrido hacia arriba</option>
+                <option value="wipe-down">Barrido hacia abajo</option>
               </select>
             </label>
             <NumberField
@@ -2194,6 +2196,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 store.update((current) =>
                   updateClip(current, clip.id, {
                     transitionIn: {
+                      ...transitionIn,
                       type: transitionIn?.type ?? 'dissolve',
                       frames: Math.max(
                         1,
@@ -2204,6 +2207,26 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                 )
               }
             />
+            {transitionIn?.type === 'dip-color' ? (
+              <label className="field">
+                <span>Color del fundido</span>
+                <input
+                  type="color"
+                  value={transitionIn.color ?? '#1b2a4a'}
+                  onChange={(event) =>
+                    store.update((current) =>
+                      updateClip(current, clip.id, {
+                        transitionIn: {
+                          ...transitionIn,
+                          type: 'dip-color',
+                          color: event.target.value,
+                        },
+                      }),
+                    )
+                  }
+                />
+              </label>
+            ) : null}
           </div>
           <p className="fine-print">
             La disolvencia superpone el arranque de este clip al final del anterior. No cambia
@@ -4462,6 +4485,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
               patchEffects({ audioStack: [...next] as ClipEffects['audioStack'] })
             }
             clipLabel={asset?.label ?? clip.label}
+            keyframeFrame={localFrame}
           />
           <div className="actions compact">
             <label className="check">

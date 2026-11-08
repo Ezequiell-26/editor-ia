@@ -1054,6 +1054,20 @@ fn video_format_selector(quality: &str, max_height: u32) -> String {
     format!("bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best")
 }
 
+/// Orden de selección para `-S` (yt-dlp `--format-sort`): máxima resolución
+/// primero; a igual resolución y fps gana el códec más eficiente — el orden
+/// interno de `vcodec` de yt-dlp ya es av01 > vp9 > h265 > h264, así que a
+/// igual píxel se baja el peso sin tocar la imagen (nunca se re-codifica,
+/// sólo se elige el stream). `lang` va después de `vcodec` para no tocar la
+/// elección de video pero sí desempatar el audio por idioma. `acodec`
+/// prefiere opus/mp4a sobre el resto.
+fn video_format_sort(audio_language: Option<&str>) -> String {
+    match audio_language.filter(|lang| *lang != "all") {
+        Some(lang) => format!("res,fps,vcodec,lang:{lang},acodec,ext,proto,hasaud"),
+        None => "res,fps,vcodec,acodec,ext,proto,hasaud".to_owned(),
+    }
+}
+
 fn truncate(value: &str, limit: usize) -> String {
     value.trim().chars().take(limit).collect()
 }
@@ -3388,6 +3402,13 @@ pub(crate) fn download_blocking(
             .map(|id| format!("bv*+{id}"))
             .unwrap_or_else(|| video_format_selector(quality, max_height));
         command.arg("-f").arg(selector);
+        if quality != "worst" {
+            // A igual resolución elige el códec más eficiente (AV1/VP9 antes
+            // que AVC): mismo detalle, menos peso, sin re-codificar. En
+            // «worst» no aplica: el orden invertiría qué es "peor". El idioma
+            // del audio, si se pidió, ya va dentro del mismo -S.
+            command.args(["-S", &video_format_sort(audio_language.as_deref())]);
+        }
         command.args(["--merge-output-format", format, "--remux-video", format]);
     } else if kind == "audio" {
         command.args(["-f", audio_format_id.as_deref().unwrap_or("bestaudio/best")]);
@@ -3400,7 +3421,8 @@ pub(crate) fn download_blocking(
     if let Some(language) = audio_language.as_deref() {
         if language == "all" {
             command.args(["--audio-multistreams"]);
-        } else {
+        } else if !(kind == "video" && quality != "worst") {
+            // En video ya va dentro del -S combinado (lang tras vcodec).
             command.args(["-S", &format!("lang:{language}")]);
         }
     }
@@ -4494,6 +4516,21 @@ mod tests {
         assert_eq!(
             video_format_selector("height", 720),
             "bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+        );
+    }
+
+    #[test]
+    fn video_sort_prefers_resolution_then_codec_and_keeps_audio_lang() {
+        assert_eq!(
+            video_format_sort(None),
+            "res,fps,vcodec,acodec,ext,proto,hasaud"
+        );
+        // «all» no es un idioma: no debe aparecer como filtro lang.
+        assert_eq!(video_format_sort(Some("all")), video_format_sort(None));
+        // El idioma va tras vcodec: desempata el audio sin tocar el video.
+        assert_eq!(
+            video_format_sort(Some("es")),
+            "res,fps,vcodec,lang:es,acodec,ext,proto,hasaud"
         );
     }
 

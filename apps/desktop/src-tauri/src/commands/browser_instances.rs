@@ -368,10 +368,16 @@ async fn page_ws_url(port: u16) -> Result<String, ProjectError> {
         })?
         .text()
         .map_err(|e| {
-            ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo leer /json/list: {e}"))
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo leer /json/list: {e}"),
+            )
         })?;
     let pages: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::InvalidProviderResponse, &format!("CDP devolvió JSON inválido: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            &format!("CDP devolvió JSON inválido: {e}"),
+        )
     })?;
     pages
         .as_array()
@@ -390,7 +396,12 @@ async fn page_ws_url(port: u16) -> Result<String, ProjectError> {
         })
 }
 
-async fn ws_connect(url: &str) -> Result<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, ProjectError> {
+async fn ws_connect(
+    url: &str,
+) -> Result<
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
+    ProjectError,
+> {
     let (ws, _) = tokio_tungstenite::connect_async(url).await.map_err(|e| {
         ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
@@ -410,20 +421,31 @@ async fn cdp_call(
     let mut ws = ws_connect(&ws_url).await?;
     let id = 1u64;
     let msg = serde_json::json!({ "id": id, "method": method, "params": params });
-    ws.send(tokio_tungstenite::tungstenite::Message::Text(msg.to_string().into()))
-        .await
-        .map_err(|e| {
-            ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo enviar {method}: {e}"))
-        })?;
+    ws.send(tokio_tungstenite::tungstenite::Message::Text(
+        msg.to_string().into(),
+    ))
+    .await
+    .map_err(|e| {
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo enviar {method}: {e}"),
+        )
+    })?;
     // Lee hasta la respuesta de nuestro id (los eventos intermedios se ignoran).
     for _ in 0..50 {
         let frame = tokio::time::timeout(std::time::Duration::from_secs(10), ws.next())
             .await
             .map_err(|_| {
-                ProjectError::message(ProjectErrorCode::ProviderUnavailable, "CDP no respondió a tiempo")
+                ProjectError::message(
+                    ProjectErrorCode::ProviderUnavailable,
+                    "CDP no respondió a tiempo",
+                )
             })?
             .ok_or_else(|| {
-                ProjectError::message(ProjectErrorCode::ProviderUnavailable, "CDP cerró la conexión")
+                ProjectError::message(
+                    ProjectErrorCode::ProviderUnavailable,
+                    "CDP cerró la conexión",
+                )
             })?
             .map_err(|e| {
                 ProjectError::message(ProjectErrorCode::Io, &format!("error leyendo CDP: {e}"))
@@ -433,7 +455,10 @@ async fn cdp_call(
             _ => continue,
         };
         let value: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
-            ProjectError::message(ProjectErrorCode::InvalidProviderResponse, &format!("CDP devolvió frame inválido: {e}"))
+            ProjectError::message(
+                ProjectErrorCode::InvalidProviderResponse,
+                &format!("CDP devolvió frame inválido: {e}"),
+            )
         })?;
         if value["id"].as_u64() == Some(id) {
             if let Some(err) = value.get("error") {
@@ -453,12 +478,7 @@ async fn cdp_call(
 
 /// Inyecta el script anti-detección en todos los documentos futuros.
 async fn inject_stealth(port: u16) -> Result<(), ProjectError> {
-    cdp_call(
-        port,
-        "Page.enable",
-        serde_json::json!({}),
-    )
-    .await?;
+    cdp_call(port, "Page.enable", serde_json::json!({})).await?;
     cdp_call(
         port,
         "Page.addScriptToEvaluateOnNewDocument",

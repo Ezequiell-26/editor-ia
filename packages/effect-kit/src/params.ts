@@ -220,7 +220,63 @@ export function hasUnresolvedPlaceholder(text: string): boolean {
   return /\{[a-zA-Z0-9_]+(?:\.[xyrgb])?\}/.test(text);
 }
 
-function ease(t: number, kind: EffectKeyframe['easing']): number {
+/**
+ * Progreso de una curva cúbica CSS-style para `t`: resuelve u con x(u)=t
+ * (Newton + bisección) y devuelve y(u). Mismo algoritmo que
+ * `cubicBezierProgress` de project-schema/keyframes.ts — effect-kit no
+ * depende de project-schema, así que el solver va duplicado a propósito.
+ */
+export function cubicBezierProgress(
+  t: number,
+  cp1X: number,
+  cp1Y: number,
+  cp2X: number,
+  cp2Y: number,
+): number {
+  const clamped = Math.min(1, Math.max(0, t));
+  if (clamped <= 0) return 0;
+  if (clamped >= 1) return 1;
+  const cx = 3 * cp1X;
+  const bx = 3 * (cp2X - cp1X) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * cp1Y;
+  const by = 3 * (cp2Y - cp1Y) - cy;
+  const ay = 1 - cy - by;
+  const sampleX = (u: number) => ((ax * u + bx) * u + cx) * u;
+  const sampleY = (u: number) => ((ay * u + by) * u + cy) * u;
+  const derivativeX = (u: number) => (3 * ax * u + 2 * bx) * u + cx;
+
+  let u = clamped;
+  for (let i = 0; i < 8; i += 1) {
+    const x = sampleX(u) - clamped;
+    if (Math.abs(x) < 1e-6) return sampleY(u);
+    const d = derivativeX(u);
+    if (Math.abs(d) < 1e-6) break;
+    u -= x / d;
+  }
+  let low = 0;
+  let high = 1;
+  u = clamped;
+  for (let i = 0; i < 24; i += 1) {
+    const x = sampleX(u);
+    if (Math.abs(x - clamped) < 1e-6) break;
+    if (x < clamped) low = u;
+    else high = u;
+    u = (low + high) / 2;
+  }
+  return sampleY(u);
+}
+
+function ease(
+  t: number,
+  kind: EffectKeyframe['easing'],
+  bezier: EffectKeyframe['bezier'],
+): number {
+  // El bezier de la clave que inicia el segmento tiene prioridad sobre el
+  // preset, igual que en `samplePoints` de project-schema/keyframes.ts.
+  if (bezier) {
+    return cubicBezierProgress(t, bezier.cp1X, bezier.cp1Y, bezier.cp2X, bezier.cp2Y);
+  }
   switch (kind) {
     case 'hold':
       return 0;
@@ -258,7 +314,11 @@ export function sampleKeyframes(
     if (!previous || !next) continue;
     if (frame <= next.frame) {
       const span = Math.max(1, next.frame - previous.frame);
-      const t = ease((frame - previous.frame) / span, previous.easing ?? 'linear');
+      const t = ease(
+        (frame - previous.frame) / span,
+        previous.easing ?? 'linear',
+        previous.bezier,
+      );
       return previous.value + (next.value - previous.value) * t;
     }
   }

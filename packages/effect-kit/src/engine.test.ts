@@ -11,6 +11,7 @@ import {
 import {
   MAX_STACK_EFFECTS,
   addInstance,
+  clearParamKeyframes,
   createInstance,
   duplicateInstance,
   moveInstance,
@@ -18,8 +19,10 @@ import {
   resetInstance,
   setInstanceEnabled,
   setInstanceParam,
+  setParamKeyframeAt,
   shiftInstance,
   toggleInstance,
+  toggleParamKeyframe,
   type EffectStack,
 } from './stack.ts';
 import type { EffectManifest } from './types.ts';
@@ -70,6 +73,38 @@ describe('parámetros', () => {
     expect(sampleKeyframes(keys, 5)).toBeCloseTo(0.5);
     expect(sampleKeyframes(keys, 99)).toBe(1);
     expect(sampleKeyframes(undefined, 3)).toBeUndefined();
+  });
+
+  it('un bezier en la clave que inicia el segmento gobierna la interpolación', () => {
+    // ease-in-out como bezier (0.42,0)-(0.58,1): en el punto medio debe dar
+    // casi 0.5 como el preset, y un bezier lineal (0,0)-(1,1) da exactamente t.
+    const eased = [
+      {
+        frame: 0,
+        value: 0,
+        bezier: { cp1X: 0.42, cp1Y: 0, cp2X: 0.58, cp2Y: 1 },
+      },
+      { frame: 10, value: 1 },
+    ];
+    expect(sampleKeyframes(eased, 5)).toBeCloseTo(0.5, 1);
+    const linear = [
+      { frame: 0, value: 0, bezier: { cp1X: 0, cp1Y: 0, cp2X: 1, cp2Y: 1 } },
+      { frame: 10, value: 1 },
+    ];
+    expect(sampleKeyframes(linear, 5)).toBeCloseTo(0.5, 6);
+    // Un bezier que tarda en arrancar queda por debajo de la recta a mitad.
+    const slow = [
+      { frame: 0, value: 0, bezier: { cp1X: 0.9, cp1Y: 0.1, cp2X: 0.9, cp2Y: 0.1 } },
+      { frame: 10, value: 1 },
+    ];
+    expect(sampleKeyframes(slow, 5)!).toBeLessThan(0.5);
+    // El bezier de una clave intermedia no contamina al segmento siguiente.
+    const two = [
+      { frame: 0, value: 0, bezier: { cp1X: 0.9, cp1Y: 0.9, cp2X: 0.9, cp2Y: 0.9 } },
+      { frame: 10, value: 1 },
+      { frame: 20, value: 2 },
+    ];
+    expect(sampleKeyframes(two, 15)).toBeCloseTo(1.5, 6);
   });
 
   it('resuelve parámetros animados en un frame', () => {
@@ -142,5 +177,77 @@ describe('stack', () => {
       1,
     );
     expect(stack[0]?.params).toEqual({ exposure: 0 });
+  });
+});
+
+describe('keyframes por parámetro', () => {
+  const animated = (): EffectStack => [
+    {
+      ...createInstance(exposure, { id: 'a', params: { exposure: 0.2 } }),
+      keyframes: {
+        exposure: [
+          { frame: 0, value: -1 },
+          { frame: 30, value: 1 },
+        ],
+      },
+    },
+  ];
+
+  it('crea la primera pista con una compañera plana (mínimo 2 del schema)', () => {
+    let stack = [createInstance(exposure, { id: 'a', params: { exposure: 0.4 } })];
+    stack = toggleParamKeyframe(stack, exposure, 'a', 'exposure', 12);
+    const keys = stack[0]?.keyframes?.exposure ?? [];
+    expect(keys).toHaveLength(2);
+    expect(keys.map((key) => key.frame).sort((a, b) => a.frame - b.frame)).toEqual([0, 12]);
+    expect(keys.every((key) => key.value === 0.4)).toBe(true);
+  });
+
+  it('agrega y quita claves en el frame del playhead', () => {
+    let stack = animated();
+    stack = toggleParamKeyframe(stack, exposure, 'a', 'exposure', 15);
+    expect(stack[0]?.keyframes?.exposure).toHaveLength(3);
+    // El valor nuevo es el muestreado en ese frame (lineal: -1 + 2*(15/30) = 0).
+    const added = stack[0]?.keyframes?.exposure?.find((key) => key.frame === 15);
+    expect(added?.value).toBeCloseTo(0, 5);
+    stack = toggleParamKeyframe(stack, exposure, 'a', 'exposure', 15);
+    expect(stack[0]?.keyframes?.exposure).toHaveLength(2);
+  });
+
+  it('borra la pista entera si queda una sola clave', () => {
+    let stack = [
+      {
+        ...createInstance(exposure, { id: 'a' }),
+        keyframes: {
+          exposure: [
+            { frame: 0, value: 0 },
+            { frame: 10, value: 1 },
+          ],
+        },
+      },
+    ];
+    stack = toggleParamKeyframe(stack, exposure, 'a', 'exposure', 0);
+    expect(stack[0]?.keyframes).toBeUndefined();
+  });
+
+  it('el slider escribe en la clave del frame sólo si la pista existe', () => {
+    let stack = animated();
+    stack = setParamKeyframeAt(stack, exposure, 'a', 'exposure', 30, 0.75);
+    expect(stack[0]?.keyframes?.exposure?.find((key) => key.frame === 30)?.value).toBe(0.75);
+    // Sin pista no crea nada: la animación empieza con el botón de clave.
+    const plain = [createInstance(exposure, { id: 'b' })];
+    const untouched = setParamKeyframeAt(plain, exposure, 'b', 'exposure', 5, 1);
+    expect(untouched[0]?.keyframes).toBeUndefined();
+  });
+
+  it('clearParamKeyframes devuelve el parámetro al estático', () => {
+    const stack = clearParamKeyframes(animated(), 'a', 'exposure');
+    expect(stack[0]?.keyframes).toBeUndefined();
+    expect(stack[0]?.params.exposure).toBe(0.2);
+  });
+
+  it('ignora parámetros no numéricos', () => {
+    const stack = [createInstance(grade, { id: 'g' })];
+    const next = toggleParamKeyframe(stack, grade, 'g', 'lift', 3);
+    expect(next[0]?.keyframes).toBeUndefined();
   });
 });

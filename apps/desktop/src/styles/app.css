@@ -5248,6 +5248,19 @@ textarea {
   pointer-events: none;
 }
 
+.clip-transition {
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  opacity: 0.9;
+  pointer-events: none;
+  z-index: 1;
+}
+
 .trim-handle {
   position: absolute;
   top: 0;
@@ -10012,6 +10025,36 @@ button.primary:disabled {
 
 .timeline-marker:hover .timeline-marker-flag {
   transform: scale(1.18);
+}
+
+/* Puntos in/out de la secuencia (I/O, como Kdenlive). */
+.timeline-io-range {
+  position: absolute;
+  top: 7px;
+  height: 5px;
+  border-radius: 2px;
+  background: var(--color-accent, #58c4dc);
+  opacity: 0.3;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.timeline-io-mark {
+  position: absolute;
+  top: 0;
+  width: 3px;
+  height: 100%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 6;
+}
+
+.timeline-io-mark.io-in {
+  background: var(--color-success, #9ece6a);
+}
+
+.timeline-io-mark.io-out {
+  background: var(--color-warning, #e0af68);
 }
 
 .marker-dot {

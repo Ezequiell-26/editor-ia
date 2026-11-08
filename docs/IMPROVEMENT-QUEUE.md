@@ -1,8 +1,218 @@
 # Cola de mejora continua — Olyvia
 
-Actualizado: 2026-11-07. Un ítem por vuelta. Ningún ítem se marca `done`
+Actualizado: 2026-11-11. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
+
+- `[done]` **Monitor de vídeo: fotograma completo, centrado y marco verde (2026-11-07)** —
+  pedido con captura: «arregles donde se ve el video tiene que [verse]
+  completo bien posicionado». Diagnóstico medido en navegador real: con
+  `editoria.preview-fit.v1=fill` el lienzo era **661×372** dentro de un stage
+  de **380×373** y quedaba anclado a la izquierda (`left=0`, `right=-281`),
+  recortando ~42 % del fotograma siempre del lado derecho; el grid con
+  `place-items:center` no centra hijos que desbordan (alineación segura).
+  - `features/editor/Preview.tsx`: migración ÚNICA `fill` → `fit`
+    (`editoria.preview-fit.crop-fixed.v1`), `readPreviewFill` exportada;
+    `oversized` + `left/top:50%` + `translate(-50%,-50%)` para que un
+    «Llenar» explícito recorte de forma simétrica; clase `has-selection`.
+  - `styles/filmora/filmora-polish.css`: marco verde COMPLETO
+    (`box-shadow: inset 0 0 0 1px var(--fm-accent)`, 4 lados dentro del
+    lienzo) y `.transform-box`/handles/rotate/size unificados al acento verde
+    en vez de `var(--color-accent)` (que podía ser magenta con otro preset).
+  - Test nuevo `features/editor/PreviewFit.test.ts` (3 casos).
+  - **Verificación**: typecheck 0 · build 0 · tests dirigidos 3/3 + 7/7 +
+    20/20 · e2e **23 passed / 1 skipped / 0 failed** ·
+    suite serial **2278 passed / 3 skipped / 1 failed** (fallo ajeno y
+    previo en `packages/effect-kit/src/catalog.test.ts:194`, twirl `geq`).
+    Medición posterior: `fill-legacy` → canvas 380×214 centrado (franjas
+    79/80); `fill-explicit` → 661×372 con desborde −141/−141; con clip
+    seleccionado la caja de transformación coincide exactamente con el lienzo
+    y el marco es `rgb(61,244,186)`. Capturas `.tmp-redesign/preview-*.png`.
+  - Nota: «verde» se cubrió también como lectura literal (color del recuadro)
+    y como probable typo de «verse» (fotograma completo). Si se buscaba una
+    pantalla verde/chroma en el visor, es otra función: el Inspector ya avisa
+    que la preview no simula el recorte de croma.
+
+- `[done]` **Receta FFmpeg para `distort.ripple` (2026-11-08)** — uno de los
+  4 efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en una
+  pasada del protocolo del loop (Devin CLI).
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; la ondulación radial se
+    veía en el preview GPU pero el MP4 salía sin ella.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `format=gbrp,geq=` y `r/g/b(x,y)` remuestreando en la coordenada que el
+    shader calcula: `px=(X+0.5)/W-{center.x}`, `py=(Y+0.5)/H-{center.y}`,
+    `d=sqrt(px²+py²)`, `wave=sin(d·{frequency}−T·{speed})·{amplitude}` y
+    offset `p/(d+0.000001)·wave` en píxeles (`·W`/`·H`). Misma cuenta que
+    `uv = v_texCoord + normalize(p)·wave`; `T` = `u_time`.
+  - **Verificación con FFmpeg real** (n9.0.2 empaquetado): grafo compilado
+    por `compileInstance` sobre frame 64×64 con punto blanco en (16,32) →
+    el punto sale en (17,32): el remuestreo radial movió el material en la
+    dirección esperada. Script de verificación en `.tmp-ripple/` (ignorado).
+  - **Fidelidad honesta**: `approximate` — `geq` remuestrea con bilineal,
+    el mapeo a `v_texCoord` puede diferir medio píxel, el píxel exacto del
+    centro no tiene dirección en el shader y el coste es alto en cuadros
+    grandes.
+  - **Verificación repo**: `npm run effects:codegen` → 75 recetas;
+    vitest effect-kit **45/45** (3 live skipped; +1 test nuevo en
+    `catalog.test.ts`) · vitest vfx desktop **26/26** · `tsc --noEmit`
+    desktop **0** · `tsc` effect-kit reporta los **4 errores preexistentes**
+    del WIP del usuario en `engine.test.ts` (sin relación) · Rust
+    `cargo test -p editor-ia-desktop --lib effect_stack` **bloqueado** por
+    `os error 32` (archivo en uso por otro proceso durante el build script,
+    ajeno al cambio).
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `packages/effect-kit/src/catalog.test.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `docs/DRIFT-PARITY.md`, `memory/2026-11-08-distort-ripple-export.md`.
+  - **Pendiente honesto**: quedan 3 efectos preview-only (`light.leak`,
+    `light.flare`, `distort.twirl`); `distort.twirl` es el próximo candidato
+    `geq` (rotación radial con `atan2`/`cos`/`sin` por píxel), los `light.*`
+    usan `fbm` y son los más costosos.
+
+- `[done]` **Receta FFmpeg para `stylize.halftone` (2026-11-08)** — cuarto
+  de los efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en
+  una pasada del protocolo del loop (Devin CLI), mismo patrón `geq` que
+  `glitch.wave`.
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; la trama de puntos se
+    veía en el preview GPU pero el MP4 salía sin ella.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `format=gbrp,geq=` repitiendo la cuenta del shader por píxel — celda
+    `fract(px rotado)−0.5` con `px=(X+0.5)/max({scale},1)` (guarda contra
+    params sin normalizar), `luma=clip(((0.2126·r+0.7152·g+0.0722·b)/255−0.5)
+    ·{contrast}+0.5)`, `radius=(1−luma)·0.62` y `t=clip((radius−len)/0.08,
+    0,1)` con salida `t·t·(3−2t)·255` (el smoothstep cúbico del shader,
+    incluido el `edge0>edge1` invertido). `cos/sin({angle}·π/180)` quedan
+    en la expresión.
+  - **Verificación con FFmpeg real** (n9.0.1): la plantilla compilada por
+    `applyTemplate` corre sobre `color=gray` 160×120 — lunares blancos
+    periódicos cada ~11,3 px en la línea y=60 (trama 8 × √2 = el período
+    esperado con ángulo 45°), cobertura ~23 % y mismos runs con y sin la
+    guarda `max()`.
+  - **Fidelidad honesta**: `approximate` — la cuenta es la misma pero el
+    muestreo es por centro de píxel (media celda de desfase posible) y
+    `geq` es costoso en cuadros grandes.
+  - **Verificación repo**: `npm run effects:codegen` → 74 recetas;
+    vitest effect-kit **44/44** (3 live skipped) · vitest vfx desktop
+    **26/26** · `tsc --noEmit` desktop **0** · Rust `cargo test --lib
+    effect_stack` **8/8** con test nuevo
+    `effect_stack_expands_halftone_graph_with_filled_params`.
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test), `docs/DRIFT-PARITY.md`.
+  - **Pendiente honesto**: quedan 4 efectos preview-only
+    (`light.leak`, `light.flare`, `distort.ripple`, `distort.twirl`); los
+    `distort.*` son los más duros (remuestreo radial/vorticial por píxel,
+    candidato `geq` pero con `sqrt`/`atan2` por píxel), `light.*` usa fbm
+    (muy costoso en `geq`).
+  - **Nota**: el test Rust quedó **sin commitear** — `ffmpeg.rs` mezcla
+    trabajo concurrente del usuario en el mismo archivo (misma situación
+    que las pasadas de `zoom_pulse`, `blur.zoom` y `glitch.wave`). El
+    resto sí se commitea.
+
+- `[done]` **Upscale de video ×4 con Real-ESRGAN (2026-11-11)** — el
+  upscale era sólo imagen; ahora agranda video completo frame a frame.
+  - **Pipeline** (`commands/upscale.rs` → `upscale_video`): probe con
+    ffprobe (`MediaMeasure`), decodificación FFmpeg a `rawvideo rgb24`,
+    cada frame por el mismo motor por teselas 128×128 del upscale de
+    imagen (refactor: `open_esrgan_session` + `upscale_frame_tiled`
+    compartidos) y codificación `rawvideo rgba` → `libx264 -crf 16
+    -preset medium -pix_fmt yuv420p` + audio original `aac` con
+    `-map 1:a:0? -shortest -movflags +faststart`. Helpers del pipeline
+    frame-a-frame (`drain_stderr`, `read_full_frame`, `log_tail`)
+    pasaron a `pub(crate)` en `background.rs`.
+  - **Límites honestos**: entrada ≤1280×720 (~0,9 MP) y ≤1800 frames
+    (~75 s a 24 fps) — en CPU ONNX son minutos por segundo de video;
+    `max_seconds` opcional recorta la entrada. Salida `<origen>-x4.mp4`
+    junto al video (con sufijo -2, -3… si existe), progreso por evento
+    `upscale-progress` (`percent`/`frame`/`total`).
+  - **UI** (`UpscaleView`): sección «Video ×4» con selector, campo
+    «máx. segundos», barra de progreso real y resultado con «Abrir
+    carpeta». Mismo `LocalModelGate` (Real-ESRGAN ×4) que la imagen.
+  - **Servicio**: `upscaleVideo`/`onUpscaleProgress` + tipos
+    `UpscaleVideoResult`/`UpscaleProgress`; fake-service con stub.
+  - **Descargador mejorado (misma pasada)**: ya llega a 8K —
+    `MAX_HEIGHT = 4320`, selector `bestvideo[height<=4320]+bestaudio`,
+    etiqueta «4320p · 8K» y la UI ofrece cada altura que reporta yt-dlp
+    (`DownloadView` quality `best` → `max_height` null → 4320).
+    Además se agregó `-S "res,fps,vcodec,acodec,ext,proto,hasaud"`
+    (`video_format_sort`): a igual resolución y fps gana el códec más
+    eficiente — AV1 > VP9 > H.265 > H.264 en el orden interno de yt-dlp —
+    así el archivo pesa menos con el mismo píxel y sin re-codificar nada.
+    Si se pidió idioma de audio, `lang:<iso>` se inserta tras `vcodec`
+    dentro del mismo `-S` (antes era un segundo `-S` que pisaba el
+    orden). En `quality="worst"` no se aplica (invertiría el orden).
+  - **Verificación**: `cargo check -p editor-ia-desktop` y `--tests`
+    limpios · `cargo test downloader` **57/57** (1 live ignorado) ·
+    `tsc` desktop **0** · vitest `UpscaleView` **4/4**. No se corrió un
+    upscale real de video (requiere el modelo descargado y minutos de
+    CPU por segundo de metraje) — queda como prueba manual.
+
+- `[done]` **Editor visual del rig stickman (2026-11-11)** — cierra el
+  pendiente «editor visual del rig» de `CAPABILITY-MATRIX.md` §7.8.
+  - **Pieza TS** (`features/motion/stickman-rig.ts`): puerto fiel de la
+    geometría FK de `commands/stickman.rs` — `STAND_POSE`, `rigForHeight`
+    (u = h/360), `solveSkeleton` (15 articulaciones, mismas longitudes y
+    offsets), `lerpPose`/`poseAtKeyframes` con el mismo clamp de extremos.
+    Nombres snake_case porque así serializa el `Pose` de Rust.
+  - **UI** (`StickmanRigEditor.tsx`): preview SVG con los 14 segmentos +
+    cabeza (línea sólida = pose interpolada en el frame de scrub, punteada
+    = borrador), 11 sliders por hueso en grados (`pelvis_dy` en px),
+    captura/carga/borrado de keyframes por frame. Se muestra en
+    `StickmanPanel` sólo con la acción `custom`; el render exige ≥1
+    keyframe (el backend ya rechazaba `custom` sin keyframes).
+  - **Servicio**: `stickmanRender` acepta `action:'custom'` y
+    `keyframes: StickmanKeyframeInput[]` (antes el tipo era un stub
+    `{frame:number}[]` que hubiera tirado los campos de pose); la tool MCP
+    `stickman_render` ahora reenvía los 11 campos de pose (antes los
+    descartaba — bug real).
+  - **Verificación**: `stickman-rig.test.ts` **6/6** (espeja los asserts
+    del motor: muslos abajo, pie bajo rodilla, pelvis_dy traslada toda la
+    cadena, interpolación y clamp idénticos a `pose_from_keyframes`); suite
+    `state/`+motion **768/768**; `tsc` desktop **0**.
+  - **Pendiente honesto**: física de cuerpos rígidos y edición de las 5
+    acciones procedurales siguen fuera; el preview SVG no dibuja partículas.
+
+- `[done]` **Receta FFmpeg para `glitch.wave` (2026-11-08)** — tercero de
+  los efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en
+  una pasada del protocolo del loop (Devin CLI), mismo patrón que
+  `zoom_pulse` y `blur.zoom`.
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; el desplazamiento por
+    filas con seno viajero se veía en el preview GPU pero el MP4 salía sin
+    él.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `format=gbrp,geq=r='r(clip(X+sin(Y/H·{frequency}·TAU+T·{speed})·{amplitude}·W,0,W-1),Y)'`
+    (ídem `g`/`b`). `geq` evalúa una expresión por píxel y `r/g/b(x,y)`
+    remuestrean la entrada en el píxel desplazado — la misma lectura
+    `texture(clamp(uv+dx))` del shader. `format=gbrp` evita la resolución
+    dual de los planos de croma (el desplazamiento es idéntico por canal).
+    `T` es el timestamp en segundos del frame = `u_time` del shader.
+  - **Verificación con FFmpeg real**: el grafo corre sobre `testsrc2`
+    320×180 a ~90 fps y el grafo compilado (con `{param}` ya sustituidos)
+    también. Prueba numérica: barra vertical blanca en x=100 sobre fondo
+    negro, `amplitude=0.1 frequency=4 speed=0` → la barra queda en
+    x=68..71 en y=11 (desplazamiento −32 px = seno en su pico), x=100 en
+    y=0/45/90/135 (nodos de la senoide: 4 ciclos sobre la altura) y x=104..107
+    en y=179 — coincide con `sin(y/H·4·TAU)·0.1·W` en todos los muestreos.
+  - **Fidelidad honesta**: `approximate` con nota — el remuestreo es
+    bilineal de `geq` (como `texture()` del shader) pero el eje Y puede
+    venir espejado respecto a `v_texCoord` (la fase vertical se invierte,
+    la clase de efecto es la misma) y `geq` es costoso en cuadros grandes.
+  - **Verificación repo**: `npm run effects:codegen` → 73 recetas;
+    vitest effect-kit **36/36** · vitest vfx desktop **26/26** ·
+    `tsc --noEmit` desktop **0** · Rust `cargo test --lib effect_stack`
+    **7/7** con test nuevo
+    `effect_stack_expands_glitch_wave_graph_with_filled_params`.
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `apps/desktop/src-tauri/src/render/effect_recipes.rs` (codegen),
+    `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test), `docs/DRIFT-PARITY.md`.
+  - **Pendiente honesto**: quedan 5 efectos preview-only
+    (`light.leak`, `light.flare`, `stylize.halftone`, `distort.ripple`,
+    `distort.twirl`); los `distort.*` son los más duros (geometría no
+    afín por píxel); `stylize.halftone` y `light.*` podrían intentarse con
+    `geq` (muestreo/máscara aditiva) a coste alto.
+  - **Nota**: el test Rust quedó **sin commitear** — `ffmpeg.rs` mezcla
+    trabajo concurrente del usuario en el mismo archivo (misma situación
+    que las pasadas de `zoom_pulse` y `blur.zoom`). El resto sí se commitea.
 
 - `[done]` **Receta FFmpeg para `blur.zoom` (2026-11-08)** — segundo de los
   efectos «sólo preview» del catálogo (`docs/DRIFT-PARITY.md` §5) en una
@@ -1612,11 +1822,27 @@ Referencia: auditoría de `CutWire-Studios/Drift` en `docs/DRIFT-PARITY.md`.
   audioStack pendiente (la cadena es export-only; hoy se autora por datos).
   Tests: `audio_stack_*` 4/4 (+2 nuevos: grafo segmentado y cadena lineal
   sin keyframes).
-- `[pending]` **Importador de paquetes de terceros** (`.driftfx` / carpeta de
-  efectos externos + validación de seguridad de shaders). Los efectos de audio
-  de Drift ya están (30 en `catalog/audio.ts`, ver arriba) y las plantillas
-  guardables y los keyframes de efecto en export (video y audio) también.
-  Detalle en `docs/DRIFT-PARITY.md` §5.
+- `[done]` **Importador de paquetes de terceros** (2026-11-11). `parseEffectPackage`
+  en `packages/effect-kit/src/package-import.ts` acepta el manifiesto pelado o los
+  envoltorios `{manifest, fragment|main.frag}` / `{effect.json, main.frag}` (un
+  `.driftfx` puede venir como JSON único); valida estructura (id namespaced a
+  `custom.*`, categoría/kind del enum, params por tipo con rangos, `gpu.passes`
+  1–8), recetas `ffmpeg`/`audio` y el **filtro de shaders**: exige `void main()`,
+  prohíbe `#version`/`#extension`/`#include`/`while`/`for(;;)` y limita tamaños
+  (64 kB shader, 256 kB paquete). Los manifests válidos se registran con
+  `registerCustomEffects`/`clearCustomEffects`/`customEffectIds` en
+  `effect-kit/src/index.ts` (registry delegante que se reconstruye sin perder
+  la referencia); ids duplicados se ignoran y nunca pisan el catálogo.
+  Persistencia en `apps/desktop/src/state/custom-effects.ts`
+  (localStorage `editor-ia.custom-effects.v1`, storage inyectable) y UI en
+  `EffectBrowser`: botón «Importar» (JSON), badge «Terceros» (`new`) en las
+  tarjetas y aviso de éxito/error. **Límite honesto**: la validación de shader
+  es estática — no es un sandbox; el código GLSL corre en el mismo contexto
+  WebGL del preview, así que un shader malicioso podría abusar de la GPU
+  (los bucles infinitos obvios están bloqueados, no toda la superficie).
+  Verificación: `package-import.test.ts` 8/8, `custom-effects.test.ts` 4/4,
+  `tsc` limpio en effect-kit y desktop (los errores de `engine.test.ts` son
+  drift preexistente del WIP de `motion/`, no de este cambio).
 - **Verificación**: `npm run typecheck` verde en los 4 proyectos; `vite build`
   OK (chunk `VfxView` 100,55 kB); suite de escritorio 1070/1074 (las 3 fallas
   de `LottiePanel` vienen del WIP previo en `motion/`, comprobado con `git
@@ -2102,8 +2328,101 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
   - Typecheck verde en los 4 proyectos. `npm run build` en 9,81 s; el catálogo y los paneles
     comparten un chunk (`EffectStackPanel` 84,02 kB / 24,45 gzip), así que el Inspector no
     duplica la tabla.
-- `[pending]` **Preview Web Audio** — la cadena es export-only; el panel lo declara. Simular 30
-  efectos con nodos nativos (biquad, delay, waveshaper, worklet) es un bloque propio.
+- `[done]` **Preview Web Audio del audioStack (2026-11-08)** — la preview
+  ya aplica los efectos de audio del clip que tienen equivalente Web
+  Audio, con keyframes muestreados por frame. Los ~27 restantes siguen
+  export-only y el panel lo declara.
+  - **`features/mixer/clip-audio-fx.ts`** (nuevo): `clipAudioFxSpec`
+    resuelve el `audioStack` a `{effectId, params}` numéricos —
+    defaults del manifiesto + overrides + `resolveParamsAt` para
+    keyframes en el frame local — y filtra a `PREVIEW_AUDIO_FX`
+    (`audio.eq`, `audio.compressor`, `audio.limiter`, `audio.echo`,
+    `audio.slapback`, `audio.tremolo`, `audio.chorus`, `audio.flanger`,
+    `audio.phaser`, `audio.autopan`, `audio.widen`, `audio.bitcrush`,
+    `audio.eightbit`, `audio.vinyl`, `audio.tape`, `audio.crystal`,
+    `audio.megaphone`, `audio.muffled`, `audio.telephone`,
+    `audio.underwater`, `audio.walkie`, `audio.gate`, `audio.leveler`,
+    `audio.deesser`, `audio.voice_robot`, `audio.voice_wobble`,
+    `audio.voice_alien`, `audio.voice_chipmunk`, `audio.voice_deep`,
+    `audio.voice_vader` — **30 de 30**).
+  - **`usePreviewAudio.ts`**: `ClipFxChain` inserta nodos entre el
+    `MediaElementSource` y el paneo/entrada de pista
+    (elemento → FX → splitter/gains de paneo → EQ de pista → fader →
+    master). `audio.eq` → 2 `BiquadFilter` (lowshelf/highshelf, dB/Hz
+    directos); `audio.compressor` → `DynamicsCompressorNode` + makeup en
+    dB; `audio.limiter` → `DynamicsCompressorNode` con threshold
+    `20*log10(limit)` y ratio 20 (aproxima `alimiter level=0`);
+    `audio.echo`/`audio.slapback` → `DelayNode`+feedback con mezcla
+    seca/mojada en paralelo (gain sumador como nuevo tail); `audio.tremolo`
+    → `OscillatorNode`→depth→`amp.gain` (el oscilador arranca al crear la
+    cadena); `audio.chorus`/`audio.flanger` → `DelayNode` con `delayTime`
+    modulada por LFO (`lfoGain` barre ±depth/2 ms) + mezcla seca/mojada, y
+    el flanger suma realimentación con signo (`regen` −95..95 %);
+    `audio.phaser` → 4 `BiquadFilter` `allpass` en serie (centros
+    300/600/1200/2400 Hz) con `frequency` modulada por LFO
+    (seno/triangular según `type`, `speed` Hz) + delay corto + mezcla
+    seca/mojada por `decay`; `audio.autopan` → `StereoPannerNode` con
+    `pan` modulada por LFO triangular (`rate`/`depth`); `audio.widen` →
+    matriz mid/side con splitter→4 gains→merger (`c = width/2`, width 2 =
+    imagen original). Texturas/transmisión: `acrusher` → `WaveShaperNode`
+    con curva de cuantización por `bits` + mezcla seca/mojada (`eightbit`
+    suma LP ~3.8 kHz, `vinyl` suma HP/LP+peaking presencia, `walkie` suma
+    banda+compresor); `audio.tape` → HP/LP + vibrato (LFO sobre
+    `delayTime`) + compresor; `audio.crystal` → shaper tanh + HP `freq` +
+    mezcla por `amount`/`blend`; `megaphone`/`telephone`/`muffled` →
+    biquads de banda + compresor/nivel; `underwater` → LP + eco 60 ms +
+    vibrato lento.
+    `ensureClipFx` compara la **firma** (secuencia de effectId): si no
+    cambió sólo actualiza AudioParam — las keyframes por frame no
+    reconstruyen el grafo; si cambió, reconstruye y `connectSource`
+    recablea. `attachPreviewAudio` acepta `clipFx` opcional (4º arg,
+    retrocompatible) y `setPreviewClipFx` actualiza en caliente;
+    `detachPreviewAudio` limpia la cadena.
+  - **`Preview.tsx`**: ambos clips (video y audio) calculan
+    `clipAudioFxSpec` en el frame local del playhead y lo pasan al
+    attach + efecto `setPreviewClipFx` por render.
+  - **UI honesta**: `AudioEffectStack` ya no dice «la preview reproduce
+    el audio original» — declara EQ/compresor/limitador/eco/slapback/
+    trémolo/coro/flanger/phaser/autopan/widen y las texturas y
+    dinámica y voz con keyframes — los 30 efectos del catálogo tienen
+    equivalente en preview (el pitch es granular aproximado, no
+    rubberband).
+  - **Tests**: `clip-audio-fx.test.ts` **6/6** (defaults+override,
+    keyframes en frame 0/5/10, filtro de no-soportados/deshabilitados/
+    manifests ajenos, orden de pila) · `LiveMeters.test.tsx` **22/22**
+    (+test E2E de la cadena: topología elemento→FX→pista, EQ clip con
+    sus Hz/gain, compresor con attack/release en segundos y makeup en
+    lineal, update de params sin reconstruir nodos, rebuild al cambiar
+    la secuencia, limiter con threshold `20*log10(0.5)` y ratio 20;
+    `FakeAudioContext` ganó `createDynamicsCompressor`).
+  - **Límite honesto**: compresor/limitador son aproximaciones
+    (knee fijo 6/0, sin auto-makeup del `alimiter`); el eco es un
+    `aecho` simplificado (una línea de retardo, no las multi-tap del
+    original); el trémolo no tiene forma de onda distinta de seno; el
+    autopan usa `StereoPannerNode` equalpower (el `apulsator` panea
+    ganancias lineales sin downmix) y el phaser son 4 allpass fijas en
+    vez de las etapas del `aphaser`. Además: `acrusher` no submuestrea
+    en el tiempo (sólo cuantiza amplitud), `aexciter` es un shaper tanh
+    + HP aproximado, el megáfono omite su excitador final y el vibrato
+    de cinta/underwater es un LFO sobre una línea de retardo corta.
+    Dinámica: `gate`/`leveler`/`deesser` usan un seguidor de envolvente
+    (`AnalyserNode` + RMS cada ~40 ms + `setTargetAtTime`), no
+    sample-exacto y la ventana `frame`/`gaussian` de dynaudnorm queda
+    absorbida por el tick; el deesser es una banda HP ~3.5–8 kHz con
+    ducking, no el detector de sibilancia del original. Además
+    `ClipFxChain` ganó `dispose`: los LFO y seguidores se frenan al
+    reconstruir o desmontar (antes los osciladores quedaban vivos —
+    leak corregido). El pitch shifter es granular (2 granos Hann):
+    calidad inferior a rubberband/`asetrate`, con ~85 ms de latencia
+    fija por lookahead y posible artefacto en transientes. `voice_robot` → vibrato (LFO→`delayTime`) + eco
+    18 ms/0.25; `voice_wobble` → UN LFO al `rate` modulando `delayTime`
+    y `amp.gain` a la vez (vibrato+trémolo). Pitch real:
+    `voice_alien|chipmunk|deep|vader` → `AudioWorklet` con pitch shifter
+    granular (2 granos Hann al 50 %, lookahead ~85 ms, Blob URL sin
+    assets; `buildPitchStage` inserta el nodo async y cae a passthrough
+    seco si `addModule` falla); alien suma allpass LFO y vader LP+eco
+    después del pitch, igual que sus cadenas FFmpeg. Con esto los 30
+    efectos del catálogo tienen equivalente en preview.
 - `[done]` **Plantillas de efecto** — `state/effect-templates.ts` guarda stacks
   nombrados en `localStorage` (`editor-ia.effect-templates.v1`) separados por
   tipo (`video`/`audio`), con reemplazo por nombre, exportación JSON portable

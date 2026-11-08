@@ -653,6 +653,26 @@ export interface MixLoudnessReport {
   readonly samples: readonly MixLoudnessSample[];
 }
 
+/** Scopes de audio calculados en Rust (oscilograma, espectro y espectrograma). */
+export interface AudioScopeData {
+  readonly sampleRate: number;
+  readonly durationSeconds: number;
+  /** Pares [min, max] por bucket temporal, en [-1, 1]. */
+  readonly waveform: readonly (readonly [number, number])[];
+  /** Magnitud promedio en dBFS por bin (0..Nyquist). */
+  readonly spectrum: readonly number[];
+  readonly spectrogramCols: number;
+  readonly spectrogramRows: number;
+  /** dBFS [-120, 0], orden columna-mayor (`col * rows + row`). */
+  readonly spectrogram: readonly number[];
+}
+
+/** Ventana opcional de análisis de scopes, en segundos del archivo fuente. */
+export interface AudioScopeRange {
+  readonly startSeconds: number;
+  readonly durationSeconds: number;
+}
+
 export interface MediaAnalysis {
   readonly assetId: string;
   readonly kind: 'video' | 'audio';
@@ -901,6 +921,25 @@ export interface UpscaleResult {
   readonly outputWidth: number;
   readonly outputHeight: number;
   readonly tiles: number;
+}
+
+/** Resultado del upscale ×4 de video (Real-ESRGAN frame a frame). */
+export interface UpscaleVideoResult {
+  readonly path: string;
+  readonly inputWidth: number;
+  readonly inputHeight: number;
+  readonly outputWidth: number;
+  readonly outputHeight: number;
+  readonly frames: number;
+  readonly fpsNum: number;
+  readonly fpsDen: number;
+}
+
+/** Progreso del upscale de video (0–100, por frame procesado). */
+export interface UpscaleProgress {
+  readonly percent: number;
+  readonly frame?: number;
+  readonly total?: number;
 }
 
 /** Resultado de quitar el fondo de una imagen. */
@@ -1440,6 +1479,8 @@ export interface AudioPeaks {
 export interface HardwareEncoders {
   readonly h264: string | null;
   readonly hevc: string | null;
+  readonly av1: string | null;
+  readonly vp9: string | null;
   readonly checked: boolean;
 }
 
@@ -1736,6 +1777,25 @@ export interface ScreenRecordPreview {
   readonly error?: string;
 }
 
+/** Pose del stickman tal como lo serializa el serde de Rust (snake_case). */
+export interface StickmanPoseInput {
+  readonly spine?: number;
+  readonly head?: number;
+  readonly upper_arm_l?: number;
+  readonly fore_arm_l?: number;
+  readonly upper_arm_r?: number;
+  readonly fore_arm_r?: number;
+  readonly thigh_l?: number;
+  readonly shin_l?: number;
+  readonly thigh_r?: number;
+  readonly shin_r?: number;
+  readonly pelvis_dy?: number;
+}
+
+export interface StickmanKeyframeInput extends StickmanPoseInput {
+  readonly frame: number;
+}
+
 export interface StickmanRenderResult {
   readonly ok: boolean;
   readonly path?: string;
@@ -1876,6 +1936,20 @@ export interface ProxyHealth {
   readonly ok: boolean;
   readonly latencyMs: number | null;
   readonly error: string | null;
+}
+
+/** Conexión VPN nativa de Windows (GET /commands `vpn_list`). */
+export interface VpnConnection {
+  readonly name: string;
+  readonly serverAddress: string;
+  readonly tunnelType: string;
+  /** Texto de Windows: `Connected` / `Disconnected` / `Connecting`. */
+  readonly status: string;
+}
+
+export interface WireGuardInfo {
+  readonly installed: boolean;
+  readonly path: string | null;
 }
 
 export interface DownloadRequest {
@@ -2427,6 +2501,13 @@ export interface DesktopService {
    * con el grafo de audio real del export, previo a la normalización.
    */
   analyzeMixLoudness(profileId?: string): Promise<MixLoudnessReport>;
+  /** Scopes de audio (oscilograma/espectro/espectrograma) de un archivo. */
+  audioScopeAnalyze(path: string, range?: AudioScopeRange | null): Promise<AudioScopeData>;
+  /** Ídem pero resolviendo el asset del proyecto abierto por id. */
+  audioScopeAnalyzeAsset(
+    assetId: string,
+    range?: AudioScopeRange | null,
+  ): Promise<AudioScopeData>;
   onLoudnessAnalysisProgress(
     handler: (event: LoudnessAnalysisProgress) => void,
   ): Promise<UnlistenFn>;
@@ -2462,6 +2543,11 @@ export interface DesktopService {
   scanWatchFolder(path: string): Promise<WatchFile[]>;
   fetchRssFeed(url: string, limit?: number | null): Promise<RssItem[]>;
   testProxy(proxy: string): Promise<ProxyHealth>;
+  vpnList(): Promise<VpnConnection[]>;
+  vpnConnect(name: string): Promise<string>;
+  vpnDisconnect(name: string): Promise<string>;
+  vpnWireguard(): Promise<WireGuardInfo>;
+  vpnWireguardOpen(): Promise<void>;
   probeSourceChecksum(url: string): Promise<SourceChecksum>;
   listPlaylistEntries(url: string, limit?: number | null): Promise<PlaylistEntry[]>;
   listAudioTracks(url: string): Promise<AudioTrack[]>;
@@ -2595,12 +2681,13 @@ export interface DesktopService {
   obsScenePreview(id: string): Promise<ScreenRecordPreview>;
   stickmanRender(input: {
     outputPath: string;
-    action?: 'idle' | 'walk' | 'run' | 'wave' | 'jump';
+    action?: 'idle' | 'walk' | 'run' | 'wave' | 'jump' | 'custom';
     durationSeconds?: number;
     fps?: number;
     width?: number;
     height?: number;
-    keyframes?: { frame: number }[];
+    /** Keyframes de pose para `action: 'custom'` (snake_case, como el serde de Rust). */
+    keyframes?: StickmanKeyframeInput[];
     boneHex?: string;
     bgHex?: string;
     particles?: {
@@ -2719,6 +2806,8 @@ export interface DesktopService {
   /** Borra los frames temporales cuando la conversión no termina. */
   discardAlphaFrames(token: string): Promise<void>;
   upscaleImage(inputPath: string): Promise<UpscaleResult>;
+  upscaleVideo(inputPath: string, outputPath?: string, maxSeconds?: number): Promise<UpscaleVideoResult>;
+  onUpscaleProgress(handler: (event: UpscaleProgress) => void): Promise<UnlistenFn>;
   denoiseMedia(request: DenoiseRequest): Promise<DenoiseResult>;
   onDenoiseProgress(handler: (event: DenoiseProgress) => void): Promise<UnlistenFn>;
   /** Aplica la cadena de definición: limpieza, escalado, enfoque, curva y grano. */
@@ -2834,6 +2923,8 @@ export const PROJECT_COMMANDS = {
   mcpDetectClients: 'mcp_detect_clients',
   mcpAutoconnect: 'mcp_server_autoconnect',
   analyzeMixLoudness: 'analyze_mix_loudness',
+  audioScopeAnalyze: 'audio_scope_analyze',
+  audioScopeAnalyzeAsset: 'audio_scope_analyze_asset',
   hardwareEncoders: 'hardware_encoders',
   exportCapabilities: 'export_capabilities',
   verifyExport: 'verify_export',
@@ -2861,6 +2952,11 @@ export const PROJECT_COMMANDS = {
   scanWatchFolder: 'scan_watch_folder',
   fetchRssFeed: 'fetch_rss_feed',
   testProxy: 'test_proxy',
+  vpnList: 'vpn_list',
+  vpnConnect: 'vpn_connect',
+  vpnDisconnect: 'vpn_disconnect',
+  vpnWireguard: 'vpn_wireguard',
+  vpnWireguardOpen: 'vpn_wireguard_open',
   probeSourceChecksum: 'probe_source_checksum',
   listPlaylistEntries: 'list_playlist_entries',
   listAudioTracks: 'list_audio_tracks',
@@ -2886,6 +2982,7 @@ export const PROJECT_COMMANDS = {
   alphaFramesToAsset: 'alpha_frames_to_asset',
   discardAlphaFrames: 'discard_alpha_frames',
   upscaleImage: 'upscale_image',
+  upscaleVideo: 'upscale_video',
   denoiseMedia: 'denoise_media',
   sharpenMedia: 'sharpen_media',
   enhanceDialogue: 'enhance_dialogue',
@@ -3490,6 +3587,18 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         inputPath,
       })) as UpscaleResult;
     },
+    async upscaleVideo(inputPath, outputPath, maxSeconds) {
+      return (await call(PROJECT_COMMANDS.upscaleVideo, {
+        inputPath,
+        outputPath: outputPath ?? null,
+        maxSeconds: maxSeconds ?? null,
+      })) as UpscaleVideoResult;
+    },
+    async onUpscaleProgress(handler) {
+      return listen<UpscaleProgress>('upscale-progress', (event) =>
+        handler(event.payload),
+      );
+    },
     async denoiseMedia(request) {
       return (await call(PROJECT_COMMANDS.denoiseMedia, {
         request,
@@ -3938,6 +4047,20 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
         profileId: profileId ?? null,
       })) as MixLoudnessReport;
     },
+    async audioScopeAnalyze(path, range) {
+      return (await call(PROJECT_COMMANDS.audioScopeAnalyze, {
+        path,
+        startSeconds: range?.startSeconds ?? null,
+        durationSeconds: range?.durationSeconds ?? null,
+      })) as AudioScopeData;
+    },
+    async audioScopeAnalyzeAsset(assetId, range) {
+      return (await call(PROJECT_COMMANDS.audioScopeAnalyzeAsset, {
+        assetId,
+        startSeconds: range?.startSeconds ?? null,
+        durationSeconds: range?.durationSeconds ?? null,
+      })) as AudioScopeData;
+    },
     async onLoudnessAnalysisProgress(handler) {
       return listen<LoudnessAnalysisProgress>('loudness-analysis-progress', (event) =>
         handler(event.payload),
@@ -4066,6 +4189,21 @@ export function createNativeDesktopService(invoke: NativeInvoke = tauriInvoke as
     },
     async testProxy(proxy) {
       return (await call(PROJECT_COMMANDS.testProxy, { proxy })) as ProxyHealth;
+    },
+    async vpnList() {
+      return (await call(PROJECT_COMMANDS.vpnList)) as VpnConnection[];
+    },
+    async vpnConnect(name) {
+      return (await call(PROJECT_COMMANDS.vpnConnect, { name })) as string;
+    },
+    async vpnDisconnect(name) {
+      return (await call(PROJECT_COMMANDS.vpnDisconnect, { name })) as string;
+    },
+    async vpnWireguard() {
+      return (await call(PROJECT_COMMANDS.vpnWireguard)) as WireGuardInfo;
+    },
+    async vpnWireguardOpen() {
+      await call(PROJECT_COMMANDS.vpnWireguardOpen);
     },
     async probeSourceChecksum(url) {
       return (await call(PROJECT_COMMANDS.probeSourceChecksum, { url })) as SourceChecksum;
@@ -4692,6 +4830,8 @@ function createUnavailableService(): DesktopService {
     mcpAutoconnect: async () => unavailable(),
     onMcpCall: async () => () => {},
     analyzeMixLoudness: async () => unavailable(),
+    audioScopeAnalyze: async () => unavailable(),
+    audioScopeAnalyzeAsset: async () => unavailable(),
     onLoudnessAnalysisProgress: async () => () => {},
     hardwareEncoders: async () => unavailable(),
     exportCapabilities: async () => unavailable(),
@@ -4726,6 +4866,11 @@ function createUnavailableService(): DesktopService {
     scanWatchFolder: async () => unavailable(),
     fetchRssFeed: async () => unavailable(),
     testProxy: async () => unavailable(),
+    vpnList: async () => unavailable(),
+    vpnConnect: async () => unavailable(),
+    vpnDisconnect: async () => unavailable(),
+    vpnWireguard: async () => unavailable(),
+    vpnWireguardOpen: async () => unavailable(),
     probeSourceChecksum: async () => unavailable(),
     listPlaylistEntries: async () => unavailable(),
     listAudioTracks: async () => unavailable(),
@@ -4753,6 +4898,8 @@ function createUnavailableService(): DesktopService {
     alphaFramesToAsset: async () => unavailable(),
     discardAlphaFrames: async () => unavailable(),
     upscaleImage: async () => unavailable(),
+    upscaleVideo: async () => unavailable(),
+    onUpscaleProgress: async () => () => {},
     denoiseMedia: async () => unavailable(),
     sharpenMedia: async () => unavailable(),
     onSharpenProgress: async () => () => {},

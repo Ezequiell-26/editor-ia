@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyProject } from '@editor-ia/project-schema';
 import {
+  badgeTemplate,
   buildMotionPlan,
   buildProjectMotionPlans,
   freeTextTemplate,
@@ -146,6 +147,57 @@ describe('motion plan', () => {
     ]) {
       expect(templateById(id)?.version).toBe('1.0.0');
     }
+  });
+
+  it('la insignia usa la primera forma no rectangular (elipse)', () => {
+    const plan = buildMotionPlan(
+      badgeTemplate,
+      { text: 'NUEVO', color: '#7c3aed', textColor: '#ffffff', animation: 'pop' },
+      context,
+    );
+    const shapes = plan.layers.filter((layer) => layer.kind === 'rect');
+    expect(shapes).toHaveLength(1);
+    expect(shapes[0]).toMatchObject({ shape: 'ellipse', color: '#7c3aed' });
+    const texts = plan.layers.filter((layer) => layer.kind === 'text');
+    expect(texts).toHaveLength(1);
+    expect(texts[0]).toMatchObject({ text: 'NUEVO', color: '#ffffff', align: 'center' });
+    for (const layer of plan.layers) {
+      expect(layer.x).toBeGreaterThanOrEqual(0);
+      expect(layer.x + layer.width).toBeLessThanOrEqual(1.0001);
+      expect(layer.y).toBeGreaterThanOrEqual(0);
+      expect(layer.y + layer.height).toBeLessThanOrEqual(1.0001);
+    }
+  });
+
+  it('la insignia cambia de forma con el campo shape', () => {
+    for (const [shape, expected] of [
+      ['triangle', 'triangle'],
+      ['diamond', 'diamond'],
+      ['ellipse', 'ellipse'],
+      ['star', 'star'],
+      ['pentagon', 'pentagon'],
+      ['hexagon', 'hexagon'],
+      ['arrow', 'arrow'],
+    ] as const) {
+      const plan = buildMotionPlan(
+        badgeTemplate,
+        { text: 'NUEVO', shape },
+        context,
+      );
+      const badge = plan.layers.find((layer) => layer.kind === 'rect');
+      expect(badge).toMatchObject({ shape: expected });
+    }
+    // Sin shape en props cae al default de la plantilla.
+    const plan = buildMotionPlan(badgeTemplate, { text: 'NUEVO' }, context);
+    expect(plan.layers.find((layer) => layer.kind === 'rect')).toMatchObject({
+      shape: 'ellipse',
+    });
+  });
+
+  it('rechaza props inválidas de la insignia', () => {
+    expect(() =>
+      buildMotionPlan(badgeTemplate, { text: '', color: '#fff', textColor: '#fff' }, context),
+    ).toThrow(MotionPlanError);
   });
 
   it('acota el texto libre en 4K vertical y no desborda las líneas', () => {

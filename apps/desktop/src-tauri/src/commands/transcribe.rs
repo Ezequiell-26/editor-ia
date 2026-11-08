@@ -69,7 +69,10 @@ fn command_succeeds(program: &Path, args: &[&str]) -> bool {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     crate::commands::hide_console(&mut probe);
-    probe.status().map(|status| status.success()).unwrap_or(false)
+    probe
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
 }
 
 /// Sondeo real de un candidato: primero que sea un Python ejecutable, después
@@ -480,7 +483,8 @@ mod tests {
 
     #[test]
     fn no_engine_reports_how_to_install_it() {
-        let status = resolve_python_with(None, &[PathBuf::from("python")], &|_| PythonProbe::Missing);
+        let status =
+            resolve_python_with(None, &[PathBuf::from("python")], &|_| PythonProbe::Missing);
         assert!(!status.available());
         let reason = status.reason.expect("motivo");
         assert!(reason.contains("faster-whisper"), "{reason}");

@@ -17,6 +17,12 @@ export interface AudioEffectStackProps {
   readonly stack: EffectStack;
   readonly onChange: (next: EffectStack) => void;
   readonly clipLabel?: string | undefined;
+  /**
+   * Frame local del clip bajo el playhead. Si está presente, los parámetros
+   * numéricos ganan el botón de keyframe (◆): las claves se escriben en
+   * `instance.keyframes` y el export las aplica con el render segmentado.
+   */
+  readonly keyframeFrame?: number | undefined;
 }
 
 /**
@@ -27,7 +33,12 @@ export interface AudioEffectStackProps {
  * no hay preview GPU; lo que sí se muestra es la cadena de filtros compilada,
  * para que se vea exactamente qué va a hacer el render.
  */
-export function AudioEffectStack({ stack, onChange, clipLabel }: AudioEffectStackProps) {
+export function AudioEffectStack({
+  stack,
+  onChange,
+  clipLabel,
+  keyframeFrame,
+}: AudioEffectStackProps) {
   const compiled = useMemo(() => compileAudioStack(effectRegistry, stack), [stack]);
   const full = stack.length >= MAX_STACK_EFFECTS;
 
@@ -50,10 +61,10 @@ export function AudioEffectStack({ stack, onChange, clipLabel }: AudioEffectStac
       </header>
       <p className="fine-print">
         Los efectos se aplican en el export, en el orden de la pila y antes del fader del clip.
-        La preview reproduce el audio original.
+        La preview reproduce los 30 efectos del catálogo (con keyframes); el pitcheo usa un shifter granular aproximado.
       </p>
       <EffectBrowser kind="audio" onAdd={add} disabled={full} />
-      <EffectStackPanel stack={stack} onChange={onChange} />
+      <EffectStackPanel stack={stack} onChange={onChange} keyframeFrame={keyframeFrame} />
       <EffectTemplates kind="audio" stack={stack} onApply={(next) => onChange(next)} />
       {compiled.filters.length > 0 ? (
         <details className="audio-chain">

@@ -3,6 +3,7 @@ import type { MotionContext, MotionLayer, MotionPlan, MotionTemplate } from './t
 import { templateById } from './templates';
 
 export {
+  badgeTemplate,
   endCardTemplate,
   freeTextTemplate,
   lowerThirdTemplate,

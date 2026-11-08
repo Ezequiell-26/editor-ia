@@ -7,6 +7,7 @@ import type {
   AssetFileInfo,
   AssistantStreamHandle,
   AudioPeaks,
+  AudioScopeData,
   AudioProviderInfo,
   CreateProjectRequest,
   DesktopService,
@@ -351,6 +352,18 @@ export function fakeAudioPeaks(assetId: string, buckets?: number): AudioPeaks {
       min: -0.2 - (index % 7) * 0.05,
       max: 0.3 + (index % 5) * 0.08,
     })),
+  };
+}
+
+export function fakeAudioScopeData(): AudioScopeData {
+  return {
+    sampleRate: 48000,
+    durationSeconds: 1,
+    waveform: Array.from({ length: 512 }, () => [-0.5, 0.5] as [number, number]),
+    spectrum: Array.from({ length: 512 }, () => -60),
+    spectrogramCols: 8,
+    spectrogramRows: 256,
+    spectrogram: Array.from({ length: 8 * 256 }, () => -80),
   };
 }
 
@@ -775,6 +788,22 @@ export function createFakeService(): FakeService {
     async testProxy(proxy: string) {
       return { proxy, ok: true, latencyMs: 42, error: null };
     },
+    async vpnList() {
+      return [
+        { name: 'Casa', serverAddress: 'vpn.ejemplo.com', tunnelType: 'IKEv2', status: 'Disconnected' },
+        { name: 'Oficina', serverAddress: '10.0.0.2', tunnelType: 'L2tp', status: 'Connected' },
+      ];
+    },
+    async vpnConnect(name: string) {
+      return `conexión ${name} establecida`;
+    },
+    async vpnDisconnect(name: string) {
+      return `${name} desconectada`;
+    },
+    async vpnWireguard() {
+      return { installed: false, path: null };
+    },
+    async vpnWireguardOpen() {},
     async listPlaylistEntries() {
       return [
         { index: 1, title: 'Elemento uno', url: 'https://youtu.be/uno', durationSeconds: 30 },
@@ -1215,11 +1244,17 @@ export function createFakeService(): FakeService {
     async analyzeMixLoudness() {
       return fakeMixLoudnessReport();
     },
+    async audioScopeAnalyze() {
+      return fakeAudioScopeData();
+    },
+    async audioScopeAnalyzeAsset() {
+      return fakeAudioScopeData();
+    },
     async onLoudnessAnalysisProgress() {
       return () => {};
     },
     async hardwareEncoders() {
-      return { h264: null, hevc: null, checked: true };
+      return { h264: null, hevc: null, av1: null, vp9: null, checked: true };
     },
     async exportCapabilities() {
       return {
@@ -1228,7 +1263,7 @@ export function createFakeService(): FakeService {
           { container: 'mov', videoCodecs: ['h264','h265'], audioCodecs: ['aac'] },
           { container: 'webm', videoCodecs: ['vp9','av1'], audioCodecs: ['opus'] },
         ],
-        pixelFormats: ['yuv420p','yuv444p','rgb24'],
+        pixelFormats: ['yuv420p','yuv444p'],
         videoCodecs: {
           h264: { software: ['libopenh264'], hardware: [] },
           h265: { software: ['hevc_mf'], hardware: [] },
@@ -1502,6 +1537,21 @@ export function createFakeService(): FakeService {
         outputHeight: 512,
         tiles: 1,
       };
+    },
+    async upscaleVideo(inputPath: string) {
+      return {
+        path: inputPath.replace(/\.[^.]+$/,'-x4.mp4'),
+        inputWidth: 1280,
+        inputHeight: 720,
+        outputWidth: 5120,
+        outputHeight: 2880,
+        frames: 240,
+        fpsNum: 24,
+        fpsDen: 1,
+      };
+    },
+    async onUpscaleProgress() {
+      return () => {};
     },
     async removeBackground(inputPath: string) {
       return {
@@ -2155,7 +2205,7 @@ export function createFakeService(): FakeService {
           version: '5.1',
           hint: null,
         },
-        hardware: { h264: null, hevc: null, checked: true },
+        hardware: { h264: null, hevc: null, av1: null, vp9: null, checked: true },
         configDir: 'C:\\Users\\tester\\AppData\\Roaming\\editor-ia',
         cacheDir: 'C:\\Users\\tester\\AppData\\Local\\editor-ia',
       };

@@ -431,6 +431,21 @@
   gap: 2px;
 }
 
+.effect-param-keyframes {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.effect-keyframe-toggle {
+  color: var(--color-text-faint, var(--color-text-muted));
+}
+
+.effect-keyframe-toggle.on {
+  color: var(--color-accent);
+}
+
 .effect-stack-empty {
   border: 1px dashed var(--color-border);
   border-radius: 8px;

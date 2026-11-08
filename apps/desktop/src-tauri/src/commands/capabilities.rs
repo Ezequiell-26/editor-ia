@@ -109,7 +109,11 @@ fn whisper_capability(state: &AppState) -> CapabilityInfo {
     let _ = state;
     let status = super::transcribe::whisper_status();
     let available = status.available();
-    let detail = match status.python.as_deref().and_then(|python| python.file_name()) {
+    let detail = match status
+        .python
+        .as_deref()
+        .and_then(|python| python.file_name())
+    {
         Some(name) => format!(
             "Python verificado con faster-whisper en el equipo ({})",
             name.to_string_lossy()

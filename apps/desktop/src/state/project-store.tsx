@@ -13,6 +13,11 @@ import type { DesktopService, OpenedProject } from '../services/project-service'
 import { buildDeliveryPackage } from './delivery-package';
 import { useEditorPreferences } from './useEditorPreferences';
 import {
+  ioRangeFromDocument,
+  projectWithIoRange,
+  type IoRange,
+} from './io-range';
+import {
   ProjectActionError,
   cloneProject,
   formatTimecode,
@@ -68,6 +73,13 @@ interface StoreState {
   undo: ProjectDocument[];
   redo: ProjectDocument[];
   selection: Selection;
+  /**
+   * Puntos de entrada/salida de la secuencia (port Kdenlive in/out): marcan el
+   * rango que el export usa por defecto y que la regla muestra. Se persisten en
+   * el documento como `x-ioRange` (ver `io-range.ts`); `null` hasta el primer
+   * punto. Es estado de UI: no entra en el historial de deshacer.
+   */
+  ioRange: IoRange | null;
   lastSavedAt: string | null;
   exportRequested: boolean;
   /** Oferta de recuperación de la sesión anterior, o null si no hay ninguna. */
@@ -83,6 +95,7 @@ const INITIAL: StoreState = {
   undo: [],
   redo: [],
   selection: { kind: 'none' },
+  ioRange: null,
   lastSavedAt: null,
   exportRequested: false,
   recoveryOffer: null,
@@ -123,6 +136,9 @@ export interface ProjectStoreValue {
   undo(): void;
   redo(): void;
   setSelection(selection: Selection): void;
+  /** Marca in/out de la secuencia en el playhead actual. */
+  setIoPoint(edge: 'in' | 'out'): void;
+  clearIoRange(): void;
   setPlayhead(frame: number): void;
   setPlaying(playing: boolean): void;
   /** Playhead actual sin suscribir el componente (siempre fresco). */
@@ -188,6 +204,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
           project: initial.project,
           opened: initial.opened ?? null,
           phase: initial.opened ? 'saved' : 'idle',
+          ioRange: ioRangeFromDocument(initial.project),
         }
       : INITIAL,
   );
@@ -260,6 +277,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       project: opened.project,
       opened,
       phase: phaseForAdopt(),
+      ioRange: ioRangeFromDocument(opened.project),
       lastSavedAt: new Date().toISOString(),
     });
   }, []);
@@ -347,7 +365,11 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     const version = editVersionRef.current;
     setState((current) => ({ ...current, phase: 'saving', error: null }));
     try {
-      const opened = await service.saveProject(captured);
+      // El documento guarda `x-ioRange` en cada set/clear, pero un undo puede
+      // restaurar una instantánea con otro valor: al guardar se reescribe desde
+      // el estado visible para que el archivo coincida con lo que ve el usuario.
+      const toSave = projectWithIoRange(captured, snapshot.ioRange);
+      const opened = await service.saveProject(toSave);
       const pendingChanges = editVersionRef.current !== version;
       // Guardado completado: esa versión ya vive en disco. Se cancela de una
       // vez la escritura pendiente de la instantánea y se limpia el registro
@@ -393,7 +415,7 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     const version = editVersionRef.current;
     setState((current) => ({ ...current, phase: 'saving', error: null }));
     try {
-      const opened = await service.saveProjectAs(captured);
+      const opened = await service.saveProjectAs(projectWithIoRange(captured, snapshot.ioRange));
       if (!opened) {
         setState((current) => ({ ...current, phase: current.project === captured ? 'dirty' : current.phase }));
         return false;
@@ -608,6 +630,31 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
     });
   }, []);
 
+  const setIoPoint = useCallback(
+    (edge: 'in' | 'out') => {
+      const frame = playbackRef.current.frame;
+      const next: IoRange = {
+        inFrame: stateRef.current.ioRange?.inFrame ?? null,
+        outFrame: stateRef.current.ioRange?.outFrame ?? null,
+        [edge === 'in' ? 'inFrame' : 'outFrame']: frame,
+      };
+      setState((current) => ({ ...current, ioRange: next }));
+      // El rango vive en el documento (`x-ioRange`) para sobrevivir al cierre:
+      // `history:false` porque es una marca de UI, no una edición del timeline.
+      if (stateRef.current.project) {
+        update((project) => projectWithIoRange(project, next), { history: false });
+      }
+    },
+    [update],
+  );
+
+  const clearIoRange = useCallback(() => {
+    setState((current) => (current.ioRange === null ? current : { ...current, ioRange: null }));
+    if (stateRef.current.project) {
+      update((project) => projectWithIoRange(project, null), { history: false });
+    }
+  }, [update]);
+
   const requestExport = useCallback(() => {
     setState((current) => (current.exportRequested ? current : { ...current, exportRequested: true }));
   }, []);
@@ -717,6 +764,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       undo,
       redo,
       setSelection,
+      setIoPoint,
+      clearIoRange,
       setPlayhead,
       setPlaying,
       getPlayhead,
@@ -746,6 +795,8 @@ export function ProjectProvider({ service, children, initial }: ProjectProviderP
       saveAs,
       saveNow,
       service,
+      setIoPoint,
+      clearIoRange,
       setNotice,
       setPlayhead,
       setPlaying,

@@ -12,6 +12,27 @@ function Harness() {
   return <AudioEffectStack stack={stack} onChange={setStack} clipLabel="Voz principal" />;
 }
 
+function KeyedHarness({
+  frame = 30,
+  onStack,
+}: {
+  readonly frame?: number;
+  readonly onStack?: (stack: EffectStack) => void;
+}) {
+  const [stack, setStack] = useState<EffectStack>([]);
+  return (
+    <AudioEffectStack
+      stack={stack}
+      onChange={(next) => {
+        setStack(next);
+        onStack?.(next);
+      }}
+      clipLabel="Voz principal"
+      keyframeFrame={frame}
+    />
+  );
+}
+
 function addEffect(name: RegExp) {
   const browser = screen.getByRole('region', { name: 'Catálogo de efectos' });
   const card = within(browser).getAllByRole('button', { name })[0];
@@ -56,5 +77,34 @@ describe('cadena de audio del clip', () => {
       .map((button) => button.textContent ?? '');
     expect(names.some((name) => name.includes('Voz grave'))).toBe(true);
     expect(names.some((name) => name.includes('Eco'))).toBe(false);
+  });
+
+  it('sin frame de playhead no ofrece keyframes', () => {
+    render(<Harness />);
+    addEffect(/^Teléfono/);
+    expect(
+      screen.queryByRole('button', { name: /Clave de .* en el frame actual/ }),
+    ).toBeNull();
+  });
+
+  it('keyframea un parámetro de audio desde el playhead', () => {
+    let latest: EffectStack = [];
+    render(<KeyedHarness frame={30} onStack={(next) => (latest = next)} />);
+    addEffect(/^Teléfono/);
+    const diamond = screen.getByRole('button', {
+      name: 'Clave de Corte grave en el frame actual',
+    });
+    fireEvent.click(diamond);
+    expect(diamond.getAttribute('aria-pressed')).toBe('true');
+    // La primera clave crea la pista con una compañera plana en el frame 0.
+    const track = latest[0]?.keyframes?.low ?? [];
+    expect(track.map((key) => key.frame)).toEqual([0, 30]);
+    // Con la pista activa el slider escribe en la clave del frame.
+    const slider = screen.getByRole('slider', { name: 'Corte grave' });
+    fireEvent.change(slider, { target: { value: '500' } });
+    expect(latest[0]?.keyframes?.low?.find((key) => key.frame === 30)?.value).toBe(500);
+    // El botón × quita la animación completa del parámetro.
+    fireEvent.click(screen.getByRole('button', { name: 'Quitar la animación de Corte grave' }));
+    expect(latest[0]?.keyframes?.low).toBeUndefined();
   });
 });

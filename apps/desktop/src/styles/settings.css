@@ -1554,3 +1554,59 @@ button.color-reset:focus-visible {
     display: none;
   }
 }
+
+/* VPN del sistema (Ajustes → Herramientas) */
+.vpn-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.vpn-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-surface-raised, transparent);
+}
+
+.vpn-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.vpn-item-info strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vpn-item-info .muted {
+  font-size: var(--text-xs, 12px);
+}
+
+.vpn-status {
+  font-size: var(--text-xs, 12px);
+  color: var(--color-text-muted, var(--color-text-faint));
+  white-space: nowrap;
+}
+
+.vpn-status.connected {
+  color: var(--color-success);
+}
+
+.vpn-wireguard {
+  margin-top: 12px;
+}
+
+.vpn-wireguard .muted {
+  margin: 0 0 8px;
+}

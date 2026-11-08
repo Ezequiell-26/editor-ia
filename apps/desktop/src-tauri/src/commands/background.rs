@@ -398,7 +398,7 @@ fn fit_output_frame(width: u32, height: u32) -> Result<(u32, u32), ProjectError>
     Ok((fit_width, fit_height))
 }
 
-fn drain_stderr<R: Read + Send + 'static>(mut reader: R) -> thread::JoinHandle<String> {
+pub(crate) fn drain_stderr<R: Read + Send + 'static>(mut reader: R) -> thread::JoinHandle<String> {
     thread::spawn(move || {
         let mut collected = Vec::new();
         let mut buffer = [0u8; 8 * 1024];
@@ -417,7 +417,7 @@ fn drain_stderr<R: Read + Send + 'static>(mut reader: R) -> thread::JoinHandle<S
     })
 }
 
-fn read_full_frame(reader: &mut impl Read, buffer: &mut [u8]) -> Result<bool, ProjectError> {
+pub(crate) fn read_full_frame(reader: &mut impl Read, buffer: &mut [u8]) -> Result<bool, ProjectError> {
     let mut filled = 0;
     while filled < buffer.len() {
         match reader.read(&mut buffer[filled..]) {
@@ -435,7 +435,7 @@ fn read_full_frame(reader: &mut impl Read, buffer: &mut [u8]) -> Result<bool, Pr
     Ok(true)
 }
 
-fn count_video_frames(ffprobe: &Path, path: &Path) -> Result<u64, ProjectError> {
+pub(crate) fn count_video_frames(ffprobe: &Path, path: &Path) -> Result<u64, ProjectError> {
     let mut command = Command::new(ffprobe);
     command
         .args([
@@ -469,7 +469,7 @@ fn count_video_frames(ffprobe: &Path, path: &Path) -> Result<u64, ProjectError> 
     })
 }
 
-fn log_tail(text: &str) -> String {
+pub(crate) fn log_tail(text: &str) -> String {
     text.chars()
         .rev()
         .take(300)

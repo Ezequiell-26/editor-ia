@@ -85,18 +85,16 @@ fn io_error(message: &str) -> ProjectError {
 
 fn status_inner() -> ScreenRecordStatus {
     let mut guard = RECORDING.lock().unwrap_or_else(|e| e.into_inner());
-    let last = guard
-        .as_mut()
-        .map(|rec| {
-            let alive = matches!(rec.child.try_wait(), Ok(None));
-            (
-                alive,
-                rec.output.to_string_lossy().into_owned(),
-                rec.started.elapsed().as_secs(),
-                rec.webcam.clone(),
-                rec.streaming,
-            )
-        });
+    let last = guard.as_mut().map(|rec| {
+        let alive = matches!(rec.child.try_wait(), Ok(None));
+        (
+            alive,
+            rec.output.to_string_lossy().into_owned(),
+            rec.started.elapsed().as_secs(),
+            rec.webcam.clone(),
+            rec.streaming,
+        )
+    });
     let Some((alive, output, elapsed, webcam, streaming)) = last else {
         return ScreenRecordStatus {
             recording: false,
@@ -170,14 +168,21 @@ fn gdigrab_input_args(
         "1".to_owned(),
     ];
     match target {
-        "window" => args.extend(["-i".to_owned(), format!("title={}", window_title.unwrap_or(""))]),
+        "window" => args.extend([
+            "-i".to_owned(),
+            format!("title={}", window_title.unwrap_or("")),
+        ]),
         "region" => args.extend([
             "-offset_x".to_owned(),
             region_x.unwrap_or(0).to_string(),
             "-offset_y".to_owned(),
             region_y.unwrap_or(0).to_string(),
             "-video_size".to_owned(),
-            format!("{}x{}", region_width.unwrap_or(0), region_height.unwrap_or(0)),
+            format!(
+                "{}x{}",
+                region_width.unwrap_or(0),
+                region_height.unwrap_or(0)
+            ),
             "-i".to_owned(),
             "desktop".to_owned(),
         ]),
@@ -220,7 +225,15 @@ pub async fn screen_record_devices(
     };
     let output = tauri::async_runtime::spawn_blocking(move || {
         Command::new(ffmpeg)
-            .args(["-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"])
+            .args([
+                "-hide_banner",
+                "-list_devices",
+                "true",
+                "-f",
+                "dshow",
+                "-i",
+                "dummy",
+            ])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -236,7 +249,9 @@ pub async fn screen_record_devices(
     let mut microphones = Vec::new();
     for line in text.lines() {
         let Some(open) = line.find('"') else { continue };
-        let Some(close) = line[open + 1..].find('"').map(|i| open + 1 + i) else { continue };
+        let Some(close) = line[open + 1..].find('"').map(|i| open + 1 + i) else {
+            continue;
+        };
         let name = line[open + 1..close].trim();
         let rest = &line[close..];
         if name.is_empty() || name.starts_with('@') {
@@ -250,7 +265,10 @@ pub async fn screen_record_devices(
     }
     cameras.dedup();
     microphones.dedup();
-    Ok(CaptureDevices { cameras, microphones })
+    Ok(CaptureDevices {
+        cameras,
+        microphones,
+    })
 }
 
 /// Inicia una grabación estilo OBS: pantalla completa/ventana/ región,
@@ -289,20 +307,16 @@ pub async fn screen_record_start(
     }
     let fps = fps.unwrap_or(30).clamp(1, MAX_FPS);
     let screen = capture_screen.unwrap_or(true);
-    let webcam = webcam_device
-        .as_deref()
-        .map(sanitize_device)
-        .transpose()?;
-    let audio = audio_device
-        .as_deref()
-        .map(sanitize_device)
-        .transpose()?;
+    let webcam = webcam_device.as_deref().map(sanitize_device).transpose()?;
+    let audio = audio_device.as_deref().map(sanitize_device).transpose()?;
     let target = capture_target.unwrap_or_else(|| "desktop".to_owned());
     if !matches!(target.as_str(), "desktop" | "window" | "region") {
         return Err(invalid("captureTarget debe ser desktop, window o region"));
     }
     if !screen && webcam.is_none() {
-        return Err(invalid("elegí al menos una fuente de video: pantalla o webcam"));
+        return Err(invalid(
+            "elegí al menos una fuente de video: pantalla o webcam",
+        ));
     }
     let window_title = window_title
         .as_deref()
@@ -329,7 +343,9 @@ pub async fn screen_record_start(
     if target == "region" {
         let (w, h) = (region_width.unwrap_or(0), region_height.unwrap_or(0));
         if w < 16 || h < 16 || w > 7680 || h > 4320 {
-            return Err(invalid("la región necesita regionWidth/regionHeight válidos"));
+            return Err(invalid(
+                "la región necesita regionWidth/regionHeight válidos",
+            ));
         }
     }
     // Stream RTMP/RTMPS estilo OBS. La URL puede contener la clave del
@@ -341,7 +357,9 @@ pub async fn screen_record_start(
         .map(|u| u.to_owned());
     if let Some(url) = stream_url.as_deref() {
         if !(url.starts_with("rtmp://") || url.starts_with("rtmps://")) || url.len() > 2048 {
-            return Err(invalid("streamUrl debe ser una URL rtmp:// o rtmps:// válida"));
+            return Err(invalid(
+                "streamUrl debe ser una URL rtmp:// o rtmps:// válida",
+            ));
         }
     }
     // Codificador estilo OBS: auto = x264 (compatible siempre); nvenc/qsv/amf
@@ -398,28 +416,54 @@ pub async fn screen_record_start(
     if let Some(device) = audio.as_deref() {
         audio_index = Some(next_index);
         command
-            .arg("-f").arg("dshow")
-            .arg("-audio_buffer_size").arg("50")
-            .arg("-i").arg(format!("audio={device}"));
+            .arg("-f")
+            .arg("dshow")
+            .arg("-audio_buffer_size")
+            .arg("50")
+            .arg("-i")
+            .arg(format!("audio={device}"));
     }
 
     // Cadena de video: pantalla+webcam → PiP; una sola fuente → directo.
     // Cada salida lleva su propia copia del grafo porque -filter_complex se
     // vincula a la salida que le sigue (el encode x264 ya es por salida).
     let screen_idx = if screen { Some(0usize) } else { None };
-    let webcam_idx = if screen { (webcam.is_some()).then_some(1usize) } else { webcam.is_some().then_some(0usize) };
+    let webcam_idx = if screen {
+        (webcam.is_some()).then_some(1usize)
+    } else {
+        webcam.is_some().then_some(0usize)
+    };
     let pip = screen_idx.is_some() && webcam_idx.is_some();
-    let graph = pip.then(|| {
-        "[1:v]scale='min(320,iw)':-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]".to_owned()
-    });
+    let graph = pip
+        .then(|| "[1:v]scale='min(320,iw)':-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]".to_owned());
     let single_map = format!("{}:v", webcam_idx.or(screen_idx).unwrap_or(0));
 
     let video_codec: Vec<String> = match encoder.as_str() {
-        "nvenc" => vec!["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "23", "-pix_fmt", "yuv420p"],
-        "qsv" => vec!["-c:v", "h264_qsv", "-global_quality", "23", "-pix_fmt", "yuv420p"],
-        "amf" => vec!["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23"],
+        "nvenc" => vec![
+            "-c:v",
+            "h264_nvenc",
+            "-preset",
+            "p4",
+            "-cq",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+        ],
+        "qsv" => vec![
+            "-c:v",
+            "h264_qsv",
+            "-global_quality",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+        ],
+        "amf" => vec![
+            "-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", "23", "-qp_p", "23",
+        ],
         "mf" => vec!["-c:v", "h264_mf", "-rate_control", "quality"],
-        _ => vec!["-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p"],
+        _ => vec![
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+        ],
     }
     .iter()
     .map(|s| s.to_string())
@@ -438,12 +482,17 @@ pub async fn screen_record_start(
         if let Some(g) = graph {
             command.arg("-filter_complex").arg(g);
         }
-        command.arg("-map").arg(if pip { "[v]" } else { single_map });
+        command
+            .arg("-map")
+            .arg(if pip { "[v]" } else { single_map });
         if let Some(aidx) = audio_index {
             command
-                .arg("-map").arg(format!("{aidx}:a"))
-                .arg("-c:a").arg("aac")
-                .arg("-b:a").arg("160k");
+                .arg("-map")
+                .arg(format!("{aidx}:a"))
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("160k");
         } else {
             command.arg("-an");
         }
@@ -513,7 +562,14 @@ pub async fn screen_record_start(
                     buf
                 })
                 .unwrap_or_default();
-            let mut tail: String = stderr.chars().rev().take(400).collect::<String>().chars().rev().collect();
+            let mut tail: String = stderr
+                .chars()
+                .rev()
+                .take(400)
+                .collect::<String>()
+                .chars()
+                .rev()
+                .collect();
             // ffmpeg eco-a la URL de salida en sus errores; la URL RTMP
             // lleva la clave del stream y no debe salir en errores/logs.
             if let Some(url) = stream_url.as_deref() {
@@ -546,19 +602,27 @@ pub async fn screen_record_start(
 }
 
 /// Medición real del MP4 generado con ffprobe (duración, resolución, audio).
-fn probe_output(ffprobe: &std::path::Path, output: &std::path::Path) -> (Option<f64>, Option<u32>, Option<u32>, Option<bool>) {
+fn probe_output(
+    ffprobe: &std::path::Path,
+    output: &std::path::Path,
+) -> (Option<f64>, Option<u32>, Option<u32>, Option<bool>) {
     let probed = Command::new(ffprobe)
         .args([
-            "-v", "error",
-            "-show_entries", "format=duration:stream=codec_type,width,height",
-            "-of", "json",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration:stream=codec_type,width,height",
+            "-of",
+            "json",
             &output.to_string_lossy(),
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .output();
-    let Ok(out) = probed else { return (None, None, None, None) };
+    let Ok(out) = probed else {
+        return (None, None, None, None);
+    };
     if !out.status.success() {
         return (None, None, None, None);
     }
@@ -567,7 +631,9 @@ fn probe_output(ffprobe: &std::path::Path, output: &std::path::Path) -> (Option<
         Ok(v) => v,
         Err(_) => return (None, None, None, None),
     };
-    let duration = json["format"]["duration"].as_str().and_then(|s| s.parse::<f64>().ok());
+    let duration = json["format"]["duration"]
+        .as_str()
+        .and_then(|s| s.parse::<f64>().ok());
     let streams = json["streams"].as_array();
     let mut width = None;
     let mut height = None;
@@ -703,16 +769,15 @@ pub async fn screen_record_snapshot(
 ) -> Result<ScreenRecordPreview, ProjectError> {
     let fps = fps.unwrap_or(30).clamp(1, MAX_FPS);
     let screen = capture_screen.unwrap_or(true);
-    let webcam = webcam_device
-        .as_deref()
-        .map(sanitize_device)
-        .transpose()?;
+    let webcam = webcam_device.as_deref().map(sanitize_device).transpose()?;
     let target = capture_target.unwrap_or_else(|| "desktop".to_owned());
     if !matches!(target.as_str(), "desktop" | "window" | "region") {
         return Err(invalid("captureTarget debe ser desktop, window o region"));
     }
     if !screen && webcam.is_none() {
-        return Err(invalid("elegí al menos una fuente de video: pantalla o webcam"));
+        return Err(invalid(
+            "elegí al menos una fuente de video: pantalla o webcam",
+        ));
     }
     let window_title = window_title
         .as_deref()
@@ -739,7 +804,9 @@ pub async fn screen_record_snapshot(
     if target == "region" {
         let (w, h) = (region_width.unwrap_or(0), region_height.unwrap_or(0));
         if w < 16 || h < 16 || w > 7680 || h > 4320 {
-            return Err(invalid("la región necesita regionWidth/regionHeight válidos"));
+            return Err(invalid(
+                "la región necesita regionWidth/regionHeight válidos",
+            ));
         }
     }
 
@@ -753,9 +820,8 @@ pub async fn screen_record_snapshot(
     };
 
     let dir = state.config_dir.join("obs-previews");
-    std::fs::create_dir_all(&dir).map_err(|e| {
-        io_error(&format!("no se pudo crear la carpeta de previews: {e}"))
-    })?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| io_error(&format!("no se pudo crear la carpeta de previews: {e}")))?;
     let output = dir.join(format!("preview-{}.png", chrono_lite_stamp()));
 
     let mut command = Command::new(&ffmpeg);
@@ -792,9 +858,9 @@ pub async fn screen_record_snapshot(
     };
     let pip = screen_idx.is_some() && webcam_idx.is_some();
     if pip {
-        command.arg("-filter_complex").arg(
-            "[1:v]scale='min(320,iw)':-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]",
-        );
+        command
+            .arg("-filter_complex")
+            .arg("[1:v]scale='min(320,iw)':-2[cam];[0:v][cam]overlay=W-w-24:H-h-24[v]");
     }
     let single_map = format!("{}:v", webcam_idx.or(screen_idx).unwrap_or(0));
     command
@@ -846,10 +912,14 @@ pub async fn screen_record_snapshot(
                 .map(|p| {
                     let probed = Command::new(p)
                         .args([
-                            "-v", "error",
-                            "-select_streams", "v:0",
-                            "-show_entries", "stream=width,height",
-                            "-of", "json",
+                            "-v",
+                            "error",
+                            "-select_streams",
+                            "v:0",
+                            "-show_entries",
+                            "stream=width,height",
+                            "-of",
+                            "json",
                             &output.to_string_lossy(),
                         ])
                         .stdin(Stdio::null())

@@ -16,10 +16,10 @@ use crate::projects::service::{ProjectError, ProjectErrorCode};
 use crate::state::AppState;
 
 use super::system::resolve_tools;
+use super::transcribe::TranscriptionResult;
 use super::transcribe::{
     derive_hf_home, parse_result, validate_language, validate_model, whisper_status, SCRIPT,
 };
-use super::transcribe::TranscriptionResult;
 
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "webm", "avi", "m4v"];
 
@@ -124,20 +124,21 @@ pub async fn subtitles_pipeline(
             ProjectErrorCode::ProviderUnavailable,
             &format!(
                 "transcripción no disponible: {}",
-                status.reason.as_deref().unwrap_or("falta Python con faster-whisper")
+                status
+                    .reason
+                    .as_deref()
+                    .unwrap_or("falta Python con faster-whisper")
             ),
         ));
     };
-    let language = validate_language(
-        request
-            .source_language
-            .as_deref()
-            .unwrap_or("auto"),
-    )?;
+    let language = validate_language(request.source_language.as_deref().unwrap_or("auto"))?;
     let model = validate_model(&request.model)?;
     let script = state.cache_dir.join("transcribe_faster.py");
     std::fs::write(&script, SCRIPT).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo preparar el script: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo preparar el script: {e}"),
+        )
     })?;
     let mut command = std::process::Command::new(&python);
     command
@@ -158,13 +159,19 @@ pub async fn subtitles_pipeline(
         command.creation_flags(0x0800_0000);
     }
     let output = command.output().map_err(|_| {
-        ProjectError::message(ProjectErrorCode::ProviderUnavailable, "no se pudo iniciar Python")
+        ProjectError::message(
+            ProjectErrorCode::ProviderUnavailable,
+            "no se pudo iniciar Python",
+        )
     })?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(ProjectError::message(
             ProjectErrorCode::ProviderUnavailable,
-            &format!("Faster-Whisper falló: {}", stderr.chars().take(400).collect::<String>()),
+            &format!(
+                "Faster-Whisper falló: {}",
+                stderr.chars().take(400).collect::<String>()
+            ),
         ));
     }
     let transcription: TranscriptionResult = parse_result(&output.stdout)?;
@@ -178,7 +185,11 @@ pub async fn subtitles_pipeline(
     // 2) Traducción opcional con el proveedor configurado.
     let mut translated = false;
     let mut simulated = false;
-    if let Some(target) = request.target_language.as_deref().filter(|t| !t.trim().is_empty()) {
+    if let Some(target) = request
+        .target_language
+        .as_deref()
+        .filter(|t| !t.trim().is_empty())
+    {
         let texts: Vec<String> = cues.iter().map(|(_, _, t)| t.clone()).collect();
         let result = crate::commands::providers::translate_subtitles(
             state,
@@ -221,11 +232,17 @@ pub async fn subtitles_pipeline(
     let ass = cues_to_ass(&cues, w, h);
     if let Some(parent) = ass_path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| {
-            ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo crear la carpeta: {e}"))
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo crear la carpeta: {e}"),
+            )
         })?;
     }
     std::fs::write(&ass_path, &ass).map_err(|e| {
-        ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo escribir el ASS: {e}"))
+        ProjectError::message(
+            ProjectErrorCode::Io,
+            &format!("no se pudo escribir el ASS: {e}"),
+        )
     })?;
 
     // 4) Burn opcional con el filtro subtitles (libass).
@@ -240,7 +257,10 @@ pub async fn subtitles_pipeline(
         }
         if let Some(parent) = out.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
-                ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo crear la carpeta: {e}"))
+                ProjectError::message(
+                    ProjectErrorCode::Io,
+                    &format!("no se pudo crear la carpeta: {e}"),
+                )
             })?;
         }
         let tmp = out.with_extension("tmp.mp4");
@@ -251,13 +271,22 @@ pub async fn subtitles_pipeline(
         for encoder in ["libopenh264", "h264_mf"] {
             let run = std::process::Command::new(&ffmpeg)
                 .args([
-                    "-hide_banner", "-loglevel", "error", "-y",
-                    "-i", &input.to_string_lossy(),
-                    "-vf", &format!("subtitles={ass_arg}"),
-                    "-c:v", encoder,
-                    "-pix_fmt", "yuv420p",
-                    "-c:a", "aac",
-                    "-movflags", "+faststart",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-y",
+                    "-i",
+                    &input.to_string_lossy(),
+                    "-vf",
+                    &format!("subtitles={ass_arg}"),
+                    "-c:v",
+                    encoder,
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-movflags",
+                    "+faststart",
                     &tmp.to_string_lossy(),
                 ])
                 .stdin(Stdio::null())
@@ -270,7 +299,10 @@ pub async fn subtitles_pipeline(
                     break;
                 }
                 Ok(o) => {
-                    last_err = String::from_utf8_lossy(&o.stderr).chars().take(300).collect();
+                    last_err = String::from_utf8_lossy(&o.stderr)
+                        .chars()
+                        .take(300)
+                        .collect();
                     let _ = std::fs::remove_file(&tmp);
                 }
                 Err(e) => {
@@ -286,7 +318,10 @@ pub async fn subtitles_pipeline(
             ));
         }
         std::fs::rename(&tmp, &out).map_err(|e| {
-            ProjectError::message(ProjectErrorCode::Io, &format!("no se pudo publicar el video: {e}"))
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                &format!("no se pudo publicar el video: {e}"),
+            )
         })?;
         output_file = Some(out.to_string_lossy().to_string());
     }
@@ -307,10 +342,14 @@ fn probe_size(ffprobe: Option<&PathBuf>, input: &Path) -> Option<(u32, u32)> {
     let ffprobe = ffprobe?;
     let out = std::process::Command::new(ffprobe)
         .args([
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "json",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
             &input.to_string_lossy(),
         ])
         .output()

@@ -93,6 +93,17 @@ import {
  */
 const HEADER_FALLBACK = 160;
 
+const TRANSITION_LABELS: Record<string, string> = {
+  dissolve: 'Disolvencia',
+  'fade-black': 'Fundido a negro',
+  'fade-white': 'Fundido a blanco',
+  'dip-color': 'Fundido a color',
+  'slide-left': 'Deslizar',
+  'slide-right': 'Deslizar',
+  'slide-up': 'Deslizar',
+  'slide-down': 'Deslizar',
+};
+
 /**
  * Ancho real de la columna de cabecera.
  *
@@ -316,6 +327,10 @@ function ClipBlockView({
             audioOnly: true,
           }
         : null;
+  const transition =
+    'transitionIn' in clip && clip.transitionIn && clip.transitionIn.frames > 0
+      ? clip.transitionIn
+      : undefined;
 
   function beginFade(
     event: ReactPointerEvent<HTMLSpanElement>,
@@ -427,6 +442,20 @@ function ClipBlockView({
         <span className="clip-window">
           in {clip.source.inFrame} · out {clip.source.outFrame}
         </span>
+      ) : null}
+      {transition ? (
+        <span
+          className={`clip-transition transition-${transition.type}`}
+          style={{
+            width: Math.max(4, Math.min(width - 8, transition.frames * pxPerFrame)),
+            ...(transition.type === 'dip-color' && transition.color
+              ? { backgroundColor: transition.color }
+              : {}),
+          }}
+          role="img"
+          aria-label={`Transición de entrada: ${TRANSITION_LABELS[transition.type] ?? transition.type}, ${transition.frames} frames`}
+          title={`Transición de entrada: ${TRANSITION_LABELS[transition.type] ?? transition.type} · ${transition.frames} frames`}
+        />
       ) : null}
       {selected && !track.locked ? (
         <>
@@ -670,6 +699,8 @@ export const Timeline = memo(function Timeline() {
     store.state.selection.kind === 'clip' ? store.state.selection.id : null;
   const selectedCueId =
     store.state.selection.kind === 'cue' ? store.state.selection.id : null;
+  // Puntos in/out de la secuencia (port Kdenlive): rango de exportación.
+  const ioRange = store.state.ioRange;
   // El zoom y el imán arrancan con lo elegido en Ajustes → Editor; después el
   // usuario manda con los controles de la barra de la timeline.
   const [pxPerFrame, setPxPerFrame] = useState(preferences.defaultZoom);
@@ -1446,6 +1477,19 @@ export const Timeline = memo(function Timeline() {
       } else if (match('timeline.toggleMarker')) {
         event.preventDefault();
         toggleMarkerAtPlayhead();
+      } else if (match('timeline.setInPoint') || match('timeline.setOutPoint')) {
+        // I/O de la secuencia en el playhead (como Kdenlive).
+        event.preventDefault();
+        store.setIoPoint(match('timeline.setInPoint') ? 'in' : 'out');
+        store.setNotice(
+          match('timeline.setInPoint')
+            ? `Entrada de la secuencia en ${formatTimecode(store.getPlayhead(), fps)}.`
+            : `Salida de la secuencia en ${formatTimecode(store.getPlayhead(), fps)}.`,
+        );
+      } else if (match('timeline.clearInOut')) {
+        event.preventDefault();
+        store.clearIoRange();
+        store.setNotice('Puntos de entrada/salida de la secuencia eliminados.');
       } else if (match('timeline.panMode')) {
         event.preventDefault();
         setPanMode((value) => !value);
@@ -1607,6 +1651,8 @@ export const Timeline = memo(function Timeline() {
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
+              ioIn: store.state.ioRange?.inFrame ?? undefined,
+              ioOut: store.state.ioRange?.outFrame ?? undefined,
             }),
             threshold,
           );
@@ -1639,6 +1685,8 @@ export const Timeline = memo(function Timeline() {
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
+              ioIn: store.state.ioRange?.inFrame ?? undefined,
+              ioOut: store.state.ioRange?.outFrame ?? undefined,
             }),
             threshold,
           );
@@ -1702,6 +1750,8 @@ export const Timeline = memo(function Timeline() {
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
+              ioIn: store.state.ioRange?.inFrame ?? undefined,
+              ioOut: store.state.ioRange?.outFrame ?? undefined,
             }),
             threshold,
           );
@@ -1735,6 +1785,8 @@ export const Timeline = memo(function Timeline() {
               scenes: scenesRef.current,
               beats: beatsRef.current,
               beatLabel: beatLabelRef.current,
+              ioIn: store.state.ioRange?.inFrame ?? undefined,
+              ioOut: store.state.ioRange?.outFrame ?? undefined,
             }),
             threshold,
           );
@@ -2637,6 +2689,30 @@ export const Timeline = memo(function Timeline() {
                   <span className="timeline-marker-flag" aria-hidden="true" />
                 </button>
               ))}
+              {ioRange?.inFrame != null && ioRange.outFrame != null && ioRange.outFrame > ioRange.inFrame ? (
+                <span
+                  className="timeline-io-range"
+                  style={{
+                    left: ioRange.inFrame * pxPerFrame,
+                    width: (ioRange.outFrame - ioRange.inFrame) * pxPerFrame,
+                  }}
+                  aria-hidden="true"
+                />
+              ) : null}
+              {ioRange?.inFrame != null ? (
+                <span
+                  className="timeline-io-mark io-in"
+                  style={{ left: ioRange.inFrame * pxPerFrame }}
+                  title={`Entrada · ${formatTimecode(ioRange.inFrame, fps)}`}
+                />
+              ) : null}
+              {ioRange?.outFrame != null ? (
+                <span
+                  className="timeline-io-mark io-out"
+                  style={{ left: ioRange.outFrame * pxPerFrame }}
+                  title={`Salida · ${formatTimecode(ioRange.outFrame, fps)}`}
+                />
+              ) : null}
             </div>
           </div>
 

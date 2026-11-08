@@ -107,6 +107,11 @@ function construirEvidencia(store: ProjectStoreValue): Record<string, readonly u
     'playback.goToEnd': [store.setPlayhead, totalFrames],
     'timeline.splitAtPlayhead': [splitClip, store.mutate],
     'timeline.toggleMarker': [addMarker, deleteMarker, markerAtFrame, store.update],
+    // Puntos in/out de la secuencia: operan vía el handler de Timeline.tsx
+    // contra los métodos del store (persisten en store.state.ioRange).
+    'timeline.setInPoint': [store.setIoPoint, Timeline],
+    'timeline.setOutPoint': [store.setIoPoint, Timeline],
+    'timeline.clearInOut': [store.clearIoRange, Timeline],
     'timeline.trimIn': [trimClip, store.update],
     'timeline.trimOut': [trimClip, store.update],
     'timeline.zoomIn': [Timeline],

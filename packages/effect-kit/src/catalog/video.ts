@@ -510,6 +510,38 @@ void main() {
   ],
 });
 
+// Tomás del light.flare en export: el shader calcula
+// `p = (v_texCoord - position) * (aspect,1)`, `d = length(p)` y suma
+// `core = smoothstep(size,0,d)`, `ring = smoothstep(size*1.4,size,|d-size*0.9|)*0.5`
+// y `ghost = smoothstep(size*0.6,0,|mirror|)*0.6` con `mirror` en `1-position`,
+// todo por `tint*intensity` y mezcla screen `1-(1-c)(1-l)`. geq repite la
+// cuenta por píxel sobre fondo negro (smoothstep cúbico escrito a mano) y
+// `blend=all_mode=screen` reproduce la mezcla. Con DX=X+0.5-position.x*W y
+// DY=Y+0.5-position.y*H se cumple p=(DX,DY)/H porque aspect=W/H.
+const FLARE_S = 'max({size},0.000001)';
+const FLARE_DX = '(X+0.5-{position.x}*W)';
+const FLARE_DY = '(Y+0.5-{position.y}*H)';
+const FLARE_DIST = `sqrt(${FLARE_DX}*${FLARE_DX}+${FLARE_DY}*${FLARE_DY})/H`;
+const FLARE_CORE_T = `clip(1-${FLARE_DIST}/${FLARE_S},0,1)`;
+const FLARE_CORE = `(${FLARE_CORE_T}*${FLARE_CORE_T}*(3-2*${FLARE_CORE_T}))`;
+const FLARE_RING_X = `abs(${FLARE_DIST}-${FLARE_S}*0.9)`;
+const FLARE_RING_T = `clip((1.4*${FLARE_S}-${FLARE_RING_X})/max(${FLARE_S}*0.4,0.000001),0,1)`;
+const FLARE_RING = `(${FLARE_RING_T}*${FLARE_RING_T}*(3-2*${FLARE_RING_T})*0.5)`;
+const FLARE_MX = '(X+0.5-(1-{position.x})*W)';
+const FLARE_MY = '(Y+0.5-(1-{position.y})*H)';
+const FLARE_MDIST = `sqrt(${FLARE_MX}*${FLARE_MX}+${FLARE_MY}*${FLARE_MY})/H`;
+const FLARE_GHOST_T = `clip(1-${FLARE_MDIST}/max(${FLARE_S}*0.6,0.000001),0,1)`;
+const FLARE_GHOST = `(${FLARE_GHOST_T}*${FLARE_GHOST_T}*(3-2*${FLARE_GHOST_T})*0.6)`;
+const FLARE_MASK = `(${FLARE_CORE}+${FLARE_RING}+${FLARE_GHOST})`;
+const flareChannel = (axis: 'r' | 'g' | 'b') =>
+  `clip({tint.${axis}}*${FLARE_MASK}*{intensity}*255,0,255)`;
+const flareGraph =
+  'split=2[%A%b][%A%l];' +
+  '[%A%b]format=gbrp[%A%base];' +
+  '[%A%l]format=gbrp,geq=' +
+  `r='${flareChannel('r')}':g='${flareChannel('g')}':b='${flareChannel('b')}'[%A%ov];` +
+  '[%A%base][%A%ov]blend=all_mode=screen';
+
 const flare = v({
   id: 'light.flare',
   name: 'Destello de lente',
@@ -540,6 +572,11 @@ void main() {
   fragColor = vec4(1.0 - (1.0 - c) * (1.0 - light), 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: flareGraph,
+    fidelity: 'approximate',
+    note: 'geq repite por píxel el core+anillo+ghost especular del shader (smoothstep cúbico manual) sobre fondo negro y blend=all_mode=screen reproduce la mezcla; el eje Y puede venir espejado respecto a v_texCoord (la posición vertical se invierte) y el coste es alto en cuadros grandes.',
+  },
 });
 
 // ──────────────────────────────────────────────────────── Desenfoque ──
@@ -1646,6 +1683,27 @@ void main() {
   },
 });
 
+// Tomás del distort.twirl en export: el shader calcula
+// `p = (v_texCoord - center) * (aspect,1)`, `d = length(p)`,
+// `falloff = 1 - smoothstep(0, radius, d)` y remuestrea en
+// `rotate(p, radians(angle)*falloff)/(aspect,1) + center`. geq repite la
+// misma cuenta por píxel; con DX=X+0.5-center.x*W y DY=Y+0.5-center.y*H
+// (p=(DX,DY)/H) las coordenadas de muestreo quedan
+// `clip(c*DX - s*DY + center.x*W - 0.5, 0, W-1)` y la análoga en Y.
+const TWIRL_DX = '(X+0.5-{center.x}*W)';
+const TWIRL_DY = '(Y+0.5-{center.y}*H)';
+const TWIRL_DIST = `sqrt(${TWIRL_DX}*${TWIRL_DX}+${TWIRL_DY}*${TWIRL_DY})/H`;
+const TWIRL_T = `clip(${TWIRL_DIST}/max({radius},0.000001),0,1)`;
+const TWIRL_FALLOFF = `(1-${TWIRL_T}*${TWIRL_T}*(3-2*${TWIRL_T}))`;
+const TWIRL_ANG = `({angle}*0.017453292519943295)*${TWIRL_FALLOFF}`;
+const TWIRL_CS = `cos(${TWIRL_ANG})`;
+const TWIRL_SN = `sin(${TWIRL_ANG})`;
+const TWIRL_SX = `clip(${TWIRL_CS}*${TWIRL_DX}-${TWIRL_SN}*${TWIRL_DY}+{center.x}*W-0.5,0,W-1)`;
+const TWIRL_SY = `clip(${TWIRL_SN}*${TWIRL_DX}+${TWIRL_CS}*${TWIRL_DY}+{center.y}*H-0.5,0,H-1)`;
+const twirlGraph =
+  'format=gbrp,geq=' +
+  `r='r(${TWIRL_SX},${TWIRL_SY})':g='g(${TWIRL_SX},${TWIRL_SY})':b='b(${TWIRL_SX},${TWIRL_SY})'`;
+
 const twirl = v({
   id: 'distort.twirl',
   name: 'Remolino',
@@ -1663,7 +1721,7 @@ const twirl = v({
 uniform float p_radius;
 uniform vec2 p_center;
 void main() {
-  vec2 p = ek_centered(v_texCoord - p_center);
+  vec2 p = (v_texCoord - p_center) * vec2(ek_aspect(), 1.0);
   float d = length(p);
   float falloff = 1.0 - smoothstep(0.0, p_radius, d);
   vec2 rotated = ek_rotate(p, radians(p_angle) * falloff);
@@ -1671,6 +1729,11 @@ void main() {
   fragColor = vec4(texture(u_currentTexture, clamp(uv, 0.0, 1.0)).rgb, 1.0);
 }`),
   ],
+  ffmpeg: {
+    graph: twirlGraph,
+    fidelity: 'approximate',
+    note: 'geq evalúa la misma rotación radial por píxel (smoothstep cúbico del radio) y remuestrea con bilineal; el mapeo a v_texCoord puede diferir medio píxel y el coste es alto en cuadros grandes.',
+  },
 });
 
 const fisheye = v({

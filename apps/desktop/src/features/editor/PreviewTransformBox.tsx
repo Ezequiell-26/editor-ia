@@ -9,16 +9,28 @@ import {
   rotatePatch,
   scaleAxisPatch,
   scalePatch,
+  type BoxRect,
   type BoxTransform,
   type CanvasSize,
 } from './transform-overlay';
 import { snapMove, type GuideLine } from './snap-guides';
 
 interface PreviewTransformBoxProps {
-  readonly clip: Clip;
+  /** Opcional: cuando la caja pertenece a un cue no hay `Clip`. */
+  readonly clip?: Clip;
   readonly project: ProjectDocument;
   readonly playheadFrame: number;
   readonly canvas: CanvasSize;
+  /** Rect MEDIDO de la capa. Sin él se usa el frame completo (legado). */
+  readonly bounds?: BoxRect;
+  /** Transformación de otra capa (cue.motion). */
+  readonly transformOverride?: BoxTransform;
+  /** Destino de escritura alternativo (cue). */
+  readonly onApply?: (patch: Partial<BoxTransform>) => void;
+  readonly labelOverride?: string;
+  readonly lockedOverride?: boolean;
+  /** Los cues con `words` ignoran `motion`: se permite mover, no escalar. */
+  readonly allowScale?: boolean;
 }
 
 type DragKind = 'move' | 'scale' | 'scale-x' | 'scale-y' | 'rotate';
@@ -65,42 +77,52 @@ export function PreviewTransformBox({
   project,
   playheadFrame,
   canvas,
+  bounds,
+  transformOverride,
+  onApply,
+  labelOverride,
+  lockedOverride,
+  allowScale = true,
 }: PreviewTransformBoxProps) {
   const store = useProjectStore();
   const dragRef = useRef<DragState | null>(null);
   const [dragging, setDragging] = useState<DragKind | null>(null);
   const [guides, setGuides] = useState<readonly GuideLine[]>([]);
 
-  const relativeFrame = Math.max(
-    0,
-    Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame),
-  );
-  const sampled = clipTransformAtFrame(clip, relativeFrame);
+  const relativeFrame = clip
+    ? Math.max(0, Math.min(clip.durationFrames - 1, playheadFrame - clip.startFrame))
+    : 0;
+  const sampled = clip ? clipTransformAtFrame(clip, relativeFrame) : null;
   const transform: BoxTransform = useMemo(
-    () => ({
-      // Un clip sin transformación previa no tiene muestra: se arranca de
-      // los valores por defecto, no de `undefined` (que daría NaN al mover).
-      offsetX: sampled.offsetX ?? 0,
-      offsetY: sampled.offsetY ?? 0,
-      scaleX: sampled.scaleX ?? 1,
-      scaleY: sampled.scaleY ?? 1,
-      rotationDeg: sampled.rotationDeg ?? 0,
-      opacity: sampled.opacity ?? 1,
-    }),
+    () =>
+      transformOverride ?? {
+        // Un clip sin transformación previa no tiene muestra: se arranca de
+        // los valores por defecto, no de `undefined` (que daría NaN al mover).
+        offsetX: sampled?.offsetX ?? 0,
+        offsetY: sampled?.offsetY ?? 0,
+        scaleX: sampled?.scaleX ?? 1,
+        scaleY: sampled?.scaleY ?? 1,
+        rotationDeg: sampled?.rotationDeg ?? 0,
+        opacity: sampled?.opacity ?? 1,
+      },
     [
-      sampled.offsetX,
-      sampled.offsetY,
-      sampled.scaleX,
-      sampled.scaleY,
-      sampled.rotationDeg,
-      sampled.opacity,
+      transformOverride,
+      sampled?.offsetX,
+      sampled?.offsetY,
+      sampled?.scaleX,
+      sampled?.scaleY,
+      sampled?.rotationDeg,
+      sampled?.opacity,
     ],
   );
-  const hasKeyframes = (clip.transform?.keyframes?.length ?? 0) > 0;
-  const box = boxRect(transform, project.video, canvas);
+  const hasKeyframes =
+    lockedOverride ?? (clip?.transform?.keyframes?.length ?? 0) > 0;
+  // Sin `bounds` se conserva el comportamiento histórico (fotograma completo).
+  const box = bounds ?? boxRect(transform, project.video, canvas);
 
-  const apply = useCallback(
+  const writeClip = useCallback(
     (patch: Partial<BoxTransform>) => {
+      if (!clip) return;
       store.update((current) => {
         const target = current.timeline.clips.find((item) => item.id === clip.id);
         // `transform` es opcional en el esquema: puede no existir todavía, así
@@ -133,11 +155,15 @@ export function PreviewTransformBox({
         };
       });
     },
-    [clip.id, store],
+    [clip, store],
   );
+  const apply = onApply ?? writeClip;
 
   function begin(kind: DragKind, event: React.PointerEvent<HTMLElement>): void {
     if (hasKeyframes) return;
+    // Los cues con palabras ignoran `motion` en el render: no se ofrecen
+    // tiradores que no producirían un cambio visible.
+    if (!allowScale && kind !== 'move') return;
     // Sin coordenadas no hay arrastre posible; evita escribir NaN en el clip.
     if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
     event.preventDefault();

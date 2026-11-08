@@ -391,8 +391,8 @@ pub(crate) async fn chat_completion(request: ChatRequest<'_>) -> Result<String, 
 /// Parsea y valida el plan de guion devuelto por el modelo. Separado para poder
 /// aplicar el reintento de reparación sin duplicar el contrato.
 fn parse_script_content(content: &str) -> Result<RawPlan, String> {
-    let json_text =
-        extract_json(content).ok_or_else(|| "la respuesta no contiene un objeto JSON".to_owned())?;
+    let json_text = extract_json(content)
+        .ok_or_else(|| "la respuesta no contiene un objeto JSON".to_owned())?;
     let value: Value =
         serde_json::from_str(json_text).map_err(|_| "el JSON no se pudo parsear".to_owned())?;
     validate_plan(&value)
@@ -659,9 +659,7 @@ async fn test_provider_endpoint(
 /// error genérico de una generación: devuelve un estado tipado y accionable que
 /// la interfaz puede mostrar tal cual.
 #[tauri::command]
-pub async fn test_provider(
-    state: State<'_, AppState>,
-) -> Result<ProviderTestResult, ProjectError> {
+pub async fn test_provider(state: State<'_, AppState>) -> Result<ProviderTestResult, ProjectError> {
     let settings = state.settings_snapshot()?;
     let provider = settings.provider.clone();
     let base_url = provider.base_url.trim().to_owned();
@@ -1756,8 +1754,8 @@ mod tests {
             r#"{"data":[{"id":"llama3.1"}]}"#,
         )])
         .await;
-        let result = test_provider_endpoint(&base, "modelo-inexistente", None, Duration::from_secs(2))
-            .await;
+        let result =
+            test_provider_endpoint(&base, "modelo-inexistente", None, Duration::from_secs(2)).await;
         let _ = server.await;
         assert!(result.ok);
         assert_eq!(result.model.as_deref(), Some("llama3.1"));
@@ -1766,7 +1764,11 @@ mod tests {
 
     #[tokio::test]
     async fn provider_test_classifies_401_and_404() {
-        let (base, server) = serve(vec![http_response("401 Unauthorized", r#"{"error":"bad key"}"#)]).await;
+        let (base, server) = serve(vec![http_response(
+            "401 Unauthorized",
+            r#"{"error":"bad key"}"#,
+        )])
+        .await;
         let unauthorized = test_provider_endpoint(&base, "m", None, Duration::from_secs(2)).await;
         let _ = server.await;
         assert!(!unauthorized.ok);
@@ -1774,7 +1776,8 @@ mod tests {
         assert_eq!(unauthorized.http_status, Some(401));
         assert!(unauthorized.detail.contains("401"), "{unauthorized:?}");
 
-        let (base, server) = serve(vec![http_response("404 Not Found", r#"{"error":"nope"}"#)]).await;
+        let (base, server) =
+            serve(vec![http_response("404 Not Found", r#"{"error":"nope"}"#)]).await;
         let not_found = test_provider_endpoint(&base, "m", None, Duration::from_secs(2)).await;
         let _ = server.await;
         assert!(!not_found.ok);
@@ -1815,7 +1818,8 @@ mod tests {
     async fn provider_test_classifies_transport_failures_as_unreachable() {
         // URL no parseable: el error de transporte no debe confundirse con un
         // rechazo del proveedor ni con un timeout.
-        let invalid = test_provider_endpoint("sin esquema", "m", None, Duration::from_millis(300)).await;
+        let invalid =
+            test_provider_endpoint("sin esquema", "m", None, Duration::from_millis(300)).await;
         assert!(!invalid.ok);
         assert_eq!(invalid.status, "unreachable", "{invalid:?}");
 

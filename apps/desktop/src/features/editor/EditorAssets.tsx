@@ -122,10 +122,15 @@ const TRANSITION_PRESETS: readonly TransitionPreset[] = [
   { id: 'dissolve', label: 'Disolución', description: 'Fundido cruzado clásico suave', iconSymbol: '░' },
   { id: 'fade-black', label: 'Fundido a Negro', description: 'Cierre y apertura cinematográfica', iconSymbol: '■' },
   { id: 'fade-white', label: 'Fundido a Blanco', description: 'Apertura luminosa desde blanco', iconSymbol: '□' },
+  { id: 'dip-color', label: 'Fundido a Color', description: 'Paso por un color sólido (ajustable en Inspector)', iconSymbol: '◐' },
   { id: 'slide-left', label: 'Deslizar Izq.', description: 'Empuje lateral hacia la izquierda', iconSymbol: '◀' },
   { id: 'slide-right', label: 'Deslizar Der.', description: 'Empuje lateral hacia la derecha', iconSymbol: '▶' },
   { id: 'slide-up', label: 'Deslizar Arriba', description: 'El clip sube desde abajo', iconSymbol: '▲' },
   { id: 'slide-down', label: 'Deslizar Abajo', description: 'El clip baja desde arriba', iconSymbol: '▼' },
+  { id: 'wipe-left', label: 'Barrido Izq.', description: 'El nuevo clip barre desde la derecha', iconSymbol: '⇤' },
+  { id: 'wipe-right', label: 'Barrido Der.', description: 'El nuevo clip barre desde la izquierda', iconSymbol: '⇥' },
+  { id: 'wipe-up', label: 'Barrido Arriba', description: 'El nuevo clip barre desde abajo', iconSymbol: '⇡' },
+  { id: 'wipe-down', label: 'Barrido Abajo', description: 'El nuevo clip barre desde arriba', iconSymbol: '⇣' },
 ];
 
 /* ── Árbol por módulo (capturas 100, 102–111, 114) ─────────────────────────
@@ -220,6 +225,7 @@ const RAIL_TREES: Record<RailView, readonly RailTreeGroup[]> = {
         { id: 'all', label: 'Tendencias' },
         { id: 'fade', label: 'Desvanecimiento y disolución' },
         { id: 'slide', label: 'Deslizar' },
+        { id: 'wipe', label: 'Barrido' },
         { id: 'zoom', label: 'Zoom', pending: true },
         { id: '3d', label: 'Efectos 3D', pending: true },
         { id: 'premium', label: 'Premium', pending: true },
@@ -294,6 +300,7 @@ function effectMatchesSetting(preset: (typeof EFFECT_PRESETS)[number], id: strin
 function transitionMatchesPreset(preset: (typeof TRANSITION_PRESETS)[number], id: string): boolean {
   if (id === 'fade') return preset.id === 'dissolve' || preset.id.startsWith('fade-');
   if (id === 'slide') return preset.id.startsWith('slide-');
+  if (id === 'wipe') return preset.id.startsWith('wipe-');
   return true;
 }
 function lookMatchesPreset(look: (typeof COLOR_LOOKS)[number], id: string): boolean {
@@ -956,7 +963,11 @@ export function EditorAssets({
     if (!selectedClip) {
       // Aplicar a todos los cortes si no hay clip individual seleccionado
       const result = store.mutate((current) =>
-        applyTransitionToCuts(current, { type, frames: transitionFrames }),
+        applyTransitionToCuts(current, {
+          type,
+          frames: transitionFrames,
+          color: type === 'dip-color' ? '#1b2a4a' : undefined,
+        }),
       );
       if (result && result.applied > 0) {
         store.setNotice(`Transición aplicada a ${result.applied} corte(s).`);
@@ -967,7 +978,11 @@ export function EditorAssets({
     }
     store.update((current) =>
       updateClip(current, selectedClip.id, {
-        transitionIn: { type, frames: transitionFrames },
+        transitionIn: {
+          type,
+          frames: transitionFrames,
+          ...(type === 'dip-color' ? { color: '#1b2a4a' } : {}),
+        },
       }),
     );
     store.setNotice(`Transición aplicada al clip seleccionado (${transitionFrames} frames).`);
@@ -975,7 +990,11 @@ export function EditorAssets({
 
   function applyAllTransitions(type: ClipTransition['type']): void {
     const result = store.mutate((current) =>
-      applyTransitionToCuts(current, { type, frames: transitionFrames }),
+      applyTransitionToCuts(current, {
+        type,
+        frames: transitionFrames,
+        color: type === 'dip-color' ? '#1b2a4a' : undefined,
+      }),
     );
     if (result && result.applied > 0) {
       store.setNotice(`Transición aplicada a ${result.applied} corte(s).`);
