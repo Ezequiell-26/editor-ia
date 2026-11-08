@@ -185,6 +185,28 @@ reconstruye el instalador salvo que el ítem lo pida.
     globales — evaluar si corresponde moverlos enteros al final del
     critical path o repartirlos por vista).
 
+- `[done]` **CSS splitting fase 2 · slice 9: STUDIO UI clasificado por
+  uso real (2026-11-08)** — cierre del barrido mecánico de app.css.
+  - **Método**: mismo índice clase→área sobre las 734 reglas de las
+    secciones STUDIO UI pass 1+2. Veredictos estrictos: editor sólo si
+    TODAS las áreas de sus clases son features editor; content sólo si
+    todas son features no-editor (componentes/app compartidos ⇒ stay).
+    225 editor + 147 content candidatas; 20 reglas excluidas por
+    conflicto de propiedad con reglas que quedan (habrían invertido la
+    cascada: p.ej. `.asset-rail` radius/background, hints de color).
+  - **@media**: 22 reglas movidas estaban dentro de media queries —
+    detectado y re-envueltas con sus params originales en los entries
+    (verificado regla por regla).
+  - **Verificación**: `postcss.parse` OK · multiset check con EOL
+    normalizado: **0 reglas faltantes** vs HEAD · `git diff --check`
+    limpio · sin medición visual (pendiente honesta).
+  - **Estado acumulado fase 2**: app.css 13.830 → **4.946 líneas
+    (−64,2 %)**. Quedan ~705 reglas: tokens, shell, primitivas premium
+    compartidas, chrome compartido y refinamientos ambiguos.
+  - **Sigue vivo**: medición CDP/SSIM con la app corriendo para cierre
+    formal; evaluar si las ~360 reglas STUDIO UI que quedaron (uso
+    mixto/compartido) tienen sub-grupos separables con más evidencia.
+
 - `[done]` **CSS splitting fase 2 · slice 8: ORGANIZACIÓN VISUAL
   clasificada por uso real de selectores (2026-11-08)** — cierre del
   barrido de la sección org.

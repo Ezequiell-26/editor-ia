@@ -69,3 +69,18 @@ editor entry; lo de herramientas content en `content-tools.css` +
   genéricas .badge/.active, clases sin uso tsx, uso mixto).
 - app.css: 9.198 → 7.540 líneas. Acumulado 13.830 → 7.540 (−45,5 %).
 - Pendiente: medición visual CDP/SSIM con la app corriendo.
+
+## Slice 9 — STUDIO UI clasificado por uso real
+
+- 734 reglas STUDIO UI pass1+2 clasificadas con índice clase→área.
+  Veredicto estricto: editor = todas las áreas en features editor;
+  content = todas en features no-editor (components/app ⇒ stay).
+- 209 editor + 143 content movidas; 20 excluidas por conflicto de
+  propiedad real con reglas restantes (cascada se habría invertido).
+- 22 reglas dentro de @media re-envueltas con params originales.
+- app.css: 7.540 → 4.946 líneas. Acumulado 13.830 → 4.946 (−64,2 %).
+- Multiset check EOL-normalizado: 0 reglas faltantes vs HEAD.
+- Lecciones: (1) clases compartidas components/app invalidan ambos
+  veredictos; (2) postcss walkRules pierde el contexto @media —
+  verificar rules dentro de atrules antes de mover texto plano;
+  (3) CRLF vs LF del repo exige normalizar EOL en comparaciones.
