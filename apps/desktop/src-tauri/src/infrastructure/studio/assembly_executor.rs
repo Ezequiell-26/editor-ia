@@ -371,6 +371,63 @@ impl AssemblyStageExecutor {
         }
     }
 
+    /// Divide la ventana `[in_frame, out_frame)` en un segmento por plano:
+    /// los cortes detectados dentro de la ventana son los límites. Los
+    /// planos más cortos que `MIN_SHOT` frames se fusionan con el anterior
+    /// y el total se acota a 16 segmentos (demasiados ⇒ se fusionan los
+    /// más cortos hasta entrar).
+    fn shot_segments(
+        scene_cuts: &[f64],
+        in_frame: u64,
+        out_frame: u64,
+        fps: f64,
+    ) -> Vec<(u64, u64)> {
+        const MIN_SHOT: u64 = 8;
+        const MAX_SHOTS: usize = 16;
+        let mut bounds = vec![in_frame];
+        let mut cuts: Vec<u64> = scene_cuts
+            .iter()
+            .map(|t| (t * fps).round().max(0.0) as u64)
+            .filter(|c| *c > in_frame && *c < out_frame)
+            .collect();
+        cuts.sort_unstable();
+        cuts.dedup();
+        bounds.extend(cuts);
+        bounds.push(out_frame);
+        let mut segs: Vec<(u64, u64)> = bounds
+            .windows(2)
+            .filter_map(|w| (w[1] > w[0]).then_some((w[0], w[1])))
+            .collect();
+        // Fusiona planos diminutos con el segmento previo.
+        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(segs.len());
+        for seg in segs.drain(..) {
+            if seg.1 - seg.0 < MIN_SHOT {
+                if let Some(last) = merged.last_mut() {
+                    last.1 = seg.1;
+                    continue;
+                }
+            }
+            merged.push(seg);
+        }
+        // Acota el número de planos fusionando el más corto con un vecino.
+        while merged.len() > MAX_SHOTS {
+            let (idx, _) = merged
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, s)| s.1 - s.0)
+                .map(|(i, s)| (i, s.1 - s.0))
+                .unwrap();
+            if idx + 1 < merged.len() {
+                merged[idx].1 = merged[idx + 1].1;
+                merged.remove(idx + 1);
+            } else {
+                merged[idx - 1].1 = merged[idx].1;
+                merged.remove(idx);
+            }
+        }
+        merged
+    }
+
     fn ensure_track(doc: &mut Value, kind: &str, label: &str, next_order: &mut u64) -> String {
         let tracks = doc["timeline"]["tracks"]
             .as_array_mut()
@@ -537,53 +594,71 @@ impl AssemblyStageExecutor {
             } else {
                 (0, duration)
             };
-            let clip = match kind {
-                "image" => json!({
-                    "id": clip_id,
-                    "trackId": clip_track,
-                    "label": scene.title,
-                    "startFrame": start,
-                    "durationFrames": duration,
-                    "kind": "image",
-                    "source": { "type": "asset", "assetId": asset_id }
-                }),
-                "audio" => json!({
-                    "id": clip_id,
-                    "trackId": clip_track,
-                    "label": scene.title,
-                    "startFrame": start,
-                    "durationFrames": duration,
-                    "kind": "audio",
-                    "source": {
-                        "type": "asset",
-                        "assetId": asset_id,
-                        "inFrame": 0,
-                        "outFrame": duration
-                    }
-                }),
-                _ => json!({
-                    "id": clip_id,
-                    "trackId": clip_track,
-                    "label": scene.title,
-                    "startFrame": start,
-                    "durationFrames": duration,
-                    "kind": "video",
-                    "source": {
-                        "type": "asset",
-                        "assetId": asset_id,
-                        "inFrame": in_frame,
-                        "outFrame": out_frame
-                    }
-                }),
+            // Un clip por plano cuando hay cortes detectados: cada segmento
+            // entre cortes se monta como clip propio (mismo asset, in/out
+            // propios). Las transiciones del plan se aplican sólo al primer
+            // clip de cada escena (visual_positions), no entre planos.
+            let segments: Vec<(u64, u64)> = if kind == "video" && !scene.scene_cuts.is_empty() {
+                Self::shot_segments(&scene.scene_cuts, in_frame, out_frame, fps)
+            } else {
+                vec![(in_frame, out_frame)]
             };
-            let position = doc["timeline"]["clips"].as_array().unwrap().len();
-            doc["timeline"]["clips"]
-                .as_array_mut()
-                .expect("timeline.clips existe")
-                .push(clip);
-            clip_ids.push(clip_id);
-            if matches!(kind, "video" | "image") {
-                visual_positions.push((position, clip_track.to_owned(), duration));
+            for (seg_index, (seg_in, seg_out)) in segments.iter().enumerate() {
+                let seg_clip_id = if seg_index == 0 {
+                    clip_id.clone()
+                } else {
+                    Uuid::new_v4().to_string()
+                };
+                let seg_duration = seg_out - seg_in;
+                let seg_start = start + (seg_in - in_frame);
+                let clip = match kind {
+                    "image" => json!({
+                        "id": seg_clip_id,
+                        "trackId": clip_track,
+                        "label": scene.title,
+                        "startFrame": seg_start,
+                        "durationFrames": duration,
+                        "kind": "image",
+                        "source": { "type": "asset", "assetId": asset_id }
+                    }),
+                    "audio" => json!({
+                        "id": seg_clip_id,
+                        "trackId": clip_track,
+                        "label": scene.title,
+                        "startFrame": seg_start,
+                        "durationFrames": duration,
+                        "kind": "audio",
+                        "source": {
+                            "type": "asset",
+                            "assetId": asset_id,
+                            "inFrame": 0,
+                            "outFrame": duration
+                        }
+                    }),
+                    _ => json!({
+                        "id": seg_clip_id,
+                        "trackId": clip_track,
+                        "label": scene.title,
+                        "startFrame": seg_start,
+                        "durationFrames": seg_duration,
+                        "kind": "video",
+                        "source": {
+                            "type": "asset",
+                            "assetId": asset_id,
+                            "inFrame": seg_in,
+                            "outFrame": seg_out
+                        }
+                    }),
+                };
+                let position = doc["timeline"]["clips"].as_array().unwrap().len();
+                doc["timeline"]["clips"]
+                    .as_array_mut()
+                    .expect("timeline.clips existe")
+                    .push(clip);
+                clip_ids.push(seg_clip_id);
+                if seg_index == 0 && matches!(kind, "video" | "image") {
+                    visual_positions.push((position, clip_track.to_owned(), seg_duration));
+                }
             }
             // Los cues son para escenas visuales: las de audio (voz
             // generada, música) no llevan caption propio.
@@ -961,6 +1036,45 @@ mod tests {
         )
         .unwrap();
         assert_eq!(artifact["scenes"][0]["sceneCuts"], json!([1.5, 3.0]));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Con cortes detectados, `edit` monta un clip por plano dentro de la
+    /// ventana elegida: mismos asset, in/out y startFrame propios.
+    #[test]
+    fn edit_splits_video_scene_into_shot_clips() {
+        let dir = fixture("shots");
+        let catalog = LocalProjectCatalog::new(&dir.join("project.json"), &dir);
+        let mut entry = catalog.get("a1").unwrap().expect("a1 en catálogo");
+        // 30 fps, escena de 120 frames (4 s), medio de 600 frames.
+        // Cortes a 1.5 s (45f) y 3.0 s (90f) → 3 planos: 0-45, 45-90, 90-120.
+        entry.analysis = Some(json!({ "scenes": [1.5, 3.0] }));
+        catalog.upsert(&entry).unwrap();
+
+        let executor = AssemblyStageExecutor::new();
+        let plan = plan_with_scene("");
+        let ctx = ctx(&plan, &dir);
+        executor.execute(StudioStage::Scenes, &ctx).unwrap();
+        let edit = executor.execute(StudioStage::Edit, &ctx).unwrap();
+        assert!(edit.completed, "edit falló: {:?}", edit.error);
+
+        let doc: Value =
+            serde_json::from_str(&fs::read_to_string(dir.join("project.json")).unwrap()).unwrap();
+        let clips = doc["timeline"]["clips"].as_array().unwrap();
+        assert_eq!(clips.len(), 3, "esperaba un clip por plano: {clips:?}");
+        let expected = [(0u64, 45u64), (45, 45), (90, 30)];
+        for (i, clip) in clips.iter().enumerate() {
+            let (in_f, dur) = expected[i];
+            assert_eq!(clip["kind"], "video");
+            assert_eq!(clip["source"]["assetId"], "a1");
+            assert_eq!(clip["source"]["inFrame"], json!(in_f));
+            assert_eq!(clip["source"]["outFrame"], json!(in_f + dur));
+            assert_eq!(clip["startFrame"], json!(in_f));
+            assert_eq!(clip["durationFrames"], json!(dur));
+        }
+        // Sin solapamientos: los startFrame son consecutivos.
+        assert_eq!(clips[1]["startFrame"], json!(45));
+        assert_eq!(clips[2]["startFrame"], json!(90));
         let _ = fs::remove_dir_all(&dir);
     }
 
