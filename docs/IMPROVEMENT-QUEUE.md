@@ -4,6 +4,32 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Primera pasada de `cargo clippy --fix` (2026-11-08)** —
+  higiene de lints del crate, en una pasada del protocolo del loop
+  (Devin CLI). `cargo check` estaba en 0 warnings pero clippy reportaba
+  ~100 warnings en lib + ~127 en lib-test.
+  - **`cargo clippy --fix --lib --all-targets`**: el primer intento
+    **abortó con error de compilación** — el lint
+    `chunks_exact_to_as_chunks` sugiere `as_chunks::<CHANNELS * 4>` que
+    en Rust actual exige llaves en el genérico const
+    (`::<{ CHANNELS * 4 }>`). Reintentado con
+    `-A clippy::chunks_exact_to_as_chunks`: aplicó **~50 fixes
+    machine-applicable en 41 archivos** (191+/261−): `err_expect`,
+    `map_all_any_identity`, `trim_split_whitespace`,
+    `double_ended_iterator_last`, `unnecessary_get_then_check`,
+    `empty_line_after_doc_comments`, `collapsible_if`, etc.
+  - **Verificación**: `cargo check --all-targets` compila ·
+    `cargo test --lib` **698/698** · `cargo fmt` aplicado.
+  - **Quedan ~50 warnings clippy no auto-fixables**, honestos:
+    `too_many_arguments` (funciones del pipeline con 8-13 params —
+    refactor con struct de entrada, no cosmético), `type_complexity`,
+    `format_in_format_args`, `unnecessary_sort_by`, `ptr_arg`,
+    `single_char_add_str`. El lint `chunks_exact_to_as_chunks` sigue
+    abierto en 4 sitios (`dialogue.rs`, `audio_scopes.rs`, `loudness.rs`,
+    `voice_clone.rs`) hasta migrar a `as_chunks::<{ N }>` con llaves.
+  - **Archivos**: 41 archivos de `src-tauri/src` (diff mecánico de
+    clippy), esta entrada, `memory/2026-11-08-clippy-fix-pasada1.md`.
+
 - `[done]` **Warnings `dead_code` del arranque en lib-test a cero
   (2026-11-08)** — continuación de la limpieza de warnings Rust, en una
   pasada del protocolo del loop (Devin CLI).
