@@ -23,6 +23,13 @@ export interface AudioEffectStackProps {
    * `instance.keyframes` y el export las aplica con el render segmentado.
    */
   readonly keyframeFrame?: number | undefined;
+  /** Tasa de frames del proyecto para mostrar las claves en timecode. */
+  readonly frameRate?: number | undefined;
+  /**
+   * Salto del playhead al frame local de una clave de la lista del editor
+   * de curva. Sin el callback las filas quedan como texto.
+   */
+  readonly onSeekFrame?: ((localFrame: number) => void) | undefined;
 }
 
 /**
@@ -38,6 +45,8 @@ export function AudioEffectStack({
   onChange,
   clipLabel,
   keyframeFrame,
+  frameRate,
+  onSeekFrame,
 }: AudioEffectStackProps) {
   const compiled = useMemo(() => compileAudioStack(effectRegistry, stack), [stack]);
   const full = stack.length >= MAX_STACK_EFFECTS;
@@ -64,7 +73,13 @@ export function AudioEffectStack({
         La preview reproduce los 30 efectos del catálogo (con keyframes); el pitcheo usa un shifter granular aproximado.
       </p>
       <EffectBrowser kind="audio" onAdd={add} disabled={full} />
-      <EffectStackPanel stack={stack} onChange={onChange} keyframeFrame={keyframeFrame} />
+      <EffectStackPanel
+        stack={stack}
+        onChange={onChange}
+        keyframeFrame={keyframeFrame}
+        frameRate={frameRate}
+        onSeekFrame={onSeekFrame}
+      />
       <EffectTemplates kind="audio" stack={stack} onApply={(next) => onChange(next)} />
       {compiled.filters.length > 0 ? (
         <details className="audio-chain">

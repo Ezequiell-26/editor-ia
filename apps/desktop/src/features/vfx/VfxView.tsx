@@ -766,6 +766,7 @@ export function VfxView({ onNavigate }: VfxViewProps) {
               localFrame={localFrame}
               frameRate={fps}
               clipLabel={asset?.label ?? clip.label ?? 'Clip'}
+              onSeekFrame={(frame) => store.setPlayhead(clip.startFrame + frame)}
             />
           ) : null}
 

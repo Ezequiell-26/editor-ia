@@ -109,7 +109,7 @@ import {
 } from '../../state/project-actions';
 import { usePlayheadFrame, useProjectStore } from '../../state/project-store';
 import { LosslessCutCard } from './LosslessCutCard';
-import { lumaMateById, lumaMateCandidates, lumaMateIsStale, lumaMateOptionLabel, moveLumaMateToOwnTrack } from './luma-mate';
+import { lumaMateById, lumaMateCandidates, lumaMateFreezePlan, lumaMateIsStale, lumaMateOptionLabel, moveLumaMateToOwnTrack, placeFreezeMate } from './luma-mate';
 import { InspectorSection as Section } from './InspectorSection';
 import { ColorPropertiesPanel } from './properties/ColorPropertiesPanel';
 import { detectBeats, decodeAudioSamples, planBeatCuts, type BeatAnalysis } from '../../state/beat-sync';
@@ -521,6 +521,7 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
   const [beatStride, setBeatStride] = useState(4);
   const [beatInfo, setBeatInfo] = useState<string | null>(null);
   const [freezeBusy, setFreezeBusy] = useState(false);
+  const [mateBusy, setMateBusy] = useState(false);
   const [backgroundBusy, setBackgroundBusy] = useState(false);
   const [backgroundPercent, setBackgroundPercent] = useState<number | null>(null);
   const [stabilizeBusy, setStabilizeBusy] = useState(false);
@@ -802,6 +803,61 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
       );
     } finally {
       setFreezeBusy(false);
+    }
+  }
+  /// Crea el mate del luma wipe cuando no hay clip que cubra el solape:
+  /// extrae un frame del clip saliente (el que termina en el corte) y lo
+  /// monta como `freeze` en una pista oculta que cubre la ventana exacta.
+  async function createLumaMate(): Promise<void> {
+    if (!project) return;
+    const plan = lumaMateFreezePlan(project, clip, fps);
+    if (!plan) {
+      store.setNotice(
+        'No hay un clip de video que cubra el solape para congelar como mate.',
+      );
+      return;
+    }
+    setMateBusy(true);
+    try {
+      const frameAsset = await store.service.extractFreezeFrame({
+        path: plan.assetPath,
+        seconds: plan.seconds,
+        fpsNum: project.video.frameRate.num,
+        fpsDen: project.video.frameRate.den,
+      });
+      if (!frameAsset) return;
+      const result = store.mutate((current) => {
+        let next = addAsset(current, frameAsset);
+        next = markAssetReadyFrom(next, frameAsset.id, plan.sourceAssetId);
+        const placed = placeFreezeMate(next, frameAsset.id, {
+          startFrame: plan.startFrame,
+          durationFrames: plan.durationFrames,
+          label: plan.donorLabel,
+        });
+        next = placed.project;
+        next = updateClip(next, clip.id, {
+          transitionIn: {
+            type: 'luma-wipe',
+            frames: transitionIn?.frames ?? 12,
+            ...(transitionIn?.color !== undefined
+              ? { color: transitionIn.color }
+              : {}),
+            mateClipId: placed.mateClipId,
+          },
+        });
+        return { project: next, clipId: placed.mateClipId };
+      });
+      if (result) {
+        store.setNotice(
+          `Mate creado: frame congelado de «${plan.donorLabel}» en una pista oculta.`,
+        );
+      }
+    } catch (error) {
+      store.setNotice(
+        error instanceof Error ? error.message : 'no se pudo crear el mate',
+      );
+    } finally {
+      setMateBusy(false);
     }
   }
   async function removeAutomaticBackground(): Promise<void> {
@@ -2310,6 +2366,18 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
                     oculta también sirve, porque el render sólo usa su
                     luminancia como máscara.
                   </p>
+                ) : null}
+                {lumaMateFreezePlan(project, clip, fps) ? (
+                  <button
+                    type="button"
+                    className="small"
+                    disabled={mateBusy}
+                    onClick={() => void createLumaMate()}
+                  >
+                    {mateBusy
+                      ? 'Creando mate…'
+                      : 'Crear mate congelado del clip saliente'}
+                  </button>
                 ) : null}
                 {lumaMateAssigned && lumaMateSameTrack ? (
                   <p className="notice notice-warning" role="alert">
@@ -4739,6 +4807,8 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             }
             clipLabel={asset?.label ?? clip.label}
             keyframeFrame={localFrame}
+            frameRate={fps}
+            onSeekFrame={(frame) => store.setPlayhead(clip.startFrame + frame)}
           />
           <div className="actions compact">
             <label className="check">

@@ -14,12 +14,16 @@ function Harness() {
 
 function KeyedHarness({
   frame = 30,
+  frameRate,
   initial,
   onStack,
+  onSeekFrame,
 }: {
   readonly frame?: number;
+  readonly frameRate?: number;
   readonly initial?: EffectStack;
   readonly onStack?: (stack: EffectStack) => void;
+  readonly onSeekFrame?: (localFrame: number) => void;
 }) {
   const [stack, setStack] = useState<EffectStack>(initial ?? []);
   return (
@@ -31,6 +35,8 @@ function KeyedHarness({
       }}
       clipLabel="Voz principal"
       keyframeFrame={frame}
+      frameRate={frameRate}
+      onSeekFrame={onSeekFrame}
     />
   );
 }
@@ -207,5 +213,69 @@ describe('cadena de audio del clip', () => {
       }),
     );
     expect(latest[0]?.keyframes?.low).toBeUndefined();
+  });
+
+  it('la lista del editor de curva salta al frame de la clave elegida', () => {
+    const seeks: number[] = [];
+    render(
+      <KeyedHarness
+        frame={30}
+        initial={[
+          {
+            id: 'inst-1',
+            effectId: 'audio.telephone',
+            enabled: true,
+            params: {},
+            keyframes: {
+              low: [
+                { frame: 0, value: 200 },
+                { frame: 15, value: 500 },
+                { frame: 30, value: 900 },
+              ],
+            },
+          },
+        ]}
+        onSeekFrame={(localFrame) => seeks.push(localFrame)}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Curva de Corte grave' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ir al frame 15 de Corte grave' }));
+    expect(seeks).toEqual([15]);
+    // La fila del frame bajo el playhead queda marcada como activa.
+    const activeRow = screen
+      .getByRole('button', { name: 'Ir al frame 30 de Corte grave' })
+      .closest('.keyframe-row');
+    expect(activeRow?.className).toContain('active');
+    const idleRow = screen
+      .getByRole('button', { name: 'Ir al frame 15 de Corte grave' })
+      .closest('.keyframe-row');
+    expect(idleRow?.className).not.toContain('active');
+  });
+
+  it('muestra las claves en timecode cuando el panel recibe la tasa del proyecto', () => {
+    render(
+      <KeyedHarness
+        frame={30}
+        frameRate={30}
+        initial={[
+          {
+            id: 'inst-1',
+            effectId: 'audio.telephone',
+            enabled: true,
+            params: {},
+            keyframes: {
+              low: [
+                { frame: 0, value: 200 },
+                { frame: 15, value: 500 },
+                { frame: 30, value: 900 },
+              ],
+            },
+          },
+        ]}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Curva de Corte grave' }));
+    expect(screen.getByText(/0:00:00:15 ·/)).toBeTruthy();
+    expect(screen.getByText(/0:00:01:00 ·/)).toBeTruthy();
   });
 });

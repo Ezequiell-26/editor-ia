@@ -2,6 +2,7 @@ import { ColorSwatch } from '../../components/ColorSwatch';
 import { useState } from 'react';
 import type { CubicBezier } from '@editor-ia/project-schema';
 import { KeyframeCurveEditor } from '../editor/KeyframeCurveEditor';
+import { formatTimecode } from '../../state/project-actions';
 import {
   clearParamKeyframeCurves,
   duplicateInstance,
@@ -41,6 +42,17 @@ export interface EffectStackPanelProps {
    * del frame — la misma semilla que usa el preview GPU.
    */
   readonly keyframeFrame?: number | undefined;
+  /**
+   * Tasa de frames del proyecto. Si está presente, las claves de la lista se
+   * muestran en timecode; si no, conservan el número de frame local.
+   */
+  readonly frameRate?: number | undefined;
+  /**
+   * Frame local del clip al que saltar al elegir una clave de la lista del
+   * editor de curva. Sin el callback las filas quedan como texto (el panel
+   * sigue siendo puro y no inventa un playhead).
+   */
+  readonly onSeekFrame?: ((localFrame: number) => void) | undefined;
 }
 
 function displayValue(spec: ParamSpec, value: ParamValue): string {
@@ -91,6 +103,12 @@ interface ParamAnimation {
   readonly onClearCurves?: (() => void) | undefined;
   /** Quita una clave suelta del frame dado (lista del editor de curva). */
   readonly onRemoveKey?: ((frame: number) => void) | undefined;
+  /** Salta el playhead a una clave de la lista (frame local del clip). */
+  readonly onSeek?: ((frame: number) => void) | undefined;
+  /** Frame local del playhead: marca la fila activa de la lista. */
+  readonly activeFrame?: number | undefined;
+  /** Tasa de frames para mostrar la clave en timecode; sin ella se usa frame. */
+  readonly frameRate?: number | undefined;
 }
 
 function ParamControl({
@@ -247,23 +265,50 @@ function ParamControl({
             <span className="keyframe-list effect-param-keys">
               {[...animation.track]
                 .sort((a, b) => a.frame - b.frame)
-                .map((key) => (
-                  <span key={key.frame} className="keyframe-row">
-                    <span className="fine-print">
-                      frame {key.frame} · {displayValue(spec, key.value)}
-                      {key.bezier ? ' · curva propia' : key.easing && key.easing !== 'linear' ? ` · ${EASING_LABELS[key.easing]}` : ''}
-                    </span>
-                    <button
-                      type="button"
-                      className="icon-button"
-                      aria-label={`Quitar la clave del frame ${key.frame} de ${spec.label}`}
-                      title="Quitar esta clave"
-                      onClick={() => animation.onRemoveKey?.(key.frame)}
+                .map((key) => {
+                  const position =
+                    animation?.frameRate && animation.frameRate > 0
+                      ? formatTimecode(key.frame, animation.frameRate)
+                      : `frame ${key.frame}`;
+                  const label = `${position} · ${displayValue(spec, key.value)}${
+                    key.bezier
+                      ? ' · curva propia'
+                      : key.easing && key.easing !== 'linear'
+                        ? ` · ${EASING_LABELS[key.easing]}`
+                        : ''
+                  }`;
+                  return (
+                    <span
+                      key={key.frame}
+                      className={`keyframe-row${
+                        key.frame === animation.activeFrame ? ' active' : ''
+                      }`}
                     >
-                      ×
-                    </button>
-                  </span>
-                ))}
+                      {animation.onSeek ? (
+                        <button
+                          type="button"
+                          className="small ghost"
+                          aria-label={`Ir al frame ${key.frame} de ${spec.label}`}
+                          title="Llevar el playhead a esta clave"
+                          onClick={() => animation.onSeek?.(key.frame)}
+                        >
+                          {label}
+                        </button>
+                      ) : (
+                        <span className="fine-print">{label}</span>
+                      )}
+                      <button
+                        type="button"
+                        className="icon-button"
+                        aria-label={`Quitar la clave del frame ${key.frame} de ${spec.label}`}
+                        title="Quitar esta clave"
+                        onClick={() => animation.onRemoveKey?.(key.frame)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
             </span>
           ) : null}
           <KeyframeCurveEditor
@@ -339,6 +384,8 @@ function StackRow({
   stack,
   onChange,
   keyframeFrame,
+  frameRate,
+  onSeekFrame,
 }: {
   readonly instance: EffectInstance;
   readonly manifest: EffectManifest;
@@ -347,6 +394,8 @@ function StackRow({
   readonly stack: EffectStack;
   readonly onChange: (next: EffectStack) => void;
   readonly keyframeFrame?: number | undefined;
+  readonly frameRate?: number | undefined;
+  readonly onSeekFrame?: ((localFrame: number) => void) | undefined;
 }) {
   const [open, setOpen] = useState(index === total - 1);
   const groups = paramGroups(manifest);
@@ -467,6 +516,9 @@ function StackRow({
                           onChange(clearParamKeyframeCurves(stack, instance.id, spec.id)),
                         onRemoveKey: (frame: number) =>
                           onChange(removeParamKeyframe(stack, instance.id, spec.id, frame)),
+                        onSeek: onSeekFrame,
+                        activeFrame: keyframeFrame,
+                        frameRate,
                         onToggle: () =>
                           onChange(
                             toggleParamKeyframe(
@@ -520,7 +572,13 @@ function StackRow({
 }
 
 /** Pila ordenada de efectos del clip, con parámetros y orden de aplicación. */
-export function EffectStackPanel({ stack, onChange, keyframeFrame }: EffectStackPanelProps) {
+export function EffectStackPanel({
+  stack,
+  onChange,
+  keyframeFrame,
+  frameRate,
+  onSeekFrame,
+}: EffectStackPanelProps) {
   const resolved = stack
     .map((instance) => ({ instance, manifest: effectRegistry.get(instance.effectId) }))
     .filter((entry): entry is { instance: EffectInstance; manifest: EffectManifest } =>
@@ -551,6 +609,8 @@ export function EffectStackPanel({ stack, onChange, keyframeFrame }: EffectStack
           stack={stack}
           onChange={onChange}
           keyframeFrame={keyframeFrame}
+          frameRate={frameRate}
+          onSeekFrame={onSeekFrame}
         />
       ))}
     </ol>

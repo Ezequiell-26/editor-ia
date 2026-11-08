@@ -1,5 +1,5 @@
 import type { Clip, ProjectDocument, Track } from '@editor-ia/project-schema';
-import { addTrack, moveClip, updateTrack } from '../../state/project-actions';
+import { addTrack, moveClip, newId, touch, updateTrack } from '../../state/project-actions';
 
 /// Candidato a mate de una transición `luma-wipe`: clip visual habilitado cuya
 /// ventana activa (inicio propio menos su lead de entrada) cubre el solape del
@@ -115,6 +115,137 @@ export function moveLumaMateToOwnTrack(
   const moved = moveClip(created.project, mateClipId, mate.startFrame, created.trackId);
   if (!moved) return null;
   return updateTrack(moved, created.trackId, { hidden: true });
+}
+
+/// Plan para crear el mate de un `luma-wipe` congelando un frame: el donor es
+/// el clip de video habilitado, sin reverse ni curva de velocidad, cuya
+/// ventana cubre el solape (misma regla que `lumaMateCandidates`). El mate
+/// queda como clip `freeze` de una sola imagen — para la máscara sólo importa
+/// la luminancia, así que un frame quieto es una máscara válida y honesta.
+export interface LumaMateFreezePlan {
+  donorClipId: string;
+  donorLabel: string;
+  /// Asset de video del que sale el frame (para heredar su licencia).
+  sourceAssetId: string;
+  assetPath: string;
+  /// Segundos dentro del video fuente del que sale el frame.
+  seconds: number;
+  /// Ventana exacta que debe cubrir el clip mate (frames de timeline).
+  startFrame: number;
+  durationFrames: number;
+}
+
+/// Elige el donor y calcula el frame a congelar para `clip` (que debe tener
+/// `transitionIn.type === 'luma-wipe'`). Prioriza el clip que termina justo en
+/// el corte —el «saliente» del fundido— y después el que más reciente empieza.
+/// Devuelve `null` cuando no hay donor usable o el lead es inválido.
+export function lumaMateFreezePlan(
+  project: ProjectDocument,
+  clip: Clip,
+  fps: number,
+): LumaMateFreezePlan | null {
+  if (!('transitionIn' in clip)) return null;
+  const transition = clip.transitionIn;
+  if (!transition || transition.type !== 'luma-wipe') return null;
+  const transitionFrames = transition.frames ?? 0;
+  const leadCap = Math.round(fps * 2);
+  const lead = Math.min(
+    transitionFrames,
+    clip.durationFrames,
+    clip.startFrame,
+    leadCap,
+  );
+  if (lead < 1) return null;
+  const needFrom = clip.startFrame - lead;
+  const needTo = clip.startFrame;
+  const assetById = new Map(project.assets.map((asset) => [asset.id, asset]));
+
+  type VideoClip = Extract<Clip, { kind: 'video' }>;
+  const donors: { clip: VideoClip; from: number; to: number }[] = [];
+  for (const candidate of project.timeline.clips) {
+    if (candidate.id === clip.id || candidate.kind !== 'video') continue;
+    if (candidate.enabled === false || candidate.reverse === true) continue;
+    if (candidate.speedCurve) continue;
+    const source = candidate.source;
+    if (source.type !== 'asset') continue;
+    const asset = assetById.get(source.assetId);
+    if (!asset || asset.kind !== 'video' || asset.status !== 'ready') continue;
+    if (asset.source.type !== 'local' || !asset.source.path) continue;
+    const ownFrames =
+      (candidate as { transitionIn?: { frames?: number } }).transitionIn?.frames ?? 0;
+    const ownLead = Math.min(
+      ownFrames,
+      candidate.durationFrames,
+      candidate.startFrame,
+      leadCap,
+    );
+    const from = candidate.startFrame - ownLead;
+    const to = candidate.startFrame + candidate.durationFrames;
+    if (from <= needFrom + 1 && to >= needTo - 1) {
+      donors.push({ clip: candidate, from, to });
+    }
+  }
+  if (donors.length === 0) return null;
+  donors.sort((a, b) => {
+    const aCut = a.to === needTo ? 0 : 1;
+    const bCut = b.to === needTo ? 0 : 1;
+    if (aCut !== bCut) return aCut - bCut;
+    if (a.clip.startFrame !== b.clip.startFrame) {
+      return b.clip.startFrame - a.clip.startFrame;
+    }
+    return a.clip.id.localeCompare(b.clip.id);
+  });
+  const donor = donors[0];
+  if (!donor) return null;
+  const sourceClip = donor.clip;
+  const source = sourceClip.source;
+  // Último frame compartido por el solape y el donor (preferencia al clip
+  // saliente en el instante del corte).
+  const freezeAt = Math.max(donor.from, Math.min(needTo, donor.to) - 1);
+  const factor = (sourceClip.speed?.num ?? 1) / Math.max(0.01, sourceClip.speed?.den ?? 1);
+  const sourceFrame = source.inFrame + (freezeAt - sourceClip.startFrame) * factor;
+  const clamped = Math.min(
+    Math.max(sourceFrame, source.inFrame),
+    Math.max(source.inFrame, source.outFrame - 1),
+  );
+  const asset = assetById.get(source.assetId);
+  if (!asset || asset.source.type !== 'local') return null;
+  return {
+    donorClipId: sourceClip.id,
+    donorLabel: sourceClip.label?.trim() || sourceClip.id.slice(0, 8),
+    sourceAssetId: source.assetId,
+    assetPath: asset.source.path,
+    seconds: Math.max(0, clamped / Math.max(1, fps)),
+    startFrame: needFrom,
+    durationFrames: lead,
+  };
+}
+
+/// Crea el clip mate congelado: pista `video` nueva ya oculta (la máscara no
+/// debe verse) con un `freeze` que cubre exactamente la ventana del solape.
+/// Devuelve el id del clip para asignarlo como `mateClipId`.
+export function placeFreezeMate(
+  project: ProjectDocument,
+  frameAssetId: string,
+  input: { startFrame: number; durationFrames: number; label?: string },
+): { project: ProjectDocument; mateClipId: string; trackId: string } {
+  const base = (input.label ?? 'frame').trim() || 'frame';
+  const created = addTrack(project, 'video', `Mate · ${base}`.slice(0, 120));
+  let next = created.project;
+  const mateClipId = newId();
+  const mate: Clip = {
+    id: mateClipId,
+    trackId: created.trackId,
+    kind: 'freeze',
+    label: `Mate · ${base}`.slice(0, 120),
+    startFrame: Math.max(0, Math.round(input.startFrame)),
+    durationFrames: Math.max(1, Math.round(input.durationFrames)),
+    source: { type: 'asset', assetId: frameAssetId },
+  };
+  next.timeline.clips.push(mate);
+  next = updateTrack(next, created.trackId, { hidden: true });
+  touch(next);
+  return { project: next, mateClipId, trackId: created.trackId };
 }
 
 /// `true` cuando el clip tiene `luma-wipe` con un mate asignado que ya no es un

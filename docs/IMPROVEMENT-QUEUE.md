@@ -4,6 +4,107 @@ Actualizado: 2026-11-08. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Timecode en las claves del editor de curva de efectos
+  (2026-11-08)** — cierra el «las filas muestran frame local del clip, no
+  timecode» del «Pendiente honesto» de click-to-seek, en una pasada del
+  protocolo del loop (Devin CLI).
+  - **Cambio**: `EffectStackPanel` gana `frameRate?: number`; cuando está
+    presente la `.keyframe-list` del popover «Curva» muestra cada clave con
+    `formatTimecode` (mismo formato que Inspector/transformaciones) y sin
+    él conserva `frame N`. `ParamAnimation`/`StackRow` reenvían la tasa;
+    `EffectStudio` ya recibía `frameRate` y ahora lo pasa al panel;
+    `AudioEffectStack` expone `frameRate` y `Inspector` le pasa `fps`.
+  - **Verificación**: `tsc --noEmit -p apps/desktop/tsconfig.json` → 0
+    errores · vitest `AudioEffectStack.test.tsx` **11/11** (+1: con
+    `frameRate={30}` las filas muestran `0:00:00:15`/`0:00:01:00`) ·
+    vitest `EffectStudio.test.tsx` **6/6**. No se tocó Rust ni el
+    contrato del documento.
+  - **Archivos**: `features/vfx/EffectStackPanel.tsx`,
+    `features/vfx/EffectStudio.tsx`, `features/editor/AudioEffectStack.tsx`
+    (+test), `features/editor/Inspector.tsx`, esta entrada,
+    `memory/2026-11-08-keyframe-timecode-efectos.md`.
+  - **Pendiente honesto**: el seek sigue saltando al frame sin reproducir
+    hasta ahí; el timecode es local al clip (frame 0 del clip = 0:00:00:00),
+    no al timeline.
+
+- `[done]` **Click-to-seek en la lista de keyframes del editor de curva de
+  efectos (2026-11-08)** — cierra el «no hay click-to-seek» del «Pendiente
+  honesto» de la entrada lista de keyframes por parámetro, en una pasada
+  del protocolo del loop (Devin CLI). La lista del Inspector de máscara ya
+  saltaba al frame de cada clave; la del popover «Curva» de efectos sólo
+  permitía borrar.
+  - **Cambio**: `EffectStackPanel` gana `onSeekFrame?: (localFrame) => void`
+    (opcional: sin el callback las filas quedan como texto y el panel sigue
+    puro). Cada fila de la lista muestra la etiqueta como botón
+    `Ir al frame N de <parámetro>` cuando hay callback, y la fila del frame
+    bajo el playhead queda marcada `.active` (nueva marca `activeFrame` en
+    `ParamAnimation`). `AudioEffectStack` y `EffectStudio` reenvían la
+    prop; `Inspector` (audioStack) y `VfxView` (EffectStudio) la conectan a
+    `store.setPlayhead(clip.startFrame + frame)` — el mismo salto que ya
+    hace la lista de keyframes de máscara del Inspector.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `AudioEffectStack.test.tsx` **10/10** (+1 test:
+    el click en la etiqueta salta con el frame local y la fila del playhead
+    queda `active`) · vitest `src/features/vfx` +
+    `AudioEffectStack.test.tsx` **38/38**. No se tocó Rust ni el contrato
+    del documento.
+  - **Archivos**: `features/vfx/EffectStackPanel.tsx`,
+    `features/vfx/EffectStudio.tsx`, `features/vfx/VfxView.tsx`,
+    `features/editor/AudioEffectStack.tsx` (+test),
+    `features/editor/Inspector.tsx`, esta entrada,
+    `memory/2026-11-08-keyframe-seek-efectos.md`.
+  - **Pendiente honesto**: las filas muestran frame local del clip, no
+    timecode (el panel no recibe fps); el seek salta al frame de la clave
+    pero no reproduce hasta ahí.
+
+- `[done]` **Botón «Crear mate congelado del clip saliente» en el bloque
+  `luma-wipe` del Inspector (2026-11-08)** — cierra la parte accionable del
+  «Pendiente honesto» de la entrada UI honesta del mate («crear un mate
+  nuevo —p. ej. freeze sobre la zona del solape— sigue siendo manual»), en
+  una pasada del protocolo del loop (Devin CLI). El mate animado en el
+  preview del monitor sigue congelado (pendiente declarado aparte).
+  - **Brecha**: con `luma-wipe` sin mate válido había que importar o
+    congelar un frame a mano, crear el clip, ubicarlo sobre el solape y
+    asignar el id — cinco pasos manuales para algo que el proyecto ya
+    puede derivar solo.
+  - **`luma-mate.ts`**: `lumaMateFreezePlan(project, clip, fps)` elige el
+    donor con la misma regla que `lumaMateCandidates` (video habilitado,
+    sin reverse ni `speedCurve`, asset local `ready`, ventana activa que
+    cubre el solape con tolerancia de un frame; prioriza el clip que
+    termina justo en el corte) y calcula el `seconds` fuente del último
+    frame compartido, respetando `speed` del donor y el `inFrame`/
+    `outFrame` de la ventana. `placeFreezeMate(project, frameAssetId,
+    {startFrame, durationFrames, label})` crea una pista `video` nueva ya
+    oculta con un clip `freeze` que cubre exactamente `[start-corte−lead,
+    start-corte)` — para la máscara sólo importa la luminancia, así que un
+    frame quieto es una máscara válida y honesta.
+  - **`Inspector.tsx`**: dentro del bloque `luma-wipe`, el botón aparece
+    sólo cuando `lumaMateFreezePlan` devuelve un plan (sin donor usable no
+    se ofrece un botón que no puede cumplir). `createLumaMate` extrae el
+    frame con `service.extractFreezeFrame`, lo agrega con `addAsset`, le
+    hereda la licencia del video original con `markAssetReadyFrom` (no
+    inventa una licencia nueva), monta el `freeze` con `placeFreezeMate` y
+    asigna `mateClipId` en una sola `store.mutate`. Errores y cancelación
+    (`extractFreezeFrame` → `null`) se reportan por `setNotice`.
+  - **Verificación**: `npx tsc --noEmit -p apps/desktop/tsconfig.json` →
+    **0 errores** · vitest `luma-mate.test.ts` **17/17** (+4 tests: donor
+    en el corte con su último frame compartido, lead propio + velocidad
+    del donor, null sin luma-wipe/sin cobertura/con reverse, y
+    `placeFreezeMate` produce pista oculta + candidato válido) · vitest
+    `src/features/editor` + `project-actions.test.ts` **356/357** — el
+    único fallo fue `render-cost.test.tsx` (37.4 ms/tick bajo carga
+    paralela; aislado pasa con 10.5 ms/tick Timeline / 1.3 ms/tick
+    Inspector, flaky preexistente ajeno al cambio). No se tocó Rust ni el
+    contrato del documento.
+  - **Archivos**: `features/editor/luma-mate.ts` (+test),
+    `features/editor/Inspector.tsx`, esta entrada,
+    `memory/2026-11-08-luma-mate-freeze.md`.
+  - **Pendiente honesto**: el mate creado es un frame congelado — el
+    preview del monitor sigue mostrando la máscara de un solo frame (el
+    export ya anima el mate real); el mate animado en preview queda como
+    brecha declarada.
+
+
 - `[done]` **Rampa del shuttle cortada por cualquier pausa, no sólo por los
   atajos (2026-11-08)** — cierra el «Pendiente honesto» de la entrada rampa
   de velocidad («pausar desde la UI del transporte (botón, scrub) no pasa por

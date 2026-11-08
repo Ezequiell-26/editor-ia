@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyProject, type Clip, type ProjectDocument, type Track } from '@editor-ia/project-schema';
+import { createEmptyProject, type Asset, type Clip, type ProjectDocument, type Track } from '@editor-ia/project-schema';
 import {
   lumaMateById,
   lumaMateCandidates,
+  lumaMateFreezePlan,
   lumaMateIsStale,
   lumaMateOptionLabel,
   lumaMatePick,
   moveLumaMateToOwnTrack,
+  placeFreezeMate,
 } from './luma-mate';
 
 const FPS = 30;
@@ -170,6 +172,143 @@ describe('moveLumaMateToOwnTrack', () => {
     expect(moveLumaMateToOwnTrack(doc, 'fantasma')).toBeNull();
     const bloqueada = projectWith([mate], [{ ...track('v1'), locked: true } as Track]);
     expect(moveLumaMateToOwnTrack(bloqueada, 'mate')).toBeNull();
+  });
+});
+
+function videoAsset(id: string, overrides: Partial<Asset> = {}): Asset {
+  return {
+    id,
+    kind: 'video',
+    label: id,
+    status: 'ready',
+    source: { type: 'local', path: `media/${id}.mp4` },
+    rights: { license: { id: 'user-declared', commercialUse: 'allowed' } },
+    ...overrides,
+  } as Asset;
+}
+
+function projectWithAssets(
+  clips: Clip[],
+  tracks: Track[],
+  assets: Asset[],
+): ProjectDocument {
+  const base = projectWith(clips, tracks);
+  return { ...base, assets } as ProjectDocument;
+}
+
+describe('lumaMateFreezePlan', () => {
+  it('elige el clip que termina en el corte y congela su último frame compartido', () => {
+    const incoming = clip({
+      id: 'in',
+      startFrame: 100,
+      durationFrames: 30,
+      transitionIn: { type: 'luma-wipe', frames: 12 },
+    });
+    const outgoing = clip({
+      id: 'out',
+      label: 'Saliente',
+      startFrame: 40,
+      durationFrames: 60,
+      source: { type: 'asset', assetId: 'a1', inFrame: 0, outFrame: 300 },
+    });
+    const fondo = clip({ id: 'fondo', startFrame: 0, durationFrames: 200 });
+    const doc = projectWithAssets(
+      [incoming, outgoing, fondo],
+      [track('v1'), track('v2')],
+      [videoAsset('a1'), videoAsset('a2'), videoAsset('a3')],
+    );
+    // El clip fixture usa assetId 'a1' para todos; el donor real es 'out'.
+    const plan = lumaMateFreezePlan(doc, incoming, FPS);
+    expect(plan).not.toBeNull();
+    // needFrom = 100 - 12 = 88, needTo = 100; 'out' termina en 100 (corte).
+    expect(plan?.donorClipId).toBe('out');
+    expect(plan?.startFrame).toBe(88);
+    expect(plan?.durationFrames).toBe(12);
+    // freezeAt = min(100, 100) - 1 = 99; sourceFrame = 0 + (99-40)*1 = 59.
+    expect(plan?.seconds).toBeCloseTo(59 / FPS);
+    expect(plan?.assetPath).toBe('media/a1.mp4');
+  });
+
+  it('usa la ventana con lead propio del donor y respeta su velocidad', () => {
+    const incoming = clip({
+      id: 'in',
+      startFrame: 100,
+      durationFrames: 30,
+      transitionIn: { type: 'luma-wipe', frames: 10 },
+    });
+    // Donor con transitionIn de 20: expone desde 70; speed 2x.
+    const donor = clip({
+      id: 'donor',
+      startFrame: 90,
+      durationFrames: 40,
+      transitionIn: { type: 'dissolve', frames: 20 },
+      speed: { num: 2, den: 1 },
+      source: { type: 'asset', assetId: 'a1', inFrame: 10, outFrame: 90 },
+    });
+    const doc = projectWithAssets([incoming, donor], [track('v1')], [videoAsset('a1')]);
+    const plan = lumaMateFreezePlan(doc, incoming, FPS);
+    expect(plan).not.toBeNull();
+    // needFrom = 90, needTo = 100; freezeAt = min(100,130)-1 = 99.
+    // sourceFrame = 10 + (99-90)*2 = 28 → 28/30 s.
+    expect(plan?.seconds).toBeCloseTo(28 / FPS);
+    expect(plan?.startFrame).toBe(90);
+    expect(plan?.durationFrames).toBe(10);
+  });
+
+  it('devuelve null sin transitionIn luma-wipe, sin donor o con donors inutilizables', () => {
+    const sinLuma = clip({ id: 'a', startFrame: 100, durationFrames: 30 });
+    const donor = clip({ id: 'd', startFrame: 60, durationFrames: 60 });
+    const doc = projectWithAssets([sinLuma, donor], [track('v1')], [videoAsset('a1')]);
+    expect(lumaMateFreezePlan(doc, sinLuma, FPS)).toBeNull();
+
+    const luma = clip({
+      id: 'in',
+      startFrame: 100,
+      durationFrames: 30,
+      transitionIn: { type: 'luma-wipe', frames: 12 },
+    });
+    // Donor demasiado corto: termina en 60, no llega al solape.
+    const corto = clip({ id: 'corto', startFrame: 30, durationFrames: 30 });
+    const doc2 = projectWithAssets([luma, corto], [track('v1')], [videoAsset('a1')]);
+    expect(lumaMateFreezePlan(doc2, luma, FPS)).toBeNull();
+
+    // Donor con reverse y asset no ready: no sirve.
+    const reversed = clip({ id: 'rev', startFrame: 60, durationFrames: 60, reverse: true });
+    const doc3 = projectWithAssets([luma, reversed], [track('v1')], [videoAsset('a1')]);
+    expect(lumaMateFreezePlan(doc3, luma, FPS)).toBeNull();
+  });
+});
+
+describe('placeFreezeMate', () => {
+  it('crea una pista oculta con el freeze cubriendo la ventana y lo asigna como candidato', () => {
+    const incoming = clip({
+      id: 'in',
+      startFrame: 100,
+      durationFrames: 30,
+      transitionIn: { type: 'luma-wipe', frames: 12 },
+    });
+    const doc = projectWith([incoming], [track('v1')]);
+    const placed = placeFreezeMate(doc, 'frame-asset', {
+      startFrame: 88,
+      durationFrames: 12,
+      label: 'Saliente',
+    });
+    const mate = placed.project.timeline.clips.find((item) => item.id === placed.mateClipId)!;
+    expect(mate.kind).toBe('freeze');
+    expect(mate.startFrame).toBe(88);
+    expect(mate.durationFrames).toBe(12);
+    expect(mate.source).toEqual({ type: 'asset', assetId: 'frame-asset' });
+    const mateTrack = placed.project.timeline.tracks.find((item) => item.id === mate.trackId)!;
+    expect(mateTrack.hidden).toBe(true);
+    expect(mateTrack.kind).toBe('video');
+    // El mate nuevo ya es candidato válido para el clip.
+    const candidates = lumaMateCandidates(
+      placed.project.timeline.clips,
+      placed.project.timeline.tracks,
+      incoming,
+      FPS,
+    );
+    expect(candidates.map((item) => item.clip.id)).toContain(placed.mateClipId);
   });
 });
 

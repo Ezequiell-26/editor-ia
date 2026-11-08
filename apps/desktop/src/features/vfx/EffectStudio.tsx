@@ -22,6 +22,11 @@ export interface EffectStudioProps {
   readonly localFrame: number;
   readonly frameRate: number;
   readonly clipLabel: string;
+  /**
+   * Salto del playhead al frame local de una clave de la lista del editor
+   * de curva. Sin el callback las filas quedan como texto.
+   */
+  readonly onSeekFrame?: ((localFrame: number) => void) | undefined;
 }
 
 /**
@@ -39,6 +44,7 @@ export function EffectStudio({
   localFrame,
   frameRate,
   clipLabel,
+  onSeekFrame,
 }: EffectStudioProps) {
   const [kind, setKind] = useState<EffectKind>('video');
   const [preview, setPreview] = useState(true);
@@ -128,7 +134,13 @@ export function EffectStudio({
         </div>
 
         <div className="effect-studio-stack">
-          <EffectStackPanel stack={stack} onChange={onChange} keyframeFrame={localFrame} />
+          <EffectStackPanel
+            stack={stack}
+            onChange={onChange}
+            keyframeFrame={localFrame}
+            frameRate={frameRate}
+            onSeekFrame={onSeekFrame}
+          />
           <EffectTemplates kind="video" stack={stack} onApply={(next) => onChange(next)} />
           {full ? (
             <p className="fine-print">
