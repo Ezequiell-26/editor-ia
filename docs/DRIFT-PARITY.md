@@ -62,8 +62,13 @@ ordenar, apagar, animar y exportar sin tocar el código del editor.
 - **48 efectos de video** en 9 categorías: color, luz, desenfoque, estilo, glitch, retro,
   impacto, croma y distorsión. 137 parámetros en total.
 - **22 transiciones**, 20 de ellas con nombre `xfade` equivalente (paridad exacta en export).
-- De los 48 efectos, **46 exportan** (8 exactos, 38 aproximados) y **2 quedan en preview**
-  (`light.leak`, `light.flare`). `impact.zoom_pulse` exporta desde el
+- De los 48 efectos, **47 exportan** (8 exactos, 39 aproximados) y **1 queda en preview**
+  (`light.leak`). `light.flare` exporta desde el 2026-11-08 con `geq` +
+  `blend=all_mode=screen`: el overlay se genera píxel a píxel con los mismos
+  `smoothstep` del shader (core + anillo + ghost especular en `1-position`)
+  y se mezcla screen sobre la base; verificado con FFmpeg real (YAVG +48 en la
+  zona del core, +0 en la esquina; píxel del centro medido (152,130,96) vs
+  (153,130,96) calculado). `impact.zoom_pulse` exporta desde el
   2026-11-08 con receta de grafo (`split` + `scale eval=frame` + `overlay`):
   la misma curva `exp(-6·fract(rate·t))·amount` del shader, muestreo por
   remuestreo del frame completo (aproximado, no bilineal). `blur.zoom`
@@ -91,10 +96,11 @@ ordenar, apagar, animar y exportar sin tocar el código del editor.
   En la misma pasada se corrigió el shader del preview: `ek_centered`
   restaba 0.5 después del centro y el remolino quedaba anclado en
   `center + 0.5` (esquina con el default); ahora `p = (uv − center)·(aspect,1)`.
-- 13 efectos usan receta de **grafo** (`split` + `blend`/`overlay`, o `geq`
+- 14 efectos usan receta de **grafo** (`split` + `blend`/`overlay`, o `geq`
   para remuestreo por píxel), no una lista de filtros sueltos:
   duotono, bloom, glow, halación, contorno, caleidoscopio, espejo, zoom punch,
-  blur radial, onda de glitch, semitono, ondulación y remolino.
+  blur radial, onda de glitch, semitono, ondulación, remolino y destello
+  de lente (este último con `split` + `geq` del overlay + `blend=screen`).
 - Cada manifiesto declara `fidelity` (`exact` / `approximate` / `preview-only`) y, cuando es
   aproximado, el motivo.
 
@@ -175,7 +181,7 @@ Verificación real (no declarativa):
 - ~~**Keyframes en export.**~~ Resuelto: el export segmenta el clip en los frames de
   keyframe y aplica los parámetros estáticos por tramo (`atrim`/`concat` en audio,
   `split`/`trim`/`concat` en video), con muestreo por la misma curva que la preview.
-- **Efectos sin receta** (`light.leak`, `light.flare`): se ven
+- **Efectos sin receta** (`light.leak`): se ven
   en el preview y no se escriben en el MP4. El panel lo avisa antes de
   aplicarlos, con la etiqueta "Sólo preview". (`blur.zoom` salió de la lista el
   2026-11-08: grafo split+scale+overlay+`blend=all_mode=average` de 6 tomas
@@ -184,7 +190,8 @@ Verificación real (no declarativa):
   `stylize.halftone` también: `geq` con la trama de puntos por píxel;
   `distort.ripple` también: `geq` con remuestreo radial
   `p/(d+ε)·sin(d·freq−T·speed)·amp`; `distort.twirl` también: `geq` con
-  rotación `rotate(p, angle·(1−smoothstep(0,radius,d)))` por píxel.)
+  rotación `rotate(p, angle·(1−smoothstep(0,radius,d)))` por píxel; `light.flare` también: `split` + `geq` del overlay
+  especular (core+anillo+ghost por píxel) + `blend=all_mode=screen`.)
 - **Efectos que dependen de malla facial o profundidad** (`face_*`, `depth_*` en Drift):
   requieren geometría por frame; fuera del alcance de FFmpeg.
 - **Carga de paquetes de terceros** (implementado 2026-11-11): `parseEffectPackage`

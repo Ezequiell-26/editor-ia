@@ -4,6 +4,56 @@ Actualizado: 2026-11-11. Un ítem por vuelta. Ningún ítem se marca `done`
 sin un test o una medición real. No se toca trabajo del usuario ni se
 reconstruye el instalador salvo que el ítem lo pida.
 
+- `[done]` **Receta FFmpeg para `light.flare` (2026-11-08)** — uno de los 2
+  efectos «sólo preview» que quedaban (`docs/DRIFT-PARITY.md` §5) en una
+  pasada del protocolo del loop (Devin CLI), mismo patrón `geq`+`blend`
+  que las recetas anteriores.
+  - **Brecha**: el manifiesto no declaraba `ffmpeg`; los ghosts
+    especulares se veían en el preview GPU pero el MP4 salía sin ellos.
+  - **Receta** (`packages/effect-kit/src/catalog/video.ts`): `graph` con
+    `split=2` — una rama es la base (`format=gbrp`) y la otra genera el
+    flare por `geq` píxel a píxel: `core = smoothstep(size,0,d)`,
+    `ring = smoothstep(size*1.4,size,|d-size*0.9|)*0.5` y
+    `ghost = smoothstep(size*0.6,0,|mirror|)*0.6` (espejo en `1-position`),
+    todo por `tint*intensity`, con los smoothstep cúbicos escritos a mano
+    (`t*t*(3-2*t)` sobre `clip`). `p=(DX,DY)/H` con
+    `DX=X+0.5-position.x*W`, `DY=Y+0.5-position.y*H` (mismo truco que
+    `twirl`, porque `aspect=W/H`). El overlay negro se mezcla con la base
+    vía `blend=all_mode=screen`, que reproduce el `1-(1-c)(1-light)` del
+    shader.
+  - **Verificación con FFmpeg real** (n9.0.2 empaquetado): el grafo
+    completo corre sobre `testsrc2` 320×180 sin error. YAVG de crops:
+    zona del core (x≈230, y≈50) **+48,4** vs el frame sin filtrar;
+    ghost (x≈90, y≈130) **+4,6**; esquina **+0,0**. Verificación
+    numérica del overlay solo: píxel (230,50) mide RGB **(152,130,96)**
+    contra **(153,130,96)** calculado a mano con la fórmula del shader
+    (diff ≤1 por redondeo); píxel (10,10) = (0,0,0).
+  - **Fidelidad honesta**: `approximate` — el smoothstep es la misma
+    cuenta pero escrito a mano en la gramática de `geq`; el eje Y puede
+    venir espejado respecto a `v_texCoord` (la posición vertical se
+    invierte, clase de efecto idéntica); `format=gbrp` descarta alfa;
+    coste alto por píxel en cuadros grandes.
+  - **Verificación repo**: `npm run effects:codegen` → 77 recetas;
+    vitest effect-kit **47 passed / 3 skipped** (live) · vitest vfx
+    desktop **25 passed / 1 failed** (fallo ajeno y previo en
+    `EffectTemplates.test.tsx`, importación de JSON — sin relación con el
+    catálogo) · `tsc --noEmit` desktop reporta **1 error preexistente**
+    del WIP del usuario en `PreviewTransformBox.tsx:248` y effect-kit
+    los **4 errores preexistentes** documentados de `engine.test.ts` ·
+    Rust `cargo test --lib effect_stack_expands_flare` **bloqueado** por
+    `os error 32` (archivo en uso por otro proceso durante el build
+    script, ajeno al cambio — mismo bloqueo documentado en pasadas
+    anteriores; dos intentos).
+  - **Archivos**: `packages/effect-kit/src/catalog/video.ts`,
+    `packages/effect-kit/src/catalog.test.ts` (test nuevo + stack test
+    `flare`→`leak`), `apps/desktop/src-tauri/src/render/effect_recipes.rs`
+    (codegen), `apps/desktop/src-tauri/src/render/ffmpeg.rs` (test,
+    **sin commitear** por WIP del usuario en el mismo archivo),
+    `docs/DRIFT-PARITY.md`, `memory/2026-11-08-light-flare-export.md`.
+  - **Pendiente honesto**: queda 1 efecto preview-only (`light.leak`,
+    usa `ek_fbm` de 4 octavas — no hay ruido por píxel en `geq`; habría
+    que aproximar con senos o añadir un generador de ruido FFmpeg).
+
 - `[done]` **Monitor de vídeo: fotograma completo, centrado y marco verde (2026-11-07)** —
   pedido con captura: «arregles donde se ve el video tiene que [verse]
   completo bien posicionado». Diagnóstico medido en navegador real: con
