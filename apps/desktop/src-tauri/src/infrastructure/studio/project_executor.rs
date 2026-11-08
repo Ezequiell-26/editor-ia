@@ -697,6 +697,10 @@ impl ProjectStageExecutor {
             "id": asset_id,
             "label": title.chars().take(200).collect::<String>(),
             "kind": kind,
+            // Tags con provider/kind/query: la búsqueda del catálogo mira
+            // id+reference+tags (no el label), así `edit`/`scenes` pueden
+            // encontrar el recurso generado por su texto de requisito.
+            "tags": [provider, kind, title.chars().take(120).collect::<String>()],
             "source": { "type": "local", "path": rel_path },
             "status": "ready",
             "integrity": { "sha256": sha256, "bytes": bytes },

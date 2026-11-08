@@ -1355,4 +1355,190 @@ mod e2e_tests {
         );
         let _ = fs::remove_dir_all(&root);
     }
+
+    /// Pipeline completo con MÚSICA generada: requisito `music` con
+    /// convención `music:` + `plan.music.enabled` ⇒ acquire sintetiza un
+    /// MP3 ambiental real, edit lo monta como cama en "Producción Música"
+    /// y el MP4 entregado la lleva mezclada.
+    /// `EDITOR_IA_RUN_RENDER_TESTS=1 cargo test production_e2e_music -- --ignored`
+    #[test]
+    #[ignore = "requiere ffmpeg/ffprobe reales; correr con EDITOR_IA_RUN_RENDER_TESTS=1"]
+    fn production_e2e_music_runs_all_stages() {
+        if std::env::var("EDITOR_IA_RUN_RENDER_TESTS").ok().as_deref() != Some("1") {
+            eprintln!("e2e música omitido: definí EDITOR_IA_RUN_RENDER_TESTS=1");
+            return;
+        }
+        let (root, doc_path) = fixture_project("music");
+        let config = root.join("config");
+        let store = LocalProductionStore::new(&config);
+        let mut plan = e2e_plan();
+        plan.id = "e2e-music-plan".to_owned();
+        plan.transition = None;
+        plan.subtitles = Default::default();
+        plan.music = crate::studio::plan::MusicSpec {
+            enabled: true,
+            query: Some("music:ambient".to_owned()),
+        };
+        plan.requirements = vec![
+            ResourceRequirement {
+                id: "req-video".to_owned(),
+                kind: StudioResourceKind::Video,
+                query: "".to_owned(),
+                max_count: 1,
+                min_commercial_use: Default::default(),
+                prefer_local: true,
+                optional: false,
+                voice: None,
+            },
+            ResourceRequirement {
+                id: "req-music".to_owned(),
+                kind: StudioResourceKind::Music,
+                query: "music:ambient".to_owned(),
+                max_count: 1,
+                min_commercial_use: Default::default(),
+                prefer_local: true,
+                optional: false,
+                voice: None,
+            },
+        ];
+        plan.scenes = vec![PlanScene {
+            id: "scene-video".to_owned(),
+            order: 1,
+            title: "Escena con video".to_owned(),
+            intent: "visual".to_owned(),
+            target_duration_frames: Some(120),
+            narration_text: None,
+            requirement_ids: vec!["req-video".to_owned()],
+            notes: None,
+        }];
+        production::create_run(&store, &plan, "e2e-music-run", None).unwrap();
+
+        let session = FixtureSession {
+            info: ProjectSessionInfo {
+                path: doc_path.clone(),
+                root: root.clone(),
+                project_id: "e2e-music".to_owned(),
+            },
+        };
+        let documents = crate::infrastructure::projects::LocalProjectDocuments;
+        let tools = FixtureTools {
+            ffmpeg: ffmpeg(),
+            ffprobe: ffprobe(),
+        };
+        let jobs: crate::state::SharedRenderJobs =
+            Arc::new(Mutex::new(HashMap::<String, Arc<dyn RenderProcess>>::new()));
+        let runtime_impl = SharedRenderRuntime::new(jobs);
+        let runtime_dyn: Arc<dyn RenderRuntime> = Arc::new(runtime_impl);
+        let events_dyn: Arc<dyn RenderEvents> = Arc::new(NoopEvents);
+        let files_dyn: Arc<dyn crate::ports::render::RenderFiles> = Arc::new(LocalRenderFiles);
+        let verifier_impl = SystemRenderVerifier;
+        let verifier_dyn: Arc<dyn crate::ports::render::RenderVerifier> = Arc::new(verifier_impl);
+        let launcher = StdioRenderLauncher::new(
+            runtime_dyn.clone(),
+            events_dyn.clone(),
+            files_dyn.clone(),
+            verifier_dyn.clone(),
+        );
+        let dialogs = NoopDialogs;
+        let encoder = SystemRenderEncoder;
+        let render_deps = RenderDeps {
+            session: &session,
+            documents: &documents,
+            tools: &tools,
+            runtime: runtime_dyn.as_ref(),
+            events: events_dyn.as_ref(),
+            files: files_dyn.as_ref(),
+            dialogs: &dialogs,
+            encoder: &encoder,
+            launcher: &launcher,
+            cache_dir: root.join("cache"),
+        };
+        let tail = RenderReviewDeliverExecutor::new(render_deps, verifier_dyn.as_ref());
+        let executor = CompositeStageExecutor::new(Some(ffprobe()))
+            .with_ffmpeg(Some(ffmpeg()))
+            .with_extra(&tail);
+
+        let mut run = store.load("e2e-music-run").unwrap().unwrap();
+        for _ in 0..240 {
+            run =
+                production::advance(&store, &executor, "e2e-music-run", &root, &doc_path).unwrap();
+            if matches!(run.status, RunStatus::Done | RunStatus::Failed) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        assert_eq!(
+            run.status,
+            RunStatus::Done,
+            "la corrida con música no llegó a done: {:?} — {}",
+            run.status,
+            run.last_error.unwrap_or_default()
+        );
+
+        // acquire generó el MP3 con el provider ambiental.
+        let acquire = run
+            .stages
+            .iter()
+            .find(|s| s.stage == crate::studio::plan::StudioStage::Acquire)
+            .unwrap();
+        let resources = acquire
+            .output
+            .as_ref()
+            .and_then(|o| o["resources"].as_array().cloned())
+            .unwrap_or_default();
+        let music = resources
+            .iter()
+            .find(|r| r["sourceId"] == "local-ffmpeg-ambient")
+            .expect("debía haber un recurso generado por el ambient");
+        let music_path = music["path"].as_str().unwrap().to_owned();
+        assert!(music_path.starts_with("media/generated/musica-"));
+        assert!(root.join(&music_path).is_file());
+        let music_asset = music["assetId"].as_str().unwrap().to_owned();
+
+        // edit montó la cama en "Producción Música" y lo reportó resuelto.
+        let edit = run
+            .stages
+            .iter()
+            .find(|s| s.stage == crate::studio::plan::StudioStage::Edit)
+            .unwrap();
+        assert_eq!(
+            edit.output.as_ref().unwrap()["music"]["resolved"],
+            true,
+            "la música generada no se montó como cama"
+        );
+        let doc: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&doc_path).unwrap()).unwrap();
+        let music_track = doc["timeline"]["tracks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["name"] == "Producción Música" || t["label"] == "Producción Música")
+            .and_then(|t| t["id"].as_str().map(str::to_owned))
+            .expect("falta la pista Producción Música");
+        assert!(doc["timeline"]["clips"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["kind"] == "audio"
+                && c["trackId"] == music_track
+                && c["source"]["assetId"] == music_asset));
+
+        let videos: Vec<PathBuf> = fs::read_dir(root.join("deliverables"))
+            .map(|rd| {
+                rd.flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("mp4"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        assert_eq!(videos.len(), 1, "debía haber un MP4 entregado");
+        assert!(videos[0].metadata().unwrap().len() > 10_000);
+        eprintln!(
+            "E2E música OK: {} ({}), MP4 {}",
+            music_asset,
+            music_path,
+            videos[0].display()
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 }
