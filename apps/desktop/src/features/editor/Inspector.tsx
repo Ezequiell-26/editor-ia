@@ -4725,8 +4725,9 @@ function RegularClipInspector({ clip, track, project }: { clip: Clip; track: Tra
             </div>
           ) : null}
           <p className="fine-print">
-            La reducción de ruido usa `afftdn` y conviene probarla en el MP4; no reemplaza un
-            modelo de voice isolation.
+            La reducción de ruido y la puerta se aplican en el export con `afftdn`/`agate`; la
+            preview no las simula y se escuchan recién en el MP4. Conviene probarlas ahí; no
+            reemplazan un modelo de voice isolation.
           </p>
         </Section>
         <Section title="Filtros de voz" group="audio" subtab="voice">

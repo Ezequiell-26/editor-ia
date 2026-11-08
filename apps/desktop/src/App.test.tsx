@@ -1344,6 +1344,8 @@ describe('shell de Olyvia', () => {
     );
     expect(noiseSection?.textContent).toContain('Reducción de ruido');
     expect(noiseSection?.textContent).toContain('Puerta de ruido');
+    // La preview Web Audio no simula afftdn/agate: la sección lo declara.
+    expect(noiseSection?.textContent).toContain('preview no las simula');
     fireEvent.click(voiceTab);
     await waitFor(() =>
       expect(

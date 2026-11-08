@@ -5334,9 +5334,23 @@ Olyvia sólo tenía EQ/paneo/loudness por pista.
     cuello (>16 ms/frame viene del render React + capas de video); la
     medición CDP de frames reales durante playback en la app instalada
     sigue pendiente (igual que el `[next]` del 2026-11-05).
-20. **Denoise de audio en preview** — el `afftdn` del export no se
-    simula en Web Audio; evaluar un filtro aproximado o marcar la
-    diferencia en la UI.
+20. **Denoise de audio en preview** `[done]` — se evaluaron las dos vías
+    de la cola y se eligió **marcar la diferencia en la UI** (la otra,
+    un filtro aproximado, habría sonado peor que la verdad: `afftdn` es
+    sustracción espectral FFT y Web Audio no tiene equivalente; un
+    falso «denoise» sería UI mentirosa). Verificado en el código que
+    **todo** el DSP de `clip.audio` (denoise→`afftdn`, gateDb→`agate`,
+    EQ, HP/LP, compresor, deesser, voiceEffect) es export-only — la
+    preview sólo aplica ganancia/paneo/mute y el `audioStack` — así que
+    la nota de la sección «Reducción de ruido» del Inspector ahora
+    declara explícitamente: «la preview no las simula y se escuchan
+    recién en el MP4», igual que ya hacían las secciones vecinas
+    («Filtros y compresor se aplican en el render con FFmpeg»). Test:
+    `App.test.tsx` 77/77 con aserción nueva sobre el texto de la
+    sección; `tsc` 0 errores. Límite honesto: el aviso es textual —
+    no hay badge junto al control ni aviso al reproducir; si se quiere,
+    un indicador «sólo export» reutilizando el patrón de la pila de
+    efectos queda como mejora posible.
 21. **Automatización de fader de pista en preview** `[done]` — `trackAudioParams()`
     en `usePreviewAudio.ts` ahora muestrea `track.gainKeyframes` con `sampleTrackGain()`
     en el frame actual; `syncPreviewAudioAtFrame()` actualiza tanto fader como
