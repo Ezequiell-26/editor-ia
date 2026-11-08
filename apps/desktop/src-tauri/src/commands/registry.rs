@@ -9,6 +9,7 @@ use tauri::{Builder, Wry};
 // default `AppHandle` (= `AppHandle<Wry>`), whose `CommandArg` impl only
 // matches `Invoke<Wry>`. Keeping `R` generic here would leave the trait
 // obligation unsatisfied for every injected `AppHandle` argument.
+#[cfg_attr(test, allow(dead_code))]
 pub(crate) fn register(builder: Builder<Wry>) -> Builder<Wry> {
     builder.invoke_handler(tauri::generate_handler![
         crate::commands::projects::create_project,

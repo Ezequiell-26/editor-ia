@@ -18,15 +18,19 @@ pub mod projects;
 pub mod render;
 pub mod state;
 
+#[cfg_attr(test, allow(dead_code))]
 static QUIT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[cfg_attr(test, allow(dead_code))]
 static BACKGROUND_START: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[tauri::command]
+#[cfg_attr(test, allow(dead_code))]
 fn background_start_mode() -> bool {
     BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 #[cfg(windows)]
+#[cfg_attr(test, allow(dead_code))]
 fn claim_single_instance() -> bool {
     use std::ffi::c_void;
     #[link(name = "kernel32")]
@@ -46,11 +50,13 @@ fn claim_single_instance() -> bool {
 }
 
 #[cfg(not(windows))]
+#[cfg_attr(test, allow(dead_code))]
 fn claim_single_instance() -> bool {
     true
 }
 
 #[cfg(windows)]
+#[cfg_attr(test, allow(dead_code))]
 fn hide_splash_for_background(app: &tauri::App) {
     if let Some(splash) = app.get_webview_window("splash") {
         let _ = splash.hide();
@@ -58,8 +64,10 @@ fn hide_splash_for_background(app: &tauri::App) {
 }
 
 #[cfg(not(windows))]
+#[cfg_attr(test, allow(dead_code))]
 fn hide_splash_for_background(_app: &tauri::App) {}
 
+#[cfg_attr(test, allow(dead_code))]
 fn show_main_window(app: &tauri::AppHandle) {
     let _ = app.emit("app-show-requested", ());
     if let Some(window) = app.get_webview_window("main") {
@@ -69,6 +77,7 @@ fn show_main_window(app: &tauri::AppHandle) {
     }
 }
 
+#[cfg_attr(test, allow(dead_code))]
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     use tauri::menu::{Menu, MenuItem};
     use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -111,14 +120,17 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
 /// Revelado de la ventana principal. Se llena en `setup` y lo disparan tres
 /// caminos: la carga de la página principal, el evento `app-ready` del
 /// frontend y un fallo total a los 12 s.
+#[cfg_attr(test, allow(dead_code))]
 static REVEAL: std::sync::OnceLock<std::sync::Arc<dyn Fn() + Send + Sync>> =
     std::sync::OnceLock::new();
 
 /// Tiempo mínimo que el splash permanece en pantalla. La bienvenida es parte
 /// de la identidad, pero no debe tapar una app que ya está lista: 0,9 s evita
 /// el flash blanco sin castigar el arranque.
+#[cfg_attr(test, allow(dead_code))]
 const MIN_SPLASH_MS: u64 = 450;
 
+#[cfg_attr(test, allow(dead_code))]
 fn maybe_reveal_after_page_load(window_label: &str) {
     if window_label != "main" || BACKGROUND_START.load(std::sync::atomic::Ordering::SeqCst) {
         return;
@@ -139,6 +151,7 @@ fn maybe_reveal_after_page_load(window_label: &str) {
 /// (`app-ready`), se muestra la principal y se cierra el splash. Un último
 /// fallback a los 12 s evita dejar al usuario mirando una pantalla fija si
 /// ninguna de las dos señales llega.
+#[cfg_attr(test, allow(dead_code))]
 fn reveal_after_ready(app: &tauri::AppHandle) {
     let started = std::time::Instant::now();
     let Some(splash) = app.get_webview_window("splash") else {
@@ -204,6 +217,7 @@ pub fn run() {}
 
 /// Helper: emit a progress event to the splash window and app handle so it can
 /// show real, progressive loading status instead of an abrupt jump.
+#[cfg_attr(test, allow(dead_code))]
 fn emit_splash_progress(app: &tauri::AppHandle, step: u32, total: u32, message: &str, pct: u32) {
     let payload = serde_json::json!({
         "step": step,
