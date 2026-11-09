@@ -505,7 +505,9 @@ fn run_render_job(
     if let Some(handle) = stderr_thread {
         let _ = handle.join();
     }
-    runtime.unregister(&job_id);
+    // El job sigue registrado hasta que verify+publish termina: si se
+    // desregistrara antes, un sondeo vería "job terminado + sin archivo"
+    // mientras el worker aún publica, y declararía un fallo espurio.
     let log = log_buffer
         .lock()
         .map(|value| value.clone())
@@ -514,6 +516,7 @@ fn run_render_job(
     let temp_render_dir = temp_dir;
 
     if process.is_cancelled() {
+        runtime.unregister(&job_id);
         files.remove_dir(&temp_render_dir);
         events.finished(&RenderFinishedEvent {
             job_id,
@@ -532,6 +535,7 @@ fn run_render_job(
         return;
     }
     if !exit_success {
+        runtime.unregister(&job_id);
         persist_render_log(
             &temp_render_dir,
             "ffmpeg no pudo completar el render",
@@ -580,6 +584,7 @@ fn run_render_job(
     }
     match verified {
         Ok(verification) => {
+            runtime.unregister(&job_id);
             let report = verifier.verify(&ffprobe, &final_output).ok();
             events.finished(&RenderFinishedEvent {
                 job_id,
@@ -597,6 +602,7 @@ fn run_render_job(
             });
         }
         Err(error) => {
+            runtime.unregister(&job_id);
             persist_render_log(&temp_render_dir, &error.message, "");
             events.finished(&RenderFinishedEvent {
                 job_id,

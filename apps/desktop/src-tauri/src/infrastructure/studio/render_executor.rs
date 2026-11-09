@@ -384,6 +384,7 @@ mod e2e_tests {
 
     fn fixture_project(tag: &str) -> (PathBuf, PathBuf) {
         let root = std::env::temp_dir().join(format!("prod-e2e-{tag}-{}", std::process::id()));
+        eprintln!("fixture root: {}", root.display());
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(root.join("media")).unwrap();
         let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
