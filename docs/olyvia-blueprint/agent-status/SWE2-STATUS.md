@@ -401,3 +401,22 @@ Fase actual: Fase 3 en curso — BYOK remoto: imagen (`gen:`) + planner NL (`pro
 - verify-studio: 12/12 live + 1/1 E2E corridos verdes antes del cambio
   (el camino repair sólo se activa con review fallido; se interrumpió la
   suite completa para liberar el lock de build — pendiente re-corrida).
+- Commit `f3f36b2` pusheado.
+
+## 2026-11-09 (noche 14) — Rebuild 5 del instalador con local-gen reacquire
+
+- `npm run tauri:build` desde raíz → `Olyvia_0.2.0_x64-setup.exe`
+  148 913 368 bytes (142.01 MiB), SHA256 `950b7c6c…48ce49`, firmado
+  (cert `58204858…C3954`).
+- Instalación silenciosa `/S /D=` → `%TEMP%\olyvia-install-test5`:
+  exit 0, todos los recursos; exe instalado `Responding=True`,
+  PID 10800 (corriendo).
+- **Incidente menor honestado**: un smoke test lanzado sin `/D=`
+  instaló el mismo binario firmado en `%LOCALAPPDATA%\Olyvia` (la
+  instalación real del usuario) — completó antes de cancelar el
+  wrapper. Es el mismo build verificado; la app del usuario quedó
+  actualizada a rebuild 5 sin pérdida de datos (sus carpetas
+  `flow-browser-profile`, `overlays`, `olyvia-render-worker.exe`
+  persisten).
+- Docs actualizados: SHA256SUMS, RELEASE-MANIFEST, BUILD-AND-TEST-REPORT
+  (reescrito a rebuild 5), KNOWN-LIMITATIONS (ya incluía local-gen).

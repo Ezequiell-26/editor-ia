@@ -9,8 +9,8 @@
     {
       "file": "Olyvia_0.2.0_x64-setup.exe",
       "type": "nsis-installer",
-      "sizeBytes": 148959936,
-      "sha256": "25c6d2749153078103041b5eee895779a48056521c6ca489822ccda090b0216b",
+      "sizeBytes": 148913368,
+      "sha256": "950b7c6c6db2f90eb09f11f8c6f81df86dfdbafde3d33f922f78a167b648ce49",
       "signed": true,
       "signer": "58204858E163CE7DA173DB8AB09CD9B8359C3954"
     }
@@ -18,7 +18,7 @@
   "included": {
     "frontend": "React+Vite production build (510 modules; incluye studio UI de HY4 en desarrollo)",
     "backend": "Rust/Tauri 2 release build",
-    "backendHighlights": "Production pipeline autonomo (plan->acquire->analyze->scenes->edit->render->review->deliver), planner brief+NL, providers BYOK (chat OpenAI-compatible, imagen remota, voz TTS remota, SAPI local, archive.org), MCP studio (37 tools), driver de corridas, repair loop acotado con re-adquisicion dirigida de assets archive.org faltantes, quality gate documental + verificacion del MP4 (resolucion, duracion, loudness LUFS, pix_fmt/tags de color BT.709)",
+    "backendHighlights": "Production pipeline autonomo (plan->acquire->analyze->scenes->edit->render->review->deliver), planner brief+NL, providers BYOK (chat OpenAI-compatible, imagen remota, voz TTS remota, SAPI local, archive.org), MCP studio (37 tools), driver de corridas, repair loop acotado con re-adquisicion de assets faltantes (archive.org + regeneracion local deterministica de voz/musica/tarjetas/patrones), quality gate documental + verificacion del MP4 (resolucion, duracion, loudness LUFS, pix_fmt/tags de color BT.709)",
     "resources": "FFmpeg/ffprobe, FFmpeg LGPL DLLs, yt-dlp, Piper, ONNX Runtime, font/emoji packs, license notices"
   },
   "includedExtra": {
@@ -27,10 +27,10 @@
   },
   "verification": {
     "installerProduced": true,
-    "cargoReleaseBuild": "Finished release profile in 12m21s (rebuild 4: incluye re-adquisicion dirigida de assets archive.org en el repair loop + tool MCP quality_gate_review, catalogo 37 tools)",
-    "viteBuild": "510 modules transformed, built in 16.51s",
-    "unitAndE2E": "verify-studio.mjs TODO VERDE (12/12 live + 7/7 E2E); production:: 13/13, studio:: 81/81; re-acquire E2E live contra archive.org real OK (6.62s); render::ffmpeg 138/138",
-    "installerInstallTest": "PERFORMED on THIS build - silent NSIS /S /D= to %TEMP%\\olyvia-install-test4: exit 0, all resources present; installed editor-ia-desktop.exe launched, Responding=True, window 'Olyvia', PID 27972",
+    "cargoReleaseBuild": "release profile completado (rebuild 5: incluye re-adquisicion de generados locales en el repair loop, commit f3f36b2)",
+    "viteBuild": "vite production build OK (beforeBuildCommand de tauri build)",
+    "unitAndE2E": "verify-studio.mjs TODO VERDE (12/12 live + E2E) en la revision anterior al cambio de re-acquire local; studio_reacquire 6/6 + production 13/13 + studio_* 22/22 tras el cambio; cargo check --tests 0 errores; fmt limpio",
+    "installerInstallTest": "PERFORMED on THIS build - silent NSIS /S /D= to %TEMP%\\olyvia-install-test5: exit 0, all resources present; installed editor-ia-desktop.exe launched, Responding=True, PID 10800",
     "note": "typecheck de frontend falla en apps/desktop/src/studio/** (codigo HY4 en desarrollo, no bloquea vite build)"
   },
   "knownLimitations": "see KNOWN-LIMITATIONS.md"
