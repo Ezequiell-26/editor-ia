@@ -1,0 +1,37 @@
+{
+  "product": "Olyvia",
+  "version": "0.2.0",
+  "identifier": "com.editoria.desktop",
+  "builtAt": "2026-11-09",
+  "branch": "architecture/refactor-foundation",
+  "platform": "windows-x64",
+  "artifacts": [
+    {
+      "file": "Olyvia_0.2.0_x64-setup.exe",
+      "type": "nsis-installer",
+      "sizeBytes": 148918768,
+      "sha256": "95f5814a873ac20b7411215343c06e527f1780ca95f31e7aed5829030b2033c4",
+      "signed": true,
+      "signer": "58204858E163CE7DA173DB8AB09CD9B8359C3954"
+    }
+  ],
+  "included": {
+    "frontend": "React+Vite production build (510 modules; incluye studio UI de HY4 en desarrollo)",
+    "backend": "Rust/Tauri 2 release build",
+    "backendHighlights": "Production pipeline autonomo (plan->acquire->analyze->scenes->edit->render->review->deliver), planner brief+NL, providers BYOK (chat OpenAI-compatible, imagen remota, voz TTS remota, SAPI local, archive.org), MCP studio (36 tools), driver de corridas, repair loop acotado, quality gate documental + verificacion del MP4 (resolucion, duracion, loudness LUFS, pix_fmt/tags de color BT.709)",
+    "resources": "FFmpeg/ffprobe, FFmpeg LGPL DLLs, yt-dlp, Piper, ONNX Runtime, font/emoji packs, license notices"
+  },
+  "includedExtra": {
+    "exampleProject": "example-project/example.editoria.json + media/ (demo.mp4 1920x1080 30s, narracion-escena-1.wav 20s 48kHz, generados con FFmpeg lavfi; hashes sha256 reales en el JSON)",
+    "screenshots": "screenshot-app.png - captura real de la app instalada (916x589, titulo 'Olyvia')"
+  },
+  "verification": {
+    "installerProduced": true,
+    "cargoReleaseBuild": "Finished release profile in 8m35s (rebuild 3: incluye tool MCP quality_gate_review, catalogo 37 tools)",
+    "viteBuild": "510 modules transformed, built in 21.55s",
+    "unitAndE2E": "verify-studio.mjs TODO VERDE (12/12 live + 7/7 E2E) con quality gate de media activo; render::ffmpeg 138/138",
+    "installerInstallTest": "PERFORMED on THIS build - silent NSIS /S /D= to %TEMP%\\olyvia-install-test3: all resources present; installed exe launched, Responding=True, PID 2148",
+    "note": "typecheck de frontend falla en apps/desktop/src/studio/** (codigo HY4 en desarrollo, no bloquea vite build)"
+  },
+  "knownLimitations": "see KNOWN-LIMITATIONS.md"
+}

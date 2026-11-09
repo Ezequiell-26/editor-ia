@@ -73,3 +73,6 @@ target-polish/
 
 # Logs del loop Devin 24/7
 logs/
+
+# Instaladores de release (binarios grandes, se regeneran con tauri build)
+deliverables/**/*.exe

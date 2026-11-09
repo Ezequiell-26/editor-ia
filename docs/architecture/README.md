@@ -1,4 +1,4 @@
-﻿# Arquitectura de Olyvia / Editor IA
+# Arquitectura de Olyvia / Editor IA
 
 **Estado:** reorganización estructural en curso.
 **Base:** a7cff32638e670a1265d74e86e641abc7dc32764.
@@ -47,3 +47,10 @@ La aplicación principal sigue siendo un monolito modular local-first. Los proce
 Se adopta monolito modular por dominios + puertos/adaptadores en los límites. No se crea un crate Rust por cada carpeta ni se parte el editor en microservicios. El código queda organizado por responsabilidades dentro de los paquetes y procesos existentes.
 
 La arquitectura objetivo está descrita en TARGET-STRUCTURE.md. Las migraciones pendientes están enumeradas en MIGRATION-ROADMAP.md.
+
+
+## Blueprint maestro de producto
+
+La especificación canónica de producto, UX, backend, proveedores, MCP, seguridad y roadmap está en [docs/olyvia-blueprint/README.md](../olyvia-blueprint/README.md). Los encargos están separados para HY4 (frontend) y SWE 2 (backend).
+
+La definición del instalador, pruebas de aceptación y paquete final está en [13_FINAL_PROJECT_DELIVERY_CONTRACT.md](../olyvia-blueprint/13_FINAL_PROJECT_DELIVERY_CONTRACT.md).
