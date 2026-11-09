@@ -15,16 +15,18 @@ por E2E que reporta "flaky" si pasa al segundo intento.
 - **Búsqueda del catálogo no mira `label`**: los assets generados no eran
   encontrables por texto. `register_generated_asset_typed` ahora guarda
   `tags: [provider, kind, query]`.
-- **Flake de render**: "el render terminó sin publicar el archivo de
-  salida" ocurre de forma intermitente (~1 de cada 4 corridas del E2E de
-  contenido) en tests que pasan consistentemente individuales. No es un
-  bug determinista del pipeline: cada E2E pasó solo tras fallar en
-  suite. Causa probable: `verify_output`/publish corre justo tras salir
-  ffmpeg y en Windows el archivo puede estar aún bloqueado/flusheándose.
-- **Mitigación aplicada** (commit posterior): `verify_output`+publish se
-  reintenta una vez tras 400 ms — el temporal puede seguir liberándose
-  en Windows justo tras salir ffmpeg. Si el flake persiste, el
-  `render-<job>.log` dirá la causa real.
+- **Flake de render — RESUELTO (causa raíz)**: `run_render_job` hacía
+  `runtime.unregister()` apenas salía ffmpeg, ANTES de verify+publish.
+  La etapa `render` del estudio sondea `first_id()` + existencia del
+  archivo: en esa ventana veía job terminado + sin archivo → fatal →
+  el proceso de test moría y se llevaba al worker a milisegundos de
+  publicar. Evidencia forense: `out.mp4` completo (15 s, 1,2 MB) huérfano
+  en `cache/render-<job>/` sin `.log` ni publish. Fix: unregister en
+  cada rama terminal, después de verify+publish. Además verify+publish
+  reintenta una vez tras 400 ms (carrera de liberación de archivo en
+  Windows) y los fallos dejan `render-<job>.log` visible en el error.
+  `verify-studio.mjs` quedó TODO VERDE (12/12 live + 7/7 E2E, sin
+  reintentos).
 - **Subtítulos por IA**: existe pipeline Whisper real
   (`commands/audio/transcribe.rs`, faster-whisper vía Python) pero el
   motor NO está instalado en esta máquina. Instalarlo es decisión del
