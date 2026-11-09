@@ -529,8 +529,20 @@ impl AppState {
         let run = crate::application::production::advance(
             &store, &executor, run_id, &info.root, &info.path,
         )?;
+        // Re-adquisición dirigida: sólo Internet Archive (gratis, sin
+        // re-gasto de providers remotos). Si no se puede construir el
+        // cliente HTTP, el repair sigue funcionando sin ella.
+        let reacquisition =
+            crate::infrastructure::studio::internet_archive::InternetArchiveAcquisition::new().ok();
         crate::application::production::repair_review_failure(
-            &store, run, &info.path, &info.root, &documents,
+            &store,
+            run,
+            &info.path,
+            &info.root,
+            &documents,
+            reacquisition
+                .as_ref()
+                .map(|a| a as &dyn crate::ports::studio::ResourceAcquisition),
         )
     }
 

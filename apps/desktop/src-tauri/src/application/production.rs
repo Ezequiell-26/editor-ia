@@ -164,6 +164,7 @@ pub fn repair_review_failure(
     document_path: &std::path::Path,
     project_root: &std::path::Path,
     documents: &dyn ProjectDocuments,
+    reacquisition: Option<&dyn crate::ports::studio::ResourceAcquisition>,
 ) -> Result<ProductionRun, ProjectError> {
     use crate::studio::quality::QualitySeverity;
 
@@ -179,12 +180,54 @@ pub fn repair_review_failure(
         return Ok(run);
     }
     let opened = documents.open(document_path)?;
-    let report = crate::application::quality_gate::review_project(project_root, &opened.project);
-    let has_errors = report
+    let mut report =
+        crate::application::quality_gate::review_project(project_root, &opened.project);
+    let mut has_errors = report
         .findings
         .iter()
         .any(|f| f.severity == QualitySeverity::Error);
     if !has_errors {
+        return Ok(run);
+    }
+    // Re-adquisición dirigida: si el gate falló por `missing-resources`,
+    // intenta restaurar en disco los assets con provenance de Internet
+    // Archive ANTES de evaluar reparaciones documentales. No re-ejecuta la
+    // etapa acquire (no re-gasta providers remotos) ni muta el documento.
+    let mut reacquire_note = String::new();
+    if reacquisition.is_some()
+        && report.findings.iter().any(|f| {
+            f.check == crate::studio::plan::QualityCheckKind::MissingResources
+                && f.severity == QualitySeverity::Error
+        })
+    {
+        let rec = crate::application::studio_reacquire::reacquire_missing_assets(
+            project_root,
+            &opened.project,
+            reacquisition.unwrap(),
+        );
+        if !rec.recovered.is_empty() || !rec.failed.is_empty() {
+            reacquire_note = format!(
+                "reacquire: {} recuperados, {} fallidos, {} no re-adquiribles",
+                rec.recovered.len(),
+                rec.failed.len(),
+                rec.skipped.len()
+            );
+            // Re-evalúa el gate: los archivos restaurados ya cuentan.
+            report =
+                crate::application::quality_gate::review_project(project_root, &opened.project);
+            has_errors = report
+                .findings
+                .iter()
+                .any(|f| f.severity == QualitySeverity::Error);
+        }
+    }
+    if !has_errors {
+        // Sólo se llega acá si la re-adquisición restauró TODO lo que
+        // faltaba y no quedan otros errores: el documento no cambió, pero
+        // el gate vuelve a verde ⇒ mismo ciclo repair→render→review.
+        let note = format!("repair #{}: {reacquire_note}", run.repair_attempts + 1);
+        run.repair_reset(&[StudioStage::Render, StudioStage::Review], &note, &now());
+        store.save(&run)?;
         return Ok(run);
     }
     let mut fixed = opened.project;
@@ -198,9 +241,14 @@ pub fn repair_review_failure(
     }
     documents.save(document_path, &fixed)?;
     let note = format!(
-        "repair #{}: {}",
+        "repair #{}: {}{}",
         run.repair_attempts + 1,
-        repair.applied.join("; ")
+        repair.applied.join("; "),
+        if reacquire_note.is_empty() {
+            String::new()
+        } else {
+            format!(" | {reacquire_note}")
+        }
     );
     run.repair_reset(&[StudioStage::Render, StudioStage::Review], &note, &now());
     store.save(&run)?;
@@ -762,7 +810,7 @@ mod tests {
             project_with_out_of_range_clip(&root.join("media/x.mp4")),
         );
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs).unwrap();
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Running);
         assert_eq!(fixed.repair_attempts, 1);
         assert!(fixed.last_repair.as_deref().unwrap().contains("clip c1"));
@@ -794,7 +842,7 @@ mod tests {
         project["assets"][0]["source"]["path"] = serde_json::json!("media/no-existe.mp4");
         docs.put(&doc_path, project);
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs).unwrap();
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Failed);
         assert_eq!(fixed.repair_attempts, 0);
         // El documento NO se guardó (sigue declarando la ruta rota original…
@@ -822,12 +870,128 @@ mod tests {
             project_with_out_of_range_clip(&root.join("media/x.mp4")),
         );
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs).unwrap();
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Failed);
         assert_eq!(
             fixed.repair_attempts,
             crate::application::studio_repair::MAX_REPAIR_ATTEMPTS
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- re-adquisición dirigida (missing-resources) ----
+
+    /// Adquisición fake que "descarga" creando el archivo convencional
+    /// `media/acquired/{external_id}.mp4` dentro del root del proyecto.
+    struct FakeArchiveAcquisition;
+
+    impl crate::ports::studio::ResourceAcquisition for FakeArchiveAcquisition {
+        fn sources(&self) -> Vec<crate::ports::studio::SourceDescriptor> {
+            Vec::new()
+        }
+        fn search(
+            &self,
+            _source_id: &str,
+            _query: &crate::ports::studio::AcquisitionQuery,
+        ) -> Result<Vec<crate::ports::studio::AcquisitionCandidate>, ProjectError> {
+            Ok(Vec::new())
+        }
+        fn acquire(
+            &self,
+            _source_id: &str,
+            candidate: &crate::ports::studio::AcquisitionCandidate,
+            project_root: &Path,
+        ) -> Result<crate::ports::studio::AcquiredResource, ProjectError> {
+            let rel = format!("media/acquired/{}.mp4", candidate.external_id);
+            let dest = project_root.join(&rel);
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::write(&dest, b"restored").unwrap();
+            Ok(crate::ports::studio::AcquiredResource {
+                path: rel,
+                bytes: 8,
+                sha256: None,
+                candidate: candidate.clone(),
+            })
+        }
+    }
+
+    /// Proyecto cuyo único error de gate es `missing-resources`: un asset
+    /// de archive.org con clip en rango y archivo ausente en disco.
+    fn project_with_missing_archive_asset() -> serde_json::Value {
+        serde_json::json!({
+            "assets": [{
+                "id": "a1", "kind": "video", "status": "ready", "label": "clip archive",
+                "source": { "type": "local", "path": "media/acquired/item9.mp4" },
+                "rights": {
+                    "license": { "id": "cc0", "commercialUse": "allowed" },
+                    "provenance": {
+                        "origin": "downloaded",
+                        "provider": "internet-archive",
+                        "sourceUrl": "https://archive.org/details/item9",
+                        "acquiredAt": "2026-01-01T00:00:00Z"
+                    }
+                },
+                "media": { "width": 1920, "height": 1080, "durationFrames": 500,
+                           "frameRate": { "num": 30, "den": 1 } }
+            }],
+            "timeline": {
+                "tracks": [{ "id": "t1", "kind": "video" }],
+                "clips": [{
+                    "id": "c1", "trackId": "t1", "kind": "video",
+                    "startFrame": 0, "durationFrames": 100,
+                    "source": { "type": "asset", "assetId": "a1", "inFrame": 0, "outFrame": 100 }
+                }]
+            },
+            "captions": { "cues": [] },
+            "renderProfiles": [{ "id": "p1" }]
+        })
+    }
+
+    #[test]
+    fn repair_reacquires_missing_archive_asset_and_resets() {
+        let store = MemStore::new();
+        let run = run_failed_at_review(&store, "run-reacq-1");
+
+        let root = std::env::temp_dir().join(format!("reacq-{}", std::process::id()));
+        let doc_path = root.join("project.json");
+        let docs = MemDocs::new();
+        docs.put(&doc_path, project_with_missing_archive_asset());
+        // El archivo NO existe: el gate falla por missing-resources.
+        assert!(!root.join("media/acquired/item9.mp4").exists());
+
+        let fake = FakeArchiveAcquisition;
+        let fixed =
+            repair_review_failure(&store, run, &doc_path, &root, &docs, Some(&fake)).unwrap();
+        assert_eq!(fixed.status, RunStatus::Running);
+        assert_eq!(fixed.repair_attempts, 1);
+        assert!(fixed.last_repair.as_deref().unwrap().contains("reacquire"));
+        assert!(root.join("media/acquired/item9.mp4").is_file());
+        assert_eq!(
+            fixed.stage_record(StudioStage::Render).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        assert_eq!(
+            fixed.stage_record(StudioStage::Review).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn repair_stays_failed_when_reacquire_cannot_restore() {
+        let store = MemStore::new();
+        let run = run_failed_at_review(&store, "run-reacq-2");
+
+        let root = std::env::temp_dir().join(format!("reacq2-{}", std::process::id()));
+        let doc_path = root.join("project.json");
+        let docs = MemDocs::new();
+        // Mismo asset archive pero SIN adquisición disponible (None):
+        // el comportamiento previo se conserva — falla honestamente.
+        docs.put(&doc_path, project_with_missing_archive_asset());
+
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
+        assert_eq!(fixed.status, RunStatus::Failed);
+        assert_eq!(fixed.repair_attempts, 0);
         let _ = std::fs::remove_dir_all(&root);
     }
 }

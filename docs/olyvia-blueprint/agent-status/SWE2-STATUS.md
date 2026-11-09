@@ -316,3 +316,33 @@ Fase actual: Fase 3 en curso — BYOK remoto: imagen (`gen:`) + planner NL (`pro
   Scope HY4 — no tocado. El bundle vite compila igual.
 - `npm run typecheck` verde en project-schema/effect-kit/render-worker
   (los errores son todos de apps/desktop/src/studio).
+
+## 2026-11-09 (noche 10) — Push + re-adquisición dirigida en repair loop
+
+- **Push autorizado y ejecutado**: `architecture/refactor-foundation` →
+  origin (github.com/Ezequiell-26/editor-ia). Dos commits:
+  `2dbeebb` feat(studio) pipeline autónomo (25 archivos src-tauri) y
+  `3f1127e` docs(deliver) paquete final + blueprint + memoria.
+  HY4 (`src/App.tsx`, `src/studio/`) quedó sin stagear. El .exe del
+  instalador NO se commitea (148 MB > límite GitHub); `.gitignore` ahora
+  excluye `deliverables/**/*.exe` — se regenera con tauri build y su
+  SHA256 vive en SHA256SUMS.txt.
+- **Re-adquisición dirigida** (`application/studio_reacquire.rs`): cuando
+  el quality gate falla por `missing-resources`, el repair intenta
+  restaurar en disco los assets con provenance de Internet Archive
+  (`provider: "internet-archive"` + `sourceUrl` `/details/{id}`) vía el
+  port `ResourceAcquisition` — SIN re-ejecutar la etapa acquire (no
+  re-gasta providers remotos BYOK) y sin mutar el documento. Assets
+  user-imported / generated-remote / sin provenance quedan `skipped`:
+  el gate sigue fallando honestamente.
+- `repair_review_failure` ahora recibe `Option<&dyn ResourceAcquisition>`;
+  state.rs inyecta `InternetArchiveAcquisition` cuando se puede construir.
+  Si la re-adquisición deja el gate verde, resetea render+review igual que
+  una reparación documental (consume un ciclo de MAX_REPAIR_ATTEMPTS).
+- Tests: 3 nuevos en studio_reacquire + 2 en production (reacquire OK →
+  reset; sin adquisición → failed honesto). `production::` 13/13,
+  `studio::` 81/81, fmt limpio.
+- Límite honesto: si archive.org sirve un derivado distinto al original,
+  `integrity.sha256` del asset puede quedar desactualizado (el gate no lo
+  verifica hoy). Generados locales/remotos y user-imported no se
+  re-adquieren en esta versión.
