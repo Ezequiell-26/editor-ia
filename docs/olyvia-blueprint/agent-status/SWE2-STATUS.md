@@ -357,3 +357,18 @@ Fase actual: Fase 3 en curso — BYOK remoto: imagen (`gen:`) + planner NL (`pro
 - **Resultado real: ok en 6.62 s** — descarga → borrado → re-adquisición →
   archivo restaurado, todo contra archive.org de verdad.
 - fmt limpio; tests unitarios 5/5 + production 13/13 sin cambios.
+
+## 2026-11-09 (noche 12) — Rebuild 4 del instalador con re-acquire
+
+- `npm run tauri:build` desde raíz: vite 510 módulos 16.51s + cargo
+  release 12m21s + firma + NSIS → `Olyvia_0.2.0_x64-setup.exe`
+  148 959 936 bytes, SHA256 `25c6d274…b0216b`.
+- Instalación silenciosa `/S /D=` → `%TEMP%\olyvia-install-test4`:
+  exit 0, todos los recursos; `editor-ia-desktop.exe` instalado
+  `Responding=True`, ventana "Olyvia", PID 27972 (corriendo).
+- Incluye: re-adquisición dirigida archive.org en repair loop
+  (verificada E2E live), quality_gate_review MCP (37 tools), todo lo
+  del rebuild 3.
+- Docs actualizados: SHA256SUMS, RELEASE-MANIFEST, BUILD-AND-TEST-REPORT,
+  KNOWN-LIMITATIONS (sección Entorno de build: node_modules ya es propio).
+- Rama pusheada: commits hasta `1d107e9` + este rebuild documentado.

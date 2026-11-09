@@ -33,16 +33,19 @@ reales del sistema.
 
 - El quality gate valida el documento **y el MP4 renderizado** (resolución,
   duración vs timeline, loudness LUFS, pix_fmt/tags de color). Existe un
-  repair loop acotado (máx. 2 intentos) que sólo repara mecánicamente rangos
-  de clips fuera de rango y re-ejecuta render+review si el gate queda verde;
-  el resto de hallazgos (assets faltantes, loudness, color) quedan `failed`
-  con el hallazgo explícito — no se repara a ciegas.
+  repair loop acotado (máx. 2 intentos) que repara mecánicamente rangos de
+  clips fuera de rango, **re-adquiere assets de Internet Archive cuyo
+  archivo falte en disco** (sin re-gastar providers remotos) y re-ejecuta
+  render+review si el gate queda verde; el resto de hallazgos (loudness,
+  color, assets no re-adquiribles) quedan `failed` con el hallazgo
+  explícito — no se repara a ciegas.
 - Assets generados remotamente quedan marcados `provider-terms`/`unknown` para
   revisión de derechos.
 
 ## Entorno de build (solo dev)
 
-- `node_modules` compartido entre worktrees vía symlink: los junctions
-  `@editor-ia/*` deben re-verificarse tras cualquier `npm install`.
+- `node_modules` del worktree es propio (`npm ci`, mismo lockfile): los
+  packages `@editor-ia/*` resuelven localmente y no pueden repuntar al
+  repo hermano.
 - `tauri build` debe correrse desde la raíz con `npm run tauri:build`
   (sin el wrapper faltan FFMPEG_DIR / CARGO_HOME / MSVC).
