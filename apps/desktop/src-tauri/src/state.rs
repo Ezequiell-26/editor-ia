@@ -534,6 +534,12 @@ impl AppState {
         // cliente HTTP, el repair sigue funcionando sin ella.
         let reacquisition =
             crate::infrastructure::studio::internet_archive::InternetArchiveAcquisition::new().ok();
+        // Regeneración local de assets generados (voz SAPI, ffmpeg
+        // música/tarjetas/patrones): determinística y sin re-gasto.
+        let local_regenerator =
+            crate::infrastructure::studio::local_regenerator::LocalAssetRegenerator::new(
+                self.media_tools().ffmpeg_path(),
+            );
         crate::application::production::repair_review_failure(
             &store,
             run,
@@ -543,6 +549,7 @@ impl AppState {
             reacquisition
                 .as_ref()
                 .map(|a| a as &dyn crate::ports::studio::ResourceAcquisition),
+            Some(&local_regenerator),
         )
     }
 

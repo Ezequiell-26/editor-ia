@@ -372,3 +372,32 @@ Fase actual: Fase 3 en curso — BYOK remoto: imagen (`gen:`) + planner NL (`pro
 - Docs actualizados: SHA256SUMS, RELEASE-MANIFEST, BUILD-AND-TEST-REPORT,
   KNOWN-LIMITATIONS (sección Entorno de build: node_modules ya es propio).
 - Rama pusheada: commits hasta `1d107e9` + este rebuild documentado.
+
+## 2026-11-09 (noche 13) — Re-adquisición de generados locales en repair loop
+
+- **`reacquire_generated_local`** (`application/studio_reacquire.rs`):
+  segunda vía de restauración para assets `generated-locally` (voz SAPI
+  `windows-sapi`, música `local-ffmpeg-ambient`, tarjetas
+  `local-ffmpeg-titlecard`, patrones `local-ffmpeg-pattern`). Cruza el
+  `source.path` del asset con `run.stages[acquire].output.resources[]`
+  (path/requirementId/externalId/sourceId) + `run.plan.requirements` y
+  re-ejecuta el generador con el MISMO `request_id` — los generadores
+  derivan el nombre del archivo de él ⇒ restaura el path exacto.
+  Determinístico y sin red: no re-gasta nada.
+- Nuevo puerto `LocalRegenerator` (application) + dispatcher
+  `LocalAssetRegenerator` (infrastructure) que rutea por provider_id a
+  los 4 generadores locales; providers desconocidos → error legible.
+- `repair_review_failure` recibe ahora también
+  `Option<&dyn LocalRegenerator>`; state.rs lo construye siempre con
+  `media_tools().ffmpeg_path()`. Ambas vías corren en la misma pasada y
+  el gate se re-evalúa una sola vez. La nota de auditoría distingue
+  `archive:` de `local-gen:`.
+- `generated-remote` sigue excluido a propósito (re-gastaría BYOK);
+  `user-imported` y sin-provenance también.
+- Tests: 3 nuevos en studio_reacquire (regenera al mismo path, salta
+  remote/imported, reporta failed si el generador falla). Verificación:
+  `cargo check --tests` 0 errores, `application::production` 13/13,
+  `studio_*` 22/22, `cargo fmt --check` limpio.
+- verify-studio: 12/12 live + 1/1 E2E corridos verdes antes del cambio
+  (el camino repair sólo se activa con review fallido; se interrumpió la
+  suite completa para liberar el lock de build — pendiente re-corrida).

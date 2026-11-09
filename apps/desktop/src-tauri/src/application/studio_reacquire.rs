@@ -24,7 +24,8 @@ use std::path::Path;
 use serde_json::Value;
 
 use crate::ports::studio::{
-    AcquisitionCandidate, ResourceAcquisition, ResourceLicense, SourceDescriptor,
+    AcquisitionCandidate, GenerationRequest, GenerationResult, ResourceAcquisition,
+    ResourceLicense, SourceDescriptor,
 };
 use crate::projects::service::ProjectError;
 use crate::studio::plan::{CommercialUseRequirement, StudioResourceKind};
@@ -131,6 +132,120 @@ pub fn reacquire_missing_assets(
         // El candidato se usa sólo por `external_id`+`kind`: `acquire` de
         // archive.org ignora el resto de la ficha para decidir el derivado.
         match acquisition.acquire("internet-archive", &candidate, project_root) {
+            Ok(_) => {
+                let restored = crate::media::resolve_inside_root(project_root, relative)
+                    .map(|p| p.is_file())
+                    .unwrap_or(false);
+                if restored {
+                    report.recovered.push(asset_id.to_owned());
+                } else {
+                    report.failed.push(asset_id.to_owned());
+                }
+            }
+            Err(_) => report.failed.push(asset_id.to_owned()),
+        }
+    }
+    report
+}
+
+/// Puerto de regeneración local: re-ejecuta el generador que produjo un
+/// asset `generated-locally` con el MISMO `request_id` (los generadores
+/// derivan el nombre del archivo de él ⇒ restaura el path exacto).
+/// Sólo providers locales/deterministas: nunca remoto (re-gastaría BYOK).
+pub trait LocalRegenerator: Send + Sync {
+    /// `provider_id` es el `sourceId` registrado en la etapa acquire
+    /// (`windows-sapi`, `local-ffmpeg-*`). Devuelve error legible si el
+    /// provider no es re-generable localmente.
+    fn regenerate(
+        &self,
+        provider_id: &str,
+        request: &GenerationRequest,
+        project_root: &Path,
+    ) -> Result<GenerationResult, ProjectError>;
+}
+
+/// Intenta restaurar assets `generated-locally` re-ejecutando su
+/// generador local con el request original (mismo `request_id` ⇒ mismo
+/// archivo). El mapeo asset→requisito sale del output persistido de la
+/// etapa `acquire` (`resources[]` con `path`/`requirementId`/`externalId`/
+/// `sourceId`) cruzado con `run.plan.requirements`.
+///
+/// No aplica a `generated-remote` (re-gastaría presupuesto BYOK),
+/// `user-imported` ni `downloaded` sin provenance: quedan `skipped`.
+pub fn reacquire_generated_local(
+    project_root: &Path,
+    project: &Value,
+    run: &crate::studio::run::ProductionRun,
+    regenerator: &dyn LocalRegenerator,
+) -> ReacquireReport {
+    let mut report = ReacquireReport::default();
+    let Ok(plan) = serde_json::from_value::<crate::studio::plan::ProductionPlan>(run.plan.clone())
+    else {
+        return report;
+    };
+    let Some(resources) = run
+        .stage_record(crate::studio::plan::StudioStage::Acquire)
+        .and_then(|record| record.output.as_ref())
+        .and_then(|output| output.get("resources"))
+        .and_then(Value::as_array)
+    else {
+        return report;
+    };
+    let Some(assets) = project.get("assets").and_then(Value::as_array) else {
+        return report;
+    };
+    for asset in assets {
+        let Some(asset_id) = str_at(asset, "id") else {
+            continue;
+        };
+        let Some(relative) = asset
+            .get("source")
+            .and_then(|s| s.get("path"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let on_disk = crate::media::resolve_inside_root(project_root, relative)
+            .map(|p| p.is_file())
+            .unwrap_or(false);
+        if on_disk {
+            continue;
+        }
+        let provenance = asset
+            .get("rights")
+            .and_then(|r| r.get("provenance"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if str_at(&provenance, "origin") != Some("generated-locally") {
+            report.skipped.push(asset_id.to_owned());
+            continue;
+        }
+        // Cruza el path declarado con la entrada que acquire persistió.
+        let entry = resources.iter().find(|entry| {
+            str_at(entry, "path") == Some(relative)
+                && str_at(entry, "sourceId").is_some()
+                && str_at(entry, "externalId").is_some()
+        });
+        let (Some(entry), Some(req_id)) = (entry, entry.and_then(|e| str_at(e, "requirementId")))
+        else {
+            report.skipped.push(asset_id.to_owned());
+            continue;
+        };
+        let Some(req) = plan.requirements.iter().find(|r| r.id == req_id) else {
+            report.skipped.push(asset_id.to_owned());
+            continue;
+        };
+        let request = GenerationRequest {
+            // El request_id original reproduce el nombre de archivo exacto.
+            request_id: str_at(entry, "externalId").unwrap_or_default().to_owned(),
+            kind: req.kind,
+            prompt: req.query.clone(),
+            duration_seconds: None,
+            voice: req.voice.clone(),
+            params: serde_json::json!({}),
+        };
+        let source_id = str_at(entry, "sourceId").unwrap_or_default().to_owned();
+        match regenerator.regenerate(&source_id, &request, project_root) {
             Ok(_) => {
                 let restored = crate::media::resolve_inside_root(project_root, relative)
                     .map(|p| p.is_file())
@@ -301,6 +416,148 @@ mod tests {
         assert!(report.recovered.is_empty());
         assert!(report.skipped.is_empty());
         assert!(report.failed.is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // ---- reacquire_generated_local ----
+
+    use crate::ports::studio::{GenerationRequest, GenerationResult};
+    use crate::studio::plan::ProductionPlan;
+    use crate::studio::run::ProductionRun;
+
+    fn local_plan() -> ProductionPlan {
+        serde_json::from_value(serde_json::json!({
+            "schemaVersion": 1,
+            "id": "plan-1",
+            "brief": { "objective": "Video con voz", "keyPoints": [] },
+            "target": { "platform": "youtube", "aspectRatio": "16:9",
+                        "targetDurationFrames": 300 },
+            "requirements": [{
+                "id": "req-voz", "kind": "voice", "query": "Hola mundo",
+                "voice": "Laura", "maxCount": 1
+            }],
+            "quality": { "requiredChecks": ["missing-resources"] },
+            "stage": "render"
+        }))
+        .expect("plan válido")
+    }
+
+    fn run_with_acquire(plan: &ProductionPlan, resources: Value) -> ProductionRun {
+        let mut run = ProductionRun::new(plan, "run-1", None, "2026-01-01T00:00:00Z");
+        if let Some(record) = run
+            .stages
+            .iter_mut()
+            .find(|r| r.stage == crate::studio::plan::StudioStage::Acquire)
+        {
+            record.output = Some(json!({ "resources": resources }));
+        }
+        run
+    }
+
+    fn generated_asset(id: &str, path: &str, origin: &str) -> Value {
+        let mut asset = asset_json(id, path, "windows-sapi", "");
+        asset["kind"] = json!("audio");
+        asset["rights"]["provenance"]["origin"] = json!(origin);
+        asset["rights"]["provenance"]["provider"] = json!("windows-sapi");
+        asset
+    }
+
+    /// Fake que reproduce el contrato real: el nombre sale de
+    /// `request_id` (como `LocalVoiceGenerator`).
+    struct FakeLocalRegenerator;
+
+    impl LocalRegenerator for FakeLocalRegenerator {
+        fn regenerate(
+            &self,
+            provider_id: &str,
+            request: &GenerationRequest,
+            project_root: &Path,
+        ) -> Result<GenerationResult, ProjectError> {
+            assert_eq!(provider_id, "windows-sapi");
+            let rel = format!("media/generated/narracion-{}.wav", request.request_id);
+            let dest = project_root.join(&rel);
+            std::fs::create_dir_all(dest.parent().unwrap()).unwrap();
+            std::fs::write(&dest, b"voice").unwrap();
+            Ok(GenerationResult {
+                path: rel,
+                bytes: 5,
+                provider: provider_id.to_owned(),
+                model: "fake".to_owned(),
+                cost_cents: Some(0),
+                license: None,
+            })
+        }
+    }
+
+    #[test]
+    fn regenerates_missing_local_asset_to_same_path() {
+        let root = std::env::temp_dir().join(format!("reacq-gen-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let rel = "media/generated/narracion-plan-1-req-voz-0.wav";
+        let plan = local_plan();
+        let run = run_with_acquire(
+            &plan,
+            json!([{
+                "requirementId": "req-voz",
+                "path": rel,
+                "externalId": "plan-1-req-voz-0",
+                "sourceId": "windows-sapi",
+                "assetId": "a1"
+            }]),
+        );
+        let project = project(vec![generated_asset("a1", rel, "generated-locally")]);
+        let report = reacquire_generated_local(&root, &project, &run, &FakeLocalRegenerator);
+        assert_eq!(report.recovered, vec!["a1".to_owned()]);
+        assert!(root.join(rel).is_file(), "el archivo no se regeneró");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn skips_remote_generated_and_unknown_origin() {
+        let root = std::env::temp_dir().join(format!("reacq-gen2-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let plan = local_plan();
+        let run = run_with_acquire(&plan, json!([]));
+        let remote = generated_asset("r1", "media/generated/narracion-x.wav", "generated-remote");
+        let imported = asset_json("u1", "media/mio.wav", "", "");
+        let project = project(vec![remote, imported]);
+        let report = reacquire_generated_local(&root, &project, &run, &FakeLocalRegenerator);
+        assert!(report.recovered.is_empty());
+        assert_eq!(report.skipped.len(), 2);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn reports_failed_when_regenerator_errors() {
+        struct FailingRegenerator;
+        impl LocalRegenerator for FailingRegenerator {
+            fn regenerate(
+                &self,
+                _provider_id: &str,
+                _request: &GenerationRequest,
+                _project_root: &Path,
+            ) -> Result<GenerationResult, ProjectError> {
+                Err(ProjectError::message(
+                    crate::projects::service::ProjectErrorCode::Io,
+                    "generador caído",
+                ))
+            }
+        }
+        let root = std::env::temp_dir().join(format!("reacq-gen3-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let rel = "media/generated/narracion-plan-1-req-voz-0.wav";
+        let plan = local_plan();
+        let run = run_with_acquire(
+            &plan,
+            json!([{
+                "requirementId": "req-voz", "path": rel,
+                "externalId": "plan-1-req-voz-0", "sourceId": "windows-sapi"
+            }]),
+        );
+        let project = project(vec![generated_asset("a1", rel, "generated-locally")]);
+        let report = reacquire_generated_local(&root, &project, &run, &FailingRegenerator);
+        assert_eq!(report.failed, vec!["a1".to_owned()]);
+        assert!(report.recovered.is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
 

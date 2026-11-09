@@ -165,6 +165,7 @@ pub fn repair_review_failure(
     project_root: &std::path::Path,
     documents: &dyn ProjectDocuments,
     reacquisition: Option<&dyn crate::ports::studio::ResourceAcquisition>,
+    local_regenerator: Option<&dyn crate::application::studio_reacquire::LocalRegenerator>,
 ) -> Result<ProductionRun, ProjectError> {
     use crate::studio::quality::QualitySeverity;
 
@@ -190,28 +191,53 @@ pub fn repair_review_failure(
         return Ok(run);
     }
     // Re-adquisición dirigida: si el gate falló por `missing-resources`,
-    // intenta restaurar en disco los assets con provenance de Internet
-    // Archive ANTES de evaluar reparaciones documentales. No re-ejecuta la
-    // etapa acquire (no re-gasta providers remotos) ni muta el documento.
+    // intenta restaurar en disco los assets ANTES de evaluar reparaciones
+    // documentales. Dos vías, ambas sin re-ejecutar la etapa acquire:
+    //  - Internet Archive: re-descarga el derivado (gratis, idempotente).
+    //  - Generados locales (voz SAPI, música/tarjetas/patrones ffmpeg):
+    //    re-ejecuta el generador con el request original ⇒ mismo path.
+    // Los `generated-remote` quedan fuera a propósito (re-gastarían BYOK).
     let mut reacquire_note = String::new();
-    if reacquisition.is_some()
+    if (reacquisition.is_some() || local_regenerator.is_some())
         && report.findings.iter().any(|f| {
             f.check == crate::studio::plan::QualityCheckKind::MissingResources
                 && f.severity == QualitySeverity::Error
         })
     {
-        let rec = crate::application::studio_reacquire::reacquire_missing_assets(
-            project_root,
-            &opened.project,
-            reacquisition.unwrap(),
-        );
-        if !rec.recovered.is_empty() || !rec.failed.is_empty() {
-            reacquire_note = format!(
-                "reacquire: {} recuperados, {} fallidos, {} no re-adquiribles",
-                rec.recovered.len(),
-                rec.failed.len(),
-                rec.skipped.len()
+        let mut notes = Vec::new();
+        if let Some(acquisition) = reacquisition {
+            let rec = crate::application::studio_reacquire::reacquire_missing_assets(
+                project_root,
+                &opened.project,
+                acquisition,
             );
+            if !rec.recovered.is_empty() || !rec.failed.is_empty() {
+                notes.push(format!(
+                    "archive: {} recuperados, {} fallidos, {} no re-adquiribles",
+                    rec.recovered.len(),
+                    rec.failed.len(),
+                    rec.skipped.len()
+                ));
+            }
+        }
+        if let Some(regenerator) = local_regenerator {
+            let rec = crate::application::studio_reacquire::reacquire_generated_local(
+                project_root,
+                &opened.project,
+                &run,
+                regenerator,
+            );
+            if !rec.recovered.is_empty() || !rec.failed.is_empty() {
+                notes.push(format!(
+                    "local-gen: {} recuperados, {} fallidos, {} no re-generables",
+                    rec.recovered.len(),
+                    rec.failed.len(),
+                    rec.skipped.len()
+                ));
+            }
+        }
+        if !notes.is_empty() {
+            reacquire_note = notes.join(" | ");
             // Re-evalúa el gate: los archivos restaurados ya cuentan.
             report =
                 crate::application::quality_gate::review_project(project_root, &opened.project);
@@ -810,7 +836,8 @@ mod tests {
             project_with_out_of_range_clip(&root.join("media/x.mp4")),
         );
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
+        let fixed =
+            repair_review_failure(&store, run, &doc_path, &root, &docs, None, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Running);
         assert_eq!(fixed.repair_attempts, 1);
         assert!(fixed.last_repair.as_deref().unwrap().contains("clip c1"));
@@ -842,7 +869,8 @@ mod tests {
         project["assets"][0]["source"]["path"] = serde_json::json!("media/no-existe.mp4");
         docs.put(&doc_path, project);
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
+        let fixed =
+            repair_review_failure(&store, run, &doc_path, &root, &docs, None, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Failed);
         assert_eq!(fixed.repair_attempts, 0);
         // El documento NO se guardó (sigue declarando la ruta rota original…
@@ -870,7 +898,8 @@ mod tests {
             project_with_out_of_range_clip(&root.join("media/x.mp4")),
         );
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
+        let fixed =
+            repair_review_failure(&store, run, &doc_path, &root, &docs, None, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Failed);
         assert_eq!(
             fixed.repair_attempts,
@@ -961,10 +990,10 @@ mod tests {
 
         let fake = FakeArchiveAcquisition;
         let fixed =
-            repair_review_failure(&store, run, &doc_path, &root, &docs, Some(&fake)).unwrap();
+            repair_review_failure(&store, run, &doc_path, &root, &docs, Some(&fake), None).unwrap();
         assert_eq!(fixed.status, RunStatus::Running);
         assert_eq!(fixed.repair_attempts, 1);
-        assert!(fixed.last_repair.as_deref().unwrap().contains("reacquire"));
+        assert!(fixed.last_repair.as_deref().unwrap().contains("archive"));
         assert!(root.join("media/acquired/item9.mp4").is_file());
         assert_eq!(
             fixed.stage_record(StudioStage::Render).unwrap().status,
@@ -989,7 +1018,8 @@ mod tests {
         // el comportamiento previo se conserva — falla honestamente.
         docs.put(&doc_path, project_with_missing_archive_asset());
 
-        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs, None).unwrap();
+        let fixed =
+            repair_review_failure(&store, run, &doc_path, &root, &docs, None, None).unwrap();
         assert_eq!(fixed.status, RunStatus::Failed);
         assert_eq!(fixed.repair_attempts, 0);
         let _ = std::fs::remove_dir_all(&root);

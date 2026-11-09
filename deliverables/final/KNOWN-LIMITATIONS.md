@@ -35,10 +35,12 @@ reales del sistema.
   duración vs timeline, loudness LUFS, pix_fmt/tags de color). Existe un
   repair loop acotado (máx. 2 intentos) que repara mecánicamente rangos de
   clips fuera de rango, **re-adquiere assets de Internet Archive cuyo
-  archivo falte en disco** (sin re-gastar providers remotos) y re-ejecuta
-  render+review si el gate queda verde; el resto de hallazgos (loudness,
-  color, assets no re-adquiribles) quedan `failed` con el hallazgo
-  explícito — no se repara a ciegas.
+  archivo falte en disco** y **regenera localmente los assets generados
+  por providers sin red** (voz SAPI, música/tarjetas/patrones ffmpeg —
+  determinísticos, mismo path) — todo sin re-gastar providers remotos —
+  y re-ejecuta render+review si el gate queda verde; el resto de hallazgos
+  (loudness, color, assets no recuperables) quedan `failed` con el
+  hallazgo explícito — no se repara a ciegas.
 - Assets generados remotamente quedan marcados `provider-terms`/`unknown` para
   revisión de derechos.
 
