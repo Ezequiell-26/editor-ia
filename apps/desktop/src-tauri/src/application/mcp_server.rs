@@ -137,13 +137,24 @@ impl<I: McpToolInvoker> RpcDispatcher<I> {
                 let reply = invoker
                     .invoke("__catalog", &json!({}), std::time::Duration::from_secs(5))
                     .await;
-                let listed = reply
+                let mut listed = reply
                     .text
                     .parse::<Value>()
                     .ok()
                     .and_then(|value| value.as_array().cloned())
                     .filter(|items| !items.is_empty())
                     .unwrap_or_else(|| server::tools().as_array().cloned().unwrap_or_default());
+                // Las tools del estudio las ejecuta el backend: se publican
+                // siempre, aunque el catálogo de la ventana no las conozca.
+                for tool in server::studio_tools() {
+                    let name = tool["name"].as_str().unwrap_or_default();
+                    if !listed
+                        .iter()
+                        .any(|item| item["name"].as_str() == Some(name))
+                    {
+                        listed.push(tool);
+                    }
+                }
                 // La lista publicada decide qué llamadas se pueden adelantar
                 // en lotes; el fallback sólo se usa cuando la UI no está.
                 cache_read_only_tools(&listed);

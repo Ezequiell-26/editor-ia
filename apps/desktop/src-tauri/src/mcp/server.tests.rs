@@ -48,7 +48,7 @@ fn fallback_catalog_covers_the_core() {
         .iter()
         .filter_map(|tool| tool["name"].as_str())
         .collect();
-    assert_eq!(names.len(), 25);
+    assert_eq!(names.len(), 37);
     for required in [
         "diagnostics",
         "run_command",
@@ -66,6 +66,17 @@ fn fallback_catalog_covers_the_core() {
         "factory_job_status",
         "factory_job_list",
         "factory_job_cancel",
+        "production_list",
+        "production_status",
+        "production_create",
+        "production_start",
+        "production_advance",
+        "production_cancel",
+        "production_resume",
+        "production_pause",
+        "studio_capabilities",
+        "production_plan_from_brief",
+        "production_plan_from_text",
     ] {
         assert!(names.contains(&required), "falta {required}");
     }

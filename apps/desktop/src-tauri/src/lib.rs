@@ -5,6 +5,10 @@
 //! screen never touches the filesystem or a shell; it invokes the allowlisted
 //! commands registered here.
 
+// El catálogo MCP (json! con ~35 tools) supera el límite de recursión por
+// defecto del macro al expandirse.
+#![recursion_limit = "256"]
+
 use tauri::{Emitter, Listener, Manager};
 
 pub mod ai;
@@ -270,6 +274,28 @@ pub fn run() {
                 // Cargar estado central (sincrónico para dependencias)
                 let state = state::AppState::load(app.handle());
                 app.manage(state);
+
+                // Reconciliación de corridas de producción: las que quedaron
+                // `running` cuando la app se cerró pasan a `paused` (estado
+                // seguro y reanudable). Nunca se auto-reanuda trabajo pesado.
+                {
+                    let state = app.state::<state::AppState>();
+                    let store = state.production_store();
+                    match crate::application::production::reconcile_interrupted_runs(&store) {
+                        Ok(0) => {}
+                        Ok(count) => {
+                            eprintln!(
+                                "[studio] {count} corrida(s) interrumpida(s) pausadas al arranque"
+                            )
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "[studio] no se pudieron reconciliar corridas: {}",
+                                error.message
+                            )
+                        }
+                    }
+                }
 
                 if std::env::args().any(|arg| arg == "--test-notification") {
                     use tauri_plugin_notification::NotificationExt;

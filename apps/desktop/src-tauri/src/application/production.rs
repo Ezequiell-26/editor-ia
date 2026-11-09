@@ -13,12 +13,13 @@
 //!   queda `failed` con `last_error`.
 //! - `advance` es idempotente por etapa: sólo corre la primera pendiente.
 
+use crate::ports::projects::ProjectDocuments;
 use crate::ports::studio::{ProductionStore, StageContext, StageExecutor};
 use crate::projects::service::{ProjectError, ProjectErrorCode};
-use crate::studio::plan::ProductionPlan;
-use crate::studio::run::{ProductionRun, RunStatus, StageOutcome};
+use crate::studio::plan::{ProductionPlan, StudioStage};
+use crate::studio::run::{ProductionRun, RunStatus, StageOutcome, StageRecordStatus};
 
-fn now() -> String {
+pub(crate) fn now() -> String {
     // Timestamp ISO sin dependencia nueva: segundos desde epoch no sirven
     // para auditoría humana; se usa el formato que ya usa el proyecto.
     chrono_lite_now()
@@ -145,6 +146,67 @@ pub fn advance(
     Ok(run)
 }
 
+/// Ciclo de reparación acotado tras un `review` fallido por Quality Gate.
+///
+/// Si la etapa `review` dejó la corrida `failed` y quedan ciclos
+/// (`studio_repair::MAX_REPAIR_ATTEMPTS`), repara mecánicamente el
+/// documento del proyecto y verifica que el resultado pasa el gate
+/// COMPLETO en memoria. Sólo entonces guarda vía `documents.save` y
+/// resetea `render`+`review` a pendiente — nunca se re-renderiza un
+/// documento que seguiría fallando. Si no hay nada reparable o el gate
+/// sigue rojo, la corrida queda `failed` honestamente.
+///
+/// Devuelve la corrida (posiblemente reseteada) sin avanzar etapas: el
+/// próximo `advance`/driver itera render→review de nuevo.
+pub fn repair_review_failure(
+    store: &dyn ProductionStore,
+    mut run: ProductionRun,
+    document_path: &std::path::Path,
+    project_root: &std::path::Path,
+    documents: &dyn ProjectDocuments,
+) -> Result<ProductionRun, ProjectError> {
+    use crate::studio::quality::QualitySeverity;
+
+    if run.status != RunStatus::Failed
+        || run.repair_attempts >= crate::application::studio_repair::MAX_REPAIR_ATTEMPTS
+    {
+        return Ok(run);
+    }
+    let review_failed = run.stages.iter().any(|record| {
+        record.stage == StudioStage::Review && record.status == StageRecordStatus::Failed
+    });
+    if !review_failed {
+        return Ok(run);
+    }
+    let opened = documents.open(document_path)?;
+    let report = crate::application::quality_gate::review_project(project_root, &opened.project);
+    let has_errors = report
+        .findings
+        .iter()
+        .any(|f| f.severity == QualitySeverity::Error);
+    if !has_errors {
+        return Ok(run);
+    }
+    let mut fixed = opened.project;
+    let repair = crate::application::studio_repair::repair_document(&mut fixed, &report.findings);
+    if repair.applied.is_empty() {
+        return Ok(run);
+    }
+    let post = crate::application::quality_gate::review_project(project_root, &fixed);
+    if post.errors() > 0 {
+        return Ok(run);
+    }
+    documents.save(document_path, &fixed)?;
+    let note = format!(
+        "repair #{}: {}",
+        run.repair_attempts + 1,
+        repair.applied.join("; ")
+    );
+    run.repair_reset(&[StudioStage::Render, StudioStage::Review], &note, &now());
+    store.save(&run)?;
+    Ok(run)
+}
+
 /// Cancela una corrida no terminal.
 pub fn cancel_run(
     store: &dyn ProductionStore,
@@ -154,6 +216,17 @@ pub fn cancel_run(
         ProjectError::message(ProjectErrorCode::NotFound, "corrida no encontrada")
     })?;
     run.cancel(&now());
+    store.save(&run)?;
+    Ok(run)
+}
+
+/// Pausa una corrida no terminal (entre etapas; una etapa async en curso
+/// termina su sondeo actual y el próximo advance no la re-toma).
+pub fn pause_run(store: &dyn ProductionStore, run_id: &str) -> Result<ProductionRun, ProjectError> {
+    let mut run = store.load(run_id)?.ok_or_else(|| {
+        ProjectError::message(ProjectErrorCode::NotFound, "corrida no encontrada")
+    })?;
+    run.pause(&now());
     store.save(&run)?;
     Ok(run)
 }
@@ -169,6 +242,22 @@ pub fn resume_run(
     run.resume(&now());
     store.save(&run)?;
     Ok(run)
+}
+
+/// Reconcilia corridas `running` tras un reinicio de la app: sus etapas a
+/// medias (jobs de render, descargas) murieron con el proceso anterior.
+/// Las pasa a `paused` — estado seguro y reanudable — y devuelve cuántas.
+/// NUNCA auto-reanuda trabajo pesado sin consentimiento del usuario.
+pub fn reconcile_interrupted_runs(store: &dyn ProductionStore) -> Result<usize, ProjectError> {
+    let mut reconciled = 0usize;
+    for mut run in store.list()? {
+        if run.status == RunStatus::Running {
+            run.pause(&now());
+            store.save(&run)?;
+            reconciled += 1;
+        }
+    }
+    Ok(reconciled)
 }
 
 /// Consulta el estado persistido.
@@ -434,6 +523,61 @@ mod tests {
     }
 
     #[test]
+    fn pause_run_pauses_and_resume_continues() {
+        let store = MemStore::new();
+        let plan = plan();
+        create_run(&store, &plan, "run-pause", None).unwrap();
+        let run = pause_run(&store, "run-pause").unwrap();
+        assert_eq!(run.status, RunStatus::Paused);
+        // advance desde paused reanuda y corre la primera etapa.
+        let executor = Scripted {
+            fail_at: None,
+            cost: 0,
+        };
+        let run = advance(
+            &store,
+            &executor,
+            "run-pause",
+            std::path::Path::new("."),
+            std::path::Path::new("project.json"),
+        )
+        .unwrap();
+        assert_eq!(run.status, RunStatus::Running);
+    }
+
+    #[test]
+    fn reconcile_interrupted_runs_only_touches_running() {
+        let store = MemStore::new();
+        let plan = plan();
+        create_run(&store, &plan, "run-rec-1", None).unwrap();
+        create_run(&store, &plan, "run-rec-2", None).unwrap();
+        // Una queda running (simula app cerrada a mitad), otra planned.
+        let executor = Scripted {
+            fail_at: None,
+            cost: 0,
+        };
+        advance(
+            &store,
+            &executor,
+            "run-rec-1",
+            std::path::Path::new("."),
+            std::path::Path::new("project.json"),
+        )
+        .unwrap();
+        assert_eq!(reconcile_interrupted_runs(&store).unwrap(), 1);
+        assert_eq!(
+            store.load("run-rec-1").unwrap().unwrap().status,
+            RunStatus::Paused
+        );
+        assert_eq!(
+            store.load("run-rec-2").unwrap().unwrap().status,
+            RunStatus::Planned
+        );
+        // Idempotente: una segunda pasada no pausa nada más.
+        assert_eq!(reconcile_interrupted_runs(&store).unwrap(), 0);
+    }
+
+    #[test]
     fn remove_only_allows_terminal_runs() {
         let store = MemStore::new();
         let plan = plan();
@@ -478,5 +622,212 @@ mod tests {
             run.stage_record(StudioStage::Plan).unwrap().status,
             crate::studio::run::StageRecordStatus::Pending
         );
+    }
+
+    // ---- repair_review_failure ----
+
+    use crate::projects::service::{OpenedProject, SaveProjectResult};
+    use crate::studio::run::StageRecordStatus;
+    use std::path::{Path, PathBuf};
+
+    /// Documents en memoria: `open` devuelve el JSON guardado, `save` lo
+    /// pisa. Suficiente para probar el ciclo de reparación sin disco.
+    struct MemDocs {
+        docs: Mutex<HashMap<PathBuf, serde_json::Value>>,
+    }
+
+    impl MemDocs {
+        fn new() -> Self {
+            Self {
+                docs: Mutex::new(HashMap::new()),
+            }
+        }
+        fn put(&self, path: &Path, project: serde_json::Value) {
+            self.docs
+                .lock()
+                .unwrap()
+                .insert(path.to_path_buf(), project);
+        }
+        fn get(&self, path: &Path) -> serde_json::Value {
+            self.docs.lock().unwrap().get(path).cloned().unwrap()
+        }
+    }
+
+    impl ProjectDocuments for MemDocs {
+        fn open(&self, path: &Path) -> Result<OpenedProject, ProjectError> {
+            let project = self.get(path);
+            Ok(OpenedProject {
+                project,
+                path: path.to_string_lossy().to_string(),
+            })
+        }
+        fn create_with_video(
+            &self,
+            _path: &Path,
+            _name: &str,
+            _video: Option<serde_json::Value>,
+        ) -> Result<OpenedProject, ProjectError> {
+            unimplemented!()
+        }
+        fn save(
+            &self,
+            path: &Path,
+            project: &serde_json::Value,
+        ) -> Result<SaveProjectResult, ProjectError> {
+            self.put(path, project.clone());
+            Ok(SaveProjectResult {
+                path: path.to_string_lossy().to_string(),
+                revision: 1,
+                bytes: 0,
+            })
+        }
+    }
+
+    /// Corrida con todas las etapas cerradas hasta `review`, que queda
+    /// `failed` por Quality Gate (fatal). `deliver` sigue pendiente.
+    fn run_failed_at_review(store: &MemStore, run_id: &str) -> ProductionRun {
+        let plan = plan();
+        create_run(store, &plan, run_id, None).unwrap();
+        let mut run = store.load(run_id).unwrap().unwrap();
+        for stage in PIPELINE_STAGES {
+            if *stage == StudioStage::Deliver {
+                break;
+            }
+            assert!(run.begin_stage(*stage, "t"));
+            let outcome = if *stage == StudioStage::Review {
+                StageOutcome {
+                    completed: false,
+                    cost_cents: None,
+                    output: None,
+                    error: Some("quality gate: 1 error(es)".to_owned()),
+                    fatal: true,
+                    in_progress: false,
+                }
+            } else {
+                StageOutcome {
+                    completed: true,
+                    cost_cents: Some(0),
+                    output: None,
+                    error: None,
+                    fatal: false,
+                    in_progress: false,
+                }
+            };
+            run.finish_stage(*stage, &outcome, "t");
+        }
+        store.save(&run).unwrap();
+        run
+    }
+
+    /// Proyecto mínimo que pasa el gate salvo un clip fuera de rango
+    /// (`clip-range` error, reparable por clamp).
+    fn project_with_out_of_range_clip(media_file: &Path) -> serde_json::Value {
+        std::fs::create_dir_all(media_file.parent().unwrap()).unwrap();
+        std::fs::write(media_file, b"x").unwrap();
+        serde_json::json!({
+            "assets": [{
+                "id": "a1", "kind": "video", "status": "ready",
+                "source": { "type": "local", "path": "media/x.mp4" },
+                "rights": {
+                    "license": { "id": "l", "commercialUse": "allowed" },
+                    "provenance": { "origin": "user-imported", "acquiredAt": "2026-01-01T00:00:00Z" }
+                },
+                "media": { "width": 1920, "height": 1080, "durationFrames": 100,
+                           "frameRate": { "num": 30, "den": 1 } }
+            }],
+            "timeline": {
+                "tracks": [{ "id": "t1", "kind": "video" }],
+                "clips": [{
+                    "id": "c1", "trackId": "t1", "kind": "video",
+                    "startFrame": 0, "durationFrames": 999,
+                    "source": { "type": "asset", "assetId": "a1", "inFrame": 0, "outFrame": 999 }
+                }]
+            },
+            "captions": { "cues": [] },
+            "renderProfiles": [{ "id": "p1" }]
+        })
+    }
+
+    #[test]
+    fn repair_resets_render_and_review_when_gate_turns_green() {
+        let store = MemStore::new();
+        let run = run_failed_at_review(&store, "run-rep-1");
+        assert_eq!(run.status, RunStatus::Failed);
+
+        let root = std::env::temp_dir().join(format!("rep-{}", std::process::id()));
+        let doc_path = root.join("project.json");
+        let docs = MemDocs::new();
+        docs.put(
+            &doc_path,
+            project_with_out_of_range_clip(&root.join("media/x.mp4")),
+        );
+
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs).unwrap();
+        assert_eq!(fixed.status, RunStatus::Running);
+        assert_eq!(fixed.repair_attempts, 1);
+        assert!(fixed.last_repair.as_deref().unwrap().contains("clip c1"));
+        assert_eq!(
+            fixed.stage_record(StudioStage::Render).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        assert_eq!(
+            fixed.stage_record(StudioStage::Review).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        // El documento guardado tiene el rango clampeado a la duración real.
+        let saved = docs.get(&doc_path);
+        assert_eq!(saved["timeline"]["clips"][0]["source"]["outFrame"], 100);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn repair_refuses_when_gate_stays_red() {
+        let store = MemStore::new();
+        let run = run_failed_at_review(&store, "run-rep-2");
+
+        let root = std::env::temp_dir().join(format!("rep2-{}", std::process::id()));
+        let doc_path = root.join("project.json");
+        let docs = MemDocs::new();
+        // Clip fuera de rango (reparable) + asset cuyo archivo NO existe
+        // (missing-resources, no reparable): el gate post-repair sigue rojo.
+        let mut project = project_with_out_of_range_clip(&root.join("media/x.mp4"));
+        project["assets"][0]["source"]["path"] = serde_json::json!("media/no-existe.mp4");
+        docs.put(&doc_path, project);
+
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs).unwrap();
+        assert_eq!(fixed.status, RunStatus::Failed);
+        assert_eq!(fixed.repair_attempts, 0);
+        // El documento NO se guardó (sigue declarando la ruta rota original…
+        // o la reparada en memoria sin persistir — en cualquier caso el
+        // run no se reseteó).
+        assert_eq!(
+            fixed.stage_record(StudioStage::Review).unwrap().status,
+            StageRecordStatus::Failed
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn repair_respects_the_attempt_cap() {
+        let store = MemStore::new();
+        let mut run = run_failed_at_review(&store, "run-rep-3");
+        run.repair_attempts = crate::application::studio_repair::MAX_REPAIR_ATTEMPTS;
+        store.save(&run).unwrap();
+
+        let root = std::env::temp_dir().join(format!("rep3-{}", std::process::id()));
+        let doc_path = root.join("project.json");
+        let docs = MemDocs::new();
+        docs.put(
+            &doc_path,
+            project_with_out_of_range_clip(&root.join("media/x.mp4")),
+        );
+
+        let fixed = repair_review_failure(&store, run, &doc_path, &root, &docs).unwrap();
+        assert_eq!(fixed.status, RunStatus::Failed);
+        assert_eq!(
+            fixed.repair_attempts,
+            crate::application::studio_repair::MAX_REPAIR_ATTEMPTS
+        );
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

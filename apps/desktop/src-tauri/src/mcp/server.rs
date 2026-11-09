@@ -89,6 +89,11 @@ fn is_read_only(name: &str) -> bool {
             | "review_build"
             | "factory_job_status"
             | "factory_job_list"
+            | "production_list"
+            | "production_status"
+            | "studio_capabilities"
+            | "quality_gate_review"
+            | "production_plan_from_brief"
     )
 }
 
@@ -123,6 +128,7 @@ fn is_open_world(name: &str) -> bool {
             | "asset_import"
             | "package_project"
             | "run_command"
+            | "production_plan_from_text"
     )
 }
 
@@ -368,6 +374,123 @@ pub fn tools() -> Value {
                 "properties": { "jobId": { "type": "string", "minLength": 1, "maxLength": 128 } },
                 "required": ["jobId"]
             }
+        },
+        {
+            "name": "production_list",
+            "description": "Lista las corridas de producción autónoma persistidas.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "production_status",
+            "description": "Estado de una corrida de producción: etapa actual, etapas, presupuesto y error.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string", "minLength": 1, "maxLength": 128 } },
+                "required": ["runId"]
+            }
+        },
+        {
+            "name": "production_create",
+            "description": "Crea una corrida de producción desde un ProductionPlan serializado (schemaVersion 1). No la ejecuta: usar production_start o production_advance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "plan": { "type": "object", "description": "ProductionPlan validado por el schema del proyecto." },
+                    "runId": { "type": "string", "minLength": 1, "maxLength": 128 },
+                    "maxCostCents": { "type": "integer", "minimum": 0, "maximum": 100000000 }
+                },
+                "required": ["plan"]
+            }
+        },
+        {
+            "name": "production_start",
+            "description": "Arranca el driver backend que conduce la corrida hasta terminar, pausarse o fallar. Reanuda corridas pausadas/fallidas.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string", "minLength": 1, "maxLength": 128 } },
+                "required": ["runId"]
+            }
+        },
+        {
+            "name": "production_advance",
+            "description": "Avanza la corrida una etapa (avanzada manual; el driver hace esto solo).",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string", "minLength": 1, "maxLength": 128 } },
+                "required": ["runId"]
+            }
+        },
+        {
+            "name": "production_cancel",
+            "description": "Cancela la corrida y el render FFmpeg activo, si lo hay.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string", "minLength": 1, "maxLength": 128 } },
+                "required": ["runId"]
+            }
+        },
+        {
+            "name": "production_resume",
+            "description": "Reanuda una corrida pausada o fallida y arranca su driver.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string", "minLength": 1, "maxLength": 128 } },
+                "required": ["runId"]
+            }
+        },
+        {
+            "name": "production_pause",
+            "description": "Pausa la corrida entre etapas; el driver se detiene solo.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "runId": { "type": "string", "minLength": 1, "maxLength": 128 } },
+                "required": ["runId"]
+            }
+        },
+        {
+            "name": "studio_capabilities",
+            "description": "Inventario real del estudio: providers de generación, fuentes de adquisición, etapas del pipeline y disponibilidad de ffmpeg/ffprobe.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "quality_gate_review",
+            "description": "Quality Gate del proyecto abierto: valida documento (assets, clips, captions, derechos) y devuelve el reporte con hallazgos tipados errors/warnings. No modifica nada; evalúa el último estado guardado en disco.",
+            "inputSchema": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "production_plan_from_brief",
+            "description": "Construye un ProductionPlan válido desde un brief (objetivo, keyPoints, escenas, plataforma, voz, música, tarjeta). No crea ni ejecuta la corrida: revisar el plan y usar production_create.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "objective": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                    "audience": { "type": "string", "maxLength": 500 },
+                    "tone": { "type": "string", "maxLength": 500 },
+                    "keyPoints": { "type": "array", "maxItems": 16, "items": { "type": "string", "maxLength": 2000 } },
+                    "sceneCount": { "type": "integer", "minimum": 1, "maximum": 8 },
+                    "durationSeconds": { "type": "integer", "minimum": 3, "maximum": 3600 },
+                    "platform": { "type": "string", "enum": ["youtube", "shorts", "reels", "tiktok"] },
+                    "aspectRatio": { "type": "string", "enum": ["16:9", "9:16", "1:1", "4:5"] },
+                    "voice": { "type": "string", "maxLength": 200 },
+                    "music": { "type": "boolean" },
+                    "titleCard": { "type": "boolean" },
+                    "brollQuery": { "type": "string", "maxLength": 500 },
+                    "maxCostCents": { "type": "integer", "minimum": 0, "maximum": 100000000 }
+                },
+                "required": ["objective"]
+            }
+        },
+        {
+            "name": "production_plan_from_text",
+            "description": "Interpreta texto libre con el provider de chat configurado (BYOK) y devuelve un ProductionPlan válido. Puede gastar en proveedor remoto: requiere approvedCost=true. No crea ni ejecuta la corrida.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "minLength": 10, "maxLength": 2000 },
+                    "approvedCost": { "type": "boolean" }
+                },
+                "required": ["text"]
+            }
         }
     ]);
 
@@ -394,6 +517,47 @@ pub fn tools() -> Value {
     }
 
     catalog
+}
+
+/// Herramientas del estudio autónomo que el BACKEND ejecuta directo
+/// (casos de uso de `application::production`), sin pasar por la ventana:
+/// deben funcionar aunque el frontend no esté montado.
+pub fn is_studio_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "production_list"
+            | "production_status"
+            | "production_create"
+            | "production_start"
+            | "production_advance"
+            | "production_cancel"
+            | "production_resume"
+            | "production_pause"
+            | "studio_capabilities"
+            | "quality_gate_review"
+            | "production_plan_from_brief"
+            | "production_plan_from_text"
+    )
+}
+
+/// Catálogo de las tools de estudio tal como queda en `tools()` (con
+/// anotaciones y schemas normalizados). Se usa para mezclar el catálogo
+/// real del frontend con las tools que sólo el backend conoce.
+pub fn studio_tools() -> Vec<Value> {
+    tools()
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| {
+                    item["name"]
+                        .as_str()
+                        .is_some_and(|name| is_studio_tool(name))
+                })
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn collect_read_only_tools(items: &[Value]) -> HashSet<String> {

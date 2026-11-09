@@ -8,8 +8,9 @@ use tauri::{AppHandle, State};
 
 use crate::application::mcp_server::{self, RpcDispatcher};
 use crate::infrastructure::mcp_server::{
-    respond_pending, serve_mcp, EnvAiClientConfigs, KeyringMcpServerToken, TauriMcpToolInvoker,
+    respond_pending, serve_mcp, EnvAiClientConfigs, KeyringMcpServerToken,
 };
+use crate::infrastructure::mcp_studio::StudioMcpInvoker;
 use crate::mcp::server::{AutoconnectResult, DetectedClient, McpServerInfo};
 use crate::ports::mcp_server::McpRequestHandler;
 use crate::projects::service::ProjectError;
@@ -18,7 +19,8 @@ use crate::state::AppState;
 #[tauri::command]
 pub async fn start_mcp_server(app: AppHandle) -> Result<McpServerInfo, ProjectError> {
     let token_store = KeyringMcpServerToken;
-    let invoker = TauriMcpToolInvoker::new(app);
+    // Las tools del estudio las ejecuta el backend; el resto va a la ventana.
+    let invoker = StudioMcpInvoker::new(app);
     let handler: Arc<dyn McpRequestHandler> = Arc::new(RpcDispatcher::new(invoker));
     mcp_server::start_server(&token_store, handler, |token, handler| {
         serve_mcp(token, handler)

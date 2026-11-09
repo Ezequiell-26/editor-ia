@@ -10,6 +10,7 @@ pub mod ai;
 pub mod conversion;
 pub mod mcp;
 pub mod mcp_server;
+pub mod mcp_studio;
 pub mod media;
 pub mod process;
 pub mod projects;

@@ -129,6 +129,13 @@ pub struct ProductionRun {
     pub max_stage_attempts: u32,
     /// Veces que ya se reanudó la corrida (para auditoría).
     pub resumes: u32,
+    /// Ciclos review→repair→render ya consumidos (tope
+    /// `application::studio_repair::MAX_REPAIR_ATTEMPTS`).
+    #[serde(default)]
+    pub repair_attempts: u32,
+    /// Descripción de la última reparación aplicada (auditoría).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_repair: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -170,6 +177,8 @@ impl ProductionRun {
             spent_cents: 0,
             max_stage_attempts: DEFAULT_MAX_STAGE_ATTEMPTS,
             resumes: 0,
+            repair_attempts: 0,
+            last_repair: None,
             created_at: now.to_owned(),
             updated_at: now.to_owned(),
             last_error: None,
@@ -345,6 +354,31 @@ impl ProductionRun {
         true
     }
 
+    /// Ciclo de reparación post-review: las etapas indicadas vuelven a
+    /// `pending` (se re-ejecutan con su output limpio) y la corrida pasa de
+    /// `failed` a `running`. Sólo la usa el orquestador tras aplicar una
+    /// reparación verificable sobre el documento — nunca para reintentar
+    /// a ciegas. `attempts` se conserva para auditoría.
+    pub fn repair_reset(&mut self, stages: &[StudioStage], note: &str, now: &str) -> bool {
+        if self.status != RunStatus::Failed {
+            return false;
+        }
+        for stage in stages {
+            if let Some(record) = self.stage_record_mut(*stage) {
+                record.status = StageRecordStatus::Pending;
+                record.error = None;
+                record.finished_at = None;
+                record.output = None;
+            }
+        }
+        self.repair_attempts = self.repair_attempts.saturating_add(1);
+        self.last_repair = Some(note.to_owned());
+        self.status = RunStatus::Running;
+        self.last_error = None;
+        self.updated_at = now.to_owned();
+        true
+    }
+
     /// Marca la corrida como terminada con éxito (lo llama el orquestador
     /// cuando la última etapa cierra).
     pub fn complete(&mut self, now: &str) {
@@ -428,6 +462,60 @@ mod tests {
         run.complete("t");
         assert_eq!(run.status, RunStatus::Done);
         assert!(run.status.is_terminal());
+    }
+
+    #[test]
+    fn repair_reset_reopens_stages_and_counts_the_cycle() {
+        let mut run = run();
+        // Simula: etapas hasta review; review falla fatal y la corrida
+        // queda failed antes de llegar a deliver.
+        for stage in PIPELINE_STAGES {
+            if *stage == StudioStage::Deliver {
+                break;
+            }
+            assert!(run.begin_stage(*stage, "t"));
+            let outcome = if *stage == StudioStage::Review {
+                StageOutcome {
+                    completed: false,
+                    cost_cents: None,
+                    output: None,
+                    error: Some("quality gate".to_owned()),
+                    fatal: true,
+                    in_progress: false,
+                }
+            } else {
+                ok(None)
+            };
+            run.finish_stage(*stage, &outcome, "t");
+        }
+        assert_eq!(run.status, RunStatus::Failed);
+        assert!(run.repair_reset(
+            &[StudioStage::Render, StudioStage::Review],
+            "repair #1: clip c1 rangos",
+            "t2"
+        ));
+        assert_eq!(run.status, RunStatus::Running);
+        assert_eq!(run.repair_attempts, 1);
+        assert_eq!(
+            run.last_repair.as_deref(),
+            Some("repair #1: clip c1 rangos")
+        );
+        // Render vuelve a pending aunque estaba Done; review también.
+        assert_eq!(
+            run.stage_record(StudioStage::Render).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        assert_eq!(
+            run.stage_record(StudioStage::Review).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        // Deliver nunca corrió: sigue Pending (no se toca).
+        assert_eq!(
+            run.stage_record(StudioStage::Deliver).unwrap().status,
+            StageRecordStatus::Pending
+        );
+        // Y no aplica sobre corridas no failed.
+        assert!(!run.repair_reset(&[StudioStage::Render], "x", "t3"));
     }
 
     #[test]

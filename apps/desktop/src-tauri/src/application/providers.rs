@@ -101,8 +101,9 @@ pub fn clear_provider_key(
 
 /// Resuelve el proveedor para una generación: mock corta antes; remoto exige
 /// URL válida, costo aprobado y clave (los mensajes se pasan por caso de uso
-/// porque cada comando tiene redacción propia).
-fn generation_provider(
+/// porque cada comando tiene redacción propia). `pub(crate)` para que el
+/// planner NL (`studio_planner::plan_from_text`) aplique la MISMA política.
+pub(crate) fn generation_provider(
     store: &dyn ProviderSettingsStore,
     secrets: &dyn ProviderSecrets,
     approved_cost: bool,

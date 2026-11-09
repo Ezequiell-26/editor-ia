@@ -37,6 +37,12 @@ pub struct ProjectStageExecutor {
     /// ffmpeg para la etapa `analyze`: extrae un thumbnail por asset de
     /// video. `None` ⇒ analyze indexa sin thumbnails (se reporta).
     ffmpeg: Option<std::path::PathBuf>,
+    /// Generador remoto de imágenes BYOK (`gen:` en el query del requisito).
+    /// `None` ⇒ los requisitos `gen:` quedan `requires_provider`.
+    remote_image: Option<crate::infrastructure::studio::remote_image::RemoteImageGenerator>,
+    /// Generador remoto de voz BYOK (`remote:` en `req.voice`). `None` ⇒
+    /// esos requisitos quedan insatisfechos con la razón.
+    remote_voice: Option<crate::infrastructure::studio::remote_voice::RemoteVoiceGenerator>,
 }
 
 impl ProjectStageExecutor {
@@ -44,11 +50,29 @@ impl ProjectStageExecutor {
         Self {
             ffprobe,
             ffmpeg: None,
+            remote_image: None,
+            remote_voice: None,
         }
     }
 
     pub fn with_ffmpeg(mut self, ffmpeg: Option<std::path::PathBuf>) -> Self {
         self.ffmpeg = ffmpeg;
+        self
+    }
+
+    pub fn with_remote_image(
+        mut self,
+        generator: Option<crate::infrastructure::studio::remote_image::RemoteImageGenerator>,
+    ) -> Self {
+        self.remote_image = generator;
+        self
+    }
+
+    pub fn with_remote_voice(
+        mut self,
+        generator: Option<crate::infrastructure::studio::remote_voice::RemoteVoiceGenerator>,
+    ) -> Self {
+        self.remote_voice = generator;
         self
     }
 }
@@ -154,9 +178,26 @@ impl ProjectStageExecutor {
             // (SAPI de Windows), no las fuentes de adquisición: son
             // contenido creado, no buscado.
             if req.kind == StudioResourceKind::Voice {
-                match self.acquire_voice(ctx, req, &plan.id) {
-                    Ok(entries) => acquired.extend(entries),
-                    Err(_) => unsatisfied.push(req.id.clone()),
+                // Convención `remote:`/`remote:<voz>` en `req.voice` pide
+                // TTS remoto BYOK; cualquier otro valor usa SAPI local.
+                // Si el remoto no está configurado o falla, el requisito
+                // queda insatisfecho con la razón — nunca cae a SAPI en
+                // silencio (el usuario pidió explícitamente remoto).
+                if req
+                    .voice
+                    .as_deref()
+                    .map(str::trim)
+                    .is_some_and(|v| v == "remote" || v.starts_with("remote:"))
+                {
+                    match self.acquire_remote_voice(ctx, req, &plan.id) {
+                        Ok(entries) => acquired.extend(entries),
+                        Err(reason) => unsatisfied.push(format!("{}: {}", req.id, reason)),
+                    }
+                } else {
+                    match self.acquire_voice(ctx, req, &plan.id) {
+                        Ok(entries) => acquired.extend(entries),
+                        Err(_) => unsatisfied.push(req.id.clone()),
+                    }
                 }
                 continue;
             }
@@ -173,6 +214,25 @@ impl ProjectStageExecutor {
                     Err(_) => {
                         unsatisfied.push(req.id.clone());
                         continue;
+                    }
+                }
+            }
+            // Requisitos `image` con convención `gen:` piden generación
+            // remota (BYOK): el resto del texto es el prompt. Si el
+            // generador no está configurado o falla, el requisito queda
+            // insatisfecho con la razón — nunca se sustituye en silencio
+            // por material de stock.
+            if req.kind == StudioResourceKind::Image {
+                if let Some(prompt) = req.query.strip_prefix("gen:") {
+                    match self.acquire_remote_image(ctx, req, prompt, &plan.id) {
+                        Ok(entries) => {
+                            acquired.extend(entries);
+                            continue;
+                        }
+                        Err(reason) => {
+                            unsatisfied.push(format!("{}: {}", req.id, reason));
+                            continue;
+                        }
                     }
                 }
             }
@@ -531,6 +591,86 @@ impl ProjectStageExecutor {
         Ok(entries)
     }
 
+    /// Genera narración con el provider remoto BYOK para requisitos `voice`
+    /// con convención `remote:`/`remote:<voz>` en `req.voice`. Devuelve
+    /// `Err(motivo)` con razón legible para el requisito insatisfecho.
+    ///
+    /// Misma política de coste que `acquire_remote_image`: endpoint remoto
+    /// exige `remaining_budget_cents > 0`; loopback no.
+    fn acquire_remote_voice(
+        &self,
+        ctx: &StageContext,
+        req: &crate::studio::plan::ResourceRequirement,
+        plan_id: &str,
+    ) -> Result<Vec<Value>, String> {
+        let generator = self
+            .remote_voice
+            .as_ref()
+            .filter(|generator| generator.usable())
+            .ok_or_else(|| {
+                "generador remoto de voz no configurado (provider openai-compatible con URL, modelo y clave)".to_owned()
+            })?;
+        if !generator.is_local() {
+            match ctx.remaining_budget_cents {
+                Some(remaining) if remaining > 0 => {}
+                _ => {
+                    return Err(
+                        "la síntesis remota de voz exige presupuesto declarado en el plan (maxCostCents > 0)"
+                            .to_owned(),
+                    )
+                }
+            }
+        }
+        // `remote:alloy` ⇒ voz "alloy"; `remote` ⇒ la default del provider.
+        let voice = req
+            .voice
+            .as_deref()
+            .and_then(|v| v.trim().strip_prefix("remote:"))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+            .map(str::to_owned);
+        let text = req.query.trim();
+        if text.is_empty() {
+            return Err("el texto de narración del requisito voice está vacío".to_owned());
+        }
+        let mut entries = Vec::new();
+        for i in 0..req.max_count.max(1) {
+            let request = GenerationRequest {
+                request_id: format!("{plan_id}-{}-{i}", req.id),
+                kind: StudioResourceKind::Voice,
+                prompt: text.to_owned(),
+                duration_seconds: None,
+                voice: voice.clone(),
+                params: json!({}),
+            };
+            let result = generator
+                .generate(&request, &ctx.project_root)
+                .map_err(|e| format!("síntesis remota falló: {}", e.message))?;
+            let asset_id = self
+                .register_asset_with_rights(
+                    ctx,
+                    &result.path,
+                    generator.provider_id(),
+                    text,
+                    "audio",
+                    "generated-remote",
+                    "provider-terms",
+                    "unknown",
+                )
+                .map_err(|e| format!("no se pudo registrar el asset generado: {}", e.message))?;
+            entries.push(json!({
+                "requirementId": req.id,
+                "path": result.path,
+                "bytes": result.bytes,
+                "externalId": request.request_id,
+                "sourceId": generator.provider_id(),
+                "assetId": asset_id,
+                "costCents": result.cost_cents,
+            }));
+        }
+        Ok(entries)
+    }
+
     /// Genera tarjetas de título para requisitos `image` con la
     /// convención `title:`/`card:`. Devuelve `None` si el query no la usa
     /// (el requisito sigue el camino normal de adquisición).
@@ -622,6 +762,83 @@ impl ProjectStageExecutor {
         Ok(Some(entries))
     }
 
+    /// Genera imágenes con el provider remoto BYOK para requisitos `image`
+    /// con convención `gen:<prompt>`. Devuelve `Err(motivo)` con razón
+    /// legible: el caller la adjunta al requisito insatisfecho.
+    ///
+    /// Política de coste: un endpoint NO local puede facturar ⇒ exige
+    /// `remaining_budget_cents > 0` (el plan debe declarar `maxCostCents`).
+    /// Un endpoint loopback (shim local) no gasta dinero y no la exige.
+    fn acquire_remote_image(
+        &self,
+        ctx: &StageContext,
+        req: &crate::studio::plan::ResourceRequirement,
+        prompt: &str,
+        plan_id: &str,
+    ) -> Result<Vec<Value>, String> {
+        let generator = self
+            .remote_image
+            .as_ref()
+            .filter(|generator| generator.usable())
+            .ok_or_else(|| {
+                "generador remoto de imagen no configurado (provider openai-compatible con URL, modelo y clave)".to_owned()
+            })?;
+        if !generator.is_local() {
+            match ctx.remaining_budget_cents {
+                Some(remaining) if remaining > 0 => {}
+                _ => {
+                    return Err(
+                        "la generación remota de imagen exige presupuesto declarado en el plan (maxCostCents > 0)"
+                            .to_owned(),
+                    )
+                }
+            }
+        }
+        let prompt: String = prompt.trim().chars().take(2_000).collect();
+        if prompt.is_empty() {
+            return Err("el prompt de imagen (gen:) está vacío".to_owned());
+        }
+        let mut entries = Vec::new();
+        for i in 0..req.max_count.max(1) {
+            let request = GenerationRequest {
+                request_id: format!("{plan_id}-{}-{i}", req.id),
+                kind: StudioResourceKind::Image,
+                prompt: prompt.clone(),
+                duration_seconds: None,
+                voice: None,
+                params: json!({}),
+            };
+            let result = generator
+                .generate(&request, &ctx.project_root)
+                .map_err(|e| format!("generación remota falló: {}", e.message))?;
+            // Proveniencia honesta: origen remoto, licencia según términos
+            // del proveedor (`unknown` — el quality gate la marca para
+            // revisión en vez de declararla usable).
+            let asset_id = self
+                .register_asset_with_rights(
+                    ctx,
+                    &result.path,
+                    generator.provider_id(),
+                    &prompt,
+                    "image",
+                    "generated-remote",
+                    "provider-terms",
+                    "unknown",
+                )
+                .map_err(|e| format!("no se pudo registrar el asset generado: {}", e.message))?;
+            entries.push(json!({
+                "requirementId": req.id,
+                "path": result.path,
+                "bytes": result.bytes,
+                "externalId": request.request_id,
+                "sourceId": generator.provider_id(),
+                "assetId": asset_id,
+                "costCents": result.cost_cents,
+            }));
+        }
+        Ok(entries)
+    }
+
     /// Genera la cama musical para requisitos `music` con la convención
     /// `music:`/`ambient:`/`pad:` (pad de senos vía ffmpeg).
     fn acquire_music(
@@ -678,6 +895,7 @@ impl ProjectStageExecutor {
 
     /// Igual que `register_generated_asset` pero con el `kind` del asset
     /// (`audio`/`image`/`video`) y la ficha `media` acorde al probe.
+    /// Proveniencia local: `generated-locally` + licencia `user-generated`.
     fn register_generated_asset_typed(
         &self,
         ctx: &StageContext,
@@ -685,6 +903,35 @@ impl ProjectStageExecutor {
         provider: &str,
         title: &str,
         kind: &str,
+    ) -> Result<String, ProjectError> {
+        self.register_asset_with_rights(
+            ctx,
+            rel_path,
+            provider,
+            title,
+            kind,
+            "generated-locally",
+            "user-generated",
+            "allowed",
+        )
+    }
+
+    /// Registro común de assets generados/adquiridos con su ficha de
+    /// derechos explícita: `origin` va a `rights.provenance.origin`,
+    /// `license_id` a `rights.license.id` y `commercial_use` a
+    /// `rights.license.commercialUse`. La generación remota declara
+    /// `provider-terms`/`unknown` — los derechos los define el proveedor,
+    /// no se inventan.
+    fn register_asset_with_rights(
+        &self,
+        ctx: &StageContext,
+        rel_path: &str,
+        provider: &str,
+        title: &str,
+        kind: &str,
+        origin: &str,
+        license_id: &str,
+        commercial_use: &str,
     ) -> Result<String, ProjectError> {
         let ffprobe = self.ffprobe.clone().ok_or_else(|| {
             ProjectError::message(
@@ -764,9 +1011,9 @@ impl ProjectStageExecutor {
             "status": "ready",
             "integrity": { "sha256": sha256, "bytes": bytes },
             "rights": {
-                "license": { "id": "user-generated", "commercialUse": "allowed" },
+                "license": { "id": license_id, "commercialUse": commercial_use },
                 "provenance": {
-                    "origin": "generated-locally",
+                    "origin": origin,
                     "provider": provider,
                     "acquiredAt": crate::projects::service::now_rfc3339(),
                 },
@@ -1199,6 +1446,100 @@ mod tests {
         assert!(!outcome.completed);
         assert!(outcome.fatal);
         assert!(outcome.error.unwrap().contains("requires_provider"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn acquire_gen_without_generator_fails_as_requires_provider() {
+        let dir = std::env::temp_dir().join(format!("exec-acq-gen-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let executor = ProjectStageExecutor::new(None);
+        let mut plan = plan(1);
+        plan.requirements[0].kind = StudioResourceKind::Image;
+        plan.requirements[0].query = "gen:un gato astronauta".to_owned();
+        let outcome = executor
+            .execute(StudioStage::Acquire, &ctx(&plan, &dir))
+            .unwrap();
+        assert!(!outcome.completed);
+        assert!(outcome.fatal);
+        let error = outcome.error.unwrap();
+        assert!(error.contains("requires_provider"), "{error}");
+        assert!(error.contains("req-0"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn acquire_gen_remote_requires_declared_budget() {
+        let dir = std::env::temp_dir().join(format!("exec-acq-genb-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        // Generador remoto usable (https + clave falsa): nunca llega a
+        // llamar porque el presupuesto está ausente — el gate corta antes.
+        let generator = crate::infrastructure::studio::remote_image::RemoteImageGenerator::new(
+            crate::ports::ai::ProviderConfig {
+                kind: "openai-compatible".to_owned(),
+                base_url: "https://api.ejemplo.invalid/v1".to_owned(),
+                model: "img".to_owned(),
+            },
+            Some("clave-de-prueba-123".to_owned()),
+        );
+        let executor = ProjectStageExecutor::new(None).with_remote_image(Some(generator));
+        let mut plan = plan(1);
+        plan.requirements[0].kind = StudioResourceKind::Image;
+        plan.requirements[0].query = "gen:un gato".to_owned();
+        let outcome = executor
+            .execute(StudioStage::Acquire, &ctx(&plan, &dir))
+            .unwrap();
+        assert!(!outcome.completed);
+        let error = outcome.error.unwrap();
+        assert!(error.contains("presupuesto"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn acquire_remote_voice_without_generator_fails_as_requires_provider() {
+        let dir = std::env::temp_dir().join(format!("exec-acq-voice-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let executor = ProjectStageExecutor::new(None);
+        let mut plan = plan(1);
+        plan.requirements[0].kind = StudioResourceKind::Voice;
+        plan.requirements[0].query = "Texto de narración de prueba.".to_owned();
+        plan.requirements[0].voice = Some("remote:alloy".to_owned());
+        let outcome = executor
+            .execute(StudioStage::Acquire, &ctx(&plan, &dir))
+            .unwrap();
+        assert!(!outcome.completed);
+        assert!(outcome.fatal);
+        let error = outcome.error.unwrap();
+        assert!(error.contains("requires_provider"), "{error}");
+        assert!(error.contains("generador remoto de voz"), "{error}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn acquire_remote_voice_requires_declared_budget() {
+        let dir = std::env::temp_dir().join(format!("exec-acq-voiceb-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        // Generador remoto usable (https + clave falsa): el gate de
+        // presupuesto corta antes de cualquier llamada HTTP.
+        let generator = crate::infrastructure::studio::remote_voice::RemoteVoiceGenerator::new(
+            crate::ports::ai::ProviderConfig {
+                kind: "openai-compatible".to_owned(),
+                base_url: "https://api.ejemplo.invalid/v1".to_owned(),
+                model: "tts-1".to_owned(),
+            },
+            Some("clave-de-prueba-123".to_owned()),
+        );
+        let executor = ProjectStageExecutor::new(None).with_remote_voice(Some(generator));
+        let mut plan = plan(1);
+        plan.requirements[0].kind = StudioResourceKind::Voice;
+        plan.requirements[0].query = "Texto de narración.".to_owned();
+        plan.requirements[0].voice = Some("remote".to_owned());
+        let outcome = executor
+            .execute(StudioStage::Acquire, &ctx(&plan, &dir))
+            .unwrap();
+        assert!(!outcome.completed);
+        let error = outcome.error.unwrap();
+        assert!(error.contains("presupuesto"), "{error}");
         let _ = fs::remove_dir_all(&dir);
     }
 

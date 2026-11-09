@@ -40,6 +40,32 @@ impl<'a> CompositeStageExecutor<'a> {
         }
     }
 
+    /// Propaga el generador remoto de imágenes BYOK al ejecutor de
+    /// proyecto (requisitos `image` con convención `gen:`).
+    pub fn with_remote_image(
+        self,
+        generator: Option<crate::infrastructure::studio::remote_image::RemoteImageGenerator>,
+    ) -> Self {
+        Self {
+            project: self.project.with_remote_image(generator),
+            assembly: self.assembly,
+            extra: self.extra,
+        }
+    }
+
+    /// Propaga el generador remoto de voz BYOK al ejecutor de proyecto
+    /// (requisitos `voice` con convención `remote:` en `req.voice`).
+    pub fn with_remote_voice(
+        self,
+        generator: Option<crate::infrastructure::studio::remote_voice::RemoteVoiceGenerator>,
+    ) -> Self {
+        Self {
+            project: self.project.with_remote_voice(generator),
+            assembly: self.assembly,
+            extra: self.extra,
+        }
+    }
+
     /// Agrega un ejecutor extra (se consulta después de los built-in).
     /// El lifetime del resultado es el más corto entre el del composite y
     /// el del extra prestado.

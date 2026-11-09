@@ -59,6 +59,10 @@ pub struct MediaMeasure {
     pub frame_rate_den: Option<u32>,
     pub sample_rate: Option<u32>,
     pub channels: Option<u32>,
+    pub pix_fmt: Option<String>,
+    pub color_space: Option<String>,
+    pub color_transfer: Option<String>,
+    pub color_primaries: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -222,6 +226,18 @@ pub fn parse_probe(kind: MediaKind, payload: &Value) -> MediaMeasure {
         channels: audio
             .and_then(|stream| stream["channels"].as_u64())
             .map(|value| value as u32),
+        pix_fmt: video
+            .and_then(|stream| stream["pix_fmt"].as_str())
+            .map(str::to_owned),
+        color_space: video
+            .and_then(|stream| stream["color_space"].as_str())
+            .map(str::to_owned),
+        color_transfer: video
+            .and_then(|stream| stream["color_transfer"].as_str())
+            .map(str::to_owned),
+        color_primaries: video
+            .and_then(|stream| stream["color_primaries"].as_str())
+            .map(str::to_owned),
     }
 }
 

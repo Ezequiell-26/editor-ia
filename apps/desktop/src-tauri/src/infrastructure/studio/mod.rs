@@ -9,4 +9,7 @@ pub mod local_titlecard;
 pub mod local_voice;
 pub mod production_store;
 pub mod project_executor;
+pub mod remote_image;
+pub mod remote_voice;
 pub mod render_executor;
+pub mod run_driver;

@@ -407,6 +407,61 @@ impl AppState {
     ) -> crate::infrastructure::studio::production_store::LocalProductionStore {
         crate::infrastructure::studio::production_store::LocalProductionStore::new(&self.config_dir)
     }
+    /// Generador remoto de imágenes BYOK si el proveedor de chat está
+    /// configurado para ello (`openai-compatible` + URL + modelo; remoto
+    /// además exige clave en el Credential Manager). `None` ⇒ los
+    /// requisitos `gen:` del estudio quedan `requires_provider`.
+    /// Nunca expone la clave: sólo la pasa al generador en memoria.
+    pub fn remote_image_generator(
+        &self,
+    ) -> Option<crate::infrastructure::studio::remote_image::RemoteImageGenerator> {
+        use crate::ports::ai::ProviderSecrets as _;
+        let settings = self.settings_snapshot().ok()?;
+        let provider = &settings.provider;
+        if provider.kind != "openai-compatible"
+            || provider.base_url.trim().is_empty()
+            || provider.model.trim().is_empty()
+        {
+            return None;
+        }
+        let config = crate::ports::ai::ProviderConfig {
+            kind: provider.kind.clone(),
+            base_url: provider.base_url.clone(),
+            model: provider.model.clone(),
+        };
+        let key = crate::infrastructure::ai::KeyringProviderSecrets.read_key();
+        let generator =
+            crate::infrastructure::studio::remote_image::RemoteImageGenerator::new(config, key);
+        generator.usable().then_some(generator)
+    }
+
+    /// Generador remoto de voz TTS BYOK con la misma configuración del
+    /// provider de chat (`openai-compatible` + URL + modelo + clave en el
+    /// Credential Manager). `None` ⇒ los requisitos `voice` con convención
+    /// `remote:` quedan insatisfechos. Nunca expone la clave.
+    pub fn remote_voice_generator(
+        &self,
+    ) -> Option<crate::infrastructure::studio::remote_voice::RemoteVoiceGenerator> {
+        use crate::ports::ai::ProviderSecrets as _;
+        let settings = self.settings_snapshot().ok()?;
+        let provider = &settings.provider;
+        if provider.kind != "openai-compatible"
+            || provider.base_url.trim().is_empty()
+            || provider.model.trim().is_empty()
+        {
+            return None;
+        }
+        let config = crate::ports::ai::ProviderConfig {
+            kind: provider.kind.clone(),
+            base_url: provider.base_url.clone(),
+            model: provider.model.clone(),
+        };
+        let key = crate::infrastructure::ai::KeyringProviderSecrets.read_key();
+        let generator =
+            crate::infrastructure::studio::remote_voice::RemoteVoiceGenerator::new(config, key);
+        generator.usable().then_some(generator)
+    }
+
     /// Ejecuta las etapas del pipeline que el proyecto abierto permite hoy
     /// (plan/acquire/analyze/scenes/edit). Las demás devuelven error de
     /// etapa no soportada — ver `CompositeStageExecutor`.
@@ -417,6 +472,8 @@ impl AppState {
             self.media_tools().ffprobe_path(),
         )
         .with_ffmpeg(self.media_tools().ffmpeg_path())
+        .with_remote_image(self.remote_image_generator())
+        .with_remote_voice(self.remote_voice_generator())
     }
     /// Catálogo de medios del proyecto abierto (assets + índice local).
     pub fn project_catalog(
@@ -426,6 +483,57 @@ impl AppState {
     ) -> crate::infrastructure::studio::local_catalog::LocalProjectCatalog {
         crate::infrastructure::studio::local_catalog::LocalProjectCatalog::new(doc_path, root)
     }
+    /// Avanza la corrida UNA etapa con el ejecutor del proyecto abierto.
+    /// Camino único de ejecución: lo usan el comando IPC, el driver de
+    /// corridas y las tools MCP — todos serializados por corrida para que
+    /// una etapa nunca corra dos veces en paralelo.
+    pub fn advance_production_run(
+        &self,
+        run_id: &str,
+    ) -> Result<crate::studio::run::ProductionRun, ProjectError> {
+        use crate::ports::projects::ProjectSession as _;
+        let guard = crate::infrastructure::studio::run_driver::advance_guard(run_id)?;
+        let _serialized = guard.lock().map_err(|_| {
+            ProjectError::message(
+                ProjectErrorCode::Io,
+                "el avance de la corrida está bloqueado",
+            )
+        })?;
+        let session = self.project_session();
+        let info = session.require()?;
+        let store = self.production_store();
+
+        let documents = self.project_documents();
+        let tools = self.media_tools();
+        let runtime = self.render_runtime();
+        let events = self.render_events();
+        let files = self.render_files();
+        let dialogs = self.render_dialogs();
+        let encoder = self.render_encoder();
+        let launcher = self.render_launcher();
+        let verifier = self.render_verifier();
+        let render_deps = crate::application::render_lifecycle::RenderDeps {
+            session: &session,
+            documents: &documents,
+            tools: &tools,
+            runtime: &runtime,
+            events: &events,
+            files: &files,
+            dialogs: &dialogs,
+            encoder: &encoder,
+            launcher: &launcher,
+            cache_dir: self.cache_dir.clone(),
+        };
+        let tail = self.render_tail_executor(render_deps, &verifier);
+        let executor = self.project_stage_executor().with_extra(&tail);
+        let run = crate::application::production::advance(
+            &store, &executor, run_id, &info.root, &info.path,
+        )?;
+        crate::application::production::repair_review_failure(
+            &store, run, &info.path, &info.root, &documents,
+        )
+    }
+
     /// Ejecutor de las etapas render/review/deliver, con las dependencias
     /// de render que el comando ya prestó desde `AppState`.
     pub fn render_tail_executor<'a>(

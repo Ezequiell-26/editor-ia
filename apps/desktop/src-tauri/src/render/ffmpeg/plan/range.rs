@@ -999,6 +999,36 @@ pub(crate) fn build_plan_range(
     // ya define el muxer Matroska).
     if profile.container != "webm" {
         args.extend(["-movflags".into(), "+faststart".into()]);
+        // BT.709 es el espacio SDR estándar de entrega. Sin tags el
+        // reproductor adivina y el color varía entre plataformas; sólo se
+        // etiqueta en 4:2:0 de 8 bits, que es lo que este pipeline produce.
+        if matches!(
+            profile.pixel_format.as_str(),
+            "yuv420p" | "yuvj420p" | "nv12"
+        ) {
+            args.extend([
+                "-color_primaries".into(),
+                "bt709".into(),
+                "-color_trc".into(),
+                "bt709".into(),
+                "-colorspace".into(),
+                "bt709".into(),
+            ]);
+            // Los encoders de software del bundle (openh264/MF) no escriben
+            // los tres campos de color en el VUI/SPS; el bitstream filter
+            // los inyecta en el stream codificado (valores ISO 709 = 1).
+            let bsf = match profile.video_codec.as_str() {
+                "h264" => Some("h264_metadata"),
+                "h265" => Some("hevc_metadata"),
+                _ => None,
+            };
+            if let Some(bsf) = bsf {
+                args.extend([
+                    "-bsf:v".into(),
+                    format!("{bsf}=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"),
+                ]);
+            }
+        }
     }
     if output_start_seconds > 0.0001 {
         args.extend(["-ss".into(), seconds(output_start_seconds)]);

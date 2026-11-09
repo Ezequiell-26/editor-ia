@@ -171,22 +171,233 @@ impl<'a> RenderReviewDeliverExecutor<'a> {
         (!tail.is_empty()).then_some(tail)
     }
 
-    fn review_stage(&self, _ctx: &StageContext) -> Result<StageOutcome, ProjectError> {
+    /// Verificación del MP4 renderizado contra el documento y el plan:
+    /// dimensiones reales (ffprobe) vs `video.width/height` del proyecto
+    /// y loudness integrado (ffmpeg ebur128) vs
+    /// `quality.loudnessTargetLufs` cuando el plan lo declara.
+    ///
+    /// Devuelve hallazgos con la misma forma que el Quality Gate documental
+    /// (`check`/`severity`/`path`/`message`) para fusionarlos en el reporte.
+    /// Lo que no se puede medir se reporta como warning honesto, nunca se
+    /// simula una medición.
+    fn media_findings(&self, ctx: &StageContext) -> Vec<crate::studio::quality::QualityFinding> {
+        use crate::studio::plan::QualityCheckKind;
+        use crate::studio::quality::{QualityFinding, QualitySeverity};
+
+        let mut findings = Vec::new();
+        let finding = |check, severity, message: String| QualityFinding {
+            check,
+            severity,
+            path: "render.output".to_owned(),
+            message,
+        };
+        let Some(output) = ctx.stage_outputs["render"]["outputPath"]
+            .as_str()
+            .map(PathBuf::from)
+            .filter(|p| p.is_file())
+        else {
+            return findings;
+        };
+
+        // Dimensiones y duración: el render debe reproducir exactamente el
+        // lienzo y la extensión de la timeline del proyecto.
+        if let Ok(info) = self.deps.session.require() {
+            if let Ok(opened) = self.deps.documents.open(&info.path) {
+                let project = &opened.project;
+                let video = &project["video"];
+                let expected_w = video["width"].as_u64();
+                let expected_h = video["height"].as_u64();
+                // Frames totales de la timeline = fin del último clip.
+                let expected_frames = project["timeline"]["clips"].as_array().map(|clips| {
+                    clips.iter().fold(0u64, |acc, clip| {
+                        let start = clip["startFrame"].as_u64().unwrap_or(0);
+                        let dur = clip["durationFrames"].as_u64().unwrap_or(0);
+                        acc.max(start.saturating_add(dur))
+                    })
+                });
+                let fps = video["frameRate"]["num"]
+                    .as_u64()
+                    .zip(video["frameRate"]["den"].as_u64())
+                    .filter(|(_, den)| *den > 0)
+                    .map(|(num, den)| num as f64 / den as f64);
+                let expected_seconds = expected_frames
+                    .zip(fps)
+                    .map(|(frames, fps)| frames as f64 / fps);
+
+                match self.deps.tools.ffprobe_path() {
+                    Some(ffprobe) => {
+                        match crate::media::probe_file(
+                            &ffprobe,
+                            &output,
+                            crate::media::MediaKind::Video,
+                        ) {
+                            Ok(measure) => {
+                                if let (Some(w), Some(h)) = (expected_w, expected_h) {
+                                    let got =
+                                        (measure.width.unwrap_or(0), measure.height.unwrap_or(0));
+                                    if got != (w as u32, h as u32) {
+                                        findings.push(finding(
+                                            QualityCheckKind::Resolution,
+                                            QualitySeverity::Error,
+                                            format!(
+                                                "el render mide {}x{} pero el proyecto declara {}x{}",
+                                                got.0, got.1, w, h
+                                            ),
+                                        ));
+                                    }
+                                }
+                                if let Some(expected) = expected_seconds {
+                                    if let Some(actual) = measure.duration_seconds {
+                                        let diff = (actual - expected).abs();
+                                        if diff > 2.0 {
+                                            findings.push(finding(
+                                                QualityCheckKind::RenderVerify,
+                                                QualitySeverity::Error,
+                                                format!(
+                                                    "el render dura {:.2}s pero la timeline espera {:.2}s ({diff:.2}s de desvío)",
+                                                    actual, expected
+                                                ),
+                                            ));
+                                        } else if diff > 0.5 {
+                                            findings.push(finding(
+                                                QualityCheckKind::RenderVerify,
+                                                QualitySeverity::Warning,
+                                                format!(
+                                                    "el render dura {:.2}s pero la timeline espera {:.2}s ({diff:.2}s de desvío)",
+                                                    actual, expected
+                                                ),
+                                            ));
+                                        }
+                                    }
+                                }
+                                // Color: el MP4 de entrega debe declarar un
+                                // pix_fmt de distribución habitual y tags de
+                                // color reconocibles; si no, el resultado se
+                                // ve distinto en cada reproductor.
+                                match measure.pix_fmt.as_deref() {
+                                    Some(
+                                        "yuv420p" | "yuvj420p" | "nv12" | "yuv420p10le"
+                                        | "p010le" | "yuv422p" | "yuv444p",
+                                    ) => {}
+                                    Some(other) => findings.push(finding(
+                                        QualityCheckKind::Color,
+                                        QualitySeverity::Warning,
+                                        format!(
+                                            "pix_fmt '{other}' no es un formato de entrega habitual (se esperaba yuv420p o similar)"
+                                        ),
+                                    )),
+                                    None => findings.push(finding(
+                                        QualityCheckKind::Color,
+                                        QualitySeverity::Warning,
+                                        "ffprobe no reportó pix_fmt del video".to_owned(),
+                                    )),
+                                }
+                                let untagged = measure
+                                    .color_space
+                                    .as_deref()
+                                    .map(|s| s.is_empty() || s == "unknown")
+                                    .unwrap_or(true)
+                                    && measure
+                                        .color_primaries
+                                        .as_deref()
+                                        .map(|s| s.is_empty() || s == "unknown")
+                                        .unwrap_or(true);
+                                if untagged {
+                                    findings.push(finding(
+                                        QualityCheckKind::Color,
+                                        QualitySeverity::Warning,
+                                        "el video no declara color space/primaries: puede verse distinto según el reproductor"
+                                            .to_owned(),
+                                    ));
+                                }
+                            }
+                            Err(e) => findings.push(finding(
+                                QualityCheckKind::Resolution,
+                                QualitySeverity::Warning,
+                                format!("no se pudo medir el render con ffprobe: {}", e.message),
+                            )),
+                        }
+                    }
+                    None => findings.push(finding(
+                        QualityCheckKind::Resolution,
+                        QualitySeverity::Warning,
+                        "ffprobe no está disponible: no se verificó el render".to_owned(),
+                    )),
+                }
+            }
+        }
+
+        // Loudness: sólo si el plan declara objetivo. Tolerancia ±1 LU
+        // pasa; 1–3 LU avisa; >3 LU es error de entrega.
+        let target = self
+            .read_plan(ctx)
+            .ok()
+            .and_then(|plan| plan.quality.loudness_target_lufs);
+        if let Some(target) = target {
+            match self.deps.tools.ffmpeg_path() {
+                Some(ffmpeg) => match measure_loudness_lufs(&ffmpeg, &output) {
+                    Ok(lufs) => {
+                        let diff = (lufs - target).abs();
+                        if diff > 3.0 {
+                            findings.push(finding(
+                                QualityCheckKind::Loudness,
+                                QualitySeverity::Error,
+                                format!(
+                                    "loudness integrado {lufs:.1} LUFS vs objetivo {target:.1} LUFS ({diff:.1} LU de desvío)"
+                                ),
+                            ));
+                        } else if diff > 1.0 {
+                            findings.push(finding(
+                                QualityCheckKind::Loudness,
+                                QualitySeverity::Warning,
+                                format!(
+                                    "loudness integrado {lufs:.1} LUFS vs objetivo {target:.1} LUFS ({diff:.1} LU de desvío)"
+                                ),
+                            ));
+                        }
+                    }
+                    Err(e) => findings.push(finding(
+                        QualityCheckKind::Loudness,
+                        QualitySeverity::Warning,
+                        format!("no se pudo medir el loudness del render: {}", e.message),
+                    )),
+                },
+                None => findings.push(finding(
+                    QualityCheckKind::Loudness,
+                    QualitySeverity::Warning,
+                    "ffmpeg no está disponible: no se verificó el loudness del render".to_owned(),
+                )),
+            }
+        }
+        findings
+    }
+
+    fn review_stage(&self, ctx: &StageContext) -> Result<StageOutcome, ProjectError> {
         let summary = quality_gate::review_open_project(self.deps.session, self.deps.documents)?;
+        // Verificación del archivo renderizado: se fusiona con los
+        // hallazgos documentales y re-computa el veredicto.
+        let media = self.media_findings(ctx);
+        let mut findings = summary.findings.clone();
+        findings.extend(media);
+        let errors = findings
+            .iter()
+            .filter(|f| f.severity == crate::studio::quality::QualitySeverity::Error)
+            .count();
+        let warnings = findings.len() - errors;
+        let passed = errors == 0;
         let report = json!({
-            "passed": summary.passed,
-            "errors": summary.errors,
-            "warnings": summary.warnings,
-            "findings": summary.findings,
+            "passed": passed,
+            "errors": errors,
+            "warnings": warnings,
+            "findings": findings,
         });
-        if summary.errors > 0 {
+        if errors > 0 {
             return Ok(StageOutcome {
                 completed: false,
                 cost_cents: Some(0),
                 output: Some(report),
                 error: Some(format!(
-                    "quality gate: {} error(es) en el proyecto editado",
-                    summary.errors
+                    "quality gate: {errors} error(es) entre el proyecto y el render"
                 )),
                 fatal: true,
                 in_progress: false,
@@ -292,6 +503,87 @@ impl<'a> StageExecutor for RenderReviewDeliverExecutor<'a> {
                 in_progress: false,
             }),
         }
+    }
+}
+
+/// Loudness integrado (LUFS) del archivo vía `ffmpeg -af ebur128`.
+/// Parsea el resumen final del filtro; `-nostats` evita el progreso por
+/// frame que ensuciaría stderr. En Windows la salida nula es `NUL`.
+fn measure_loudness_lufs(
+    ffmpeg: &std::path::Path,
+    path: &std::path::Path,
+) -> Result<f64, ProjectError> {
+    let mut command = std::process::Command::new(ffmpeg);
+    command
+        .args(["-hide_banner", "-nostats", "-i"])
+        .arg(path)
+        .args(["-filter_complex", "ebur128=peak=true", "-f", "null", "NUL"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    let output = command
+        .output()
+        .map_err(|_| ProjectError::message(ProjectErrorCode::Io, "ffmpeg no está disponible"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    parse_integrated_lufs(&stderr).ok_or_else(|| {
+        ProjectError::message(
+            ProjectErrorCode::InvalidProviderResponse,
+            "ffmpeg no reportó loudness integrado para el render",
+        )
+    })
+}
+
+/// Parsea el loudness integrado (LUFS) del resumen de `ebur128`.
+/// El summary final imprime líneas `    I:   -14.2 LUFS`; tomamos la
+/// última con LUFS. Devuelve `None` si no hay medición válida.
+fn parse_integrated_lufs(stderr: &str) -> Option<f64> {
+    let mut measured = None;
+    for line in stderr.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('I') && trimmed.contains("LUFS") {
+            if let Some(num) = trimmed
+                .split_whitespace()
+                .find_map(|tok| tok.trim_end_matches("LUFS").parse::<f64>().ok())
+            {
+                measured = Some(num);
+            }
+        }
+    }
+    measured
+}
+
+#[cfg(test)]
+mod unit_tests {
+    use super::parse_integrated_lufs;
+
+    #[test]
+    fn parse_integrated_lufs_reads_summary() {
+        let stderr = "[Parsed_ebur128_0 @ 000001] Summary:\n\
+                      \n\
+                      Integrated loudness:\n\
+                      \x20   I:         -14.2 LUFS\n\
+                      \x20   Threshold: -24.5 LUFS\n";
+        assert_eq!(parse_integrated_lufs(stderr), Some(-14.2));
+    }
+
+    #[test]
+    fn parse_integrated_lufs_takes_last_measurement() {
+        // ebur128 puede imprimir varios resúmenes; vale el último (final).
+        let stderr = "I: -30.0 LUFS\nmore output\n    I:   -23.7 LUFS\n";
+        assert_eq!(parse_integrated_lufs(stderr), Some(-23.7));
+    }
+
+    #[test]
+    fn parse_integrated_lufs_rejects_missing_or_garbage() {
+        assert_eq!(parse_integrated_lufs(""), None);
+        assert_eq!(parse_integrated_lufs("no audio stream"), None);
+        assert_eq!(parse_integrated_lufs("I: LUFS"), None);
+        assert_eq!(parse_integrated_lufs("LRA: -20.0 LU"), None);
     }
 }
 

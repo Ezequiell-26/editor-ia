@@ -23,5 +23,7 @@ pub mod proxies;
 pub mod quality_gate;
 pub mod render_lifecycle;
 pub mod render_queue;
+pub mod studio_planner;
+pub mod studio_repair;
 pub mod timeline_export;
 pub mod timeline_import;
