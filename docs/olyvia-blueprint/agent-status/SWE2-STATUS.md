@@ -346,3 +346,14 @@ Fase actual: Fase 3 en curso — BYOK remoto: imagen (`gen:`) + planner NL (`pro
   `integrity.sha256` del asset puede quedar desactualizado (el gate no lo
   verifica hoy). Generados locales/remotos y user-imported no se
   re-adquieren en esta versión.
+
+## 2026-11-09 (noche 11) — Re-acquire verificado E2E contra archive.org real
+
+- Test live `reacquire_live_restores_a_real_archive_download` (ignorado por
+  defecto, `EDITOR_IA_RUN_LIVE_TESTS=1`): busca un candidato real
+  ("big buck bunny"), descarga el derivado, BORRA el archivo, arma el asset
+  con provenance archive.org y comprueba que `reacquire_missing_assets` lo
+  restaura en la misma ruta convencional.
+- **Resultado real: ok en 6.62 s** — descarga → borrado → re-adquisición →
+  archivo restaurado, todo contra archive.org de verdad.
+- fmt limpio; tests unitarios 5/5 + production 13/13 sin cambios.

@@ -303,4 +303,67 @@ mod tests {
         assert!(report.failed.is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
+
+    /// E2E real contra archive.org: descarga un derivado, borra el
+    /// archivo y comprueba que `reacquire_missing_assets` lo restaura.
+    /// `EDITOR_IA_RUN_LIVE_TESTS=1 cargo test reacquire_live -- --ignored`
+    #[test]
+    #[ignore]
+    fn reacquire_live_restores_a_real_archive_download() {
+        if std::env::var("EDITOR_IA_RUN_LIVE_TESTS").is_err() {
+            eprintln!("re-acquire live omitido: definí EDITOR_IA_RUN_LIVE_TESTS=1");
+            return;
+        }
+        let acquisition =
+            crate::infrastructure::studio::internet_archive::InternetArchiveAcquisition::new()
+                .expect("cliente archive.org");
+        let root = std::env::temp_dir().join(format!("reacq-live-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+
+        // Busca un candidato real y lo adquiere para conocer el path
+        // convencional que `acquire` produce (`media/acquired/{id}{ext}`).
+        let query = crate::ports::studio::AcquisitionQuery {
+            requirement_id: "req-live".to_owned(),
+            kind: StudioResourceKind::Video,
+            text: "big buck bunny".to_owned(),
+            limit: 5,
+            // Piso `unknown`: la re-adquisición no evalúa licencia (el
+            // asset ya tiene su ficha de derechos); sólo necesitamos un
+            // derivado real para probar la restauración.
+            min_commercial_use: CommercialUseRequirement::Unknown,
+        };
+        let candidates = acquisition
+            .search("internet-archive", &query)
+            .expect("búsqueda archive.org");
+        let candidate = candidates
+            .into_iter()
+            .next()
+            .expect("archive.org no devolvió candidatos con licencia permitida para 'prelinger'");
+        let external_id = candidate.external_id.clone();
+        let acquired = acquisition
+            .acquire("internet-archive", &candidate, &root)
+            .expect("descarga inicial archive.org");
+        let rel = acquired.path.clone();
+        assert!(root.join(&rel).is_file(), "la descarga inicial falló");
+
+        // Simula la pérdida: borra el archivo y arma el asset como lo
+        // registraría el pipeline (provenance archive.org + sourceUrl).
+        std::fs::remove_file(root.join(&rel)).unwrap();
+        let project = project(vec![asset_json(
+            "live-1",
+            &rel,
+            "internet-archive",
+            &format!("https://archive.org/details/{external_id}"),
+        )]);
+        let report = reacquire_missing_assets(&root, &project, &acquisition);
+        assert_eq!(
+            report.recovered,
+            vec!["live-1".to_owned()],
+            "fallidos: {:?} · saltados: {:?}",
+            report.failed,
+            report.skipped
+        );
+        assert!(root.join(&rel).is_file(), "el archivo no se restauró");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
